@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MarkdownNodeView: View {
     private var storage: Either<Text, AnyView>
+    var backgroundColor: Color = .clear
     
     enum ContentType: String {
         case text, view
@@ -13,8 +14,9 @@ struct MarkdownNodeView: View {
         }
     }
     
-    init(_ content: @autoclosure () -> Text) {
+    init(_ content: @autoclosure () -> Text, backgroundColor: Color = .clear) {
         storage = .left(content())
+        self.backgroundColor = backgroundColor
     }
     
     init(@ViewBuilder _ content: () -> Text) {

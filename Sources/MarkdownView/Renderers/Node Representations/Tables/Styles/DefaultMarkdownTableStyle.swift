@@ -39,15 +39,18 @@ fileprivate struct DefaultMarkdownTable: View {
     
     var body: some View {
         Group {
-            if #available(macOS 13.0, iOS 16.0, tvOS 16.0, watchOS 9.0, *) {
-                Grid(horizontalSpacing: 0, verticalSpacing: 0) {
-                    configuration.table.header
-                    ForEach(Array(configuration.table.rows.enumerated()), id: \.offset) { (_, row) in
-                        if showsRowSeparators {
-                            Divider()
+            if #available(macOS 13.0, iOS 17.0, tvOS 16.0, watchOS 9.0, *) {
+                ScrollView(.horizontal) {
+                    Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                        configuration.table.header
+                        ForEach(Array(configuration.table.rows.enumerated()), id: \.offset) { (_, row) in
+                            if showsRowSeparators {
+                                Divider()
+                            }
+                            row
                         }
-                        row
                     }
+                    .geometryGroup()
                 }
             } else {
                 configuration.table.fallback

@@ -16,6 +16,18 @@ struct MarkdownHeading: View {
     @Environment(\.headingStyleGroup) private var headingStyleGroup
     @Environment(\.headingPaddings) private var paddings
     
+    private var fontWeight: Font.Weight {
+        return switch heading.level {
+            case 1: .black
+            case 2: .heavy
+            case 3: .bold
+            case 4: .semibold
+            case 5: .medium
+            case 6: .medium
+            default: .regular
+        
+        }
+    }
     private var font: Font {
         return switch heading.level {
         case 1: fontGroup.h1
@@ -51,12 +63,23 @@ struct MarkdownHeading: View {
     }
     
     var body: some View {
-        CmarkNodeVisitor(configuration: configuration)
-            .descendInto(heading)
-            .font(font)
-            .foregroundStyle(foregroundStyle)
-            .accessibilityHeading(accessibilityHeadingLevel)
-            .padding(paddings[heading.level])
-            .accessibilityAddTraits(.isHeader)
+        if #available(iOS 16.0, *) {
+            CmarkNodeVisitor(configuration: configuration)
+                .descendInto(heading)
+                .font(font)
+                .fontWeight(fontWeight)
+                .foregroundStyle(foregroundStyle)
+                .accessibilityHeading(accessibilityHeadingLevel)
+                .padding(paddings[heading.level])
+                .accessibilityAddTraits(.isHeader)
+        } else {
+            CmarkNodeVisitor(configuration: configuration)
+                .descendInto(heading)
+                .font(font)
+                .foregroundStyle(foregroundStyle)
+                .accessibilityHeading(accessibilityHeadingLevel)
+                .padding(paddings[heading.level])
+                .accessibilityAddTraits(.isHeader)
+        }
     }
 }

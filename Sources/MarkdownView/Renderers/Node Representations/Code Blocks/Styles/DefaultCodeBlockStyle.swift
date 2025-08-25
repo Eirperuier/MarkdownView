@@ -51,7 +51,27 @@ extension CodeBlockStyle where Self == DefaultCodeBlockStyle {
     }
 }
 
-// MARK: - Default View Implementation
+extension AttributedString {
+    func splitByLines() -> [AttributedString] {
+        let nsAttributedString = NSAttributedString(self)
+        let string = nsAttributedString.string
+        var lines: [AttributedString] = []
+        
+        string.enumerateLines { line, _ in
+            if let range = string.range(of: line) {
+               let nsRange = NSRange(range, in: string)
+                let lineAttributedString = nsAttributedString.attributedSubstring(from: nsRange)
+                if let attributedLine = try? AttributedString(lineAttributedString, including: \.uiKit) {
+                    lines.append(attributedLine)
+                }
+            }
+        }
+        
+        return lines
+    }
+}
+
+
 
 struct DefaultMarkdownCodeBlock: View {
     var codeBlockConfiguration: CodeBlockStyleConfiguration
@@ -63,32 +83,59 @@ struct DefaultMarkdownCodeBlock: View {
     
     @State private var attributedCode: AttributedString?
     @State private var codeHighlightTask: Task<Void, Error>?
-    
+    @State var showFullSheet: Bool = false
     @State private var showCopyButton = false
     @State private var codeCopied = false
     
-    var body: some View {
-        ScrollView(.horizontal) {
-            Group {
-                if let attributedCode {
-                    Text(attributedCode)
-                } else {
-                    Text(codeBlockConfiguration.code)
+    var code: some View {
+        ScrollView(.vertical) {
+            LazyVStack(alignment: .leading) {
+                ScrollView(.horizontal) {
+                    Group {
+                        if let attributedCode {
+                            let lines = attributedCode.splitByLines()
+                            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                                HStack {
+                                    Text(line)
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                            //
+                        } else {
+                            //Text(codeBlockConfiguration.code)
+                            let lines = codeBlockConfiguration.code.components(separatedBy: .newlines)
+                            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                                HStack {
+                                    Text(line)
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                        }
+                    }
                 }
             }
             .padding(16)
         }
-        .task(id: codeHighlightingConfiguration, immediateHighlight)
-        .onValueChange(codeBlockConfiguration) {
-            debouncedHighlight()
-        }
+        //.task(id: codeHighlightingConfiguration, debouncedHighlight)
+//        .onValueChange(codeBlockConfiguration) {
+//            debouncedHighlight()
+//        }
         .lineSpacing(4)
         .font(fontGroup.codeBlock)
+    }
+    
+    var body: some View {
+        code
         .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxHeight: codeBlockConfiguration.showFullCode ? nil : 300)
         #if os(macOS) || os(iOS)
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack {
                 codeLanguage
+                if !codeBlockConfiguration.showFullCode {
+                    fullSheet
+                }
+                
                 Spacer(minLength: 10)
                 copyButton
             }
@@ -109,17 +156,83 @@ struct DefaultMarkdownCodeBlock: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(.quaternary)
         }
+        .sheet(isPresented: $showFullSheet, content: {
+            var configuration: CodeBlockStyleConfiguration {
+                var conf = configuration
+                conf.showFullCode = true
+                return conf
+            }
+            if #available(iOS 16.0, *) {
+                NavigationStack {
+                    ScrollView {
+                        VStack {
+                            code
+                                .task {
+                                    debouncedHighlight()
+                                }
+                        }
+                        .padding()
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .title, content: {
+                            if let language = codeBlockConfiguration.language {
+                                Text(language.localizedCapitalized)
+                            }
+                        })
+                        ToolbarItem(placement: .primaryAction, content: {
+                            Button {
+                                #if os(macOS)
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(codeBlockConfiguration.code, forType: .string)
+                                #elseif os(iOS) || os(visionOS)
+                                UIPasteboard.general.string = codeBlockConfiguration.code
+                                #endif
+                                Task {
+                                    withAnimation(.spring()) {
+                                        codeCopied = true
+                                    }
+                                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                                    withAnimation(.spring()) {
+                                        codeCopied = false
+                                    }
+                                }
+                            } label: {
+                                Group {
+                                    if codeCopied {
+                                        Label("Copied", systemImage: "checkmark")
+                                    } else {
+                                        Label("Copy", systemImage: "square.on.square")
+                                    }
+                                }
+                            }
+                        })
+                    }
+                }
+            }
+            
+        })
+    }
+    private var fullSheet: some View {
+        Button(action: {
+            showFullSheet = true
+        }, label: {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        })
     }
     
     @ViewBuilder
     private var codeLanguage: some View {
         if let language = codeBlockConfiguration.language {
-            Text(language.localizedLowercase)
+            Text(language.localizedCapitalized)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
         }
     }
     
     private func debouncedHighlight() {
+        
         codeHighlightTask?.cancel()
         codeHighlightTask = Task.detached(priority: .background) {
             try await updateAttributeCode()
@@ -215,9 +328,11 @@ struct DefaultMarkdownCodeBlock: View {
             Group {
                 if codeCopied {
                     Label("Copied", systemImage: "checkmark")
+                        .font(.footnote)
                         .transition(.opacity.combined(with: .scale))
                 } else {
                     Label("Copy", systemImage: "square.on.square")
+                        .font(.footnote)
                         .transition(.opacity.combined(with: .scale))
                 }
             }

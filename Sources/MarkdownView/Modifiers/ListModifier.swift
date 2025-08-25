@@ -31,4 +31,15 @@ extension View {
             configuration.componentSpacing = spacing
         }
     }
+    nonisolated public func preferredColor(_ color: Color) -> some View {
+        transformEnvironment(\.markdownRendererConfiguration) { configuration in
+            configuration.preferredColor = color
+            configuration.linkTintColor = color
+        }
+    }
+    nonisolated public func showFullCodeBlock(_ show: Bool) -> some View {
+        transformEnvironment(\.markdownRendererConfiguration) { configuration in
+            configuration.showFullCode = show
+        }
+    }
 }

@@ -30,6 +30,7 @@ public protocol CodeBlockStyle {
 public struct CodeBlockStyleConfiguration: Hashable, Sendable, Codable {
     public var language: String?
     public var code: String
+    public var showFullCode: Bool
 }
 
 // MARK: - Environment Value

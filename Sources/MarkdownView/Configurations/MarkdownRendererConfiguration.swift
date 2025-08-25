@@ -10,13 +10,16 @@ import SwiftUI
 
 struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, Sendable {
     var preferredBaseURL: URL?
-    var componentSpacing: CGFloat = 8
+    var componentSpacing: CGFloat = 10
     
     var math: Math = Math()
     
-    var linkTintColor: Color = .accentColor
-    var inlineCodeTintColor: Color = .accentColor
+    var linkTintColor: Color = .blue
+    var inlineCodeTintColor: Color = .blue
     var blockQuoteTintColor: Color = .accentColor
+    var preferredColor: Color = .accentColor
+    
+    var showFullCode: Bool = false
     
     var listConfiguration: MarkdownListConfiguration = MarkdownListConfiguration()
     

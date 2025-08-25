@@ -8,6 +8,7 @@
 import SwiftUI
 import Markdown
 
+
 @MainActor
 @preconcurrency
 struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
@@ -113,7 +114,8 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
             MarkdownStyledCodeBlock(
                 configuration: CodeBlockStyleConfiguration(
                     language: codeBlock.language,
-                    code: codeBlock.code
+                    code: codeBlock.code,
+                    showFullCode: configuration.showFullCode
                 )
             )
         }
@@ -187,7 +189,13 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
     }
     
     func visitParagraph(_ paragraph: Paragraph) -> MarkdownNodeView {
-        defaultVisit(paragraph)
+        let content = defaultVisit(paragraph)
+        return MarkdownNodeView {
+            VStack(alignment: .leading, spacing: configuration.componentSpacing) {
+                content
+            }
+            .padding(.vertical, 5)
+        }
     }
     
     func visitHeading(_ heading: Heading) -> MarkdownNodeView {
@@ -211,7 +219,11 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
         for child in strong.children {
             var renderer = self
             guard let text = renderer.visit(child).asText else { continue }
-            textStorage.append(text.bold())
+            if #available(iOS 17.0, *) {
+                textStorage.append(text.bold().foregroundStyle(configuration.preferredColor))
+            } else {
+                textStorage.append(text.bold())
+            }
         }
         return MarkdownNodeView(textStorage.text)
     }
@@ -235,26 +247,76 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
         switch nodeView.contentType {
         case .text:
             return MarkdownNodeView {
-                nodeView.asText!
-                    .contentShape(.rect)
-                    #if os(macOS)
-                    .onTapGesture {
-                        NSWorkspace.shared.open(url)
-                    }
-                    #elseif !os(watchOS) && !os(tvOS)
-                    .onTapGesture {
-                        UIApplication.shared.open(url)
-                    }
-                    #endif
+                WebViewPopoverView(url: url, view: nodeView)
                     .foregroundStyle(configuration.linkTintColor)
+                
             }
         case .view:
             return MarkdownNodeView {
-                Link(destination: url) {
-                    nodeView
-                }
-                .foregroundStyle(configuration.linkTintColor)
+                WebViewPopoverView(url: url, view: nodeView)
+                    .foregroundStyle(configuration.linkTintColor)
             }
         }
     }
+}
+import SafariServices
+
+
+struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+    
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let config = SFSafariViewController.Configuration()
+        config.entersReaderIfAvailable = false
+        config.barCollapsingEnabled = true
+        
+        let safari = SFSafariViewController(url: url, configuration: config)
+        safari.preferredBarTintColor = UIColor.systemBackground
+        safari.preferredControlTintColor = UIColor.label
+        safari.modalPresentationStyle = .pageSheet
+        
+        //print("[SafariView] 🌐 Opening 3D model with AR support in Safari: \(url)")
+        
+        return safari
+    }
+    
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {
+        // Safari视图不需要更新
+    }
+}
+
+
+
+
+struct WebViewPopoverView: View {
+    var url: URL
+    var view: MarkdownNodeView
+    
+    @State var show: Bool = false
+    var body: some View {
+        Button(action: {
+            show = true
+        }, label: {
+            view
+                .font(.caption2)
+                .padding(2)
+                .padding(.horizontal, 5)
+                .background(.tertiary.opacity(0.3))
+                .clipShape(Capsule())
+        })
+        .popover(isPresented: $show, content: {
+            if #available(iOS 16.0, *) {
+                NavigationStack {
+                    SafariView(url: url)
+                }
+                .frame(idealWidth: 500, idealHeight: 700)
+            } else {
+                NavigationView {
+                    SafariView(url: url)
+                }
+            }
+        })
+        
+    }
+    
 }
