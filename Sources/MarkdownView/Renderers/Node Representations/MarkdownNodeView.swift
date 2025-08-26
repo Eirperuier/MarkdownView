@@ -45,7 +45,7 @@ struct MarkdownNodeView: View {
       }
     }
     .lineLimit(nil)
-    .fixedSize(horizontal: false, vertical: true)
+    //.fixedSize(horizontal: false, vertical: true)
   }
 
   var asText: Text? {
@@ -75,7 +75,7 @@ extension MarkdownNodeView {
     for content in contents {
       if case .left(let text) = content.storage {
         if layoutPolicy == .linebreak && textStorage.hasText {
-          textStorage.append(Text("\n"))
+            textStorage.append(Text(verbatim: "\n"))
         }
         textStorage.append(text)
       } else {

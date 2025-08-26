@@ -106,7 +106,7 @@ struct DefaultMarkdownCodeBlock: View {
                             let lines = codeBlockConfiguration.code.components(separatedBy: .newlines)
                             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                                 HStack {
-                                    Text(line)
+                                    Text(verbatim: line)
                                     Spacer(minLength: 0)
                                 }
                             }
