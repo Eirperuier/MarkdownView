@@ -3,6 +3,8 @@ import Markdown
 
 struct MarkdownTable: View {
     var table: Markdown.Table
+    
+    
     @Environment(\.markdownTableStyle) private var tableStyle
     
     var body: some View {

@@ -16,14 +16,13 @@ extension View {
 // MARK: - MarkdownViewStyle
 
 /// The appearance and layout behavior of MarkdownView.
-@MainActor
 @preconcurrency
 public protocol MarkdownViewStyle {
     /// The properties of a MarkdownView.
     typealias Configuration = MarkdownViewStyleConfiguration
     
     /// Creates a view that represents the body of a MarkdownView.
-    @MainActor
+    
     @preconcurrency
     @ViewBuilder
     func makeBody(configuration: Configuration) -> Body
@@ -76,7 +75,7 @@ extension MarkdownViewStyle where Self == EditorMarkdownViewStyle {
 // MARK: - MarkdownViewStyle + Environment
 
 struct MarkdownViewStyleEnvironmentKey: @preconcurrency EnvironmentKey {
-    @MainActor static var defaultValue: any MarkdownViewStyle = .default
+    static let defaultValue: any MarkdownViewStyle = .default
 }
 
 extension EnvironmentValues {

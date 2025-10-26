@@ -8,12 +8,11 @@
 import SwiftUI
 import Markdown
 
-
 @MainActor
 @preconcurrency
 struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
     var configuration: MarkdownRendererConfiguration
-    
+    var isTable: Bool = false
     init(configuration: MarkdownRendererConfiguration) {
         self.configuration = configuration
     }
@@ -190,12 +189,12 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
     
     func visitParagraph(_ paragraph: Paragraph) -> MarkdownNodeView {
         let content = defaultVisit(paragraph)
-        return MarkdownNodeView {
-            VStack(alignment: .leading, spacing: configuration.componentSpacing) {
-                content
-            }
-            .padding(.vertical, 5)
-        }
+                return MarkdownNodeView {
+                    VStack(alignment: .leading, spacing: configuration.componentSpacing) {
+                        content
+                    }
+                    .padding(.vertical, 5)
+                }
     }
     
     func visitHeading(_ heading: Heading) -> MarkdownNodeView {
@@ -248,17 +247,17 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
         case .text:
             return MarkdownNodeView {
                 WebViewPopoverView(url: url, view: nodeView)
-                    .foregroundStyle(configuration.linkTintColor)
-                
+                                    .foregroundStyle(configuration.linkTintColor)
             }
         case .view:
             return MarkdownNodeView {
                 WebViewPopoverView(url: url, view: nodeView)
-                    .foregroundStyle(configuration.linkTintColor)
+                                    .foregroundStyle(configuration.linkTintColor)
             }
         }
     }
 }
+
 import SafariServices
 
 
@@ -308,8 +307,10 @@ struct WebViewPopoverView: View {
             if #available(iOS 16.0, *) {
                 NavigationStack {
                     SafariView(url: url)
+                        .ignoresSafeArea()
                 }
                 .frame(idealWidth: 500, idealHeight: 700)
+               
             } else {
                 NavigationView {
                     SafariView(url: url)

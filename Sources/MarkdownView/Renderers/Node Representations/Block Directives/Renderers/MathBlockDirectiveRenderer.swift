@@ -30,9 +30,17 @@ fileprivate struct DisplayMath: View {
     }
 
     var body: some View {
-        
-        HStack {
-            latex
+        if #available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *) {
+            ViewThatFits(in: .horizontal) {
+                latex
+                ScrollView(.horizontal) {
+                    latex
+                }
+            }
+        } else {
+            ScrollView(.horizontal) {
+                latex
+            }
         }
     }
     
@@ -41,16 +49,11 @@ fileprivate struct DisplayMath: View {
         #if canImport(LaTeXSwiftUI)
         if let latexMath {
             LaTeX(latexMath)
-                .font(font)
-                .renderingStyle(.original)
+                .renderingStyle(.empty)
                 .ignoreStringFormatting()
                 .blockMode(.blockText)
-                .unencoded()
-                .errorMode(.error)
-                .processEscapes()
-                .preload()
-                
-                //.frame(maxWidth: .infinity)
+                .font(font)
+                .frame(maxWidth: .infinity)
         }
         #else
         EmptyView()

@@ -9,12 +9,12 @@ import SwiftUI
 
 struct HeadingPaddings: Sendable {
     private var _padding: [Int : EdgeInsets] = [
-        1 : EdgeInsets(top: 24, leading: 0, bottom: 0, trailing: 0),
-        2 : EdgeInsets(top: 24, leading: 0, bottom: 0, trailing: 0),
-        3 : EdgeInsets(top: 24, leading: 0, bottom: 0, trailing: 0),
-        4 : EdgeInsets(top: 10, leading: 0, bottom: 0, trailing: 0),
-        5 : EdgeInsets(top: 10, leading: 0, bottom: 0, trailing: 0),
-        6 : EdgeInsets(top: 10, leading: 0, bottom: 0, trailing: 0),
+        1 : EdgeInsets(top: 24, leading: 0, bottom: 24, trailing: 0),
+        2 : EdgeInsets(top: 18, leading: 0, bottom: 18, trailing: 0),
+        3 : EdgeInsets(top: 12, leading: 0, bottom: 12, trailing: 0),
+        4 : EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 0),
+        5 : EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0),
+        6 : EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0),
     ]
     
     subscript(level: Int) -> EdgeInsets {

@@ -35,7 +35,6 @@ struct MarkdownTableRow: View {
                                 column: index
                             )
                         )
-                        .drawingGroup()
                 }
             }
         }

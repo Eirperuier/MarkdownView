@@ -45,9 +45,11 @@ struct MarkdownList<List: ListItemContainer>: View {
             } else if case let .left(unorderedMarker) = list.marker {
                 SwiftUI.Text(unorderedMarker.marker(listDepth: list.depth))
                     .backdeployedMonospaced(unorderedMarker.monospaced)
+                    .foregroundStyle(.secondary)
             } else if case let .right(orderedMarker) = list.marker {
                 SwiftUI.Text(orderedMarker.marker(at: index, listDepth: list.depth))
                     .backdeployedMonospaced(orderedMarker.monospaced)
+                    .foregroundStyle(.secondary)
             }
         }
     }

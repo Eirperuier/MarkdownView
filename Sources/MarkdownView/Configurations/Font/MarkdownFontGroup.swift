@@ -29,10 +29,10 @@ public protocol MarkdownFontGroup {
 }
 
 extension MarkdownFontGroup {
-    public var h1: Font { Font.largeTitle }
-    public var h2: Font { Font.title }
-    public var h3: Font { Font.title2 }
-    public var h4: Font { Font.title3 }
+    public var h1: Font { Font.title }
+    public var h2: Font { Font.title2 }
+    public var h3: Font { Font.title3 }
+    public var h4: Font { Font.headline }
     public var h5: Font { Font.headline }
     public var h6: Font { Font.headline.weight(.regular) }
     

@@ -32,6 +32,8 @@ extension MarkdownTableStyle where Self == DefaultMarkdownTableStyle {
 
 fileprivate struct DefaultMarkdownTable: View {
     var configuration: MarkdownTableStyleConfiguration
+    @Environment(\.colorScheme) var colorScheme
+    
     var showsRowSeparators: Bool
     private var spacing: CGFloat {
         showsRowSeparators ? 8 : 16
@@ -40,18 +42,17 @@ fileprivate struct DefaultMarkdownTable: View {
     var body: some View {
         Group {
             if #available(macOS 13.0, iOS 17.0, tvOS 16.0, watchOS 9.0, *) {
-                ScrollView(.horizontal) {
-                    Grid(horizontalSpacing: 0, verticalSpacing: 0) {
-                        configuration.table.header
-                        ForEach(Array(configuration.table.rows.enumerated()), id: \.offset) { (_, row) in
-                            if showsRowSeparators {
-                                Divider()
-                            }
-                            row
+                Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                    configuration.table.header
+                    ForEach(Array(configuration.table.rows.enumerated()), id: \.offset) { (_, row) in
+                        if showsRowSeparators {
+                            Divider()
                         }
+                        row
                     }
-                    .geometryGroup()
                 }
+                
+                .geometryGroup()
             } else {
                 configuration.table.fallback
                     .showsRowSeparators(showsRowSeparators)
@@ -59,9 +60,9 @@ fileprivate struct DefaultMarkdownTable: View {
         }
         .markdownTableCellPadding(spacing)
         .padding(8)
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(.quaternary, lineWidth: 2)
+        .background {
+            RoundedRectangle(cornerRadius: 15)
+                .foregroundStyle(colorScheme == .dark ? .gray.opacity(0.1) : .white.opacity(0.5))
         }
     }
 }
