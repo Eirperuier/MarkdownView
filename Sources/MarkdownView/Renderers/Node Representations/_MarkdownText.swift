@@ -11,6 +11,8 @@ import SwiftUI
 ///
 /// Convert HTML into  `AttributedString` asynchronously to avoid `AttributeGraph` crash.
 struct _MarkdownText: View {
+    
+    
     var text: AttributedString
     @State private var attributedString: AttributedString?
     

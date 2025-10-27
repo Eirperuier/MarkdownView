@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct CmarkFirstMarkdownViewRenderer: MarkdownViewRenderer {    
+struct CmarkFirstMarkdownViewRenderer: MarkdownViewRenderer {
     func makeBody(
         content: MarkdownContent,
         configuration: MarkdownRendererConfiguration
@@ -16,6 +16,7 @@ struct CmarkFirstMarkdownViewRenderer: MarkdownViewRenderer {
             content: content,
             configuration: configuration
         )
+        .id(content)
     }
     
     private func _makeAndCacheBody(
@@ -27,6 +28,7 @@ struct CmarkFirstMarkdownViewRenderer: MarkdownViewRenderer {
             type: Cache.self
         ), cached.configuration == configuration {
             return AnyView(cached.renderedView)
+            
         }
         
         let renderedView = CmarkNodeVisitor(

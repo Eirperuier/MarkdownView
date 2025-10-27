@@ -53,9 +53,7 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
       InlineMathOrText(text: text.plainText)
         .makeBody(configuration: configuration)
     } else {
-      MarkdownNodeView {
-        Text(verbatim: text.plainText)
-      }
+        MarkdownNodeView(text.plainText)
     }
   }
 
@@ -72,9 +70,7 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
   }
 
   func visitSoftBreak(_ softBreak: SoftBreak) -> MarkdownNodeView {
-    MarkdownNodeView {
-      Text(verbatim: " ")
-    }
+      MarkdownNodeView(" ")
   }
 
   func visitThematicBreak(_ thematicBreak: ThematicBreak) -> MarkdownNodeView {
@@ -84,9 +80,7 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
   }
 
   func visitLineBreak(_ lineBreak: LineBreak) -> MarkdownNodeView {
-    MarkdownNodeView {
-      Text(verbatim: "\n")
-    }
+      MarkdownNodeView("\n")
   }
 
   func visitInlineCode(_ inlineCode: InlineCode) -> MarkdownNodeView {
@@ -229,6 +223,8 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
       attributedString += text.mergingAttributes(
         AttributeContainer()
           .inlinePresentationIntent(intent.union(.stronglyEmphasized))
+          .foregroundColor(configuration.preferredColor)
+          //.backgroundColor(configuration.preferredColor.opacity(0.1))
       )
     }
     return MarkdownNodeView(attributedString)
