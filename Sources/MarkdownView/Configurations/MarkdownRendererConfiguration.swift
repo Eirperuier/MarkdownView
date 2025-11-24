@@ -15,7 +15,7 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     var math: Math = Math()
     
     var linkTintColor: Color = .blue
-    var inlineCodeTintColor: Color = .blue
+    var inlineCodeTintColor: Color = .gray
     var blockQuoteTintColor: Color = .accentColor
     var preferredColor: Color = .accentColor
     

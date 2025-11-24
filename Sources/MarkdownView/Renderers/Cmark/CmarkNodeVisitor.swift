@@ -293,10 +293,11 @@ struct WebViewPopoverView: View {
   var view: MarkdownNodeView
 
   @State var show: Bool = false
+    @Environment(\.openURL) var openURL
   var body: some View {
     Button(
       action: {
-        show = true
+        openURL(url)
       },
       label: {
         view
