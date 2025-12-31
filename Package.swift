@@ -6,11 +6,11 @@ import PackageDescription
 let package = Package(
     name: "MarkdownView",
     platforms: [
-        .macOS(.v12),
-        .iOS(.v15),
-        .tvOS(.v15),
-        .watchOS(.v8),
-        .visionOS(.v1),
+        .macOS(.v13),
+        .iOS(.v17),
+        .tvOS(.v17),
+        .watchOS(.v10),
+        .visionOS(.v2),
     ],
     products: [
         .library(name: "MarkdownView", targets: ["MarkdownView"]),

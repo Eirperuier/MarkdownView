@@ -25,6 +25,10 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     
     var allowedImageRenderers: Set<String> = ["https", "http"]
     var allowedBlockDirectiveRenderers: Set<String> = []
+    
+    var highlightedStrings: [String] = []
+    var highlightedColor: Color = .white
+    var highlightedBackgroundColor: Color = .yellow
 }
 
 // MARK: - SwiftUI Environment

@@ -17,7 +17,7 @@ struct CmarkFirstMarkdownViewRenderer: MarkdownViewRenderer {
             content: content,
             configuration: configuration
         )
-        .id(content)
+        
     }
     
     private func _makeAndCacheBody(

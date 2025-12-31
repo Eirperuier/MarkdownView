@@ -42,4 +42,12 @@ extension View {
             configuration.showFullCode = show
         }
     }
+    nonisolated public func search(_ texts: [String], foreground: Color, background: Color) -> some View {
+        transformEnvironment(\.markdownRendererConfiguration) { configuration in
+            configuration.highlightedStrings = texts
+            configuration.highlightedColor = foreground
+            configuration.highlightedBackgroundColor = background
+        }
+    }
+    
 }

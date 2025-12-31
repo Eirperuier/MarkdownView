@@ -40,6 +40,7 @@ struct MarkdownNodeView: View {
                 _MarkdownText(attributedString)
             } else if case .right(let view) = storage {
                 view
+                    
             }
         }
         .lineLimit(nil)

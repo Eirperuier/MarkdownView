@@ -31,11 +31,8 @@ fileprivate struct DisplayMath: View {
 
     var body: some View {
         if #available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *) {
-            ViewThatFits(in: .horizontal) {
+            ScrollView(.horizontal) {
                 latex
-                ScrollView(.horizontal) {
-                    latex
-                }
             }
         } else {
             ScrollView(.horizontal) {
@@ -49,7 +46,8 @@ fileprivate struct DisplayMath: View {
         #if canImport(LaTeXSwiftUI)
         if let latexMath {
             LaTeX(latexMath)
-                .renderingStyle(.empty)
+            
+                .renderingStyle(.redactedOriginal)
                 .ignoreStringFormatting()
                 .blockMode(.blockText)
                 .font(font)

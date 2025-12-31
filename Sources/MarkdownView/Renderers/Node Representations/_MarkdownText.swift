@@ -15,9 +15,10 @@ struct _MarkdownText: View {
     
     var text: AttributedString
     @State private var attributedString: AttributedString?
-    
+    @Environment(\.markdownRendererConfiguration) private var configuration
     init(_ text: AttributedString) {
         self.text = text
+        
     }
     
     var body: some View {
@@ -28,6 +29,7 @@ struct _MarkdownText: View {
                 Text(text)
             }
         }
+        .animation(.linear(duration: 0.2), value: attributedString)
         .task(id: text) {
             var attributedString = text
             for run in text.runs.reversed() where (run.isHTML ?? false) {
@@ -43,6 +45,13 @@ struct _MarkdownText: View {
                     )
                 ) {
                     attributedString.replaceSubrange(range, with: htmlAttrString)
+                }
+            }
+            for string in configuration.highlightedStrings {
+                if let range = attributedString.range(of: string) {
+                    attributedString[range].font?.weight(.bold)
+                    attributedString[range].backgroundColor = configuration.highlightedBackgroundColor
+                    attributedString[range].foregroundColor = configuration.highlightedColor
                 }
             }
             self.attributedString = attributedString

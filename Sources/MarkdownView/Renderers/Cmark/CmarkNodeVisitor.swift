@@ -70,12 +70,15 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
   }
 
   func visitSoftBreak(_ softBreak: SoftBreak) -> MarkdownNodeView {
-      MarkdownNodeView(" ")
+      MarkdownNodeView("\n")
   }
 
   func visitThematicBreak(_ thematicBreak: ThematicBreak) -> MarkdownNodeView {
     MarkdownNodeView {
-      Divider()
+      RoundedRectangle(cornerRadius: 2)
+            .frame(height: 1)
+            .foregroundStyle(.gray.opacity(0.1))
+            .padding(.vertical, 15)
     }
   }
 
@@ -222,10 +225,13 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
       let intent = text.inlinePresentationIntent ?? []
       attributedString += text.mergingAttributes(
         AttributeContainer()
-          .inlinePresentationIntent(intent.union(.stronglyEmphasized))
-          .foregroundColor(configuration.preferredColor)
+            .inlinePresentationIntent(intent.union(.stronglyEmphasized))
+        
+            .foregroundColor(configuration.preferredColor)
+            
           //.backgroundColor(configuration.preferredColor.opacity(0.1))
       )
+       
     }
     return MarkdownNodeView(attributedString)
   }
@@ -287,7 +293,132 @@ struct SafariView: UIViewControllerRepresentable {
     // Safari视图不需要更新
   }
 }
+import LinkPresentation
+import UniformTypeIdentifiers
 
+enum ImageStatus {
+    case loading
+    case finished(SwiftUI.Image)
+    case failed(Error)
+}
+
+enum LoadingError: Error {
+    case contentUnavailable
+    case contentTypeNotSupported
+}
+
+struct LinkItemView: View {
+    @State private var url: URL?
+    var view: MarkdownNodeView
+    @State private var isValidUrl = true
+    @State private var metadata: LPLinkMetadata? = nil
+    @State private var imageStatus: ImageStatus = .loading
+
+    init(link: String, view: MarkdownNodeView) {
+        _url = State(wrappedValue: URL(string: link))
+        self.view = view
+    }
+
+    var body: some View {
+        VStack {
+            /// Valid link
+            
+            if isValidUrl, let url {
+                HStack(alignment: .center) {
+                    VStack {
+                        switch imageStatus {
+                        case .loading:
+                            ProgressView()
+
+                        case .finished(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+
+                        case .failed:
+                            Image(systemName: "photo")
+                                .resizable()
+                                .scaledToFit()
+                                .padding()
+                                .foregroundStyle(.gray)
+                        }
+                    }
+                    .clipped()
+                    .frame(width: 10, height: 10)
+                    .clipShape(Circle())
+                    Text(metadata?.title ?? "url title placeholder")
+                }
+            }
+            /// Invalid link
+            else {
+                view
+            }
+        }
+        .font(.caption2)
+        .padding(2)
+        .padding(.horizontal, 5)
+        .background {
+            Capsule().opacity(0.1)
+        }
+        .task(id: url) {
+            await fetchMetadata()
+        }
+    }
+
+    private func fetchMetadata() async {
+        guard let url else {
+            isValidUrl = false
+            return
+        }
+
+        do {
+            metadata = try await LPMetadataProvider().startFetchingMetadata(for: url)
+            await loadImage(from: metadata?.imageProvider)
+        }
+        catch {
+            //print("Error fetching URL metadata: \(error.localizedDescription)")
+            isValidUrl = false
+        }
+    }
+
+    private func loadImage(from imageProvider: NSItemProvider?) async {
+        let imageType = UTType.image.identifier
+
+        do {
+            guard let imageProvider, imageProvider.hasItemConformingToTypeIdentifier(imageType) else {
+                imageStatus = .failed(LoadingError.contentUnavailable)
+                return
+            }
+
+            let item = try await imageProvider.loadItem(forTypeIdentifier: imageType)
+
+            if item is UIImage, let image = item as? UIImage {
+                imageStatus = .finished(Image(uiImage: image))
+            }
+            else if item is URL {
+                guard let url = item as? URL,
+                      let data = try? Data(contentsOf: url),
+                      let image = UIImage(data: data)
+                else {
+                    imageStatus = .failed(LoadingError.contentTypeNotSupported)
+                    return
+                }
+                imageStatus = .finished(Image(uiImage: image))
+            }
+            else if item is Data {
+                guard let data = item as? Data, let image = UIImage(data: data) else {
+                    imageStatus = .failed(LoadingError.contentTypeNotSupported)
+                    return
+                }
+                imageStatus = .finished(Image(uiImage: image))
+            }
+        }
+        catch {
+            //print("Error loading Image: \(error.localizedDescription)")
+            imageStatus = .failed(error)
+        }
+    }
+}
 struct WebViewPopoverView: View {
   var url: URL
   var view: MarkdownNodeView
@@ -300,12 +431,13 @@ struct WebViewPopoverView: View {
         openURL(url)
       },
       label: {
-        view
-          .font(.caption2)
-          .padding(2)
-          .padding(.horizontal, 5)
-          .background(.tertiary.opacity(0.3))
-          .clipShape(Capsule())
+          view
+              .font(.caption2)
+              .padding(2)
+              .padding(.horizontal, 5)
+              .background {
+                  Capsule().opacity(0.1)
+              }
       }
     )
     .popover(
