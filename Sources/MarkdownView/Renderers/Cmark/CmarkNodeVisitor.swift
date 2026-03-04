@@ -204,50 +204,64 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
   }
 
   func visitEmphasis(_ emphasis: Markdown.Emphasis) -> MarkdownNodeView {
-    var attributedString = AttributedString()
+    var nodeViews = [MarkdownNodeView]()
     for child in emphasis.children {
       var renderer = self
-      guard let text = renderer.visit(child).asAttributedString else { continue }
-      let intent = text.inlinePresentationIntent ?? []
-      attributedString += text.mergingAttributes(
-        AttributeContainer()
-          .inlinePresentationIntent(intent.union(.emphasized))
-      )
+      let childView = renderer.visit(child)
+      if let text = childView.asAttributedString {
+        let intent = text.inlinePresentationIntent ?? []
+        nodeViews.append(MarkdownNodeView(text.mergingAttributes(
+          AttributeContainer()
+            .inlinePresentationIntent(intent.union(.emphasized))
+        )))
+      } else {
+        // View-type children (e.g., links) - apply italic modifier
+        nodeViews.append(MarkdownNodeView { childView.italic() })
+      }
     }
-    return MarkdownNodeView(attributedString)
+    if nodeViews.count == 1 { return nodeViews[0] }
+    return MarkdownNodeView(nodeViews)
   }
 
   func visitStrong(_ strong: Strong) -> MarkdownNodeView {
-    var attributedString = AttributedString()
+    var nodeViews = [MarkdownNodeView]()
     for child in strong.children {
       var renderer = self
-      guard let text = renderer.visit(child).asAttributedString else { continue }
-      let intent = text.inlinePresentationIntent ?? []
-      attributedString += text.mergingAttributes(
-        AttributeContainer()
+      let childView = renderer.visit(child)
+      if let text = childView.asAttributedString {
+        let intent = text.inlinePresentationIntent ?? []
+        nodeViews.append(MarkdownNodeView(text.mergingAttributes(
+          AttributeContainer()
             .inlinePresentationIntent(intent.union(.stronglyEmphasized))
-        
             .foregroundColor(configuration.preferredColor)
-            
-          //.backgroundColor(configuration.preferredColor.opacity(0.1))
-      )
-       
+        )))
+      } else {
+        // View-type children (e.g., links) - apply bold modifier
+        nodeViews.append(MarkdownNodeView { childView.bold() })
+      }
     }
-    return MarkdownNodeView(attributedString)
+    if nodeViews.count == 1 { return nodeViews[0] }
+    return MarkdownNodeView(nodeViews)
   }
 
   func visitStrikethrough(_ strikethrough: Strikethrough) -> MarkdownNodeView {
-    var attributedString = AttributedString()
+    var nodeViews = [MarkdownNodeView]()
     for child in strikethrough.children {
       var renderer = self
-      guard let text = renderer.visit(child).asAttributedString else { continue }
-      let intent = text.inlinePresentationIntent ?? []
-      attributedString += text.mergingAttributes(
-        AttributeContainer()
-          .inlinePresentationIntent(intent.union(.strikethrough))
-      )
+      let childView = renderer.visit(child)
+      if let text = childView.asAttributedString {
+        let intent = text.inlinePresentationIntent ?? []
+        nodeViews.append(MarkdownNodeView(text.mergingAttributes(
+          AttributeContainer()
+            .inlinePresentationIntent(intent.union(.strikethrough))
+        )))
+      } else {
+        // View-type children (e.g., links) - apply strikethrough modifier
+        nodeViews.append(MarkdownNodeView { childView.strikethrough() })
+      }
     }
-    return MarkdownNodeView(attributedString)
+    if nodeViews.count == 1 { return nodeViews[0] }
+    return MarkdownNodeView(nodeViews)
   }
 
   mutating func visitLink(_ link: Markdown.Link) -> MarkdownNodeView {
@@ -272,27 +286,44 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
 }
 
 struct SafariView: UIViewControllerRepresentable {
-  let url: URL
-
-  func makeUIViewController(context: Context) -> SFSafariViewController {
-    let config = SFSafariViewController.Configuration()
-    config.entersReaderIfAvailable = false
-    config.barCollapsingEnabled = true
-
-    let safari = SFSafariViewController(url: url, configuration: config)
-    safari.preferredBarTintColor = UIColor.systemBackground
-    safari.preferredControlTintColor = UIColor.label
-    safari.modalPresentationStyle = .pageSheet
-
-    //print("[SafariView] 🌐 Opening 3D model with AR support in Safari: \(url)")
-
-    return safari
-  }
-
-  func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {
-    // Safari视图不需要更新
-  }
+    let url: URL
+    
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        // 验证 URL scheme
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            print("❌ [SafariView] Invalid URL scheme: \(url.scheme ?? "nil")")
+            print("❌ [SafariView] Full URL: \(url.absoluteString)")
+            // 返回一个安全的默认 URL
+            let fallbackURL = URL(string: "https://www.apple.com")!
+            return createSafariViewController(with: fallbackURL)
+        }
+        
+        print("✅ [SafariView] Opening valid URL: \(url.absoluteString)")
+        return createSafariViewController(with: url)
+    }
+    
+    private func createSafariViewController(with url: URL) -> SFSafariViewController {
+        let config = SFSafariViewController.Configuration()
+        config.entersReaderIfAvailable = false
+        #if os(iOS)
+        config.barCollapsingEnabled = true
+        #endif
+        
+        let safari = SFSafariViewController(url: url, configuration: config)
+        #if os(iOS)
+        safari.preferredBarTintColor = UIColor.systemBackground
+        safari.preferredControlTintColor = UIColor.label
+        #endif
+        
+        return safari
+    }
+    
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {
+        // Safari视图不需要更新
+    }
 }
+
 import LinkPresentation
 import UniformTypeIdentifiers
 
@@ -432,12 +463,9 @@ struct WebViewPopoverView: View {
       },
       label: {
           view
-              .font(.caption2)
-              .padding(2)
-              .padding(.horizontal, 5)
-              .background {
-                  Capsule().opacity(0.1)
-              }
+              .multilineTextAlignment(.leading)
+              
+              .underline()
       }
     )
     .popover(

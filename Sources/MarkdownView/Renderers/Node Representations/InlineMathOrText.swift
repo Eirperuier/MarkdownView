@@ -64,12 +64,19 @@ struct InlineMath: View {
     @Environment(\.markdownFontGroup.inlineMath) private var font
     
     var body: some View {
-        if #available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *) {
+        if #available(iOS 17.0, macOS 14.0, tvOS 17.0, watchOS 10.0, *) {
             LaTeX(latexText)
-            
+                .renderingStyle(.original)
+                .blockMode(.alwaysInline)
+                .font(font)
+                .geometryGroup()
+                .transaction { $0.disablesAnimations = true }
+        } else if #available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *) {
+            LaTeX(latexText)
                 .renderingStyle(.redactedOriginal)
                 .blockMode(.alwaysInline)
                 .font(font)
+                .transaction { $0.disablesAnimations = true }
         } else {
             LaTeX(latexText)
                 .renderingStyle(.empty)

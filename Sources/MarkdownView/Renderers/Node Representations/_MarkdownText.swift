@@ -34,17 +34,28 @@ struct _MarkdownText: View {
             var attributedString = text
             for run in text.runs.reversed() where (run.isHTML ?? false) {
                 let range = run.range
+                let originalHTML = String(text.characters[range])
                 
                 if let htmlAttrString = try? AttributedString(
                     NSAttributedString(
-                        data: Data(String(text.characters[range]).utf8),
+                        data: Data(originalHTML.utf8),
                         options: [
                             .documentType: NSAttributedString.DocumentType.html
                         ],
                         documentAttributes: nil
                     )
                 ) {
-                    attributedString.replaceSubrange(range, with: htmlAttrString)
+                    // 如果解析结果为空（非有效 HTML 标签），保留原始文本
+                    let parsedText = String(htmlAttrString.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if parsedText.isEmpty {
+                        // 非有效 HTML，显示原始文本
+                        attributedString.replaceSubrange(range, with: AttributedString(originalHTML))
+                    } else {
+                        attributedString.replaceSubrange(range, with: htmlAttrString)
+                    }
+                } else {
+                    // 解析失败，保留原始文本
+                    attributedString.replaceSubrange(range, with: AttributedString(originalHTML))
                 }
             }
             for string in configuration.highlightedStrings {

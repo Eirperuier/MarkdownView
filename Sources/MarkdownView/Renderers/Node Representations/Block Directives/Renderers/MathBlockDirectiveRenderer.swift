@@ -45,13 +45,24 @@ fileprivate struct DisplayMath: View {
     private var latex: some View {
         #if canImport(LaTeXSwiftUI)
         if let latexMath {
-            LaTeX(latexMath)
-            
-                .renderingStyle(.redactedOriginal)
-                .ignoreStringFormatting()
-                .blockMode(.blockText)
-                .font(font)
-                .frame(maxWidth: .infinity)
+            if #available(iOS 17.0, macOS 14.0, tvOS 17.0, watchOS 10.0, *) {
+                LaTeX(latexMath)
+                    .renderingStyle(.redactedOriginal)
+                    .ignoreStringFormatting()
+                    .blockMode(.blockText)
+                    .font(font)
+                    .frame(maxWidth: .infinity)
+                    .geometryGroup()
+                    .transaction { $0.disablesAnimations = true }
+            } else {
+                LaTeX(latexMath)
+                    .renderingStyle(.redactedOriginal)
+                    .ignoreStringFormatting()
+                    .blockMode(.blockText)
+                    .font(font)
+                    .frame(maxWidth: .infinity)
+                    .transaction { $0.disablesAnimations = true }
+            }
         }
         #else
         EmptyView()

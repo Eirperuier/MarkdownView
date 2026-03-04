@@ -6,16 +6,35 @@ struct MarkdownTable: View {
     
     
     @Environment(\.markdownTableStyle) private var tableStyle
+    @Environment(\.markdownRendererConfiguration.table) private var tableConfiguration
     
     var body: some View {
         let configuration = MarkdownTableStyleConfiguration(
             table: MarkdownTableStyleConfiguration.Table(table: table)
         )
-        tableStyle
-            .makeBody(configuration: configuration)
-            .erasedToAnyView()
-            .markdownTableCellStyleApplied()
-            .coordinateSpace(name: MarkdownTable.CoordinateSpaceName)
+        
+        if tableConfiguration.scrollable {
+            ScrollView(.horizontal, showsIndicators: true) {
+                LazyVStack {
+                    tableStyle
+                        .makeBody(configuration: configuration)
+                        .erasedToAnyView()
+                        .markdownTableCellStyleApplied()
+                        .coordinateSpace(name: MarkdownTable.CoordinateSpaceName)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                    
+            }
+            .scrollClipDisabled()
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        else {
+            tableStyle
+                .makeBody(configuration: configuration)
+                .erasedToAnyView()
+                .markdownTableCellStyleApplied()
+                .coordinateSpace(name: MarkdownTable.CoordinateSpaceName)
+        }
     }
 }
 
@@ -61,6 +80,7 @@ fileprivate struct MarkdownTableCellStylingViewModifier: ViewModifier {
                                     .offset(styleCollection.offset(for: row.position))
                                     .frame(height: styleCollection.heights[row.position.row])
                                     .frame(maxWidth: .infinity)
+                                    
                             }
                         }
                     }

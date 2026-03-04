@@ -13,6 +13,7 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     var componentSpacing: CGFloat = 10
     
     var math: Math = Math()
+    var table: Table = Table()
     
     var linkTintColor: Color = .blue
     var inlineCodeTintColor: Color = .gray
@@ -29,6 +30,22 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     var highlightedStrings: [String] = []
     var highlightedColor: Color = .white
     var highlightedBackgroundColor: Color = .yellow
+}
+
+// MARK: - Table Configuration
+
+extension MarkdownRendererConfiguration {
+    /// Configuration for markdown table rendering.
+    struct Table: Equatable, Sendable {
+        /// Whether the table should be horizontally scrollable.
+        var scrollable: Bool = false
+        
+        /// The minimum width for each table cell when scrollable is enabled.
+        var cellMinWidth: CGFloat = 100
+        
+        /// The maximum width for each table cell when scrollable is enabled.
+        var cellMaxWidth: CGFloat = 300
+    }
 }
 
 // MARK: - SwiftUI Environment

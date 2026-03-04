@@ -63,23 +63,13 @@ struct MarkdownHeading: View {
     }
     
     var body: some View {
-        if #available(iOS 16.0, *) {
-            CmarkNodeVisitor(configuration: configuration)
-                .descendInto(heading)
-                .font(font)
-                .fontWeight(fontWeight)
-                .foregroundStyle(foregroundStyle)
-                .accessibilityHeading(accessibilityHeadingLevel)
-                .padding(paddings[heading.level])
-                .accessibilityAddTraits(.isHeader)
-        } else {
-            CmarkNodeVisitor(configuration: configuration)
-                .descendInto(heading)
-                .font(font)
-                .foregroundStyle(foregroundStyle)
-                .accessibilityHeading(accessibilityHeadingLevel)
-                .padding(paddings[heading.level])
-                .accessibilityAddTraits(.isHeader)
-        }
+        CmarkNodeVisitor(configuration: configuration)
+            .descendInto(heading)
+            .font(font)
+            .fontWeight(fontWeight)
+            .foregroundStyle(foregroundStyle)
+            .accessibilityHeading(accessibilityHeadingLevel)
+            .padding(paddings[heading.level])
+            .accessibilityAddTraits(.isHeader)
     }
 }

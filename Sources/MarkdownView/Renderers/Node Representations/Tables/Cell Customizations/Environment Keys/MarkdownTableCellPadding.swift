@@ -25,7 +25,7 @@ struct MarkdownTableCellPadding: Sendable {
         }
         
         if edges.contains(.leading) {
-            amounts[.leading] = amount
+            //amounts[.leading] = amount
         }
         
         if edges.contains(.trailing) {

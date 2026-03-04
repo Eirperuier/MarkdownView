@@ -49,20 +49,22 @@ fileprivate struct DefaultMarkdownTable: View {
                             Divider()
                         }
                         row
+                            
                     }
                 }
                 
                 .geometryGroup()
-            } else {
+            }
+            else {
                 configuration.table.fallback
                     .showsRowSeparators(showsRowSeparators)
             }
         }
         .markdownTableCellPadding(spacing)
-        .padding(8)
-        .background {
-            RoundedRectangle(cornerRadius: 15)
-                .foregroundStyle(colorScheme == .dark ? .gray.opacity(0.1) : .white.opacity(0.5))
-        }
+//        .padding(8)
+//        .background {
+//            RoundedRectangle(cornerRadius: 15)
+//                .foregroundStyle(colorScheme == .dark ? .gray.opacity(0.1) : .white.opacity(0.5))
+//        }
     }
 }

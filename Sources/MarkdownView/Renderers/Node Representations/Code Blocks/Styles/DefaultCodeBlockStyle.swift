@@ -156,77 +156,18 @@ struct DefaultMarkdownCodeBlock: View {
         Group {
             if let attributedCode {
                 let lines = attributedCode.splitByLines()
-                ForEach(
-                    Array(lines.enumerated()).prefix(codeBlockConfiguration.showFullCode ? nil : 15),
-                    id: \.offset
-                ) { index, line in
-                    HStack(alignment: .top) {
-                        if #available(iOS 16.4, *) {
-                            Text("\(index + 1)")
-                                .font(.subheadline)
-                                .monospaced()
-                                .frame(width: 30, alignment: .trailing)
-                                .foregroundStyle(.secondary)
-                                .minimumScaleFactor(0.5)
-                        } else {
-                            // Fallback on earlier versions
-                        }
-                        Rectangle()
-                            .frame(width: 1).foregroundStyle(.gray.opacity(0.2))
-                            .padding(.vertical, -3)
-                        Text(line)
-                            .padding(.horizontal, 5)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.vertical, 3)
-                    .background {
-                        if index % 2 != 0 {
-                            Rectangle()
-                                .foregroundStyle(.tertiary.opacity(0.1))
-                        }
-                        
-                    }
-                }
-                if lines.count > 15 && !codeBlockConfiguration.showFullCode {
-                    Divider()
-                    Button(
-                        action: {
-                            showFullSheet = true
-                        },
-                        label: {
-                            
-                            HStack {
-                                Spacer(minLength: 0)
-                                Text("Show the Remaining \(lines.count - 15) lines")
-                                
-                                    .font(.footnote).foregroundStyle(.secondary)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(10)
-                        })
-                }
-                //
-            }
-            else {
-                //Text(codeBlockConfiguration.code)
-                let lines = codeBlockConfiguration.code.components(separatedBy: .newlines)
                 let displayLines = codeBlockConfiguration.showFullCode ? lines : Array(lines.prefix(15))
                 ForEach(displayLines.indices, id: \.self) { index in
                     if let line = displayLines[safe: index] {
-                        
                         HStack(alignment: .top) {
-//                            Text(verbatim: "\(index + 1)")
-//                                
-//                                .frame(width: 30, alignment: .trailing)
-//                                .foregroundStyle(.secondary)
-//                                .minimumScaleFactor(0.5)
                             
-                            Text(verbatim: line)
-                                
+                            Text(line)
+                            
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 3)
+                        .padding(.vertical, 5)
+                        .padding(.bottom, index == lines.count - 1 ? 10 : 0)
                         
                         .background {
                             if index % 2 != 0 {
@@ -238,7 +179,7 @@ struct DefaultMarkdownCodeBlock: View {
                     }
                 }
                 if lines.count > 15 && !codeBlockConfiguration.showFullCode {
-                    Divider()
+                    Rectangle().frame(height: 1).foregroundStyle(.gray.opacity(0.2))
                     Button(
                         action: {
                             showFullSheet = true
@@ -253,6 +194,54 @@ struct DefaultMarkdownCodeBlock: View {
                                 Spacer(minLength: 0)
                             }
                             .padding(10)
+                            .contentTransition(.identity)
+                        })
+                }
+                //
+            }
+            else {
+                //Text(codeBlockConfiguration.code)
+                let lines = codeBlockConfiguration.code.components(separatedBy: .newlines).filter { !$0.isEmpty }
+                let displayLines = codeBlockConfiguration.showFullCode ? lines : Array(lines.prefix(15))
+                ForEach(displayLines.indices, id: \.self) { index in
+                    if let line = displayLines[safe: index] {
+                        
+                        HStack(alignment: .top) {
+
+                            
+                            Text(verbatim: line)
+                                
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .padding(.bottom, index == lines.count - 1 ? 10 : 0)
+                        .background {
+                            if index % 2 != 0 {
+                                Rectangle()
+                                    .foregroundStyle(.tertiary.opacity(0.1))
+                            }
+                            
+                        }
+                    }
+                }
+                if lines.count > 15 && !codeBlockConfiguration.showFullCode {
+                    Rectangle().frame(height: 1).foregroundStyle(.gray.opacity(0.2))
+                    Button(
+                        action: {
+                            showFullSheet = true
+                        },
+                        label: {
+                            
+                            HStack {
+                                Spacer(minLength: 0)
+                                Text("Show the Remaining \(lines.count - 15) lines")
+                                
+                                    .font(.footnote).foregroundStyle(.secondary)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(10)
+                            .contentTransition(.identity)
                         })
                 }
             }
@@ -264,10 +253,10 @@ struct DefaultMarkdownCodeBlock: View {
         VStack(alignment: .leading, spacing: 0) {
             codeSource
         }
-        //.task(id: codeHighlightingConfiguration, debouncedHighlight)
-        //        .onValueChange(codeBlockConfiguration) {
-        //            debouncedHighlight()
-        //        }
+//        .task(id: codeHighlightingConfiguration, debouncedHighlight)
+//                .onValueChange(codeBlockConfiguration) {
+//                    debouncedHighlight()
+//                }
         .font(fontGroup.codeBlock)
     }
     @Namespace var namespace
@@ -277,17 +266,21 @@ struct DefaultMarkdownCodeBlock: View {
         //.frame(maxHeight: codeBlockConfiguration.showFullCode ? nil : 300)
 #if os(macOS) || os(iOS)
             .safeAreaInset(edge: .top, spacing: 0) {
-                HStack {
-                    codeLanguage
-                    if !codeBlockConfiguration.showFullCode {
-                        fullSheet
+                VStack(spacing: 0) {
+                    HStack {
+                        codeLanguage
+                        if !codeBlockConfiguration.showFullCode {
+                            fullSheet
+                        }
+                        
+                        Spacer(minLength: 10)
+                        copyButton
                     }
                     
-                    Spacer(minLength: 10)
-                    copyButton
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 16)
+                    Rectangle().frame(height: 1).foregroundStyle(.gray.opacity(0.2))
                 }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .background {
                     Rectangle().foregroundStyle(
@@ -295,22 +288,28 @@ struct DefaultMarkdownCodeBlock: View {
                 }
                 
             }
+            
+            .clipShape(RoundedRectangle(cornerRadius: 15))
             .background {
                 RoundedRectangle(cornerRadius: 15)
                     .foregroundStyle(colorScheme == .dark ? .gray.opacity(0.1) : .white.opacity(0.5))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 15).stroke(lineWidth: 1)
+                            .foregroundStyle(.gray.opacity(0.2))
+                    }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 15))
+            
         //.matchedTransitionSource(id: codeBlockConfiguration.code, in: namespace)
 #endif
         
             .sheet(
                 isPresented: $showFullSheet,
                 content: {
-                    var configuration: CodeBlockStyleConfiguration {
-                        var conf = configuration
-                        conf.showFullCode = true
-                        return conf
-                    }
+//                    var configuration: CodeBlockStyleConfiguration {
+//                        var conf = configuration
+//                        conf.showFullCode = true
+//                        return conf
+//                    }
                     if #available(iOS 18.0, *) {
                         NavigationStack {
                             ScrollView {
@@ -320,23 +319,12 @@ struct DefaultMarkdownCodeBlock: View {
                                             let lines = attributedCode.splitByLines()
                                             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                                                 HStack(alignment: .top) {
-                                                    if #available(iOS 16.4, *) {
-                                                        Text("\(index + 1)")
-                                                            .font(.subheadline)
-                                                            .monospaced()
-                                                            .frame(width: 30, alignment: .trailing)
-                                                            .foregroundStyle(.secondary)
-                                                            .minimumScaleFactor(0.5)
-                                                    } else {
-                                                        // Fallback on earlier versions
-                                                    }
-                                                    Rectangle()
-                                                        .frame(width: 1).foregroundStyle(.gray.opacity(0.2))
-                                                        .padding(.vertical, -3)
+                                                    
                                                     Text(line)
-                                                        .padding(.horizontal, 5)
+                                                        
                                                     Spacer(minLength: 0)
                                                 }
+                                                .padding(.horizontal, 5)
                                                 .padding(.vertical, 3)
                                                 .background {
                                                     if index % 2 != 0 {
@@ -352,23 +340,12 @@ struct DefaultMarkdownCodeBlock: View {
                                             let lines = codeBlockConfiguration.code.components(separatedBy: .newlines)
                                             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                                                 HStack(alignment: .top) {
-                                                    if #available(iOS 16.4, *) {
-                                                        Text("\(index + 1)")
-                                                            .font(.subheadline)
-                                                            .monospaced()
-                                                            .frame(width: 30, alignment: .trailing)
-                                                            .foregroundStyle(.secondary)
-                                                            .minimumScaleFactor(0.5)
-                                                    } else {
-                                                        // Fallback on earlier versions
-                                                    }
-                                                    Rectangle()
-                                                        .frame(width: 1).foregroundStyle(.gray.opacity(0.2))
-                                                        .padding(.vertical, -3)
+                                                   
                                                     Text(verbatim: line)
-                                                        .padding(.horizontal, 5)
+                                                        
                                                     Spacer(minLength: 0)
                                                 }
+                                                .padding(.horizontal, 5)
                                                 .padding(.vertical, 3)
                                                 
                                                 .background {
