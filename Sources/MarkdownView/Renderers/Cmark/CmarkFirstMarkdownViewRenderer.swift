@@ -37,8 +37,30 @@ struct CmarkFirstMarkdownViewRenderer: MarkdownViewRenderer {
             parseOptions.insert(.parseBlockDirectives)
         }
         
-        let renderedView = CmarkNodeVisitor(configuration: configuration)
-            .makeBody(for: content.parse(options: parseOptions))
+        let document = content.parse(options: parseOptions)
+        let configFingerprint = configuration.stableFingerprint
+        let nodeCache = NodeViewCache.shared
+
+        var visitor = CmarkNodeVisitor(configuration: configuration)
+        var nodeViews = [MarkdownNodeView]()
+        nodeViews.reserveCapacity(document.childCount)
+
+        for child in document.children {
+            let hash = child.stableContentHash
+            let cacheKey = NodeCacheKey(contentHash: hash, configurationHash: configFingerprint)
+
+            if let cached = nodeCache.get(cacheKey) {
+                nodeViews.append(cached)
+            } else {
+                let rendered = visitor.visit(child)
+                nodeCache.set(cacheKey, view: rendered)
+                nodeViews.append(rendered)
+            }
+        }
+
+        let composedView = MarkdownNodeView(nodeViews, layoutPolicy: .linebreak)
+        let renderedView = composedView
+            .environment(\.markdownRendererConfiguration, configuration)
             .erasedToAnyView()
         
         CacheStorage.shared.addCache(
