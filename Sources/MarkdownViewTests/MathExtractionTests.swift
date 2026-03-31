@@ -18,10 +18,6 @@ struct MathExtractionTests {
     @Test(
         arguments: [
             MathExtractionTestConfiguration(
-                plainText: #"delimiters to show math inline: $\sqrt{3x-1}+(1+x)^2$"#,
-                extractedMath: [#"$\sqrt{3x-1}+(1+x)^2$"#]
-            ),
-            MathExtractionTestConfiguration(
                 plainText: #"""
                 **The Cauchy-Schwarz Inequality**
                 $$\left( \sum_{k=1}^n a_k b_k \right)^2 \leq \left( \sum_{k=1}^n a_k^2 \right) \left( \sum_{k=1}^n b_k^2 \right)$$
@@ -35,6 +31,14 @@ struct MathExtractionTests {
             MathExtractionTestConfiguration(
                 plainText: #"\[ \hat{H}\psi = E\psi \quad \text{where} \quad \hat{H} = -\frac{\hbar^2}{2m}\nabla^2 + V(\mathbf{r}) \]"#,
                 extractedMath: [#"\[ \hat{H}\psi = E\psi \quad \text{where} \quad \hat{H} = -\frac{\hbar^2}{2m}\nabla^2 + V(\mathbf{r}) \]"#]
+            ),
+            MathExtractionTestConfiguration(
+                plainText: #"\[\]"#,
+                extractedMath: []
+            ),
+            MathExtractionTestConfiguration(
+                plainText: #"\(\)"#,
+                extractedMath: []
             ),
         ]
     )

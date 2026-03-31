@@ -47,12 +47,15 @@ public struct MathParser {
                             stack.removeLast()
                             
                             if stack.isEmpty {
-                                representations.append(
-                                    MathRepresentation(
-                                        kind: type,
-                                        range: startIndex..<endIndex
+                                let range = startIndex..<endIndex
+                                if type.hasRenderableContent(in: text, range: range) {
+                                    representations.append(
+                                        MathRepresentation(
+                                            kind: type,
+                                            range: range
+                                        )
                                     )
-                                )
+                                }
                             }
                         }
                         index = endIndex
@@ -156,13 +159,31 @@ extension MathParser.MathRepresentation {
             default: return false
             }
         }
+
+        func hasRenderableContent(
+            in text: any StringProtocol,
+            range: Range<String.Index>
+        ) -> Bool {
+            let contentStart = text.index(
+                range.lowerBound,
+                offsetBy: leftTerminator.count
+            )
+            let contentEnd = text.index(
+                range.upperBound,
+                offsetBy: -rightTerminator.count
+            )
+            guard contentStart <= contentEnd else { return false }
+
+            let content = text[contentStart..<contentEnd]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return !content.isEmpty
+        }
         
         public static let allCases: [Kind] = [
             .namedNoNumberEquation,
             .namedEquation,
             .blockEquation,
             .texEquation,
-            .inlineEquation,
             .inlineParenthesesEquation,
         ]
     }

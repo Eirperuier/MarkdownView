@@ -40,7 +40,7 @@ fileprivate struct DisplayMath: View {
             }
         }
     }
-    
+
     @ViewBuilder
     private var latex: some View {
         #if canImport(LaTeXSwiftUI)

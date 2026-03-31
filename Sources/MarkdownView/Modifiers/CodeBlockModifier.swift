@@ -14,18 +14,8 @@ extension View {
     }
     
     /// Sets the theme of the code highlighter.
-    ///
-    /// For more information of available themes, see ``CodeHighlighterTheme``.
-    ///
-    /// - Parameter theme: The theme for highlighter.
-    @available(*, deprecated, message: "Use `.codeBlockStyle(.default(lightTheme:darkTheme:))` instead.")
+    @available(*, deprecated, message: "Highlightr is no longer used. Inject a CodeHighlighter via `.codeHighlighter(_:)` instead.")
     nonisolated public func codeHighlighterTheme(_ theme: CodeHighlighterTheme) -> some View {
-        let style = MainActor.assumeIsolated {
-            DefaultCodeBlockStyle.default(
-                lightTheme: theme.lightModeThemeName,
-                darkTheme: theme.darkModeThemeName
-            )
-        }
-        return codeBlockStyle(style)
+        self
     }
 }

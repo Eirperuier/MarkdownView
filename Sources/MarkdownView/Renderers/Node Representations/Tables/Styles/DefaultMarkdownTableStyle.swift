@@ -42,7 +42,7 @@ fileprivate struct DefaultMarkdownTable: View {
     var body: some View {
         Group {
             if #available(macOS 13.0, iOS 17.0, tvOS 16.0, watchOS 9.0, *) {
-                Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                     configuration.table.header
                     ForEach(Array(configuration.table.rows.enumerated()), id: \.offset) { (_, row) in
                         if showsRowSeparators {

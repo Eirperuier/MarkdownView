@@ -52,13 +52,25 @@ struct MarkdownTableRow: View {
         if tableConfiguration.scrollable {
             baseContent
                 .frame(
-                    minWidth: tableConfiguration.cellMinWidth,
                     maxWidth: tableConfiguration.cellMaxWidth,
                     alignment: cell.horizontalAlignment.toAlignment
                 )
         }
         else {
-            baseContent
+            switch cell.horizontalAlignment {
+            case .trailing:
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    baseContent
+                }
+            case .center:
+                baseContent
+            default:
+                HStack(spacing: 0) {
+                    baseContent
+                    Spacer(minLength: 0)
+                }
+            }
         }
     }
 }
