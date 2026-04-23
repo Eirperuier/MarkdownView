@@ -16,7 +16,7 @@ let package = Package(
         .library(name: "MarkdownView", targets: ["MarkdownView"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.5.0"),
+        .package(url: "https://github.com/Eirperuier/swift-markdown.git", branch: "cjk-friendly-emphasis"),
         .package(url: "https://github.com/raspu/Highlightr.git", from: "2.2.1"),
         .package(path: "../LaTeXSwiftUI"),
     ],

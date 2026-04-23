@@ -21,15 +21,25 @@ struct MathFirstMarkdownViewRenderer: MarkdownViewRenderer {
         for range in extractor.parsableRanges(in: rawText) {
             let segment = rawText[range]
             let segmentParser = MathParser(text: segment)
-            for math in segmentParser.mathRepresentations.reversed() where !math.kind.inline {
-                guard isStandaloneDisplayMath(math.range, in: rawText) else { continue }
-                let mathIdentifier = configuration.math.appendDisplayMath(
-                    rawText[math.range]
-                )
-                rawText.replaceSubrange(
-                    math.range,
-                    with: "@math(uuid:\(mathIdentifier))"
-                )
+            for math in segmentParser.mathRepresentations.reversed() {
+                if !math.kind.inline {
+                    guard isStandaloneDisplayMath(math.range, in: rawText) else { continue }
+                    let mathIdentifier = configuration.math.appendDisplayMath(
+                        rawText[math.range]
+                    )
+                    rawText.replaceSubrange(
+                        math.range,
+                        with: "@math(uuid:\(mathIdentifier))"
+                    )
+                } else {
+                    let mathId = configuration.math.appendInlineMath(
+                        rawText[math.range]
+                    )
+                    rawText.replaceSubrange(
+                        math.range,
+                        with: "\(MarkdownRendererConfiguration.Math.inlinePlaceholderPrefix)\(mathId)\(MarkdownRendererConfiguration.Math.inlinePlaceholderSuffix)"
+                    )
+                }
             }
         }
         
@@ -50,4 +60,24 @@ struct MathFirstMarkdownViewRenderer: MarkdownViewRenderer {
             .trimmingCharacters(in: .whitespaces)
         return prefix.isEmpty && suffix.isEmpty
     }
+}
+
+/// Extracts inline math expressions from raw markdown text, replacing them
+/// with safe placeholders that survive cmark processing. Returns the
+/// modified text and a dictionary mapping placeholder IDs to the original
+/// LaTeX strings. Use `markdownInlineMathStorage(_:)` to pass the
+/// dictionary into the rendering environment.
+public func extractInlineMath(
+    from text: String
+) -> (processedText: String, inlineMathStorage: [String: String]) {
+    var rawText = text
+    var storage: [String: String] = [:]
+    let parser = MathParser(text: rawText)
+    for math in parser.mathRepresentations.reversed() where math.kind.inline {
+        let id = UUID().uuidString
+        storage[id] = String(rawText[math.range])
+        let placeholder = "\(MarkdownRendererConfiguration.Math.inlinePlaceholderPrefix)\(id)\(MarkdownRendererConfiguration.Math.inlinePlaceholderSuffix)"
+        rawText.replaceSubrange(math.range, with: placeholder)
+    }
+    return (rawText, storage)
 }

@@ -20,6 +20,7 @@ extension MarkdownRendererConfiguration {
             }
         }
         var displayMathStorage: [UUID : String]? = nil
+        var inlineMathStorage: [String : String]? = nil
         
         mutating func appendDisplayMath(_ displayMath: some StringProtocol) -> UUID {
             if displayMathStorage == nil {
@@ -30,5 +31,17 @@ extension MarkdownRendererConfiguration {
             displayMathStorage![id] = String(displayMath)
             return id
         }
+        
+        mutating func appendInlineMath(_ inlineMath: some StringProtocol) -> String {
+            if inlineMathStorage == nil {
+                inlineMathStorage = [:]
+            }
+            let id = UUID().uuidString
+            inlineMathStorage![id] = String(inlineMath)
+            return id
+        }
+        
+        static let inlinePlaceholderPrefix = "\u{2E28}imath:"
+        static let inlinePlaceholderSuffix = "\u{2E29}"
     }
 }

@@ -136,9 +136,10 @@ extension UnorderedListMarkerProtocol where Self == UnorderedListDashMarker {
 }
 
 /// A bullet marker for unordered list items.
+/// Alternates between filled (even depth) and hollow (odd depth).
 public struct UnorderedListBulletMarker: UnorderedListMarkerProtocol {
     public func marker(listDepth: Int) -> String {
-        "•"
+        listDepth.isMultiple(of: 2) ? "•" : "◦"
     }
 }
 

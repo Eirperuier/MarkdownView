@@ -2,6 +2,10 @@ import SwiftUI
 
 struct MarkdownNodeView: View {
     private var storage: Either<AttributedString, AnyView>
+
+    /// Byte offset of this text segment within the block's concatenated plain text.
+    /// Used by `RevealAnimatedMarkdownText` to compute per-segment reveal progress.
+    private(set) var blockTextOffset: Int = 0
     
     enum ContentType: String {
         case text, view
@@ -24,11 +28,17 @@ struct MarkdownNodeView: View {
     init(_ text: String) {
         self.storage = .left(AttributedString(text))
     }
+
+    private init(_ text: AttributedString, blockTextOffset: Int) {
+        self.storage = .left(text)
+        self.blockTextOffset = blockTextOffset
+    }
     
     init<Content: View>(@ViewBuilder _ content: () -> Content) {
         let content = content()
         if let markdownNode = content as? MarkdownNodeView {
             storage = markdownNode.storage
+            blockTextOffset = markdownNode.blockTextOffset
         } else {
             storage = .right(AnyView(content))
         }
@@ -37,7 +47,7 @@ struct MarkdownNodeView: View {
     var body: some View {
         Group {
             if case .left(let attributedString) = storage {
-                _MarkdownText(attributedString)
+                _MarkdownText(attributedString, blockTextOffset: blockTextOffset)
             } else if case .right(let view) = storage {
                 view
                     
@@ -71,27 +81,34 @@ extension MarkdownNodeView {
     ) {
         var composedContents = [MarkdownNodeView]()
         var attributedString = AttributedString()
+        var runningOffset = 0
+        var segmentStartOffset = 0
+
         for content in contents {
             if case .left(let text) = content.storage {
                 if layoutPolicy == .linebreak && !attributedString.characters.isEmpty {
                     attributedString += "\n\n"
+                    runningOffset += 2
                 }
                 attributedString += text
+                runningOffset += text.characters.count
             } else {
                 if !attributedString.characters.isEmpty {
-                    composedContents.append(MarkdownNodeView(attributedString))
+                    composedContents.append(MarkdownNodeView(attributedString, blockTextOffset: segmentStartOffset))
                     attributedString = AttributedString()
                 }
                 composedContents.append(content)
+                segmentStartOffset = runningOffset
             }
         }
         if !attributedString.characters.isEmpty {
-            composedContents.append(MarkdownNodeView(attributedString))
+            composedContents.append(MarkdownNodeView(attributedString, blockTextOffset: segmentStartOffset))
         }
         
         if composedContents.count == 1 {
             if let attributedString = composedContents[0].asAttributedString {
                 storage = .left(attributedString)
+                blockTextOffset = composedContents[0].blockTextOffset
             } else {
                 storage = .right(AnyView(composedContents[0].body))
             }

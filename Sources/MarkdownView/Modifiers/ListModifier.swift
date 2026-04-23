@@ -50,4 +50,9 @@ extension View {
         }
     }
     
+    nonisolated public func markdownStreaming(_ manager: StreamingRevealManager?) -> some View {
+        environment(\.markdownStreaming, manager)
+    }
+    
+    
 }

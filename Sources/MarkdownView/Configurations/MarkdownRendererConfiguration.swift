@@ -45,6 +45,12 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
         hasher.combine(allowedImageRenderers)
         hasher.combine(allowedBlockDirectiveRenderers)
         hasher.combine(highlightedStrings)
+        hasher.combine(linkTintColor.description)
+        hasher.combine(inlineCodeTintColor.description)
+        hasher.combine(blockQuoteTintColor.description)
+        hasher.combine(preferredColor.description)
+        hasher.combine(highlightedColor.description)
+        hasher.combine(highlightedBackgroundColor.description)
         return hasher.finalize()
     }
 }
@@ -72,5 +78,64 @@ extension EnvironmentValues {
     var markdownRendererConfiguration: MarkdownRendererConfiguration {
         get { self[MarkdownRendererConfigurationKey.self] }
         set { self[MarkdownRendererConfigurationKey.self] = newValue }
+    }
+}
+
+// MARK: - Streaming Environment (kept separate to avoid cache invalidation)
+
+/// Holds the character-by-character reveal count for streaming text.
+/// Driven externally by `StreamingRevealCoordinator`.
+/// When not injected into the environment (nil), `_MarkdownText` shows full text.
+@Observable @MainActor
+public final class StreamingRevealManager {
+    public var revealedCount: Int = 0
+    public init() {}
+}
+
+struct MarkdownStreamingKey: EnvironmentKey {
+    nonisolated(unsafe) static let defaultValue: StreamingRevealManager? = nil
+}
+
+extension EnvironmentValues {
+    var markdownStreaming: StreamingRevealManager? {
+        get { self[MarkdownStreamingKey.self] }
+        set { self[MarkdownStreamingKey.self] = newValue }
+    }
+}
+
+// MARK: - Fade Reveal Configuration
+
+public struct MarkdownFadeRevealConfig: Equatable, Sendable {
+    public var duration: TimeInterval
+    public var highlightColor: Color
+
+    public init(duration: TimeInterval = 0.4, highlightColor: Color = .accentColor) {
+        self.duration = duration
+        self.highlightColor = highlightColor
+    }
+}
+
+struct MarkdownFadeRevealKey: EnvironmentKey {
+    static let defaultValue: MarkdownFadeRevealConfig? = nil
+}
+
+extension EnvironmentValues {
+    var markdownFadeReveal: MarkdownFadeRevealConfig? {
+        get { self[MarkdownFadeRevealKey.self] }
+        set { self[MarkdownFadeRevealKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Enable per-character fade-in animation during streaming reveal.
+    /// Requires iOS 18+; on older OS this is a no-op.
+    nonisolated public func markdownFadeReveal(
+        duration: TimeInterval = 0.4,
+        highlightColor: Color = .accentColor
+    ) -> some View {
+        environment(
+            \.markdownFadeReveal,
+            MarkdownFadeRevealConfig(duration: duration, highlightColor: highlightColor)
+        )
     }
 }

@@ -7,6 +7,10 @@ struct MarkdownTable: View {
     @Environment(\.markdownTableStyle) private var tableStyle
     @Environment(\.markdownRendererConfiguration.table) private var tableConfiguration
     @State private var containerWidth: CGFloat = MarkdownTable.estimatedContainerWidth
+
+    private var contentChangeKey: Int {
+        table.stableContentHash
+    }
     
     private static var estimatedContainerWidth: CGFloat {
         #if os(iOS) || os(tvOS)
@@ -19,18 +23,21 @@ struct MarkdownTable: View {
     }
     
     var body: some View {
-        if tableConfiguration.scrollable {
-            scrollableTable
-        } else {
-            let configuration = MarkdownTableStyleConfiguration(
-                table: MarkdownTableStyleConfiguration.Table(table: table)
-            )
-            tableStyle
-                .makeBody(configuration: configuration)
-                .erasedToAnyView()
-                .markdownTableCellStyleApplied()
-                .coordinateSpace(name: MarkdownTable.CoordinateSpaceName)
+        Group {
+            if tableConfiguration.scrollable {
+                scrollableTable
+            } else {
+                let configuration = MarkdownTableStyleConfiguration(
+                    table: MarkdownTableStyleConfiguration.Table(table: table)
+                )
+                tableStyle
+                    .makeBody(configuration: configuration)
+                    .erasedToAnyView()
+                    .markdownTableCellStyleApplied()
+                    .coordinateSpace(name: MarkdownTable.CoordinateSpaceName)
+            }
         }
+        .modifier(MarkdownTableLayoutAnimationModifier(changeKey: contentChangeKey))
     }
     
     @ViewBuilder
@@ -38,6 +45,8 @@ struct MarkdownTable: View {
         let headerCells = Array(table.head.cells)
         let columnCount = headerCells.count
         let spacing: CGFloat = 20
+        let horizontalPadding: CGFloat = 8
+        let verticalPadding: CGFloat = horizontalPadding + 5
         
         ScrollView(.horizontal, showsIndicators: true) {
             AdaptiveTableLayout(
@@ -63,6 +72,8 @@ struct MarkdownTable: View {
                 }
             }
         }
+        .markdownTableCellPadding(.horizontal, horizontalPadding)
+        .markdownTableCellPadding(.vertical, verticalPadding)
         .scrollClipDisabled()
         .scrollBounceBehavior(.basedOnSize)
         .background {
@@ -73,6 +84,15 @@ struct MarkdownTable: View {
                     }
             }
         }
+    }
+}
+
+private struct MarkdownTableLayoutAnimationModifier: ViewModifier {
+    let changeKey: Int
+
+    func body(content: Content) -> some View {
+        content
+            .animation(.smooth(duration: 0.18), value: changeKey)
     }
 }
 

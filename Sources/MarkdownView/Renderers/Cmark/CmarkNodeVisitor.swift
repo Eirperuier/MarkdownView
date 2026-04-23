@@ -267,13 +267,13 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
     else { return descendInto(link) }
 
     let nodeView = descendInto(link)
-    switch nodeView.contentType {
-    case .text:
-      return MarkdownNodeView {
-        WebViewPopoverView(url: url, view: nodeView)
-          .foregroundStyle(configuration.linkTintColor)
-      }
-    case .view:
+    if let text = nodeView.asAttributedString {
+      var linked = text
+      linked.link = url
+      linked.underlineStyle = .single
+      linked.foregroundColor = configuration.linkTintColor
+      return MarkdownNodeView(linked)
+    } else {
       return MarkdownNodeView {
         WebViewPopoverView(url: url, view: nodeView)
           .foregroundStyle(configuration.linkTintColor)

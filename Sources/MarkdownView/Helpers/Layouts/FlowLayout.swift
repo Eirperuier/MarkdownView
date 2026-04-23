@@ -72,7 +72,7 @@ struct FlowLayout: Layout {
             let proposal = ProposedViewSize(rect.size)
             let position = CGPoint(x: rect.leadingPoint.x + bounds.minX,
                                    y: rect.leadingPoint.y + bounds.minY)
-            rect.element.place(at: position, anchor: .leading, proposal: proposal)
+            rect.element.place(at: position, anchor: .topLeading, proposal: proposal)
         }
     }
     
@@ -89,9 +89,10 @@ struct FlowLayout: Layout {
         to cache: inout Cache, startIndex: Int
     ) {
         for index in rects.indices {
-            rects[index].leadingPoint.y += rowHeight / 2
             if index + startIndex < cache.count {
-                cache[startIndex + index] = rects[index]
+                var rect = rects[index]
+                rect.leadingPoint.y += (rowHeight - rect.size.height) / 2
+                cache[startIndex + index] = rect
             }
         }
         rects.removeAll()

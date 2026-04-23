@@ -35,8 +35,12 @@ fileprivate struct DefaultMarkdownTable: View {
     @Environment(\.colorScheme) var colorScheme
     
     var showsRowSeparators: Bool
-    private var spacing: CGFloat {
+    private var horizontalPadding: CGFloat {
         showsRowSeparators ? 8 : 16
+    }
+    
+    private var verticalPadding: CGFloat {
+        horizontalPadding + 5
     }
     
     var body: some View {
@@ -60,7 +64,8 @@ fileprivate struct DefaultMarkdownTable: View {
                     .showsRowSeparators(showsRowSeparators)
             }
         }
-        .markdownTableCellPadding(spacing)
+        .markdownTableCellPadding(.horizontal, horizontalPadding)
+        .markdownTableCellPadding(.vertical, verticalPadding)
 //        .padding(8)
 //        .background {
 //            RoundedRectangle(cornerRadius: 15)

@@ -5,6 +5,7 @@ struct MarkdownList<List: ListItemContainer>: View {
     var listItemsContainer: List
     
     @Environment(\.markdownRendererConfiguration) private var configuration
+    @Environment(\.markdownStreaming) private var streamingManager
     private var marker: Either<AnyUnorderedListMarkerProtocol, AnyOrderedListMarkerProtocol> {
         if listItemsContainer is UnorderedList {
             return .left(configuration.listConfiguration.unorderedListMarker)
@@ -19,17 +20,20 @@ struct MarkdownList<List: ListItemContainer>: View {
     }
     
     var body: some View {
+        let listItems = Array(listItemsContainer.listItems)
+        
         VStack(alignment: .leading, spacing: configuration.componentSpacing) {
             ForEach(
-                Array(listItemsContainer.listItems.enumerated()),
+                Array(listItems.enumerated()),
                 id: \.offset
             ) { (index, listItem) in
-                HStack(alignment: .firstTextBaseline) {
-                    CheckboxOrMarker(list: self, listItem: listItem, index: index)
-                        .padding(.leading, depth == 0 ? configuration.listConfiguration.leadingIndentation : 0)
-                    CmarkNodeVisitor(configuration: configuration)
-                        .makeBody(for: listItem)
-                }
+                MarkdownListRow(
+                    list: self,
+                    listItem: listItem,
+                    index: index,
+                    configuration: configuration,
+                    leadingIndentation: depth == 0 ? configuration.listConfiguration.leadingIndentation : 0
+                )
             }
         }
     }
@@ -66,6 +70,23 @@ struct MarkdownList<List: ListItemContainer>: View {
                 Image(systemName: "circle")
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+}
+
+private struct MarkdownListRow<List: ListItemContainer>: View {
+    var list: MarkdownList<List>
+    var listItem: ListItem
+    var index: Int
+    var configuration: MarkdownRendererConfiguration
+    var leadingIndentation: CGFloat
+    
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            MarkdownList<List>.CheckboxOrMarker(list: list, listItem: listItem, index: index)
+                .padding(.leading, leadingIndentation)
+            CmarkNodeVisitor(configuration: configuration)
+                .makeBody(for: listItem)
         }
     }
 }

@@ -23,4 +23,12 @@ extension View {
             }
         }
     }
+    
+    /// Provide pre-extracted inline math storage so that inline math
+    /// placeholders inserted before cmark parsing can be resolved at render time.
+    nonisolated public func markdownInlineMathStorage(_ storage: [String: String]?) -> some View {
+        transformEnvironment(\.markdownRendererConfiguration) { configuration in
+            configuration.math.inlineMathStorage = storage
+        }
+    }
 }

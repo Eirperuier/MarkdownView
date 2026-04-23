@@ -70,6 +70,11 @@ public struct MarkdownContent: Sendable {
     }
     var store: ParsedDocumentStore
     
+    public init(_ text: String) {
+        self.raw = .plainText(text)
+        self.store = ParsedDocumentStore()
+    }
+
     internal init(raw: RawMarkdownContent) {
         self.raw = raw
         self.store = ParsedDocumentStore()
