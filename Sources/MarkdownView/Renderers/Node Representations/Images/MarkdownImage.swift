@@ -30,6 +30,8 @@ struct MarkdownImage: View {
     }
     @Environment(\.markdownRendererConfiguration.preferredBaseURL) private var baseURL
     @Environment(\.markdownRendererConfiguration.allowedImageRenderers) private var allowedRenderer
+    @Environment(\.markdownImageIsInTableCell) private var isInTableCell
+    @Environment(\.markdownTableImageRenderer) private var tableImageRenderer
     
     var body: some View {
         Group {
@@ -38,7 +40,10 @@ struct MarkdownImage: View {
                     url: url,
                     alternativeText: alternativeText
                 )
-                if let scheme = url.scheme, allowedRenderer.contains(scheme),
+                if isInTableCell, let tableImageRenderer {
+                    tableImageRenderer
+                        .makeBody(configuration: configuration)
+                } else if let scheme = url.scheme, allowedRenderer.contains(scheme),
                    let renderer = MarkdownImageRenders.named(scheme) {
                     renderer
                         .makeBody(configuration: configuration)

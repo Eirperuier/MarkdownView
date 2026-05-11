@@ -1059,6 +1059,7 @@ extension View {
         switch phase {
         case .before:
             self
+                .environment(\.markdownImageIsInTableCell, true)
                 .environment(\.markdownTableRevealTextContext, .hidden)
                 .opacity(0)
         case .active:
@@ -1070,6 +1071,7 @@ extension View {
             // coordinator advances >1 char/tick would skip the leading chars
             // of every cell's fade-in.
             self
+                .environment(\.markdownImageIsInTableCell, true)
                 .environment(
                     \.markdownTableRevealTextContext,
                     .active(
@@ -1080,6 +1082,7 @@ extension View {
                 )
         case .past:
             self
+                .environment(\.markdownImageIsInTableCell, true)
                 .environment(\.markdownTableRevealTextContext, .past)
         }
     }

@@ -37,6 +37,41 @@ public struct MarkdownImageRendererConfiguration: Sendable {
     public var alternativeText: String?
 }
 
+// MARK: - Table Image Rendering
+
+public struct AnyMarkdownTableImageRenderer: Sendable {
+    private let _makeBody: @MainActor @Sendable (MarkdownImageRendererConfiguration) -> AnyView
+
+    init(_ build: @escaping @MainActor @Sendable (MarkdownImageRendererConfiguration) -> AnyView) {
+        self._makeBody = build
+    }
+
+    @MainActor
+    func makeBody(configuration: MarkdownImageRendererConfiguration) -> AnyView {
+        _makeBody(configuration)
+    }
+}
+
+struct MarkdownTableImageRendererKey: EnvironmentKey {
+    static let defaultValue: AnyMarkdownTableImageRenderer? = nil
+}
+
+struct MarkdownImageIsInTableCellKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var markdownTableImageRenderer: AnyMarkdownTableImageRenderer? {
+        get { self[MarkdownTableImageRendererKey.self] }
+        set { self[MarkdownTableImageRendererKey.self] = newValue }
+    }
+
+    var markdownImageIsInTableCell: Bool {
+        get { self[MarkdownImageIsInTableCellKey.self] }
+        set { self[MarkdownImageIsInTableCellKey.self] = newValue }
+    }
+}
+
 // MARK: - Type Erasure
 
 /// A type-erasure for type conforms to `MarkdownImageRenderer`.

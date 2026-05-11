@@ -234,16 +234,12 @@ extension EnvironmentValues {
 /// value-type renderer.
 private final class FadeState: @unchecked Sendable {
     var firstSeen: [Date?] = []
-    var bornHue: [Double?] = []
     var initialized = false
     var lastDrawnRevealedCount: Int?
 
     func ensureCapacity(_ n: Int) {
         if firstSeen.count < n {
             firstSeen.append(contentsOf: Array(repeating: nil, count: n - firstSeen.count))
-        }
-        if bornHue.count < n {
-            bornHue.append(contentsOf: Array(repeating: nil, count: n - bornHue.count))
         }
     }
 
@@ -361,14 +357,6 @@ private struct CJKItalicRenderer: TextRenderer {
 
 @available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, *)
 private struct RevealFadeRenderer: TextRenderer {
-    // Long hue wheel between orange (30°) and purple (270°) — the "long way"
-    // around, sweeping orange → red → magenta → purple. Each new
-    // character samples its born hue from an oscillating phase, and that hue
-    // is frozen in FadeState — the glyph never shifts color after first draw.
-    private static let orangeHue: Double = 30.0 / 360.0
-    private static let purpleHue: Double = 270.0 / 360.0
-    private static let huePeriod: TimeInterval = 1.5
-
     // Color tint outlasts the opacity fade-in — the glyph reaches full
     // opacity quickly, but the colored blend lingers as it restores to the
     // natural ink color. Tuned so the color "trail" is perceptibly longer
@@ -378,8 +366,8 @@ private struct RevealFadeRenderer: TextRenderer {
     let revealedCount: Int
     let blockTextOffset: Int
     let characterCount: Int
-    let now: Date
     let duration: TimeInterval
+    let highlightColor: Color
     let state: FadeState
     let cjkItalicRanges: [Range<Int>]
     let revealManager: StreamingRevealManager?
@@ -395,15 +383,6 @@ private struct RevealFadeRenderer: TextRenderer {
     var colorDuration: TimeInterval { duration * Self.colorDurationMultiplier }
     var displayPadding: EdgeInsets {
         CJKItalicGlyphSkew.displayPadding(for: cjkItalicRanges)
-    }
-
-    private static func hueAt(_ date: Date) -> Double {
-        let t = date.timeIntervalSinceReferenceDate / huePeriod
-        let wave = (sin(t * 2 * .pi) + 1) * 0.5
-        let longSpan = 1.0 - (purpleHue - orangeHue)
-        var h = orangeHue - wave * longSpan
-        if h < 0 { h += 1 }
-        return h
     }
 
     func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
@@ -477,20 +456,6 @@ private struct RevealFadeRenderer: TextRenderer {
                         continue
                     }
 
-                    // Freeze the tint hue at first sight, matching the char's
-                    // birth moment in the oscillating wheel.
-                    let hue: Double
-                    if charIdx < state.bornHue.count, let recorded = state.bornHue[charIdx] {
-                        hue = recorded
-                    } else {
-                        let sampled = state.initialized ? Self.hueAt(now) : Self.hueAt(t0)
-                        if charIdx < state.bornHue.count {
-                            state.bornHue[charIdx] = sampled
-                        }
-                        hue = sampled
-                    }
-                    let tint = Color(hue: hue, saturation: 0.9, brightness: 0.95)
-
                     let phase = max(0, min(1, age * durationInv))
                     let colorPhase = max(0, min(1, age * colorDurationInv))
 
@@ -517,7 +482,7 @@ private struct RevealFadeRenderer: TextRenderer {
                             inner.clipToLayer { mask in
                                 mask.draw(glyph)
                             }
-                            inner.fill(Path(rect), with: .color(tint))
+                            inner.fill(Path(rect), with: .color(highlightColor))
                         }
                     }
                 }
@@ -551,7 +516,7 @@ private struct FadeRevealMarkdownText: View {
         let _ = MarkdownRenderProbe.increment(\.fadeRevealTextBodyCalls)
         let revealed = revealCount ?? .max
 
-        TimelineView(.animation(minimumInterval: minimumInterval, paused: paused)) { ctx in
+        TimelineView(.animation(minimumInterval: minimumInterval, paused: paused)) { _ in
             Text(displayText)
                 .font(inheritedFont)
                 .textRenderer(
@@ -559,8 +524,8 @@ private struct FadeRevealMarkdownText: View {
                         revealedCount: revealed,
                         blockTextOffset: blockTextOffset,
                         characterCount: characterCount,
-                        now: ctx.date,
                         duration: config.duration,
+                        highlightColor: config.highlightColor,
                         state: fadeState,
                         cjkItalicRanges: cjkItalicRanges,
                         revealManager: revealManager,

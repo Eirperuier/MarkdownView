@@ -259,12 +259,35 @@ extension EnvironmentValues {
 // MARK: - Fade Reveal Configuration
 
 public struct MarkdownFadeRevealConfig: Equatable, Sendable {
+    public static let legacyHighlightHue: Double = 30.0 / 360.0
+
     public var duration: TimeInterval
     public var highlightColor: Color
 
     public init(duration: TimeInterval = 0.4, highlightColor: Color = .accentColor) {
         self.duration = duration
         self.highlightColor = highlightColor
+    }
+
+    /// Creates a reveal highlight color from a SwiftUI-style hue in the `0...1` range.
+    public init(
+        duration: TimeInterval = 0.4,
+        hue: Double,
+        saturation: Double = 0.9,
+        brightness: Double = 0.95
+    ) {
+        self.duration = duration
+        self.highlightColor = Color(
+            hue: Self.normalizedHue(hue),
+            saturation: saturation,
+            brightness: brightness
+        )
+    }
+
+    private static func normalizedHue(_ hue: Double) -> Double {
+        guard hue.isFinite else { return 0 }
+        let normalized = hue.truncatingRemainder(dividingBy: 1)
+        return normalized >= 0 ? normalized : normalized + 1
     }
 }
 
@@ -289,6 +312,25 @@ extension View {
         environment(
             \.markdownFadeReveal,
             MarkdownFadeRevealConfig(duration: duration, highlightColor: highlightColor)
+        )
+    }
+
+    /// Enable per-character fade-in animation with a caller-provided hue.
+    /// The hue follows SwiftUI's `Color(hue:saturation:brightness:)` convention: `0...1`.
+    nonisolated public func markdownFadeReveal(
+        duration: TimeInterval = 0.4,
+        hue: Double,
+        saturation: Double = 0.9,
+        brightness: Double = 0.95
+    ) -> some View {
+        environment(
+            \.markdownFadeReveal,
+            MarkdownFadeRevealConfig(
+                duration: duration,
+                hue: hue,
+                saturation: saturation,
+                brightness: brightness
+            )
         )
     }
 }
