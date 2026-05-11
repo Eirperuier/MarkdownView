@@ -21,10 +21,10 @@ extension MarkdownContent {
         if parseBlockDirectives {
             options.insert(.parseBlockDirectives)
         }
-        let document = parse(options: options)
+        let children = topLevelChildren(options: options)
 
         var result: [MarkdownBlockDescriptor] = []
-        for (index, child) in document.children.enumerated() {
+        for (index, child) in children.enumerated() {
             if expandListItems, let items = Self.expandList(child, topLevelIndex: index) {
                 result.append(contentsOf: items)
             } else {
@@ -139,14 +139,25 @@ extension MarkdownContent {
     // MARK: - Plain Text Extraction
 
     private static func extractPlainText(_ node: any Markup) -> String {
-        switch node {
-        case let h as Heading:    return h.plainText
-        case let p as Paragraph:  return p.plainText
-        case let cb as CodeBlock: return cb.code
-        case let html as HTMLBlock: return html.rawHTML
-        default:
-            return node.format().trimmingCharacters(in: .whitespacesAndNewlines)
+        node.markdownRevealPlainText
+    }
+
+    /// Concatenated plain text in canonical reveal order:
+    /// header row L→R, then each body row L→R. The reveal coordinator drives
+    /// per-cell `blockTextOffset` against this order; any change to the order
+    /// here must match the offset computation in `MarkdownTable`.
+    private static func extractTablePlainText(_ table: Markdown.Table) -> String {
+        var result = ""
+        for cell in table.head.cells {
+            result += cell.markdownRevealPlainText
         }
+        for child in table.body.children {
+            guard let row = child as? Markdown.Table.Row else { continue }
+            for cell in row.cells {
+                result += cell.markdownRevealPlainText
+            }
+        }
+        return result
     }
 
     private static func extractChildPlainTexts(_ node: any Markup, fallback: String) -> [String] {
@@ -161,11 +172,10 @@ extension MarkdownContent {
     }
 
     private static func extractListItemPlainText(_ item: ListItem) -> String {
-        item.children.compactMap { child -> String? in
-            if let p = child as? Paragraph { return p.plainText }
-            if let h = child as? Heading { return h.plainText }
-            return nil
-        }.joined()
+        item.children
+            .filter { !($0 is OrderedList) && !($0 is UnorderedList) }
+            .map(\.markdownRevealPlainText)
+            .joined()
     }
 
     // MARK: - Node Classification
@@ -173,7 +183,11 @@ extension MarkdownContent {
     private static func classifyNode(_ node: any Markup) -> MarkdownBlockDescriptor.Kind {
         switch node {
         case let h as Heading:         return .heading(level: h.level)
-        case _ as Paragraph:           return .paragraph
+        case let p as Paragraph:
+            if Self.standaloneDisplayMath(in: p) != nil {
+                return .mathBlock
+            }
+            return .paragraph
         case let cb as CodeBlock:      return .codeBlock(language: cb.language)
         case _ as BlockQuote:          return .blockQuote
         case _ as OrderedList:         return .orderedList
@@ -184,5 +198,20 @@ extension MarkdownContent {
         case let bd as BlockDirective: return .blockDirective(name: bd.name)
         default:                       return .unknown
         }
+    }
+
+    private static func standaloneDisplayMath(in paragraph: Paragraph) -> String? {
+        for (candidate, unescapeCommonMarkEscapes) in [
+            (paragraph.plainText, false),
+            (paragraph.format(), true),
+        ] {
+            if let latexMath = MathParser.standaloneDisplayMath(
+                in: candidate,
+                unescapingCommonMarkEscapes: unescapeCommonMarkEscapes
+            ) {
+                return latexMath
+            }
+        }
+        return nil
     }
 }

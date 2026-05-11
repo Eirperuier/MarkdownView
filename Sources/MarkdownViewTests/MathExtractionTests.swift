@@ -33,6 +33,14 @@ struct MathExtractionTests {
                 extractedMath: [#"\[ \hat{H}\psi = E\psi \quad \text{where} \quad \hat{H} = -\frac{\hbar^2}{2m}\nabla^2 + V(\mathbf{r}) \]"#]
             ),
             MathExtractionTestConfiguration(
+                plainText: #"$$\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}$$"#,
+                extractedMath: [#"$$\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}$$"#]
+            ),
+            MathExtractionTestConfiguration(
+                plainText: #"$$\mathbf{A} = \begin{pmatrix} a_{11} & a_{12} & a_{13} \\ a_{21} & a_{22} & a_{23} \\ a_{31} & a_{32} & a_{33} \end{pmatrix}$$"#,
+                extractedMath: [#"$$\mathbf{A} = \begin{pmatrix} a_{11} & a_{12} & a_{13} \\ a_{21} & a_{22} & a_{23} \\ a_{31} & a_{32} & a_{33} \end{pmatrix}$$"#]
+            ),
+            MathExtractionTestConfiguration(
                 plainText: #"\[\]"#,
                 extractedMath: []
             ),

@@ -18,6 +18,7 @@ public struct MarkdownBlockDescriptor: Hashable, Sendable, Identifiable {
         case orderedList
         case unorderedList
         case table
+        case mathBlock
         case thematicBreak
         case htmlBlock
         case blockDirective(name: String)

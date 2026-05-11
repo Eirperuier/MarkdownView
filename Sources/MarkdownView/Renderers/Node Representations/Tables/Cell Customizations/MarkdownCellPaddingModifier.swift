@@ -18,9 +18,11 @@ struct MarkdownCellPaddingModifier: ViewModifier {
     
     func body(content: Content) -> some View {
         content
-            .contentPadding(.top, padding[.top])
-            .contentPadding(.bottom, padding[.bottom])
-            .contentPadding(.leading, padding[.leading])
-            .contentPadding(.trailing, padding[.trailing])
+            .padding(EdgeInsets(
+                top: padding[.top],
+                leading: padding[.leading],
+                bottom: padding[.bottom],
+                trailing: padding[.trailing]
+            ))
     }
 }

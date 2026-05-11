@@ -74,6 +74,7 @@ struct DefaultMarkdownCodeBlock: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.markdownFontGroup) private var fontGroup
     @Environment(\.codeHighlighter) private var injectedHighlighter
+    @Environment(\.codeBlockContentRenderers) private var customRenderers
 
     @State private var attributedCode: AttributedString?
     @State private var fullAttributedCode: AttributedString?
@@ -82,6 +83,14 @@ struct DefaultMarkdownCodeBlock: View {
     @State private var sheetHighlightTask: Task<Void, Error>?
     @State var showFullSheet: Bool = false
     @State private var codeCopied = false
+    @State private var displayMode: DisplayMode = .rendered
+
+    enum DisplayMode: Hashable { case rendered, code }
+
+    private var customRenderer: AnyCodeBlockContentRenderer? {
+        guard let lang = codeBlockConfiguration.language?.lowercased() else { return nil }
+        return customRenderers[lang]
+    }
 
     private var totalLineCount: Int {
         let lines = codeBlockConfiguration.code.components(separatedBy: .newlines)
@@ -176,15 +185,31 @@ struct DefaultMarkdownCodeBlock: View {
 
     @Namespace var namespace
 
+    @ViewBuilder
+    private var bodyContent: some View {
+        if let renderer = customRenderer, displayMode == .rendered {
+            renderer.makeBody(
+                code: codeBlockConfiguration.code,
+                language: codeBlockConfiguration.language
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            code
+        }
+    }
+
     var body: some View {
-        code
+        bodyContent
             .frame(maxWidth: .infinity, alignment: .leading)
 #if os(macOS) || os(iOS)
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
                     HStack {
+                        if customRenderer != nil {
+                            modePicker
+                        }
                         codeLanguage
-                        if !codeBlockConfiguration.showFullCode {
+                        if customRenderer == nil, !codeBlockConfiguration.showFullCode {
                             fullSheet
                         }
                         Spacer(minLength: 10)
@@ -213,6 +238,47 @@ struct DefaultMarkdownCodeBlock: View {
             .sheet(isPresented: $showFullSheet) {
                 fullCodeSheet
             }
+    }
+
+    private var modePicker: some View {
+        HStack(spacing: 2) {
+            modePickerSegment(title: "Preview", mode: .rendered)
+            modePickerSegment(title: "Code", mode: .code)
+        }
+        .padding(2)
+        .background {
+            RoundedRectangle(cornerRadius: 6)
+                .foregroundStyle(.gray.opacity(0.1))
+        }
+        .padding(.vertical, -2)
+    }
+
+    private func modePickerSegment(title: String, mode: DisplayMode) -> some View {
+        let isSelected = displayMode == mode
+        return Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                displayMode = mode
+            }
+        } label: {
+            ZStack {
+                Text(verbatim: title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .opacity(0)
+                Text(verbatim: title)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 4)
+                        .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.15) : Color.white)
+                }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Full-code sheet

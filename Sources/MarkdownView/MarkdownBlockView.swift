@@ -17,6 +17,7 @@ public struct MarkdownBlockView: View {
 
     @Environment(\.markdownRendererConfiguration) private var configuration
     @Environment(\.markdownFontGroup.body) private var bodyFont
+    @Environment(\.markdownTextOffsetBase) private var offsetBase
 
     public init(_ content: MarkdownContent, block: MarkdownBlockDescriptor) {
         self.content = content
@@ -29,8 +30,7 @@ public struct MarkdownBlockView: View {
 
     @ViewBuilder
     private var _renderedBlock: some View {
-        let document = content.parse(options: parseOptions)
-        let children = Array(document.children)
+        let children = content.topLevelChildren(options: parseOptions)
 
         if let ctx = descriptor.listItemContext {
             _listItemBlock(children: children, ctx: ctx)
@@ -56,6 +56,7 @@ public struct MarkdownBlockView: View {
             let perLevel: CGFloat = 20
             HStack(alignment: .firstTextBaseline) {
                 _markerView(ctx: ctx, checkbox: listItem.checkbox)
+                    .font(bodyFont)
                     .padding(.leading, baseIndent + CGFloat(ctx.depth) * perLevel)
                 _listItemContent(listItem: listItem)
             }
@@ -67,12 +68,32 @@ public struct MarkdownBlockView: View {
     @ViewBuilder
     private func _listItemContent(listItem: ListItem) -> some View {
         let inlineChildren = listItem.children.filter { !($0 is OrderedList) && !($0 is UnorderedList) }
+        let childOffsets = Self.offsets(for: inlineChildren)
         VStack(alignment: .leading, spacing: configuration.componentSpacing) {
-            ForEach(Array(inlineChildren.enumerated()), id: \.offset) { (_, child) in
-                CmarkNodeVisitor(configuration: configuration)
-                    .makeBody(for: child)
+            ForEach(Array(inlineChildren.enumerated()), id: \.offset) { index, child in
+                if child is Heading {
+                    CmarkNodeVisitor(configuration: configuration)
+                        .makeBody(for: child)
+                        .environment(\.markdownTextOffsetBase, offsetBase + childOffsets[index])
+                } else {
+                    CmarkNodeVisitor(configuration: configuration)
+                        .makeBody(for: child)
+                        .font(bodyFont)
+                        .environment(\.markdownTextOffsetBase, offsetBase + childOffsets[index])
+                }
             }
         }
+    }
+
+    private static func offsets(for children: [any Markup]) -> [Int] {
+        var result: [Int] = []
+        result.reserveCapacity(children.count)
+        var runningOffset = 0
+        for child in children {
+            result.append(runningOffset)
+            runningOffset += child.markdownRevealPlainText.count
+        }
+        return result
     }
 
     /// Navigate the AST using the full `indexPath` to locate the target ListItem,

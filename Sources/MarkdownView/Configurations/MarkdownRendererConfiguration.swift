@@ -26,7 +26,9 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     
     var allowedImageRenderers: Set<String> = ["https", "http"]
     var allowedBlockDirectiveRenderers: Set<String> = []
-    
+
+    var autolinkDetectionEnabled: Bool = true
+
     var highlightedStrings: [String] = []
     var highlightedColor: Color = .white
     var highlightedBackgroundColor: Color = .yellow
@@ -44,6 +46,7 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
         hasher.combine(listConfiguration)
         hasher.combine(allowedImageRenderers)
         hasher.combine(allowedBlockDirectiveRenderers)
+        hasher.combine(autolinkDetectionEnabled)
         hasher.combine(highlightedStrings)
         hasher.combine(linkTintColor.description)
         hasher.combine(inlineCodeTintColor.description)
@@ -83,23 +86,173 @@ extension EnvironmentValues {
 
 // MARK: - Streaming Environment (kept separate to avoid cache invalidation)
 
+private final class StreamingRevealTimestampStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var firstSeenTimestamps: [Date?] = []
+    private var completionFreshStart: Int?
+    private var completionTimestamp: Date?
+
+    func record(from oldValue: Int, to newValue: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let now = Date()
+        if newValue == Int.max {
+            if oldValue != Int.max {
+                completionFreshStart = max(0, oldValue)
+                completionTimestamp = now
+            }
+            return
+        }
+
+        completionFreshStart = nil
+        completionTimestamp = nil
+
+        let start = oldValue == Int.max ? 0 : max(0, oldValue)
+        guard newValue > start else { return }
+        ensureCapacity(newValue)
+        for index in start..<newValue where firstSeenTimestamps[index] == nil {
+            firstSeenTimestamps[index] = now
+        }
+    }
+
+    func firstSeenTimestamp(at index: Int) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard index >= 0 else { return nil }
+        if index < firstSeenTimestamps.count, let timestamp = firstSeenTimestamps[index] {
+            return timestamp
+        }
+        if let start = completionFreshStart,
+           let timestamp = completionTimestamp,
+           index >= start {
+            return timestamp
+        }
+        return nil
+    }
+
+    private func ensureCapacity(_ count: Int) {
+        guard count > firstSeenTimestamps.count else { return }
+        firstSeenTimestamps.append(contentsOf: Array(repeating: nil, count: count - firstSeenTimestamps.count))
+    }
+}
+
 /// Holds the character-by-character reveal count for streaming text.
 /// Driven externally by `StreamingRevealCoordinator`.
 /// When not injected into the environment (nil), `_MarkdownText` shows full text.
-@Observable @MainActor
+@MainActor
 public final class StreamingRevealManager {
-    public var revealedCount: Int = 0
+    public var revealedCount: Int = 0 {
+        didSet {
+            guard oldValue != revealedCount else { return }
+            timestampStore.record(from: oldValue, to: revealedCount)
+            notifyListeners()
+        }
+    }
+
+    private var listeners: [UUID: (Int) -> Void] = [:]
+    private nonisolated let timestampStore = StreamingRevealTimestampStore()
+
     public init() {}
+
+    @discardableResult
+    public func addListener(_ listener: @escaping (Int) -> Void) -> UUID {
+        let id = UUID()
+        listeners[id] = listener
+        listener(revealedCount)
+        return id
+    }
+
+    public func removeListener(_ id: UUID) {
+        listeners.removeValue(forKey: id)
+    }
+
+    public nonisolated func firstSeenTimestamp(at index: Int) -> Date? {
+        timestampStore.firstSeenTimestamp(at: index)
+    }
+
+    private func notifyListeners() {
+        for listener in listeners.values {
+            listener(revealedCount)
+        }
+    }
 }
 
 struct MarkdownStreamingKey: EnvironmentKey {
     nonisolated(unsafe) static let defaultValue: StreamingRevealManager? = nil
 }
 
+struct MarkdownStreamingRevealCountKey: EnvironmentKey {
+    static let defaultValue: Int? = nil
+}
+
 extension EnvironmentValues {
     var markdownStreaming: StreamingRevealManager? {
         get { self[MarkdownStreamingKey.self] }
         set { self[MarkdownStreamingKey.self] = newValue }
+    }
+
+    var markdownStreamingRevealCount: Int? {
+        get { self[MarkdownStreamingRevealCountKey.self] }
+        set { self[MarkdownStreamingRevealCountKey.self] = newValue }
+    }
+}
+
+// MARK: - Block-relative text offset for nested reveal
+
+/// Anchors a subtree's text into the parent block's plainText. Tables push
+/// each cell's start offset here so `_MarkdownText` inside the cell can map
+/// its local indices into the block's reveal frontier.
+struct MarkdownTextOffsetBaseKey: EnvironmentKey {
+    static let defaultValue: Int = 0
+}
+
+extension EnvironmentValues {
+    var markdownTextOffsetBase: Int {
+        get { self[MarkdownTextOffsetBaseKey.self] }
+        set { self[MarkdownTextOffsetBaseKey.self] = newValue }
+    }
+}
+
+/// Tells `RevealFadeRenderer` to treat already-revealed glyphs on its very
+/// first `draw` as freshly-revealed (stamp them as `now`, animate them in)
+/// instead of as long-settled (`.distantPast`, snap-in static).
+///
+/// Set by table cells transitioning into `.active` phase, where the cell is
+/// being mounted right as the frontier crosses its window — `revealedLocal`
+/// can already be > 0 because the streaming coordinator advances multiple
+/// chars per tick. Without this, the first 1–2 chars of every cell snap in.
+///
+/// Default `false` preserves the existing single-block behavior: a paragraph
+/// re-mounting mid-stream (e.g. scrolled out and back) doesn't re-animate the
+/// glyphs the user has already seen.
+struct MarkdownStreamingFreshActivationKey: EnvironmentKey {
+    static let defaultValue: Bool = false
+}
+
+extension EnvironmentValues {
+    var markdownStreamingFreshActivation: Bool {
+        get { self[MarkdownStreamingFreshActivationKey.self] }
+        set { self[MarkdownStreamingFreshActivationKey.self] = newValue }
+    }
+}
+
+enum MarkdownTableRevealTextContext: Equatable, Sendable {
+    case inherited
+    case hidden
+    case active(offsetBase: Int, freshActivation: Bool, minimumInterval: TimeInterval)
+    case past
+}
+
+struct MarkdownTableRevealTextContextKey: EnvironmentKey {
+    static let defaultValue: MarkdownTableRevealTextContext = .inherited
+}
+
+extension EnvironmentValues {
+    var markdownTableRevealTextContext: MarkdownTableRevealTextContext {
+        get { self[MarkdownTableRevealTextContextKey.self] }
+        set { self[MarkdownTableRevealTextContextKey.self] = newValue }
     }
 }
 

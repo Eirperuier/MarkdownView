@@ -40,6 +40,7 @@ public struct MarkdownContent: Sendable {
     class ParsedDocumentStore: /* NSLock */ @unchecked Sendable {
         private var lock = NSLock()
         private var caches: [ParseOptions.RawValue : Document] = [:]
+        private var childrenCaches: [ParseOptions.RawValue : [any Markup]] = [:]
         
         fileprivate func parse(_ rawContent: RawMarkdownContent, options: ParseOptions = ParseOptions()) -> Document {
             lock.lock()
@@ -48,14 +49,42 @@ public struct MarkdownContent: Sendable {
             if let cached = caches[options.rawValue] {
                 return cached
             }
+
+            let parserText = MarkdownParseSanitizer.sanitizedForCmark(rawContent.text)
             
             let document = Document(
-                parsing: rawContent.text,
+                parsing: parserText,
                 source: rawContent.source,
                 options: options
             )
             caches[options.rawValue] = document
             return document
+        }
+
+        fileprivate func topLevelChildren(_ rawContent: RawMarkdownContent, options: ParseOptions = ParseOptions()) -> [any Markup] {
+            lock.lock()
+            defer { lock.unlock() }
+
+            if let cached = childrenCaches[options.rawValue] {
+                return cached
+            }
+
+            let document: Document
+            if let cached = caches[options.rawValue] {
+                document = cached
+            } else {
+                let parserText = MarkdownParseSanitizer.sanitizedForCmark(rawContent.text)
+                document = Document(
+                    parsing: parserText,
+                    source: rawContent.source,
+                    options: options
+                )
+                caches[options.rawValue] = document
+            }
+
+            let children = Array(document.children)
+            childrenCaches[options.rawValue] = children
+            return children
         }
         
         var documents: LazySequence<Dictionary<ParseOptions.RawValue, Document>.Values> {
@@ -82,6 +111,10 @@ public struct MarkdownContent: Sendable {
     
     func parse(options: ParseOptions = ParseOptions()) -> Document {
         store.parse(raw, options: options)
+    }
+
+    func topLevelChildren(options: ParseOptions = ParseOptions()) -> [any Markup] {
+        store.topLevelChildren(raw, options: options)
     }
 }
 

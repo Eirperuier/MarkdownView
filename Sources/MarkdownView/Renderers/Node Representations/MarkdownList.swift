@@ -5,7 +5,7 @@ struct MarkdownList<List: ListItemContainer>: View {
     var listItemsContainer: List
     
     @Environment(\.markdownRendererConfiguration) private var configuration
-    @Environment(\.markdownStreaming) private var streamingManager
+    @Environment(\.markdownTextOffsetBase) private var offsetBase
     private var marker: Either<AnyUnorderedListMarkerProtocol, AnyOrderedListMarkerProtocol> {
         if listItemsContainer is UnorderedList {
             return .left(configuration.listConfiguration.unorderedListMarker)
@@ -21,6 +21,7 @@ struct MarkdownList<List: ListItemContainer>: View {
     
     var body: some View {
         let listItems = Array(listItemsContainer.listItems)
+        let itemOffsets = Self.offsets(for: listItems)
         
         VStack(alignment: .leading, spacing: configuration.componentSpacing) {
             ForEach(
@@ -34,8 +35,20 @@ struct MarkdownList<List: ListItemContainer>: View {
                     configuration: configuration,
                     leadingIndentation: depth == 0 ? configuration.listConfiguration.leadingIndentation : 0
                 )
+                .environment(\.markdownTextOffsetBase, offsetBase + itemOffsets[index])
             }
         }
+    }
+
+    private static func offsets(for listItems: [ListItem]) -> [Int] {
+        var result: [Int] = []
+        result.reserveCapacity(listItems.count)
+        var runningOffset = 0
+        for item in listItems {
+            result.append(runningOffset)
+            runningOffset += item.markdownRevealPlainText.count
+        }
+        return result
     }
     
     struct CheckboxOrMarker: View {
@@ -44,16 +57,18 @@ struct MarkdownList<List: ListItemContainer>: View {
         var index: Int
         
         var body: some View {
-            if let checkBox = listItem.checkbox {
-                MarkdownCheckbox(checkbox: checkBox)
-            } else if case let .left(unorderedMarker) = list.marker {
-                SwiftUI.Text(unorderedMarker.marker(listDepth: list.depth))
-                    .backdeployedMonospaced(unorderedMarker.monospaced)
-                    .foregroundStyle(.secondary)
-            } else if case let .right(orderedMarker) = list.marker {
-                SwiftUI.Text(orderedMarker.marker(at: index, listDepth: list.depth))
-                    .backdeployedMonospaced(orderedMarker.monospaced)
-                    .foregroundStyle(.secondary)
+            StreamingRevealMarker {
+                if let checkBox = listItem.checkbox {
+                    MarkdownCheckbox(checkbox: checkBox)
+                } else if case let .left(unorderedMarker) = list.marker {
+                    SwiftUI.Text(unorderedMarker.marker(listDepth: list.depth))
+                        .backdeployedMonospaced(unorderedMarker.monospaced)
+                        .foregroundStyle(.secondary)
+                } else if case let .right(orderedMarker) = list.marker {
+                    SwiftUI.Text(orderedMarker.marker(at: index, listDepth: list.depth))
+                        .backdeployedMonospaced(orderedMarker.monospaced)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -94,14 +109,30 @@ private struct MarkdownListRow<List: ListItemContainer>: View {
 struct MarkdownListItem: View {
     var listItem: ListItem
     @Environment(\.markdownRendererConfiguration) private var configuration
+    @Environment(\.markdownTextOffsetBase) private var offsetBase
     
     var body: some View {
+        let children = Array(listItem.children)
+        let childOffsets = Self.offsets(for: children)
+
         VStack(alignment: .leading, spacing: configuration.componentSpacing) {
-            ForEach(Array(listItem.children.enumerated()), id: \.offset) { (_, child) in
+            ForEach(Array(children.enumerated()), id: \.offset) { index, child in
                 CmarkNodeVisitor(configuration: configuration)
                     .makeBody(for: child)
+                    .environment(\.markdownTextOffsetBase, offsetBase + childOffsets[index])
             }
         }
+    }
+
+    private static func offsets(for children: [any Markup]) -> [Int] {
+        var result: [Int] = []
+        result.reserveCapacity(children.count)
+        var runningOffset = 0
+        for child in children {
+            result.append(runningOffset)
+            runningOffset += child.markdownRevealPlainText.count
+        }
+        return result
     }
 }
 

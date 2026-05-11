@@ -49,11 +49,31 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
   }
 
   func visitText(_ text: Markdown.Text) -> MarkdownNodeView {
+    let plain = text.plainText
+    let autolinked: AttributedString? = configuration.autolinkDetectionEnabled
+        ? MarkdownAutolinkDetector.attributedString(
+            from: plain,
+            linkTintColor: configuration.linkTintColor
+        )
+        : nil
+
     if configuration.math.shouldRender {
-      InlineMathOrText(text: text.plainText)
+      let mathView = InlineMathOrText(text: plain)
         .makeBody(configuration: configuration)
+      // When the math path produced an unstyled plain string (i.e. no math
+      // segments were detected), substitute the autolinked attributed version.
+      if let autolinked,
+         let plainAttributed = mathView.asAttributedString,
+         plainAttributed.characters.elementsEqual(plain)
+      {
+        return MarkdownNodeView(autolinked)
+      }
+      return mathView
     } else {
-        MarkdownNodeView(text.plainText)
+      if let autolinked {
+        return MarkdownNodeView(autolinked)
+      }
+      return MarkdownNodeView(plain)
     }
   }
 
@@ -79,6 +99,7 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
             .frame(height: 1)
             .foregroundStyle(.gray.opacity(0.1))
             .padding(.vertical, 15)
+            .streamingRevealFadeIn()
     }
   }
 
@@ -185,6 +206,15 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
   }
 
   func visitParagraph(_ paragraph: Paragraph) -> MarkdownNodeView {
+    if configuration.math.shouldRender,
+       let latexMath = standaloneDisplayMath(in: paragraph) {
+      return MarkdownNodeView {
+        MarkdownDisplayMath(latexMath: latexMath)
+          .streamingRevealFadeIn()
+          .padding(.vertical, 5)
+      }
+    }
+
     let content = defaultVisit(paragraph)
     return MarkdownNodeView {
       VStack(alignment: .leading, spacing: configuration.componentSpacing) {
@@ -192,6 +222,21 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
       }
       .padding(.vertical, 5)
     }
+  }
+
+  private func standaloneDisplayMath(in paragraph: Paragraph) -> String? {
+    for (candidate, unescapeCommonMarkEscapes) in [
+      (paragraph.plainText, false),
+      (paragraph.format(), true),
+    ] {
+      if let latexMath = MathParser.standaloneDisplayMath(
+        in: candidate,
+        unescapingCommonMarkEscapes: unescapeCommonMarkEscapes
+      ) {
+        return latexMath
+      }
+    }
+    return nil
   }
 
   func visitHeading(_ heading: Heading) -> MarkdownNodeView {

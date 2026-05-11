@@ -94,6 +94,85 @@ extension MathParser {
         public var kind: Kind
         public var range: Range<String.Index>
     }
+
+    static func standaloneDisplayMath(
+        in text: String,
+        unescapingCommonMarkEscapes: Bool = false
+    ) -> String? {
+        let source = unescapingCommonMarkEscapes
+            ? commonMarkUnescapedMathSource(text)
+            : text
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let mathRepresentations = MathParser(text: trimmed).mathRepresentations
+        guard mathRepresentations.count == 1,
+              let math = mathRepresentations.first,
+              !math.kind.inline,
+              math.range.lowerBound == trimmed.startIndex,
+              math.range.upperBound == trimmed.endIndex
+        else {
+            return nil
+        }
+
+        return String(trimmed[math.range])
+    }
+
+    static func containsExplicitColorCommand(in latex: String) -> Bool {
+        [
+            #"\color"#,
+            #"\textcolor"#,
+            #"\definecolor"#,
+            #"\colorbox"#,
+            #"\fcolorbox"#,
+        ].contains { latex.contains($0) }
+    }
+
+    private static func commonMarkUnescapedMathSource(_ text: String) -> String {
+        var result = ""
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            let character = text[index]
+
+            if character == "\\" {
+                let nextIndex = text.index(after: index)
+
+                if nextIndex < text.endIndex {
+                    let nextCharacter = text[nextIndex]
+
+                    if nextCharacter == "\\" {
+                        let afterNextIndex = text.index(after: nextIndex)
+                        if afterNextIndex < text.endIndex,
+                           isASCIIControlWordLetter(text[afterNextIndex]) {
+                            result.append("\\")
+                            index = afterNextIndex
+                            continue
+                        }
+                    } else if nextCharacter == "_" {
+                        result.append("_")
+                        index = text.index(after: nextIndex)
+                        continue
+                    }
+                }
+            }
+
+            result.append(character)
+            index = text.index(after: index)
+        }
+
+        return result
+    }
+
+    private static func isASCIIControlWordLetter(_ character: Character) -> Bool {
+        guard character.unicodeScalars.count == 1,
+              let scalar = character.unicodeScalars.first
+        else {
+            return false
+        }
+
+        return (65...90).contains(scalar.value) || (97...122).contains(scalar.value)
+    }
 }
 
 extension MathParser.MathRepresentation {

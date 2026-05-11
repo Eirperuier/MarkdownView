@@ -28,6 +28,7 @@ struct MarkdownBlockDirective: View {
             renderer
                 .makeBody(configuration: configuration)
                 .erasedToAnyView()
+                .streamingRevealFadeIn()
         } else {
             CmarkNodeVisitor(configuration: configuration)
                 .descendInto(blockDirective)

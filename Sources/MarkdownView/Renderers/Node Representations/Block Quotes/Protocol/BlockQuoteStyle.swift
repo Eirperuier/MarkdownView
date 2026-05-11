@@ -36,6 +36,7 @@ public struct BlockQuoteStyleConfiguration {
     public struct Content: View {
         private var blockQuote: BlockQuote
         @Environment(\.markdownRendererConfiguration) private var configuration
+        @Environment(\.markdownTextOffsetBase) private var offsetBase
         
         init(blockQuote: BlockQuote) {
             self.blockQuote = blockQuote
@@ -43,12 +44,27 @@ public struct BlockQuoteStyleConfiguration {
         
         @_documentation(visibility: internal)
         public var body: some View {
+            let children = Array(blockQuote.children)
+            let childOffsets = Self.offsets(for: children)
+
             VStack(alignment: .leading, spacing: configuration.componentSpacing) {
-                ForEach(Array(blockQuote.children.enumerated()), id: \.offset) { _, child in
+                ForEach(Array(children.enumerated()), id: \.offset) { index, child in
                     CmarkNodeVisitor(configuration: configuration)
                         .makeBody(for: child)
+                        .environment(\.markdownTextOffsetBase, offsetBase + childOffsets[index])
                 }
             }
+        }
+
+        private static func offsets(for children: [any Markup]) -> [Int] {
+            var result: [Int] = []
+            result.reserveCapacity(children.count)
+            var runningOffset = 0
+            for child in children {
+                result.append(runningOffset)
+                runningOffset += child.markdownRevealPlainText.count
+            }
+            return result
         }
     }
 }

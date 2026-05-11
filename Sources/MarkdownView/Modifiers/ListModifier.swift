@@ -50,9 +50,25 @@ extension View {
         }
     }
     
-    nonisolated public func markdownStreaming(_ manager: StreamingRevealManager?) -> some View {
-        environment(\.markdownStreaming, manager)
+    @MainActor
+    public func markdownStreaming(_ manager: StreamingRevealManager?) -> some View {
+        modifier(MarkdownStreamingModifier(manager: manager))
     }
-    
-    
+
+    /// Disable per-character streaming reveal for the wrapped subtree by clearing
+    /// the inherited `markdownStreaming` manager.
+    nonisolated public func markdownStreamingRevealDisabled() -> some View {
+        environment(\.markdownStreaming, nil)
+    }
+
+
+}
+
+private struct MarkdownStreamingModifier: ViewModifier {
+    let manager: StreamingRevealManager?
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.markdownStreaming, manager)
+    }
 }

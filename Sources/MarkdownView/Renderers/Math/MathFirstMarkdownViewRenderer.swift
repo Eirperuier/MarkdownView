@@ -29,7 +29,7 @@ struct MathFirstMarkdownViewRenderer: MarkdownViewRenderer {
                     )
                     rawText.replaceSubrange(
                         math.range,
-                        with: "@math(uuid:\(mathIdentifier))"
+                        with: "\n@math(uuid:\(mathIdentifier))\n"
                     )
                 } else {
                     let mathId = configuration.math.appendInlineMath(

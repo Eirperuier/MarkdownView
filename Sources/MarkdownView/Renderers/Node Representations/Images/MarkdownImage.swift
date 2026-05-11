@@ -32,26 +32,29 @@ struct MarkdownImage: View {
     @Environment(\.markdownRendererConfiguration.allowedImageRenderers) private var allowedRenderer
     
     var body: some View {
-        if let url {
-            let configuration = MarkdownImageRendererConfiguration(
-                url: url,
-                alternativeText: alternativeText
-            )
-            if let scheme = url.scheme, allowedRenderer.contains(scheme),
-               let renderer = MarkdownImageRenders.named(scheme) {
-                renderer
-                    .makeBody(configuration: configuration)
-                    .erasedToAnyView()
-            } else if let baseURL {
-                RelativePathMarkdownImageRenderer(baseURL: baseURL)
-                    .makeBody(configuration: configuration)
-                    .erasedToAnyView()
+        Group {
+            if let url {
+                let configuration = MarkdownImageRendererConfiguration(
+                    url: url,
+                    alternativeText: alternativeText
+                )
+                if let scheme = url.scheme, allowedRenderer.contains(scheme),
+                   let renderer = MarkdownImageRenders.named(scheme) {
+                    renderer
+                        .makeBody(configuration: configuration)
+                        .erasedToAnyView()
+                } else if let baseURL {
+                    RelativePathMarkdownImageRenderer(baseURL: baseURL)
+                        .makeBody(configuration: configuration)
+                        .erasedToAnyView()
+                } else {
+                    fallbackView
+                }
             } else {
                 fallbackView
             }
-        } else {
-            fallbackView
         }
+        .streamingRevealFadeIn()
     }
     
     private var fallbackView: some View {
