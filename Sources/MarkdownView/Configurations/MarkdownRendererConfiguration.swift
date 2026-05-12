@@ -151,6 +151,8 @@ public final class StreamingRevealManager {
         }
     }
 
+    public private(set) var adaptiveFadeDurationScale: Double = 1.0
+
     private var listeners: [UUID: (Int) -> Void] = [:]
     private nonisolated let timestampStore = StreamingRevealTimestampStore()
 
@@ -166,6 +168,15 @@ public final class StreamingRevealManager {
 
     public func removeListener(_ id: UUID) {
         listeners.removeValue(forKey: id)
+    }
+
+    public func setAdaptiveFadeDurationScale(_ scale: Double) {
+        adaptiveFadeDurationScale = min(max(scale, 0.45), 1.0)
+    }
+
+    public func adaptiveFadeDuration(baseDuration: TimeInterval) -> TimeInterval {
+        guard baseDuration > 0 else { return 0 }
+        return baseDuration * adaptiveFadeDurationScale
     }
 
     public nonisolated func firstSeenTimestamp(at index: Int) -> Date? {
@@ -259,17 +270,27 @@ extension EnvironmentValues {
 // MARK: - Fade Reveal Configuration
 
 public struct MarkdownFadeRevealConfig: Equatable, Sendable {
-    public static let legacyHighlightHue: Double = 30.0 / 360.0
+    public static let legacyHighlightStartHue: Double = 30.0 / 360.0
+    public static let legacyHighlightEndHue: Double = 270.0 / 360.0
+    public static let legacyHighlightHue: Double = legacyHighlightStartHue
 
     public var duration: TimeInterval
-    public var highlightColor: Color
+    public var highlightColor: Color?
+    public var highlightStartHue: Double?
+    public var highlightEndHue: Double?
+    public var hueSaturation: Double
+    public var hueBrightness: Double
 
     public init(duration: TimeInterval = 0.4, highlightColor: Color = .accentColor) {
         self.duration = duration
         self.highlightColor = highlightColor
+        self.highlightStartHue = nil
+        self.highlightEndHue = nil
+        self.hueSaturation = 0.9
+        self.hueBrightness = 0.95
     }
 
-    /// Creates a reveal highlight color from a SwiftUI-style hue in the `0...1` range.
+    /// Creates a static reveal highlight color from a SwiftUI-style hue in the `0...1` range.
     public init(
         duration: TimeInterval = 0.4,
         hue: Double,
@@ -282,6 +303,26 @@ public struct MarkdownFadeRevealConfig: Equatable, Sendable {
             saturation: saturation,
             brightness: brightness
         )
+        self.highlightStartHue = nil
+        self.highlightEndHue = nil
+        self.hueSaturation = saturation
+        self.hueBrightness = brightness
+    }
+
+    /// Creates a reveal highlight trail between two SwiftUI-style hues in the `0...1` range.
+    public init(
+        duration: TimeInterval = 0.4,
+        startHue: Double,
+        endHue: Double,
+        saturation: Double = 0.9,
+        brightness: Double = 0.95
+    ) {
+        self.duration = duration
+        self.highlightColor = nil
+        self.highlightStartHue = Self.normalizedHue(startHue)
+        self.highlightEndHue = Self.normalizedHue(endHue)
+        self.hueSaturation = saturation
+        self.hueBrightness = brightness
     }
 
     private static func normalizedHue(_ hue: Double) -> Double {
@@ -328,6 +369,27 @@ extension View {
             MarkdownFadeRevealConfig(
                 duration: duration,
                 hue: hue,
+                saturation: saturation,
+                brightness: brightness
+            )
+        )
+    }
+
+    /// Enable per-character fade-in animation with a caller-provided hue range.
+    /// The hues follow SwiftUI's `Color(hue:saturation:brightness:)` convention: `0...1`.
+    nonisolated public func markdownFadeReveal(
+        duration: TimeInterval = 0.4,
+        startHue: Double,
+        endHue: Double,
+        saturation: Double = 0.9,
+        brightness: Double = 0.95
+    ) -> some View {
+        environment(
+            \.markdownFadeReveal,
+            MarkdownFadeRevealConfig(
+                duration: duration,
+                startHue: startHue,
+                endHue: endHue,
                 saturation: saturation,
                 brightness: brightness
             )

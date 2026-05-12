@@ -357,6 +357,8 @@ private struct CJKItalicRenderer: TextRenderer {
 
 @available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, *)
 private struct RevealFadeRenderer: TextRenderer {
+    private static let hueCycleDuration: TimeInterval = 8.0
+
     // Color tint outlasts the opacity fade-in — the glyph reaches full
     // opacity quickly, but the colored blend lingers as it restores to the
     // natural ink color. Tuned so the color "trail" is perceptibly longer
@@ -366,8 +368,14 @@ private struct RevealFadeRenderer: TextRenderer {
     let revealedCount: Int
     let blockTextOffset: Int
     let characterCount: Int
+    let timelineDate: Date
     let duration: TimeInterval
-    let highlightColor: Color
+    let highlightColor: Color?
+    let highlightStartHue: Double?
+    let highlightEndHue: Double?
+    let hueSaturation: Double
+    let hueBrightness: Double
+    let colorScheme: ColorScheme
     let state: FadeState
     let cjkItalicRanges: [Range<Int>]
     let revealManager: StreamingRevealManager?
@@ -381,8 +389,69 @@ private struct RevealFadeRenderer: TextRenderer {
     let treatExistingAsFresh: Bool
 
     var colorDuration: TimeInterval { duration * Self.colorDurationMultiplier }
+    var overlayOpacity: Double {
+        colorScheme == .dark ? 0.35 : 0.5
+    }
     var displayPadding: EdgeInsets {
         CJKItalicGlyphSkew.displayPadding(for: cjkItalicRanges)
+    }
+
+    private static func normalizedHue(_ hue: Double) -> Double {
+        guard hue.isFinite else { return 0 }
+        let normalized = hue.truncatingRemainder(dividingBy: 1)
+        return normalized >= 0 ? normalized : normalized + 1
+    }
+
+    private var tintColor: Color {
+        if let highlightStartHue, let highlightEndHue {
+            let start = Self.normalizedHue(highlightStartHue)
+            let span = Self.normalizedHue(highlightEndHue - start)
+            let cycleDuration = max(Self.hueCycleDuration, .leastNonzeroMagnitude)
+            let progress = timelineDate
+                .timeIntervalSinceReferenceDate
+                .truncatingRemainder(dividingBy: cycleDuration)
+                / cycleDuration
+            let wave = (1 - cos(progress * 2 * .pi)) * 0.5
+            return Color(
+                hue: Self.normalizedHue(start + wave * span),
+                saturation: hueSaturation,
+                brightness: hueBrightness
+            )
+        }
+
+        if let highlightStartHue {
+            return Color(
+                hue: Self.normalizedHue(highlightStartHue),
+                saturation: hueSaturation,
+                brightness: hueBrightness
+            )
+        }
+
+        return highlightColor ?? .accentColor
+    }
+
+    private func runCanDrawAsSettled(
+        start: Int,
+        end: Int,
+        now: Date,
+        colorDuration: TimeInterval
+    ) -> Bool {
+        guard start < end else { return true }
+        guard cjkItalicRanges.isEmpty else { return false }
+        let lastCharacterIndex = end - 1
+
+        if lastCharacterIndex < state.firstSeen.count,
+           let timestamp = state.firstSeen[lastCharacterIndex] {
+            return now.timeIntervalSince(timestamp) >= colorDuration
+        }
+
+        if let timestamp = revealManager?.firstSeenTimestamp(at: blockTextOffset + lastCharacterIndex) {
+            return now.timeIntervalSince(timestamp) >= colorDuration
+        }
+
+        // On a cold mount without a fresh-activation hint, already-revealed
+        // text is intentionally treated as settled to avoid replaying old fade.
+        return !state.initialized && !treatExistingAsFresh
     }
 
     func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
@@ -405,10 +474,27 @@ private struct RevealFadeRenderer: TextRenderer {
         let durationInv = duration > 0 ? 1.0 / duration : .greatestFiniteMagnitude
         let colorDurationValue = colorDuration
         let colorDurationInv = colorDurationValue > 0 ? 1.0 / colorDurationValue : .greatestFiniteMagnitude
+        let currentTintColor = tintColor
         var visitedGlyphs = 0
 
         for line in layout {
             for run in line {
+                let runStart = charIdx
+                let runGlyphCount = run.count
+                let runEnd = runStart + runGlyphCount
+                if runEnd <= revealedLocal,
+                   runCanDrawAsSettled(
+                    start: runStart,
+                    end: runEnd,
+                    now: now,
+                    colorDuration: colorDurationValue
+                   ) {
+                    ctx.draw(run)
+                    charIdx = runEnd
+                    visitedGlyphs += runGlyphCount
+                    continue
+                }
+
                 for glyph in run {
                     visitedGlyphs += 1
                     defer { charIdx += 1 }
@@ -478,11 +564,11 @@ private struct RevealFadeRenderer: TextRenderer {
                             // the rect with the tint color. clipToLayer works
                             // across LCD subpixel and grayscale AA, where
                             // colorMultiply/sourceIn don't.
-                            inner.opacity = (1 - colorPhase) * 0.5
+                            inner.opacity = (1 - colorPhase) * overlayOpacity
                             inner.clipToLayer { mask in
                                 mask.draw(glyph)
                             }
-                            inner.fill(Path(rect), with: .color(highlightColor))
+                            inner.fill(Path(rect), with: .color(currentTintColor))
                         }
                     }
                 }
@@ -508,6 +594,7 @@ private struct FadeRevealMarkdownText: View {
     var onRevealSettled: (() -> Void)? = nil
 
     @Environment(\.font) private var inheritedFont
+    @Environment(\.colorScheme) private var colorScheme
     @State private var fadeState = FadeState()
     @State private var paused = true
     @State private var cleanupToken: Int = 0
@@ -515,8 +602,9 @@ private struct FadeRevealMarkdownText: View {
     var body: some View {
         let _ = MarkdownRenderProbe.increment(\.fadeRevealTextBodyCalls)
         let revealed = revealCount ?? .max
+        let fadeDuration = revealManager?.adaptiveFadeDuration(baseDuration: config.duration) ?? config.duration
 
-        TimelineView(.animation(minimumInterval: minimumInterval, paused: paused)) { _ in
+        TimelineView(.animation(minimumInterval: minimumInterval, paused: paused)) { ctx in
             Text(displayText)
                 .font(inheritedFont)
                 .textRenderer(
@@ -524,8 +612,14 @@ private struct FadeRevealMarkdownText: View {
                         revealedCount: revealed,
                         blockTextOffset: blockTextOffset,
                         characterCount: characterCount,
-                        duration: config.duration,
+                        timelineDate: ctx.date,
+                        duration: fadeDuration,
                         highlightColor: config.highlightColor,
+                        highlightStartHue: config.highlightStartHue,
+                        highlightEndHue: config.highlightEndHue,
+                        hueSaturation: config.hueSaturation,
+                        hueBrightness: config.hueBrightness,
+                        colorScheme: colorScheme,
                         state: fadeState,
                         cjkItalicRanges: cjkItalicRanges,
                         revealManager: revealManager,
@@ -546,7 +640,7 @@ private struct FadeRevealMarkdownText: View {
             // true` fires on every reveal tick, briefly pausing the
             // TimelineView mid-animation and causing visible stutter.
             // Cleanup only runs when the task completes naturally.
-            let settleDuration = config.duration * RevealFadeRenderer.colorDurationMultiplier
+            let settleDuration = fadeDuration * RevealFadeRenderer.colorDurationMultiplier
             paused = false
             await waitForDraw(revealed: revealed)
             if Task.isCancelled { return }
@@ -614,9 +708,10 @@ private struct StreamingRevealFadeInModifier: ViewModifier {
     @Environment(\.markdownFadeReveal) private var fadeConfig
 
     func body(content: Content) -> some View {
-        StreamingRevealCountReader { _, revealCount in
+        StreamingRevealCountReader { revealManager, revealCount in
             let visible = revealCount.map { $0 > offsetBase } ?? true
-            let duration = fadeConfig?.duration ?? 0.3
+            let baseDuration = fadeConfig?.duration ?? 0.3
+            let duration = revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
             content
                 .opacity(visible ? 1 : 0)
                 .animation(.easeOut(duration: duration), value: visible)

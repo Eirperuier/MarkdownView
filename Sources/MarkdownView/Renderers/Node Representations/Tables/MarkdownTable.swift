@@ -242,8 +242,13 @@ struct MarkdownTableContent: View {
 
     fileprivate static let fallbackSettleSlack: Int = 24
 
+    private var effectiveFadeDuration: TimeInterval {
+        let baseDuration = fadeConfig?.duration ?? 0.4
+        return revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
+    }
+
     private var tableFadeSettleDuration: TimeInterval {
-        min((fadeConfig?.duration ?? 0.4) + 0.05, 0.55)
+        min(effectiveFadeDuration + 0.05, 0.55)
     }
 
     private var revealManagerID: ObjectIdentifier? {
@@ -1000,6 +1005,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
                 if showTopSeparator {
                     Divider()
                         .padding(.trailing, isLastColumn ? 0 : -columnSpacing)
+                        .markdownTableRevealVisible(phase != .before)
                 }
             }
     }
@@ -1015,6 +1021,34 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
 
 extension MarkdownTable {
     static let CoordinateSpaceName: String = "markdownview-table"
+}
+
+struct MarkdownTableRowSeparator<Separator: View>: View {
+    var rowIndex: Int
+    var separator: Separator
+
+    @Environment(\.markdownTableCellPhasesByRow) private var phasesByRow
+
+    init(rowIndex: Int, @ViewBuilder separator: () -> Separator) {
+        self.rowIndex = rowIndex
+        self.separator = separator()
+    }
+
+    var body: some View {
+        separator
+            .markdownTableRevealVisible(isVisible)
+    }
+
+    private var isVisible: Bool {
+        guard let phasesByRow,
+              rowIndex >= 0,
+              rowIndex < phasesByRow.count
+        else { return true }
+
+        let rowPhases = phasesByRow[rowIndex]
+        guard !rowPhases.isEmpty else { return true }
+        return rowPhases.contains { $0 != .before }
+    }
 }
 
 // MARK: - Table cell offset / phase propagation (non-scrollable path)
@@ -1048,6 +1082,10 @@ extension EnvironmentValues {
 }
 
 extension View {
+    func markdownTableRevealVisible(_ visible: Bool) -> some View {
+        modifier(MarkdownTableRevealVisibilityModifier(visible: visible))
+    }
+
     /// Gates a table cell's content based on its reveal phase.
     /// `.before` hides the content while keeping its layout footprint;
     /// `.past` cuts the streaming env so `_MarkdownText` renders plain Text
@@ -1085,6 +1123,21 @@ extension View {
                 .environment(\.markdownImageIsInTableCell, true)
                 .environment(\.markdownTableRevealTextContext, .past)
         }
+    }
+}
+
+private struct MarkdownTableRevealVisibilityModifier: ViewModifier {
+    var visible: Bool
+
+    @Environment(\.markdownFadeReveal) private var fadeConfig
+    @Environment(\.markdownStreaming) private var revealManager
+
+    func body(content: Content) -> some View {
+        let baseDuration = fadeConfig?.duration ?? 0.3
+        let duration = revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
+        content
+            .opacity(visible ? 1 : 0)
+            .animation(.easeOut(duration: duration), value: visible)
     }
 }
 

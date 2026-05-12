@@ -70,7 +70,9 @@ struct AdaptiveGrid: View {
                     updateLayout()
                 }
                 if showDivider && rows.count - 1 != row {
-                    Divider()
+                    MarkdownTableRowSeparator(rowIndex: row + 1) {
+                        Divider()
+                    }
                 }
             }
         }

@@ -48,9 +48,11 @@ fileprivate struct DefaultMarkdownTable: View {
             if #available(macOS 13.0, iOS 17.0, tvOS 16.0, watchOS 9.0, *) {
                 Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                     configuration.table.header
-                    ForEach(Array(configuration.table.rows.enumerated()), id: \.offset) { (_, row) in
+                    ForEach(Array(configuration.table.rows.enumerated()), id: \.offset) { (index, row) in
                         if showsRowSeparators {
-                            Divider()
+                            MarkdownTableRowSeparator(rowIndex: index + 1) {
+                                Divider()
+                            }
                         }
                         row
                             
