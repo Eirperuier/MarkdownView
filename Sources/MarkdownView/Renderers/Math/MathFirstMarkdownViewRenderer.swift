@@ -17,7 +17,7 @@ struct MathFirstMarkdownViewRenderer: MarkdownViewRenderer {
         var rawText = content.raw.text
         
         var extractor = ParsingRangesExtractor()
-        extractor.visit(content.parse(options: ParseOptions().union(.parseBlockDirectives)))
+        extractor.visit(content.parse(options: content.parseOptions(allowingBlockDirectives: true)))
         for range in extractor.parsableRanges(in: rawText) {
             let segment = rawText[range]
             let segmentParser = MathParser(text: segment)

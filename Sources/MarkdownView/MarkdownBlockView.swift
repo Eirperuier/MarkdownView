@@ -193,10 +193,8 @@ public struct MarkdownBlockView: View {
     }
 
     private var parseOptions: ParseOptions {
-        var opts = ParseOptions()
-        if !configuration.allowedBlockDirectiveRenderers.isEmpty {
-            opts.insert(.parseBlockDirectives)
-        }
-        return opts
+        content.parseOptions(
+            allowingBlockDirectives: !configuration.allowedBlockDirectiveRenderers.isEmpty
+        )
     }
 }

@@ -73,6 +73,8 @@ struct DefaultMarkdownCodeBlock: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.markdownFontGroup) private var fontGroup
+    @Environment(\.markdownTextOffsetBase) private var offsetBase
+    @Environment(\.markdownFadeReveal) private var fadeConfig
     @Environment(\.codeHighlighter) private var injectedHighlighter
     @Environment(\.codeBlockContentRenderers) private var customRenderers
 
@@ -84,6 +86,10 @@ struct DefaultMarkdownCodeBlock: View {
     @State var showFullSheet: Bool = false
     @State private var codeCopied = false
     @State private var displayMode: DisplayMode = .rendered
+    @State private var blockHeight: CGFloat?
+    @State private var headerHeight: CGFloat?
+    @State private var codeLineHeights: [Int: CGFloat] = [:]
+    @State private var moreButtonHeight: CGFloat?
 
     enum DisplayMode: Hashable { case rendered, code }
 
@@ -101,10 +107,26 @@ struct DefaultMarkdownCodeBlock: View {
         totalLineCount > 15 && !codeBlockConfiguration.showFullCode
     }
 
+    private var displayedCodeLineCount: Int {
+        codeBlockConfiguration.showFullCode
+            ? totalLineCount
+            : min(totalLineCount, 15)
+    }
+
+    private var isShowingCustomRenderer: Bool {
+        customRenderer != nil && displayMode == .rendered
+    }
+
+    private var lineRevealMetrics: CodeBlockLineRevealMetrics {
+        CodeBlockLineRevealMetrics(code: codeBlockConfiguration.code)
+    }
+
     // MARK: - Main list code source (limited to 15 lines)
 
     var codeSource: some View {
-        Group {
+        let revealMetrics = lineRevealMetrics
+
+        return Group {
             if let attributedCode {
                 let lines = attributedCode.splitByLines()
                 let displayLines = codeBlockConfiguration.showFullCode
@@ -112,11 +134,25 @@ struct DefaultMarkdownCodeBlock: View {
                     : Array(lines.prefix(15))
                 ForEach(displayLines.indices, id: \.self) { index in
                     if let line = displayLines[safe: index] {
-                        codeLine(Text(line), index: index, total: displayLines.count)
+                        CodeBlockRevealLine(startOffset: revealMetrics.startOffset(forLine: index)) {
+                            codeLine(Text(line), index: index, total: displayLines.count)
+                                .onGeometryChange(for: CGFloat.self) { proxy in
+                                    roundedHeight(proxy.size.height)
+                                } action: { height in
+                                    updateCodeLineHeight(height, forLine: index)
+                                }
+                        }
                     }
                 }
                 if showMoreButton {
-                    moreButton(remaining: totalLineCount - 15)
+                    CodeBlockRevealLine(startOffset: revealMetrics.endOffset(afterLineCount: displayLines.count)) {
+                        moreButton(remaining: totalLineCount - 15)
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                roundedHeight(proxy.size.height)
+                            } action: { height in
+                                updateMoreButtonHeight(height)
+                            }
+                    }
                 }
             } else {
                 let rawLines = codeBlockConfiguration.code
@@ -127,11 +163,25 @@ struct DefaultMarkdownCodeBlock: View {
                     : Array(lines.prefix(15))
                 ForEach(displayLines.indices, id: \.self) { index in
                     if let line = displayLines[safe: index] {
-                        codeLine(Text(verbatim: line), index: index, total: displayLines.count)
+                        CodeBlockRevealLine(startOffset: revealMetrics.startOffset(forLine: index)) {
+                            codeLine(Text(verbatim: line), index: index, total: displayLines.count)
+                                .onGeometryChange(for: CGFloat.self) { proxy in
+                                    roundedHeight(proxy.size.height)
+                                } action: { height in
+                                    updateCodeLineHeight(height, forLine: index)
+                                }
+                        }
                     }
                 }
                 if showMoreButton {
-                    moreButton(remaining: totalLineCount - 15)
+                    CodeBlockRevealLine(startOffset: revealMetrics.endOffset(afterLineCount: displayLines.count)) {
+                        moreButton(remaining: totalLineCount - 15)
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                roundedHeight(proxy.size.height)
+                            } action: { height in
+                                updateMoreButtonHeight(height)
+                            }
+                    }
                 }
             }
         }
@@ -161,8 +211,14 @@ struct DefaultMarkdownCodeBlock: View {
             } label: {
                 HStack {
                     Spacer(minLength: 0)
-                    Text("Show the Remaining \(remaining) lines")
-                        .font(.footnote).foregroundStyle(.secondary)
+                    (
+                        Text("Show the Remaining ") +
+                        Text("\(remaining)")
+                            .monospacedDigit()
+                        +
+                        Text(" line\(remaining == 1 ? "" : "s")")
+                    )
+                    .font(.footnote).foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
                 .padding(10)
@@ -220,24 +276,126 @@ struct DefaultMarkdownCodeBlock: View {
                     Rectangle().frame(height: 1).foregroundStyle(.gray.opacity(0.2))
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    roundedHeight(proxy.size.height)
+                } action: { height in
+                    updateHeaderHeight(height)
+                }
                 .background {
                     Rectangle().foregroundStyle(
                         colorScheme == .dark ? .gray.opacity(0.1) : .white.opacity(0.5))
                 }
             }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                roundedHeight(proxy.size.height)
+            } action: { height in
+                updateBlockHeight(height)
+            }
             .clipShape(RoundedRectangle(cornerRadius: 15))
-            .background {
-                RoundedRectangle(cornerRadius: 15)
-                    .foregroundStyle(colorScheme == .dark ? .gray.opacity(0.1) : .white.opacity(0.5))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 15).stroke(lineWidth: 1)
-                            .foregroundStyle(.gray.opacity(0.2))
-                    }
+            .background(alignment: .top) {
+                codeBlockBackground
             }
 #endif
             .sheet(isPresented: $showFullSheet) {
                 fullCodeSheet
             }
+    }
+
+    private var codeBlockBackground: some View {
+        StreamingRevealCountReader { revealManager, revealCount in
+            let height = backgroundHeight(revealCount: revealCount)
+            let visible = height > 0
+            let baseDuration = fadeConfig?.duration ?? 0.3
+            let duration = revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
+            let isRevealing = revealCount != nil
+
+            RoundedRectangle(cornerRadius: 15)
+                .foregroundStyle(colorScheme == .dark ? .gray.opacity(0.1) : .white.opacity(0.5))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 15).stroke(lineWidth: 1)
+                        .foregroundStyle(.gray.opacity(0.2))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: height)
+                .opacity(visible ? 1 : 0)
+                .animation(isRevealing ? .smooth(duration: 0.24) : nil, value: height)
+                .animation(isRevealing ? .easeOut(duration: duration) : nil, value: visible)
+        }
+    }
+
+    private func backgroundHeight(revealCount: Int?) -> CGFloat {
+        guard let blockHeight, blockHeight > 0 else { return 0 }
+        guard let revealCount else { return blockHeight }
+
+        let localRevealCount = revealCount - offsetBase
+        guard localRevealCount > 0 else { return 0 }
+        guard !isShowingCustomRenderer else { return blockHeight }
+
+        let visibleLineCount = lineRevealMetrics.visibleLineCount(
+            forLocalRevealCount: localRevealCount,
+            maxLineCount: displayedCodeLineCount
+        )
+        let lineHeight = (0..<visibleLineCount).reduce(CGFloat.zero) { partial, index in
+            partial + measuredCodeLineHeight(forLine: index)
+        }
+        let moreHeight: CGFloat
+        if showMoreButton,
+           localRevealCount > lineRevealMetrics.endOffset(afterLineCount: displayedCodeLineCount) {
+            moreHeight = moreButtonHeight ?? 0
+        } else {
+            moreHeight = 0
+        }
+
+        let height = (headerHeight ?? 0) + lineHeight + moreHeight
+        return min(max(height, 0), blockHeight)
+    }
+
+    private func measuredCodeLineHeight(forLine index: Int) -> CGFloat {
+        if let height = codeLineHeights[index] {
+            return height
+        }
+
+        let measuredTotal = codeLineHeights.values.reduce(CGFloat.zero, +)
+        let remainingContentHeight = max(
+            (blockHeight ?? 0) - (headerHeight ?? 0) - (showMoreButton ? (moreButtonHeight ?? 0) : 0) - measuredTotal,
+            0
+        )
+        let missingLineCount = max(displayedCodeLineCount - codeLineHeights.count, 1)
+        return remainingContentHeight / CGFloat(missingLineCount)
+    }
+
+    private func roundedHeight(_ height: CGFloat) -> CGFloat {
+        guard height.isFinite else { return 0 }
+        return (height * 2).rounded() / 2
+    }
+
+    private func updateBlockHeight(_ height: CGFloat) {
+        guard shouldUpdateHeight(blockHeight, with: height) else { return }
+        blockHeight = height
+    }
+
+    private func updateHeaderHeight(_ height: CGFloat) {
+        guard shouldUpdateHeight(headerHeight, with: height) else { return }
+        headerHeight = height
+    }
+
+    private func updateCodeLineHeight(_ height: CGFloat, forLine index: Int) {
+        guard height > 0 else { return }
+        if let current = codeLineHeights[index], abs(current - height) < 0.5 {
+            return
+        }
+        codeLineHeights[index] = height
+    }
+
+    private func updateMoreButtonHeight(_ height: CGFloat) {
+        guard shouldUpdateHeight(moreButtonHeight, with: height) else { return }
+        moreButtonHeight = height
+    }
+
+    private func shouldUpdateHeight(_ current: CGFloat?, with next: CGFloat) -> Bool {
+        guard next > 0 else { return false }
+        guard let current else { return true }
+        return abs(current - next) >= 0.5
     }
 
     private var modePicker: some View {
@@ -471,6 +629,76 @@ struct DefaultMarkdownCodeBlock: View {
         .buttonStyle(.accessory)
         .font(.callout.weight(.medium))
         .padding(.horizontal, -4)
+    }
+}
+
+private struct CodeBlockLineRevealMetrics {
+    private let lineStartOffsets: [Int]
+    private let lineEndOffsets: [Int]
+    private let totalLength: Int
+
+    init(code: String) {
+        var starts: [Int] = []
+        var ends: [Int] = []
+        var cursor = 0
+        var index = code.startIndex
+
+        while index < code.endIndex {
+            let lineRange = code.lineRange(for: index..<index)
+            starts.append(cursor)
+            cursor += code[lineRange].count
+            ends.append(cursor)
+            index = lineRange.upperBound
+        }
+
+        lineStartOffsets = starts
+        lineEndOffsets = ends
+        totalLength = code.count
+    }
+
+    func startOffset(forLine index: Int) -> Int {
+        lineStartOffsets[safe: index] ?? totalLength
+    }
+
+    func endOffset(afterLineCount count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return lineEndOffsets[safe: count - 1] ?? totalLength
+    }
+
+    func visibleLineCount(forLocalRevealCount revealCount: Int, maxLineCount: Int) -> Int {
+        guard revealCount > 0, maxLineCount > 0 else { return 0 }
+
+        var count = 0
+        for index in 0..<min(maxLineCount, lineStartOffsets.count) {
+            guard revealCount > lineStartOffsets[index] else { break }
+            count += 1
+        }
+        return count
+    }
+}
+
+private struct CodeBlockRevealLine<Content: View>: View {
+    let startOffset: Int
+    private let content: Content
+
+    @Environment(\.markdownTextOffsetBase) private var offsetBase
+    @Environment(\.markdownFadeReveal) private var fadeConfig
+
+    init(startOffset: Int, @ViewBuilder content: () -> Content) {
+        self.startOffset = startOffset
+        self.content = content()
+    }
+
+    var body: some View {
+        StreamingRevealCountReader { revealManager, revealCount in
+            let visible = revealCount.map { $0 > offsetBase + startOffset } ?? true
+            let baseDuration = fadeConfig?.duration ?? 0.3
+            let duration = revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
+
+            content
+                .opacity(visible ? 1 : 0)
+                .animation(.easeOut(duration: duration), value: visible)
+        }
     }
 }
 

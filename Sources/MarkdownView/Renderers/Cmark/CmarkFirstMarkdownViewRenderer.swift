@@ -32,10 +32,9 @@ struct CmarkFirstMarkdownViewRenderer: MarkdownViewRenderer {
             
         }
         
-        var parseOptions = ParseOptions()
-        if !configuration.allowedBlockDirectiveRenderers.isEmpty {
-            parseOptions.insert(.parseBlockDirectives)
-        }
+        let parseOptions = content.parseOptions(
+            allowingBlockDirectives: !configuration.allowedBlockDirectiveRenderers.isEmpty
+        )
         
         let document = content.parse(options: parseOptions)
         let configFingerprint = configuration.stableFingerprint

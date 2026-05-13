@@ -9,6 +9,10 @@ enum MarkdownParseSanitizer {
         let length: Int
     }
 
+    static func allowsBlockDirectiveParsing(_ text: String) -> Bool {
+        !containsLongFencedCodeBlock(text)
+    }
+
     static func sanitizedForCmark(_ text: String) -> String {
         guard text.contains("~") else { return text }
 
@@ -119,6 +123,19 @@ enum MarkdownParseSanitizer {
         guard length >= 3 else { return nil }
 
         return Fence(marker: marker, length: length)
+    }
+
+    private static func containsLongFencedCodeBlock(_ text: String) -> Bool {
+        var index = text.startIndex
+        while index < text.endIndex {
+            let lineEnd = text[index...].firstIndex(of: "\n") ?? text.endIndex
+            let line = text[index..<lineEnd]
+            if let fence = openingFence(in: line), fence.length > 3 {
+                return true
+            }
+            index = lineEnd < text.endIndex ? text.index(after: lineEnd) : lineEnd
+        }
+        return false
     }
 
     private static func isClosingFence(_ line: Substring, for fence: Fence) -> Bool {

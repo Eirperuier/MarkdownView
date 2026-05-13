@@ -116,6 +116,15 @@ public struct MarkdownContent: Sendable {
     func topLevelChildren(options: ParseOptions = ParseOptions()) -> [any Markup] {
         store.topLevelChildren(raw, options: options)
     }
+
+    func parseOptions(allowingBlockDirectives: Bool) -> ParseOptions {
+        var options = ParseOptions()
+        if allowingBlockDirectives,
+           MarkdownParseSanitizer.allowsBlockDirectiveParsing(raw.text) {
+            options.insert(.parseBlockDirectives)
+        }
+        return options
+    }
 }
 
 extension MarkdownContent: Hashable {

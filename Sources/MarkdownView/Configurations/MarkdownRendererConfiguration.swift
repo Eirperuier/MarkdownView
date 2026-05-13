@@ -148,12 +148,20 @@ public final class StreamingRevealManager {
             guard oldValue != revealedCount else { return }
             timestampStore.record(from: oldValue, to: revealedCount)
             notifyListeners()
+            if (oldValue == Int.max) != isRevealed {
+                notifyRevealCompletionListeners()
+            }
         }
+    }
+
+    public var isRevealed: Bool {
+        revealedCount == Int.max
     }
 
     public private(set) var adaptiveFadeDurationScale: Double = 1.0
 
     private var listeners: [UUID: (Int) -> Void] = [:]
+    private var revealCompletionListeners: [UUID: (Bool) -> Void] = [:]
     private nonisolated let timestampStore = StreamingRevealTimestampStore()
 
     public init() {}
@@ -168,6 +176,18 @@ public final class StreamingRevealManager {
 
     public func removeListener(_ id: UUID) {
         listeners.removeValue(forKey: id)
+    }
+
+    @discardableResult
+    public func addRevealCompletionListener(_ listener: @escaping (Bool) -> Void) -> UUID {
+        let id = UUID()
+        revealCompletionListeners[id] = listener
+        listener(isRevealed)
+        return id
+    }
+
+    public func removeRevealCompletionListener(_ id: UUID) {
+        revealCompletionListeners.removeValue(forKey: id)
     }
 
     public func setAdaptiveFadeDurationScale(_ scale: Double) {
@@ -188,10 +208,16 @@ public final class StreamingRevealManager {
             listener(revealedCount)
         }
     }
+
+    private func notifyRevealCompletionListeners() {
+        for listener in revealCompletionListeners.values {
+            listener(isRevealed)
+        }
+    }
 }
 
-struct MarkdownStreamingKey: EnvironmentKey {
-    nonisolated(unsafe) static let defaultValue: StreamingRevealManager? = nil
+public struct MarkdownStreamingKey: EnvironmentKey {
+    nonisolated(unsafe) public static let defaultValue: StreamingRevealManager? = nil
 }
 
 struct MarkdownStreamingRevealCountKey: EnvironmentKey {
@@ -199,7 +225,12 @@ struct MarkdownStreamingRevealCountKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    var markdownStreaming: StreamingRevealManager? {
+    /// The per-block streaming reveal manager, if this subtree is being
+    /// revealed (set via ``markdownStreaming(_:)``). `nil` for loaded /
+    /// non-streaming content. Read it to learn whether the surrounding
+    /// markdown block is currently mid-stream — e.g. a custom code-block
+    /// renderer that wants to mirror the host's reveal behavior.
+    public var markdownStreaming: StreamingRevealManager? {
         get { self[MarkdownStreamingKey.self] }
         set { self[MarkdownStreamingKey.self] = newValue }
     }

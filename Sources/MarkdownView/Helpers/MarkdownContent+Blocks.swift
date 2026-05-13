@@ -17,11 +17,9 @@ extension MarkdownContent {
         parseBlockDirectives: Bool = false,
         expandListItems: Bool = false
     ) -> [MarkdownBlockDescriptor] {
-        var options = ParseOptions()
-        if parseBlockDirectives {
-            options.insert(.parseBlockDirectives)
-        }
+        let options = parseOptions(allowingBlockDirectives: parseBlockDirectives)
         let children = topLevelChildren(options: options)
+        let parserText = MarkdownParseSanitizer.sanitizedForCmark(raw.text)
 
         var result: [MarkdownBlockDescriptor] = []
         for (index, child) in children.enumerated() {
@@ -33,8 +31,7 @@ extension MarkdownContent {
                     kind: Self.classifyNode(child),
                     topLevelIndex: index,
                     stableHash: child.stableContentHash,
-                    sourceText: child.format()
-                        .trimmingCharacters(in: .whitespacesAndNewlines),
+                    sourceText: Self.sourceText(for: child, in: parserText),
                     plainText: plain,
                     childPlainTexts: Self.extractChildPlainTexts(child, fallback: plain),
                     listItemContext: nil
@@ -42,6 +39,61 @@ extension MarkdownContent {
             }
         }
         return result
+    }
+
+    private static func sourceText(for node: any Markup, in parserText: String) -> String {
+        if node is CodeBlock,
+           let source = sourceTextFromRange(for: node, in: parserText),
+           isFencedCodeSource(source) {
+            return source.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return node.format().trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func sourceTextFromRange(for node: any Markup, in text: String) -> String? {
+        guard let range = node.range,
+              let lower = stringIndex(for: range.lowerBound, in: text),
+              let upper = stringIndex(for: range.upperBound, in: text),
+              lower <= upper else {
+            return nil
+        }
+        return String(text[lower..<upper])
+    }
+
+    private static func stringIndex(for location: SourceLocation, in text: String) -> String.Index? {
+        guard location.line >= 1, location.column >= 1 else { return nil }
+
+        var line = 1
+        var lineStart = text.startIndex
+        while line < location.line {
+            guard let newline = text[lineStart...].firstIndex(of: "\n") else { return nil }
+            lineStart = text.index(after: newline)
+            line += 1
+        }
+
+        guard let utf8LineStart = lineStart.samePosition(in: text.utf8),
+              let utf8Index = text.utf8.index(
+                utf8LineStart,
+                offsetBy: location.column - 1,
+                limitedBy: text.utf8.endIndex
+              ) else {
+            return nil
+        }
+        return utf8Index.samePosition(in: text)
+    }
+
+    private static func isFencedCodeSource(_ source: String) -> Bool {
+        guard let firstLine = source.split(
+            separator: "\n",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        ).first else {
+            return false
+        }
+
+        let trimmed = firstLine.drop(while: { $0 == " " })
+        return trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")
     }
 
     // MARK: - List Item Expansion
