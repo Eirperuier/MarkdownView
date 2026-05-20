@@ -258,7 +258,7 @@ struct MarkdownTableContent: View {
     var body: some View {
         let _ = MarkdownRenderProbe.increment(\.markdownTableContentBodyCalls)
         let infoByRow = cache.infoByRow
-        let revealSnapshot = revealState.currentSnapshot()
+        let revealSnapshot = revealState.currentSnapshot(cellInfos: cache.flatCellInfos)
         let phasesByRow = revealSnapshot.phasesByRow(infoByRow: infoByRow)
         let offsetsByRow = infoByRow.map { row in row.map(\.offset) }
         let _ = MarkdownRenderProbe.recordTablePhaseCounts(
@@ -461,9 +461,13 @@ private final class MarkdownTableRevealState: ObservableObject {
         currentSnapshot().phase(for: item)
     }
 
-    func currentSnapshot() -> MarkdownTableRevealSnapshot {
+    func currentSnapshot(cellInfos fallbackCellInfos: [MarkdownTableFlatCellInfo] = []) -> MarkdownTableRevealSnapshot {
         let revealed = subscribedManager?.revealedCount ?? Int.max
-        return makeSnapshot(revealed: revealed, now: Date()).snapshot
+        return makeSnapshot(
+            revealed: revealed,
+            now: Date(),
+            fallbackCellInfos: fallbackCellInfos
+        ).snapshot
     }
 
     private func subscribeIfNeeded(to manager: StreamingRevealManager?) {
@@ -504,7 +508,7 @@ private final class MarkdownTableRevealState: ObservableObject {
         let revealed = subscribedManager?.revealedCount ?? Int.max
         guard revealed != Int.max else { return }
 
-        let currentIndex = lastCellIndex(startingAtOrBefore: revealed) ?? 0
+        let currentIndex = lastCellIndex(startingAtOrBefore: revealed, in: cellInfos) ?? 0
         let candidates = keys.compactMap { key -> (key: MarkdownTableFreshCellKey, distance: Int)? in
             guard let info = infoByFreshKey[key],
                   revealed >= info.offset
@@ -556,25 +560,30 @@ private final class MarkdownTableRevealState: ObservableObject {
 
     private func makeSnapshot(
         revealed: Int,
-        now: Date
+        now: Date,
+        fallbackCellInfos: [MarkdownTableFlatCellInfo] = []
     ) -> (snapshot: MarkdownTableRevealSnapshot, nextRefreshDate: Date?) {
-        guard !cellInfos.isEmpty else {
+        let snapshotCellInfos = cellInfos.isEmpty ? fallbackCellInfos : cellInfos
+        guard !snapshotCellInfos.isEmpty else {
             return (MarkdownTableRevealSnapshot(pastCellCount: 0, cellCount: 0), nil)
         }
 
         var activeKeys = Set<MarkdownTableCellKey>()
-        var pastCellCount = cellInfos.count
+        var pastCellCount = snapshotCellInfos.count
         var nextRefreshDate: Date?
 
         let isCompleted = revealed == Int.max
         let effectiveRevealed = isCompleted
-            ? (cellInfos.last?.endOffset ?? 0)
+            ? (snapshotCellInfos.last?.endOffset ?? 0)
             : revealed
-        let currentIndex = lastCellIndex(startingAtOrBefore: effectiveRevealed)
+        let currentIndex = lastCellIndex(
+            startingAtOrBefore: effectiveRevealed,
+            in: snapshotCellInfos
+        )
         if let currentIndex {
             var startIndex = currentIndex
             while startIndex >= 0 {
-                let info = cellInfos[startIndex]
+                let info = snapshotCellInfos[startIndex]
                 let state = normalPhaseState(
                     for: info,
                     revealed: effectiveRevealed,
@@ -604,7 +613,7 @@ private final class MarkdownTableRevealState: ObservableObject {
         let snapshot = MarkdownTableRevealSnapshot(
             activeKeys: activeKeys,
             pastCellCount: pastCellCount,
-            cellCount: cellInfos.count,
+            cellCount: snapshotCellInfos.count,
             freshCellCount: freshCellExpirations.count
         )
         return (snapshot, nextRefreshDate)
@@ -630,7 +639,10 @@ private final class MarkdownTableRevealState: ObservableObject {
         return (fallbackActive, nil)
     }
 
-    private func lastCellIndex(startingAtOrBefore revealed: Int) -> Int? {
+    private func lastCellIndex(
+        startingAtOrBefore revealed: Int,
+        in cellInfos: [MarkdownTableFlatCellInfo]
+    ) -> Int? {
         var low = 0
         var high = cellInfos.count
         while low < high {

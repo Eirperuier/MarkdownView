@@ -17,7 +17,8 @@ enum MarkdownRevealPlainText {
         case let html as HTMLBlock:
             return html.rawHTML
         case let inlineHTML as InlineHTML:
-            return inlineHTML.rawHTML
+            return MarkdownInlineHTML.replacementText(for: inlineHTML.rawHTML)
+                ?? inlineHTML.rawHTML
         case let table as Markdown.Table:
             return extractTablePlainText(table)
         case let tableHead as Markdown.Table.Head:

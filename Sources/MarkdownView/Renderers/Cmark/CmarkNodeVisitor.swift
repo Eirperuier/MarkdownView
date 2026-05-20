@@ -115,7 +115,11 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
   }
 
   func visitInlineHTML(_ inlineHTML: InlineHTML) -> MarkdownNodeView {
-    MarkdownNodeView(
+    if let replacement = MarkdownInlineHTML.replacementText(for: inlineHTML.rawHTML) {
+      return MarkdownNodeView(replacement)
+    }
+
+    return MarkdownNodeView(
       AttributedString(inlineHTML.rawHTML)
     )
   }
