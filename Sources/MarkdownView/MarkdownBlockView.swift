@@ -35,15 +35,21 @@ public struct MarkdownBlockView: View {
         if let ctx = descriptor.listItemContext {
             _listItemBlock(children: children, ctx: ctx)
                 .environment(\.markdownRendererConfiguration, configuration)
-        } else if descriptor.topLevelIndex < children.count,
-                  children[descriptor.topLevelIndex].stableContentHash == descriptor.stableHash {
-            let child = children[descriptor.topLevelIndex]
-            _renderChild(child)
-                .environment(\.markdownRendererConfiguration, configuration)
-        } else if let child = children.first(where: { $0.stableContentHash == descriptor.stableHash }) {
+        } else if let child = _resolveChild(children: children) {
+            // 单一分支 + 单次 _renderChild。原来「topLevelIndex 命中」与「按 hash 查找」是两个独立
+            // 的 @ViewBuilder 分支,流式时在两者间切换同样会生成 _ConditionalContent、触发整块重挂。
             _renderChild(child)
                 .environment(\.markdownRendererConfiguration, configuration)
         }
+    }
+
+    /// 先按 topLevelIndex 命中,失败再按 stableHash 查找。合并成一次解析,避免分支切换重挂。
+    private func _resolveChild(children: [any Markup]) -> (any Markup)? {
+        if descriptor.topLevelIndex < children.count,
+           children[descriptor.topLevelIndex].stableContentHash == descriptor.stableHash {
+            return children[descriptor.topLevelIndex]
+        }
+        return children.first(where: { $0.stableContentHash == descriptor.stableHash })
     }
 
     // MARK: - List Item Rendering
@@ -171,20 +177,23 @@ public struct MarkdownBlockView: View {
 
     // MARK: - Standard Block Rendering
 
-    @ViewBuilder
-    private func _renderChild(_ child: any Markup) -> some View {
+    // 注意:必须返回具体类型 `MarkdownNodeView` 并用 early-return,**不能**用 @ViewBuilder 的
+    // if/else。否则缓存命中(cached)/未命中(rendered)会生成 `_ConditionalContent` 的两个分支,
+    // 流式时在两分支间来回切 = SwiftUI 判定身份变化 = 整棵表格子树重新挂载(makeCache 触发、
+    // TableInfoCache/布局缓存全丢)→ 整表全量重测高 → 主线程 200ms hang。两分支同为 MarkdownNodeView、
+    // 同一位置返回,身份才稳定、只做增量更新。
+    private func _renderChild(_ child: any Markup) -> MarkdownNodeView {
         let hash = child.stableContentHash
         let configFP = configuration.stableFingerprint
         let cacheKey = NodeCacheKey(contentHash: hash, configurationHash: configFP)
         let nodeCache = NodeViewCache.shared
 
         if let cached = nodeCache.get(cacheKey) {
-            cached
-        } else {
-            let rendered = _visitChild(child)
-            let _ = nodeCache.set(cacheKey, view: rendered)
-            rendered
+            return cached
         }
+        let rendered = _visitChild(child)
+        nodeCache.set(cacheKey, view: rendered)
+        return rendered
     }
 
     private func _visitChild(_ child: any Markup) -> MarkdownNodeView {

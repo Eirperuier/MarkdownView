@@ -232,7 +232,8 @@ extension MathParser.MathRepresentation {
         }
         
         /// Whether or not this component is inline.
-        var inline: Bool {
+        @_spi(MarkdownMath)
+        public var inline: Bool {
             switch self {
             case .inlineEquation, .inlineParenthesesEquation: return true
             default: return false

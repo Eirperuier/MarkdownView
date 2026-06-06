@@ -172,7 +172,7 @@ private struct RevealAnimatedMarkdownText: View {
         } else if #available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, *),
                   revealCount == nil,
                   !cjkItalicRanges.isEmpty {
-            Text(displayText)
+            markdownTextWithInlineSymbols(displayText)
                 .textRenderer(CJKItalicRenderer(ranges: cjkItalicRanges))
         } else {
             legacyBody
@@ -184,7 +184,7 @@ private struct RevealAnimatedMarkdownText: View {
             if let revealCount, characterCount > 0 {
                 let localRevealed = max(0, min(characterCount, revealCount - blockTextOffset))
                 if localRevealed <= 0 {
-                    Text(displayText.clearingRevealSensitiveAttributes()).foregroundColor(.clear)
+                    markdownTextWithInlineSymbols(displayText.clearingRevealSensitiveAttributes()).foregroundColor(.clear)
                 } else if localRevealed < characterCount {
                     let revealed = displayText.substring(from: 0, length: localRevealed)
                     let frontier = displayText.substring(
@@ -196,14 +196,14 @@ private struct RevealAnimatedMarkdownText: View {
                         length: characterCount
                     ).clearingRevealSensitiveAttributes()
 
-                    Text(revealed)
-                        + Text(frontier).foregroundColor(.primary.opacity(Self.frontierOpacity))
-                        + Text(unrevealed).foregroundColor(.clear)
+                    markdownTextWithInlineSymbols(revealed)
+                        + markdownTextWithInlineSymbols(frontier).foregroundColor(.primary.opacity(Self.frontierOpacity))
+                        + markdownTextWithInlineSymbols(unrevealed).foregroundColor(.clear)
                 } else {
-                    Text(displayText)
+                    markdownTextWithInlineSymbols(displayText)
                 }
             } else {
-                Text(displayText)
+                markdownTextWithInlineSymbols(displayText)
             }
         }
         .contentTransition(.opacity)
@@ -246,7 +246,7 @@ private final class FadeState: @unchecked Sendable {
     /// Returns true if any stamped character is still within its fade window.
     /// Used by `FadeRevealMarkdownText` to decide when it's safe to pause the
     /// TimelineView — pausing earlier can freeze a glyph mid-fade. Pass the
-    /// longer of opacity/color durations so the tint overlay also settles.
+    /// color settle duration, including any tint delay, so the overlay also settles.
     func hasActiveFade(duration: TimeInterval) -> Bool {
         activeFadeRemaining(duration: duration) > 0
     }
@@ -363,13 +363,14 @@ private struct RevealFadeRenderer: TextRenderer {
     // opacity quickly, but the colored blend lingers as it restores to the
     // natural ink color. Tuned so the color "trail" is perceptibly longer
     // than the fade-in itself.
-    static let colorDurationMultiplier: Double = 1.8
+    static let colorDurationMultiplier = MarkdownFadeRevealConfig.colorDurationMultiplier
 
     let revealedCount: Int
     let blockTextOffset: Int
     let characterCount: Int
     let timelineDate: Date
     let duration: TimeInterval
+    let delay: TimeInterval
     let highlightColor: Color?
     let highlightStartHue: Double?
     let highlightEndHue: Double?
@@ -388,7 +389,10 @@ private struct RevealFadeRenderer: TextRenderer {
     /// revealed glyphs are actually fresh and should fade in.
     let treatExistingAsFresh: Bool
 
-    var colorDuration: TimeInterval { duration * Self.colorDurationMultiplier }
+    var colorDuration: TimeInterval {
+        guard duration.isFinite, duration > 0 else { return 0 }
+        return duration * Self.colorDurationMultiplier
+    }
     var overlayOpacity: Double {
         colorScheme == .dark ? 0.35 : 0.5
     }
@@ -434,7 +438,7 @@ private struct RevealFadeRenderer: TextRenderer {
         start: Int,
         end: Int,
         now: Date,
-        colorDuration: TimeInterval
+        colorSettleDuration: TimeInterval
     ) -> Bool {
         guard start < end else { return true }
         guard cjkItalicRanges.isEmpty else { return false }
@@ -442,11 +446,11 @@ private struct RevealFadeRenderer: TextRenderer {
 
         if lastCharacterIndex < state.firstSeen.count,
            let timestamp = state.firstSeen[lastCharacterIndex] {
-            return now.timeIntervalSince(timestamp) >= colorDuration
+            return now.timeIntervalSince(timestamp) >= colorSettleDuration
         }
 
         if let timestamp = revealManager?.firstSeenTimestamp(at: blockTextOffset + lastCharacterIndex) {
-            return now.timeIntervalSince(timestamp) >= colorDuration
+            return now.timeIntervalSince(timestamp) >= colorSettleDuration
         }
 
         // On a cold mount without a fresh-activation hint, already-revealed
@@ -471,9 +475,10 @@ private struct RevealFadeRenderer: TextRenderer {
         var cjkBaseIndex: Text.Layout.CharacterIndex?
         var cjkRangeCursor = 0
         let revealedLocal = max(0, revealedCount - blockTextOffset)
-        let durationInv = duration > 0 ? 1.0 / duration : .greatestFiniteMagnitude
+        let durationInv = duration.isFinite && duration > 0 ? 1.0 / duration : nil
+        let colorDelay = delay.isFinite ? max(0, delay) : 0
         let colorDurationValue = colorDuration
-        let colorDurationInv = colorDurationValue > 0 ? 1.0 / colorDurationValue : .greatestFiniteMagnitude
+        let colorSettleDurationValue = colorDelay + colorDurationValue
         let currentTintColor = tintColor
         var visitedGlyphs = 0
 
@@ -487,7 +492,7 @@ private struct RevealFadeRenderer: TextRenderer {
                     start: runStart,
                     end: runEnd,
                     now: now,
-                    colorDuration: colorDurationValue
+                    colorSettleDuration: colorSettleDurationValue
                    ) {
                     ctx.draw(run)
                     charIdx = runEnd
@@ -537,20 +542,21 @@ private struct RevealFadeRenderer: TextRenderer {
                     }
 
                     let age = now.timeIntervalSince(t0)
-                    if age >= colorDurationValue {
+                    if age >= colorSettleDurationValue {
                         CJKItalicGlyphSkew.draw(glyph, in: &ctx, skewed: isCJKItalic)
                         continue
                     }
 
-                    let phase = max(0, min(1, age * durationInv))
-                    let colorPhase = max(0, min(1, age * colorDurationInv))
+                    let phase = durationInv.map { max(0, min(1, age * $0)) } ?? 1
+                    let colorAge = max(0, age - colorDelay)
+                    let colorPhase = colorDurationValue > 0
+                        ? max(0, min(1, colorAge / colorDurationValue))
+                        : (age >= colorDelay ? 1 : 0)
 
                     // Outer layer fades the glyph in via `phase` (short
-                    // duration). Inner layer fades the tint overlay out via
-                    // `colorPhase` (longer duration) — so the color blend
-                    // lingers after the glyph has reached full opacity,
-                    // giving a perceptible "color trail" that settles into
-                    // the natural ink color.
+                    // duration). Inner layer holds the tint for `delay`,
+                    // then fades it out via `colorPhase`, so the color blend
+                    // can linger before settling into the natural ink color.
                     let rect = glyph.typographicBounds.rect
                     ctx.drawLayer { outer in
                         if isCJKItalic {
@@ -605,7 +611,7 @@ private struct FadeRevealMarkdownText: View {
         let fadeDuration = revealManager?.adaptiveFadeDuration(baseDuration: config.duration) ?? config.duration
 
         TimelineView(.animation(minimumInterval: minimumInterval, paused: paused)) { ctx in
-            Text(displayText)
+            markdownTextWithInlineSymbols(displayText)
                 .font(inheritedFont)
                 .textRenderer(
                     RevealFadeRenderer(
@@ -614,6 +620,7 @@ private struct FadeRevealMarkdownText: View {
                         characterCount: characterCount,
                         timelineDate: ctx.date,
                         duration: fadeDuration,
+                        delay: config.delay,
                         highlightColor: config.highlightColor,
                         highlightStartHue: config.highlightStartHue,
                         highlightEndHue: config.highlightEndHue,
@@ -628,19 +635,35 @@ private struct FadeRevealMarkdownText: View {
                 )
                 .id(cleanupToken)
         }
+        // Unpause synchronously the moment `revealed` changes. The settle
+        // logic below lives in a `.task`, whose body runs asynchronously —
+        // so when a reveal advance arrives while `paused == true` (e.g. a
+        // block that hadn't been reached yet settled at `revealCount == 0`
+        // and paused, or an intermediate `Int.max` finished its settle), the
+        // `paused = false` inside the task can land a runloop late. In that
+        // gap the glyphs are already revealed but the TimelineView is still
+        // paused, freezing the opacity fade — the characters appear (reveal
+        // works) but never fade in. `onChange` flips `paused` in the same
+        // SwiftUI transaction as the reveal, closing that window. Note that
+        // `revealed == Int.max` does NOT mean the block is done: the
+        // coordinator sets `Int.max` whenever `next >= entry.length`, and a
+        // later plainText growth rewinds it — so we must react to every
+        // change, not just intermediate values.
+        .onChange(of: revealed, initial: true) { _, _ in
+            paused = false
+        }
         .task(id: revealed) {
-            // Any reveal advance wakes the TimelineView. We keep it running
-            // until every stamped character has aged past the color-trail
-            // duration (the longer of the two), then pause.
+            // Drive the TimelineView until every stamped glyph has aged past
+            // the delayed color-trail duration, then pause to save power.
             //
             // IMPORTANT: `.task(id:)` cancels the old task when `revealed`
             // changes, but `try? await` swallows CancellationError and the
             // following lines keep executing. So we MUST re-check
             // `Task.isCancelled` after every await — otherwise `paused =
             // true` fires on every reveal tick, briefly pausing the
-            // TimelineView mid-animation and causing visible stutter.
-            // Cleanup only runs when the task completes naturally.
-            let settleDuration = fadeDuration * RevealFadeRenderer.colorDurationMultiplier
+            // TimelineView mid-animation. Cleanup only runs when the task
+            // completes naturally.
+            let settleDuration = config.colorSettleDuration(adaptiveDuration: fadeDuration)
             paused = false
             await waitForDraw(revealed: revealed)
             if Task.isCancelled { return }
@@ -1018,6 +1041,10 @@ struct _MarkdownText: View {
                 )
             }
         }
+        // Inline SF Symbols (e.g. local-file link icons) render one step
+        // smaller than the surrounding text. Regular markdown images are
+        // extracted upstream, so this only affects inline symbol glyphs.
+        .imageScale(.small)
         .task(id: text) {
             let prepared = Self.prepareDisplayText(from: text, configuration: configuration)
             self.preparedText = prepared

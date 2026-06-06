@@ -23,7 +23,7 @@ extension MarkdownContent {
 
         var result: [MarkdownBlockDescriptor] = []
         for (index, child) in children.enumerated() {
-            if expandListItems, let items = Self.expandList(child, topLevelIndex: index) {
+            if expandListItems, let items = Self.expandList(child, topLevelIndex: index, parserText: parserText) {
                 result.append(contentsOf: items)
             } else {
                 let plain = Self.extractPlainText(child)
@@ -55,6 +55,23 @@ extension MarkdownContent {
         guard let range = node.range,
               let lower = stringIndex(for: range.lowerBound, in: text),
               let upper = stringIndex(for: range.upperBound, in: text),
+              lower <= upper else {
+            return nil
+        }
+        return String(text[lower..<upper])
+    }
+
+    /// Source slice for a single `ListItem`, truncated at the first nested
+    /// list child so sub-lists (which are expanded into their own descriptors)
+    /// don't get duplicated into the parent's `sourceText`.
+    private static func sourceTextForListItem(_ item: ListItem, in text: String) -> String? {
+        guard let range = item.range else { return nil }
+        let cutAt = item.children
+            .first(where: { $0 is OrderedList || $0 is UnorderedList })?
+            .range?.lowerBound
+        let effectiveUpper = cutAt ?? range.upperBound
+        guard let lower = stringIndex(for: range.lowerBound, in: text),
+              let upper = stringIndex(for: effectiveUpper, in: text),
               lower <= upper else {
             return nil
         }
@@ -98,7 +115,7 @@ extension MarkdownContent {
 
     // MARK: - List Item Expansion
 
-    private static func expandList(_ node: any Markup, topLevelIndex: Int) -> [MarkdownBlockDescriptor]? {
+    private static func expandList(_ node: any Markup, topLevelIndex: Int, parserText: String) -> [MarkdownBlockDescriptor]? {
         let listType: MarkdownBlockDescriptor.ListItemContext.ListType
         let kind: MarkdownBlockDescriptor.Kind
         let items: [ListItem]
@@ -123,6 +140,7 @@ extension MarkdownContent {
                 listType: listType, kind: kind,
                 depth: depth, parentPath: [],
                 topLevelIndex: topLevelIndex,
+                parserText: parserText,
                 into: &result
             )
         }
@@ -135,6 +153,7 @@ extension MarkdownContent {
         kind: MarkdownBlockDescriptor.Kind,
         depth: Int, parentPath: [Int],
         topLevelIndex: Int,
+        parserText: String,
         into result: inout [MarkdownBlockDescriptor]
     ) {
         let currentPath = parentPath + [itemIndex]
@@ -147,12 +166,18 @@ extension MarkdownContent {
             parentTopLevelIndex: topLevelIndex,
             indexPath: currentPath
         )
+        // Prefer the original source slice (truncated at the first nested
+        // list, since sub-lists are emitted as their own descriptors) over
+        // `item.format()`, which loses the parent OrderedList's start index
+        // and indentation. The source slice preserves the user's exact
+        // marker (`1.`, `*`, `[x]`, etc.) and round-trips back to the AST.
+        let source = (sourceTextForListItem(item, in: parserText) ?? item.format())
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         result.append(MarkdownBlockDescriptor(
             kind: kind,
             topLevelIndex: topLevelIndex,
             stableHash: item.stableContentHash,
-            sourceText: item.format()
-                .trimmingCharacters(in: .whitespacesAndNewlines),
+            sourceText: source,
             plainText: plain,
             childPlainTexts: [plain],
             listItemContext: ctx
@@ -182,6 +207,7 @@ extension MarkdownContent {
                     listType: nestedType, kind: nestedKind,
                     depth: nestedDepth, parentPath: currentPath,
                     topLevelIndex: topLevelIndex,
+                    parserText: parserText,
                     into: &result
                 )
             }

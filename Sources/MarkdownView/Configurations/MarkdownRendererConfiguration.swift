@@ -14,6 +14,7 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     
     var math: Math = Math()
     var table: Table = Table()
+    var codeBlock: CodeBlock = CodeBlock()
     
     var linkTintColor: Color = .blue
     var inlineCodeTintColor: Color = .gray
@@ -43,6 +44,7 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
         hasher.combine(math)
         hasher.combine(table.scrollable)
         hasher.combine(table.cellMaxWidth)
+        hasher.combine(codeBlock.scrollable)
         hasher.combine(listConfiguration)
         hasher.combine(allowedImageRenderers)
         hasher.combine(allowedBlockDirectiveRenderers)
@@ -68,6 +70,12 @@ extension MarkdownRendererConfiguration {
         
         /// The maximum width for each table cell when scrollable is enabled.
         var cellMaxWidth: CGFloat = 300
+    }
+
+    /// Configuration for markdown code block rendering.
+    struct CodeBlock: Equatable, Sendable {
+        /// Whether code blocks should use a horizontal scroll view instead of wrapping.
+        var scrollable: Bool = false
     }
 }
 
@@ -304,16 +312,23 @@ public struct MarkdownFadeRevealConfig: Equatable, Sendable {
     public static let legacyHighlightStartHue: Double = 30.0 / 360.0
     public static let legacyHighlightEndHue: Double = 270.0 / 360.0
     public static let legacyHighlightHue: Double = legacyHighlightStartHue
+    public static let colorDurationMultiplier: Double = 1.8
 
     public var duration: TimeInterval
+    public var delay: TimeInterval
     public var highlightColor: Color?
     public var highlightStartHue: Double?
     public var highlightEndHue: Double?
     public var hueSaturation: Double
     public var hueBrightness: Double
 
-    public init(duration: TimeInterval = 0.4, highlightColor: Color = .accentColor) {
+    public init(
+        duration: TimeInterval = 0.4,
+        delay: TimeInterval = 0,
+        highlightColor: Color = .accentColor
+    ) {
         self.duration = duration
+        self.delay = Self.nonnegativeTime(delay)
         self.highlightColor = highlightColor
         self.highlightStartHue = nil
         self.highlightEndHue = nil
@@ -324,11 +339,13 @@ public struct MarkdownFadeRevealConfig: Equatable, Sendable {
     /// Creates a static reveal highlight color from a SwiftUI-style hue in the `0...1` range.
     public init(
         duration: TimeInterval = 0.4,
+        delay: TimeInterval = 0,
         hue: Double,
         saturation: Double = 0.9,
         brightness: Double = 0.95
     ) {
         self.duration = duration
+        self.delay = Self.nonnegativeTime(delay)
         self.highlightColor = Color(
             hue: Self.normalizedHue(hue),
             saturation: saturation,
@@ -343,12 +360,14 @@ public struct MarkdownFadeRevealConfig: Equatable, Sendable {
     /// Creates a reveal highlight trail between two SwiftUI-style hues in the `0...1` range.
     public init(
         duration: TimeInterval = 0.4,
+        delay: TimeInterval = 0,
         startHue: Double,
         endHue: Double,
         saturation: Double = 0.9,
         brightness: Double = 0.95
     ) {
         self.duration = duration
+        self.delay = Self.nonnegativeTime(delay)
         self.highlightColor = nil
         self.highlightStartHue = Self.normalizedHue(startHue)
         self.highlightEndHue = Self.normalizedHue(endHue)
@@ -360,6 +379,16 @@ public struct MarkdownFadeRevealConfig: Equatable, Sendable {
         guard hue.isFinite else { return 0 }
         let normalized = hue.truncatingRemainder(dividingBy: 1)
         return normalized >= 0 ? normalized : normalized + 1
+    }
+
+    private static func nonnegativeTime(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite, value > 0 else { return 0 }
+        return value
+    }
+
+    func colorSettleDuration(adaptiveDuration: TimeInterval? = nil) -> TimeInterval {
+        let effectiveDuration = Self.nonnegativeTime(adaptiveDuration ?? duration)
+        return delay + effectiveDuration * Self.colorDurationMultiplier
     }
 }
 
@@ -379,11 +408,12 @@ extension View {
     /// Requires iOS 18+; on older OS this is a no-op.
     nonisolated public func markdownFadeReveal(
         duration: TimeInterval = 0.4,
+        delay: TimeInterval = 0,
         highlightColor: Color = .accentColor
     ) -> some View {
         environment(
             \.markdownFadeReveal,
-            MarkdownFadeRevealConfig(duration: duration, highlightColor: highlightColor)
+            MarkdownFadeRevealConfig(duration: duration, delay: delay, highlightColor: highlightColor)
         )
     }
 
@@ -391,6 +421,7 @@ extension View {
     /// The hue follows SwiftUI's `Color(hue:saturation:brightness:)` convention: `0...1`.
     nonisolated public func markdownFadeReveal(
         duration: TimeInterval = 0.4,
+        delay: TimeInterval = 0,
         hue: Double,
         saturation: Double = 0.9,
         brightness: Double = 0.95
@@ -399,6 +430,7 @@ extension View {
             \.markdownFadeReveal,
             MarkdownFadeRevealConfig(
                 duration: duration,
+                delay: delay,
                 hue: hue,
                 saturation: saturation,
                 brightness: brightness
@@ -410,6 +442,7 @@ extension View {
     /// The hues follow SwiftUI's `Color(hue:saturation:brightness:)` convention: `0...1`.
     nonisolated public func markdownFadeReveal(
         duration: TimeInterval = 0.4,
+        delay: TimeInterval = 0,
         startHue: Double,
         endHue: Double,
         saturation: Double = 0.9,
@@ -419,6 +452,7 @@ extension View {
             \.markdownFadeReveal,
             MarkdownFadeRevealConfig(
                 duration: duration,
+                delay: delay,
                 startHue: startHue,
                 endHue: endHue,
                 saturation: saturation,

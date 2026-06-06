@@ -13,7 +13,12 @@ extension MarkdownRendererConfiguration {
             get { displayMathStorage != nil }
             set(enabled) {
                 if enabled {
-                    displayMathStorage = [:]
+                    // Only initialize if absent — preserves any pre-populated
+                    // storage (e.g. `markdownDisplayMathStorage(_:)` from a
+                    // caller that pre-extracts block math itself).
+                    if displayMathStorage == nil {
+                        displayMathStorage = [:]
+                    }
                 } else {
                     displayMathStorage = nil
                 }

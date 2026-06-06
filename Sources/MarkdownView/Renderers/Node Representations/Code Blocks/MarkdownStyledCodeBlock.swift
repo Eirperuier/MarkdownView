@@ -23,12 +23,12 @@ struct MarkdownStyledCodeBlock: View {
         Group {
             if let renderer = bareRenderer {
                 renderer.makeBody(code: configuration.code, language: configuration.language)
+                    .streamingRevealFadeIn()
             } else {
                 codeBlockStyle
                     .makeBody(configuration: configuration)
                     .erasedToAnyView()
             }
         }
-        .streamingRevealFadeIn()
     }
 }

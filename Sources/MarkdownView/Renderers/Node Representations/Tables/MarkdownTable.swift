@@ -248,7 +248,10 @@ struct MarkdownTableContent: View {
     }
 
     private var tableFadeSettleDuration: TimeInterval {
-        min(effectiveFadeDuration + 0.05, 0.55)
+        if let fadeConfig {
+            return fadeConfig.colorSettleDuration(adaptiveDuration: effectiveFadeDuration)
+        }
+        return min(effectiveFadeDuration + 0.05, 0.55)
     }
 
     private var revealManagerID: ObjectIdentifier? {
@@ -257,10 +260,7 @@ struct MarkdownTableContent: View {
 
     var body: some View {
         let _ = MarkdownRenderProbe.increment(\.markdownTableContentBodyCalls)
-        let infoByRow = cache.infoByRow
         let revealSnapshot = revealState.currentSnapshot(cellInfos: cache.flatCellInfos)
-        let phasesByRow = revealSnapshot.phasesByRow(infoByRow: infoByRow)
-        let offsetsByRow = infoByRow.map { row in row.map(\.offset) }
         let _ = MarkdownRenderProbe.recordTablePhaseCounts(
             active: revealSnapshot.activeKeys.count,
             before: max(0, revealSnapshot.cellCount - revealSnapshot.pastCellCount - revealSnapshot.activeKeys.count),
@@ -274,6 +274,12 @@ struct MarkdownTableContent: View {
                     revealSnapshot: revealSnapshot
                 )
             } else {
+                // 仅非 scrollable 路径才需要逐行 offset / phase。`phasesByRow` 是 O(行数²)
+                // (每个格子 reduce 一次前缀),scrollable 路径用 revealSnapshot.phase(for:)
+                // 按 cell O(1) 取,所以这里别在 scrollable 下白算后丢弃。
+                let infoByRow = cache.infoByRow
+                let offsetsByRow = infoByRow.map { row in row.map(\.offset) }
+                let phasesByRow = revealSnapshot.phasesByRow(infoByRow: infoByRow)
                 let configuration = MarkdownTableStyleConfiguration(
                     table: MarkdownTableStyleConfiguration.Table(table: table)
                 )
@@ -821,15 +827,37 @@ struct AdaptiveTableLayout: Layout {
         var rowHeights: [CGFloat]
 
         if colWidthsChanged {
+            // 列宽变化时只重测「真正会随宽度改变高度」的 cell。关键事实:一个 cell 只有在它的
+            // 自然宽度(idealWidth)≥ 列宽、即会换行时,高度才依赖列宽;能在更窄一侧单行放下的
+            // cell(idealWidth < min(新,旧列宽))高度与宽度无关,直接复用缓存高度。
+            // 流式时最后一格变宽 → 该列变宽,原来这里 O(整列行数) 全部重测,几百次 Core Text
+            // 排版挤在一帧 → 240ms 卡顿(实测 mainCPU 86–95%、maxFrameMs 200+)。改成只测会换行
+            // 的少数 cell 后,长表格某列变宽不再触发整列重测。
+            let canReuseHeights = hasCellCache
+                && cache.cellConstrainedHeights.count == cache.cellHashes.count
+                && cache.cellIdealWidths.count == cache.cellHashes.count
             rowHeights = [CGFloat](repeating: 0, count: rowCount)
             for (i, sub) in subviews.enumerated() {
                 let col = i % columnCount
                 let row = i / columnCount
                 guard row < rowCount else { continue }
-                MarkdownRenderProbe.increment(\.adaptiveTableLayoutConstrainedMeasures)
-                let size = sub.sizeThatFits(ProposedViewSize(width: colWidths[col], height: nil))
-                cellConstrainedHeights[i] = size.height
-                rowHeights[row] = max(rowHeights[row], size.height)
+                let contentChanged = i >= cache.cellHashes.count || cache.cellHashes[i] != currentHashes[i]
+                let oldColWidth = col < cache.columnWidths.count ? cache.columnWidths[col] : .infinity
+                let newColWidth = colWidths[col]
+                let wrapThreshold = min(oldColWidth, newColWidth) - 0.5
+                let widthSensitive = i < cellIdealWidths.count && cellIdealWidths[i] >= wrapThreshold
+                let needMeasure = !canReuseHeights
+                    || contentChanged
+                    || (oldColWidth != newColWidth && widthSensitive)
+                let height: CGFloat
+                if needMeasure {
+                    MarkdownRenderProbe.increment(\.adaptiveTableLayoutConstrainedMeasures)
+                    height = sub.sizeThatFits(ProposedViewSize(width: newColWidth, height: nil)).height
+                } else {
+                    height = cache.cellConstrainedHeights[i]
+                }
+                cellConstrainedHeights[i] = height
+                rowHeights[row] = max(rowHeights[row], height)
             }
         } else {
             let prevRowCount = cache.rowHeights.count

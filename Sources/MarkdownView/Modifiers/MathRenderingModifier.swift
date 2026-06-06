@@ -31,4 +31,19 @@ extension View {
             configuration.math.inlineMathStorage = storage
         }
     }
+
+    /// Provide pre-extracted display (block) math storage so that
+    /// `@math(uuid:…)` directives substituted before cmark parsing can be
+    /// resolved at render time. Mirrors `markdownInlineMathStorage(_:)` for
+    /// consumers that pre-process the source themselves instead of going
+    /// through `MathFirstMarkdownViewRenderer`.
+    nonisolated public func markdownDisplayMathStorage(_ storage: [UUID: String]?) -> some View {
+        transformEnvironment(\.markdownRendererConfiguration) { configuration in
+            if let storage {
+                configuration.math.displayMathStorage = storage
+            } else {
+                configuration.math.displayMathStorage = nil
+            }
+        }
+    }
 }

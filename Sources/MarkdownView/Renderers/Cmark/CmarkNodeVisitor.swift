@@ -315,6 +315,15 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
       let url = URL(string: destination)
     else { return descendInto(link) }
 
+    // App-provided inline link renderer (e.g. a local-file reference rendered
+    // as an inline SF Symbol + filename). Returns an AttributedString so it
+    // merges into the surrounding text flow and reveal animation; falls through
+    // to the default when it declines (returns nil).
+    if let builder = MarkdownInlineLinkRenderers.shared.builder,
+       let attributed = builder(destination, link.plainText, configuration.linkTintColor) {
+      return MarkdownNodeView(attributed)
+    }
+
     let nodeView = descendInto(link)
     if let text = nodeView.asAttributedString {
       var linked = text
