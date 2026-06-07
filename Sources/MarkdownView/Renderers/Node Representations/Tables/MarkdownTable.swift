@@ -335,6 +335,7 @@ struct MarkdownTableContent: View {
                 columnCount: columnCount,
                 containerWidth: containerWidth,
                 cellMaxWidth: tableConfiguration.cellMaxWidth,
+                columnWidthBuckets: tableConfiguration.columnWidthBuckets,
                 columnSpacing: spacing,
                 contentRevision: cache.revision
             ) {
@@ -719,6 +720,7 @@ struct AdaptiveTableLayout: Layout {
     var columnCount: Int
     var containerWidth: CGFloat
     var cellMaxWidth: CGFloat
+    var columnWidthBuckets: [CGFloat]
     var columnSpacing: CGFloat = 12
     var contentRevision: Int
 
@@ -730,6 +732,7 @@ struct AdaptiveTableLayout: Layout {
         var cellCount: Int = 0
         var containerWidth: CGFloat = 0
         var cellMaxWidth: CGFloat = 0
+        var columnWidthBuckets: [CGFloat] = []
         var cachedSize: CGSize = .zero
         var cellHashes: [Int] = []
         var cellIdealWidths: [CGFloat] = []
@@ -763,12 +766,17 @@ struct AdaptiveTableLayout: Layout {
         guard rowCount > 0 else { return .zero }
 
         let totalSpacing = columnSpacing * CGFloat(max(columnCount - 1, 0))
+        let widthBuckets = Self.normalizedWidthBuckets(
+            columnWidthBuckets,
+            cellMaxWidth: cellMaxWidth
+        )
 
         if cache.columnCount == columnCount,
            cache.contentRevision == contentRevision,
            cache.cellCount == subviews.count,
            cache.containerWidth == containerWidth,
            cache.cellMaxWidth == cellMaxWidth,
+           cache.columnWidthBuckets == widthBuckets,
            cache.columnWidths.count == columnCount,
            cache.rowHeights.count == rowCount {
             MarkdownRenderProbe.increment(\.adaptiveTableLayoutCacheHits)
@@ -779,6 +787,8 @@ struct AdaptiveTableLayout: Layout {
 
         // Build per-cell ideal widths, measuring only changed/new cells
         let hasCellCache = cache.columnCount == columnCount
+            && cache.cellMaxWidth == cellMaxWidth
+            && cache.columnWidthBuckets == widthBuckets
             && cache.cellIdealWidths.count == cache.cellHashes.count
             && !cache.cellIdealWidths.isEmpty
 
@@ -797,7 +807,11 @@ struct AdaptiveTableLayout: Layout {
                 let col = i % columnCount
                 MarkdownRenderProbe.increment(\.adaptiveTableLayoutIdealMeasures)
                 let ideal = subviews[i].sizeThatFits(.unspecified)
-                cellIdealWidths[i] = min(ideal.width, cellMaxWidth)
+                cellIdealWidths[i] = Self.snappedWidth(
+                    min(ideal.width, cellMaxWidth),
+                    buckets: widthBuckets,
+                    cellMaxWidth: cellMaxWidth
+                )
                 changedCols.insert(col)
             }
         }
@@ -891,6 +905,7 @@ struct AdaptiveTableLayout: Layout {
         cache.cellCount = subviews.count
         cache.containerWidth = containerWidth
         cache.cellMaxWidth = cellMaxWidth
+        cache.columnWidthBuckets = widthBuckets
         cache.cellHashes = currentHashes
         cache.cellIdealWidths = cellIdealWidths
         cache.cellConstrainedHeights = cellConstrainedHeights
@@ -953,6 +968,31 @@ struct AdaptiveTableLayout: Layout {
             cursor += sizes[index] + spacing
         }
         return result
+    }
+
+    private static func normalizedWidthBuckets(
+        _ buckets: [CGFloat],
+        cellMaxWidth: CGFloat
+    ) -> [CGFloat] {
+        let validBuckets = buckets
+            .filter { $0.isFinite && $0 > 0 }
+            .map { min($0, cellMaxWidth) }
+        let merged = Set(validBuckets + [cellMaxWidth])
+        let sorted = merged.sorted()
+        return sorted.isEmpty ? [cellMaxWidth] : sorted
+    }
+
+    private static func snappedWidth(
+        _ width: CGFloat,
+        buckets: [CGFloat],
+        cellMaxWidth: CGFloat
+    ) -> CGFloat {
+        guard width.isFinite, width > 0 else {
+            return buckets.first ?? cellMaxWidth
+        }
+
+        let clamped = min(width, cellMaxWidth)
+        return buckets.first(where: { $0 >= clamped }) ?? cellMaxWidth
     }
 
     private static func cellOrigins(

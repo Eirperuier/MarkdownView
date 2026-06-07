@@ -44,6 +44,7 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
         hasher.combine(math)
         hasher.combine(table.scrollable)
         hasher.combine(table.cellMaxWidth)
+        hasher.combine(table.columnWidthBuckets)
         hasher.combine(codeBlock.scrollable)
         hasher.combine(listConfiguration)
         hasher.combine(allowedImageRenderers)
@@ -70,6 +71,9 @@ extension MarkdownRendererConfiguration {
         
         /// The maximum width for each table cell when scrollable is enabled.
         var cellMaxWidth: CGFloat = 300
+
+        /// Fixed width buckets used to stabilize scrollable table column widths.
+        var columnWidthBuckets: [CGFloat] = [80, 120, 160, 220, 300]
     }
 
     /// Configuration for markdown code block rendering.

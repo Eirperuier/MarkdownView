@@ -17,14 +17,16 @@ extension View {
     /// - Parameters:
     ///   - scrollable: A Boolean value that indicates whether the table should be horizontally scrollable.
     ///   - cellMaxWidth: The maximum width for each table cell. Default is 300.
+    ///   - columnWidthBuckets: Fixed column width buckets. A measured width uses the smallest bucket that can contain it.
     nonisolated public func markdownTableScrollable(
         _ scrollable: Bool = true,
-        cellMaxWidth: CGFloat = 300
+        cellMaxWidth: CGFloat = 300,
+        columnWidthBuckets: [CGFloat] = [80, 120, 160, 220, 300]
     ) -> some View {
         transformEnvironment(\.markdownRendererConfiguration) { configuration in
             configuration.table.scrollable = scrollable
             configuration.table.cellMaxWidth = cellMaxWidth
+            configuration.table.columnWidthBuckets = columnWidthBuckets
         }
     }
 }
-
