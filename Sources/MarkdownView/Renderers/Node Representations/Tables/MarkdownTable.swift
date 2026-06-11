@@ -3,6 +3,9 @@ import Markdown
 import Combine
 
 private let markdownTableScrollableColumnSpacing: CGFloat = 20
+private let markdownTableScrollableStripeOpacity: Double = 0.08
+private let markdownTableScrollableStripeHorizontalBleed: CGFloat = 4
+private let markdownTableScrollableStripeCornerRadius: CGFloat = 6
 
 /// Where a table cell sits relative to the global reveal frontier.
 /// Computed once at the table level and threaded into each cell so the cell
@@ -101,7 +104,6 @@ final class TableInfoCache {
                     flatIndex: flatIndex,
                     cell: cell,
                     isHeader: true,
-                    showTopSeparator: false,
                     blockTextOffset: cursor,
                     phase: .past,
                     contentHash: cellHash
@@ -146,9 +148,6 @@ final class TableInfoCache {
                         flatIndex: flatIndex,
                         cell: cell,
                         isHeader: false,
-                        showTopSeparator: true,
-                        columnSpacing: markdownTableScrollableColumnSpacing,
-                        isLastColumn: column == columnCount - 1,
                         blockTextOffset: cursor,
                         phase: .past,
                         contentHash: cellHash
@@ -228,7 +227,14 @@ struct MarkdownTableContent: View {
     @Environment(\.markdownStreaming) private var revealManager
     @Environment(\.markdownFadeReveal) private var fadeConfig
     @State private var containerWidth: CGFloat = MarkdownTableContent.estimatedContainerWidth
-    @StateObject private var revealState = MarkdownTableRevealState()
+    /// Held via `@State` (not `@StateObject`) so SwiftUI does not subscribe
+    /// to the class's `objectWillChange`. The scrollable path doesn't read
+    /// `revealState` at all, and the non-scrollable path reads the snapshot
+    /// synchronously on each body re-eval — neither path benefits from an
+    /// automatic publish, but the scrollable path would suffer O(N) cell-diff
+    /// per publish if we subscribed. The instance itself stays stable across
+    /// rebuilds because SwiftUI compares `@State` references.
+    @State private var revealState: MarkdownTableRevealState = MarkdownTableRevealState()
 
     private static var estimatedContainerWidth: CGFloat {
         #if os(iOS) || os(tvOS)
@@ -260,23 +266,28 @@ struct MarkdownTableContent: View {
 
     var body: some View {
         let _ = MarkdownRenderProbe.increment(\.markdownTableContentBodyCalls)
-        let revealSnapshot = revealState.currentSnapshot(cellInfos: cache.flatCellInfos)
-        let _ = MarkdownRenderProbe.recordTablePhaseCounts(
-            active: revealSnapshot.activeKeys.count,
-            before: max(0, revealSnapshot.cellCount - revealSnapshot.pastCellCount - revealSnapshot.activeKeys.count),
-            past: min(revealSnapshot.pastCellCount, revealSnapshot.cellCount),
-            fresh: revealSnapshot.freshCellCount
-        )
 
         Group {
             if tableConfiguration.scrollable {
-                scrollableTable(
-                    revealSnapshot: revealSnapshot
-                )
+                // Scrollable path: cells own their phase via per-cell
+                // `AdaptiveTableCellPhaseHolder`, so this body deliberately
+                // does NOT read `revealState.currentSnapshot()`. Avoiding the
+                // snapshot read keeps SwiftUI from rebuilding the
+                // `ForEach(cache.bodyItems)` on every reveal tick — that's
+                // the O(N)-per-publish path that was the dominant cost at
+                // N≈900 cells.
+                scrollableTable()
             } else {
-                // 仅非 scrollable 路径才需要逐行 offset / phase。`phasesByRow` 是 O(行数²)
-                // (每个格子 reduce 一次前缀),scrollable 路径用 revealSnapshot.phase(for:)
-                // 按 cell O(1) 取,所以这里别在 scrollable 下白算后丢弃。
+                // Non-scrollable path still uses the snapshot-driven
+                // `phasesByRow` env, since its cell count is small (native
+                // SwiftUI Table) and per-publish O(N) is negligible.
+                let revealSnapshot = revealState.currentSnapshot(cellInfos: cache.flatCellInfos)
+                let _ = MarkdownRenderProbe.recordTablePhaseCounts(
+                    active: revealSnapshot.activeKeys.count,
+                    before: max(0, revealSnapshot.cellCount - revealSnapshot.pastCellCount - revealSnapshot.activeKeys.count),
+                    past: min(revealSnapshot.pastCellCount, revealSnapshot.cellCount),
+                    fresh: revealSnapshot.freshCellCount
+                )
                 let infoByRow = cache.infoByRow
                 let offsetsByRow = infoByRow.map { row in row.map(\.offset) }
                 let phasesByRow = revealSnapshot.phasesByRow(infoByRow: infoByRow)
@@ -321,14 +332,13 @@ struct MarkdownTableContent: View {
     }
 
     @ViewBuilder
-    private func scrollableTable(
-        revealSnapshot: MarkdownTableRevealSnapshot
-    ) -> some View {
+    private func scrollableTable() -> some View {
         let _ = MarkdownRenderProbe.increment(\.markdownTableScrollableBuildCalls)
         let columnCount = table.head.childCount
         let spacing: CGFloat = markdownTableScrollableColumnSpacing
         let horizontalPadding: CGFloat = 8
         let verticalPadding: CGFloat = horizontalPadding + 5
+        let stripeRows = scrollableTableStripeRows
 
         ScrollView(.horizontal, showsIndicators: true) {
             AdaptiveTableLayout(
@@ -336,35 +346,36 @@ struct MarkdownTableContent: View {
                 containerWidth: containerWidth,
                 cellMaxWidth: tableConfiguration.cellMaxWidth,
                 columnWidthBuckets: tableConfiguration.columnWidthBuckets,
+                rowBackgroundRows: stripeRows.map(\.row),
                 columnSpacing: spacing,
                 contentRevision: cache.revision
             ) {
+                ForEach(stripeRows) { item in
+                    AdaptiveTableRowStripe(
+                        blockTextOffset: item.blockTextOffset,
+                        characterCount: item.characterCount
+                    )
+                }
                 ForEach(cache.headerItems) { item in
-                    let phase = revealSnapshot.phase(for: item)
+                    let info = cache.flatCellInfos[item.flatIndex]
                     AdaptiveTableCell(
                         cell: item.cell,
                         cellContentHash: item.contentHash,
                         blockTextOffset: item.blockTextOffset,
-                        phase: phase,
-                        isHeader: item.isHeader,
-                        showTopSeparator: item.showTopSeparator,
-                        columnSpacing: item.columnSpacing,
-                        isLastColumn: item.isLastColumn
+                        characterCount: info.count,
+                        isHeader: item.isHeader
                     )
                         .equatable()
                         .tableCellHash(item.contentHash)
                 }
                 ForEach(cache.bodyItems) { item in
-                    let phase = revealSnapshot.phase(for: item)
+                    let info = cache.flatCellInfos[item.flatIndex]
                     AdaptiveTableCell(
                         cell: item.cell,
                         cellContentHash: item.contentHash,
                         blockTextOffset: item.blockTextOffset,
-                        phase: phase,
-                        isHeader: item.isHeader,
-                        showTopSeparator: item.showTopSeparator,
-                        columnSpacing: item.columnSpacing,
-                        isLastColumn: item.isLastColumn
+                        characterCount: info.count,
+                        isHeader: item.isHeader
                     )
                         .equatable()
                         .tableCellHash(item.contentHash)
@@ -375,6 +386,7 @@ struct MarkdownTableContent: View {
         .markdownTableCellPadding(.vertical, verticalPadding)
         .scrollClipDisabled()
         .scrollBounceBehavior(.basedOnSize)
+        .environment(\.markdownTableCellSettleDuration, tableFadeSettleDuration)
         .background {
             GeometryReader { proxy in
                 Color.clear
@@ -382,6 +394,20 @@ struct MarkdownTableContent: View {
                         containerWidth = proxy.size.width
                     }
             }
+        }
+    }
+
+    private var scrollableTableStripeRows: [AdaptiveTableRowStripeItem] {
+        cache.infoByRow.indices.compactMap { row in
+            guard row > 0, !row.isMultiple(of: 2) else { return nil }
+            let infos = cache.infoByRow[row]
+            guard let first = infos.first else { return nil }
+            let endOffset = infos.reduce(first.offset) { max($0, $1.offset + $1.count) }
+            return AdaptiveTableRowStripeItem(
+                row: row,
+                blockTextOffset: first.offset,
+                characterCount: max(0, endOffset - first.offset)
+            )
         }
     }
 }
@@ -440,6 +466,13 @@ private final class MarkdownTableRevealState: ObservableObject {
     private weak var subscribedManager: StreamingRevealManager?
     private var settleTask: Task<Void, Never>?
     private var settleDuration: TimeInterval = 0.77
+    /// Last `revealedCount` we've seen via the manager listener. Used by
+    /// `registerCellsCrossedByFrontier` to know which cells got their final
+    /// character revealed *this tick*. `nil` means we haven't observed any
+    /// revealed value yet (fresh subscribe / table mount) — first observation
+    /// is treated as a baseline so already-revealed cells aren't retroactively
+    /// stamped as "just-completed".
+    private var lastObservedRevealed: Int?
 
     deinit {
         settleTask?.cancel()
@@ -485,6 +518,11 @@ private final class MarkdownTableRevealState: ObservableObject {
         }
         listenerID = nil
         subscribedManager = manager
+        // Reset frontier-tracking so the first refresh callback below is
+        // treated as a baseline, not as if the entire revealed prefix had
+        // *just* crossed cell boundaries (which would mass-register every
+        // already-revealed cell as fresh).
+        lastObservedRevealed = nil
 
         guard let manager else { return }
         listenerID = manager.addListener { [weak self] revealed in
@@ -521,14 +559,13 @@ private final class MarkdownTableRevealState: ObservableObject {
                   revealed >= info.offset
             else { return nil }
 
-            if normalPhaseState(
-                for: info,
-                revealed: revealed,
-                now: now,
-                allowFallbackActive: true
-            ).isActive {
-                return nil
-            }
+            // Already in the fresh set (i.e. still settling) — skip; we don't
+            // overwrite an in-flight expiration with a fresh `now` stamp.
+            if freshCellExpirations[key] != nil { return nil }
+            // Frontier still inside this cell — it'll be picked up as active
+            // via the explicit insertion in `makeSnapshot`, no need to mark
+            // fresh.
+            if revealed < info.endOffset { return nil }
 
             let cellDistance = abs(info.flatIndex - currentIndex)
             let charDistance = max(0, revealed - info.endOffset)
@@ -550,8 +587,11 @@ private final class MarkdownTableRevealState: ObservableObject {
     }
 
     private func refresh(revealed: Int) {
-        pruneFreshCells(now: Date())
-        let result = makeSnapshot(revealed: revealed, now: Date())
+        let now = Date()
+        pruneFreshCells(now: now)
+        registerCellsCrossedByFrontier(revealed: revealed, now: now)
+        lastObservedRevealed = revealed
+        let result = makeSnapshot(revealed: revealed, now: now)
         if snapshot != result.snapshot {
             snapshot = result.snapshot
         }
@@ -562,6 +602,46 @@ private final class MarkdownTableRevealState: ObservableObject {
         guard !freshCellExpirations.isEmpty else { return }
         freshCellExpirations = freshCellExpirations.filter { _, expiration in
             expiration > now
+        }
+    }
+
+    /// Event-driven settle registration. Whenever the frontier crosses a
+    /// cell's `endOffset` since the last refresh, that cell starts its settle
+    /// timer right now — registered into `freshCellExpirations` with a
+    /// concrete expiration date. After this, `makeSnapshot` no longer needs
+    /// the per-tick backward walk that previously called
+    /// `firstSeenTimestamp + settleDuration > now` on each cell (a continuous
+    /// time function whose result flipped every tick near the boundary,
+    /// causing snapshot churn at tick frequency).
+    private func registerCellsCrossedByFrontier(revealed: Int, now: Date) {
+        guard !cellInfos.isEmpty else { return }
+        guard let prev = lastObservedRevealed else { return } // first observation: baseline only
+
+        // Treat completion as "frontier reaches the end of the table" so the
+        // final tail of cells also receive a settle clock.
+        let prevEffective = prev == Int.max ? (cellInfos.last?.endOffset ?? 0) : prev
+        let currEffective = revealed == Int.max ? (cellInfos.last?.endOffset ?? 0) : revealed
+        guard currEffective > prevEffective else { return }
+
+        // Cells whose `endOffset` is in (prevEffective, currEffective]
+        // were just fully revealed this tick. Binary-search the lower bound.
+        var idx = firstCellIndex(withEndOffsetGreaterThan: prevEffective, in: cellInfos)
+        while idx < cellInfos.count {
+            let info = cellInfos[idx]
+            if info.endOffset > currEffective { break }
+            if info.count > 0 {
+                let key = MarkdownTableFreshCellKey(
+                    cellKey: info.key,
+                    contentHash: info.contentHash
+                )
+                if freshCellExpirations[key] == nil {
+                    let stamp = subscribedManager?.firstSeenTimestamp(
+                        at: max(info.offset, info.endOffset - 1)
+                    ) ?? now
+                    freshCellExpirations[key] = stamp.addingTimeInterval(settleDuration)
+                }
+            }
+            idx += 1
         }
     }
 
@@ -576,7 +656,6 @@ private final class MarkdownTableRevealState: ObservableObject {
         }
 
         var activeKeys = Set<MarkdownTableCellKey>()
-        var pastCellCount = snapshotCellInfos.count
         var nextRefreshDate: Date?
 
         let isCompleted = revealed == Int.max
@@ -587,31 +666,28 @@ private final class MarkdownTableRevealState: ObservableObject {
             startingAtOrBefore: effectiveRevealed,
             in: snapshotCellInfos
         )
+
+        // pastCellCount: count of cells whose `endOffset <= effectiveRevealed`
+        // (i.e. frontier has fully crossed them). Cells the frontier is
+        // currently inside are NOT past — they're active via the explicit
+        // insertion below.
+        let pastCellCount: Int
         if let currentIndex {
-            var startIndex = currentIndex
-            while startIndex >= 0 {
-                let info = snapshotCellInfos[startIndex]
-                let state = normalPhaseState(
-                    for: info,
-                    revealed: effectiveRevealed,
-                    now: now,
-                    allowFallbackActive: !isCompleted
-                )
-                if state.isActive {
-                    activeKeys.insert(info.key)
-                    if let date = state.nextRefreshDate {
-                        nextRefreshDate = minDate(nextRefreshDate, date)
-                    }
-                    startIndex -= 1
-                } else {
-                    break
-                }
+            let info = snapshotCellInfos[currentIndex]
+            if effectiveRevealed < info.endOffset {
+                // Frontier still inside this cell — it's active, not past.
+                activeKeys.insert(info.key)
+                pastCellCount = currentIndex
+            } else {
+                // Frontier exactly at or past this cell's endOffset.
+                pastCellCount = currentIndex + 1
             }
-            pastCellCount = startIndex + 1
         } else {
             pastCellCount = 0
         }
 
+        // Fresh cells from event-driven registration (settle window). Active
+        // is the union of "frontier currently inside" + "still settling".
         for (freshKey, expiration) in freshCellExpirations {
             activeKeys.insert(freshKey.cellKey)
             nextRefreshDate = minDate(nextRefreshDate, expiration)
@@ -624,26 +700,6 @@ private final class MarkdownTableRevealState: ObservableObject {
             freshCellCount: freshCellExpirations.count
         )
         return (snapshot, nextRefreshDate)
-    }
-
-    private func normalPhaseState(
-        for info: MarkdownTableFlatCellInfo,
-        revealed: Int,
-        now: Date,
-        allowFallbackActive: Bool
-    ) -> (isActive: Bool, nextRefreshDate: Date?) {
-        guard info.count > 0 else { return (false, nil) }
-        if revealed < info.offset { return (false, nil) }
-        if revealed < info.endOffset { return (true, nil) }
-
-        if let timestamp = subscribedManager?.firstSeenTimestamp(at: max(info.offset, info.endOffset - 1)) {
-            let expiration = timestamp.addingTimeInterval(settleDuration)
-            return (expiration > now, expiration)
-        }
-
-        guard allowFallbackActive else { return (false, nil) }
-        let fallbackActive = revealed < info.endOffset + MarkdownTableContent.fallbackSettleSlack
-        return (fallbackActive, nil)
     }
 
     private func lastCellIndex(
@@ -662,6 +718,25 @@ private final class MarkdownTableRevealState: ObservableObject {
         }
         let index = low - 1
         return index >= 0 ? index : nil
+    }
+
+    /// Smallest index `i` such that `cellInfos[i].endOffset > threshold`.
+    /// Returns `cellInfos.count` if no such cell exists.
+    private func firstCellIndex(
+        withEndOffsetGreaterThan threshold: Int,
+        in cellInfos: [MarkdownTableFlatCellInfo]
+    ) -> Int {
+        var low = 0
+        var high = cellInfos.count
+        while low < high {
+            let mid = (low + high) / 2
+            if cellInfos[mid].endOffset > threshold {
+                high = mid
+            } else {
+                low = mid + 1
+            }
+        }
+        return low
     }
 
     private func scheduleSettleRefresh(at date: Date?) {
@@ -687,9 +762,6 @@ private struct AdaptiveTableCellItem: Identifiable {
     var flatIndex: Int
     var cell: Markdown.Table.Cell
     var isHeader: Bool
-    var showTopSeparator: Bool
-    var columnSpacing: CGFloat = 0
-    var isLastColumn: Bool = false
     var blockTextOffset: Int = 0
     var phase: MarkdownTableCellPhase = .past
     /// Pre-computed via `TableInfoCache.ensureFresh` so we don't pay for a
@@ -699,6 +771,14 @@ private struct AdaptiveTableCellItem: Identifiable {
     var id: MarkdownTableCellKey {
         MarkdownTableCellKey(row: row, column: column)
     }
+}
+
+private struct AdaptiveTableRowStripeItem: Identifiable {
+    var row: Int
+    var blockTextOffset: Int
+    var characterCount: Int
+
+    var id: Int { row }
 }
 
 // MARK: - Cell hash layout value key
@@ -721,6 +801,7 @@ struct AdaptiveTableLayout: Layout {
     var containerWidth: CGFloat
     var cellMaxWidth: CGFloat
     var columnWidthBuckets: [CGFloat]
+    var rowBackgroundRows: [Int] = []
     var columnSpacing: CGFloat = 12
     var contentRevision: Int
 
@@ -761,8 +842,10 @@ struct AdaptiveTableLayout: Layout {
             )
         }
 
-        guard !subviews.isEmpty, columnCount > 0 else { return .zero }
-        let rowCount = subviews.count / columnCount
+        let rowBackgroundCount = min(rowBackgroundRows.count, subviews.count)
+        let cellSubviewCount = subviews.count - rowBackgroundCount
+        guard cellSubviewCount > 0, columnCount > 0 else { return .zero }
+        let rowCount = cellSubviewCount / columnCount
         guard rowCount > 0 else { return .zero }
 
         let totalSpacing = columnSpacing * CGFloat(max(columnCount - 1, 0))
@@ -773,7 +856,7 @@ struct AdaptiveTableLayout: Layout {
 
         if cache.columnCount == columnCount,
            cache.contentRevision == contentRevision,
-           cache.cellCount == subviews.count,
+           cache.cellCount == cellSubviewCount,
            cache.containerWidth == containerWidth,
            cache.cellMaxWidth == cellMaxWidth,
            cache.columnWidthBuckets == widthBuckets,
@@ -783,7 +866,9 @@ struct AdaptiveTableLayout: Layout {
             return cache.cachedSize
         }
 
-        let currentHashes = subviews.map { $0[TableCellHashKey.self] }
+        let currentHashes = (0..<cellSubviewCount).map { index in
+            subviews[rowBackgroundCount + index][TableCellHashKey.self]
+        }
 
         // Build per-cell ideal widths, measuring only changed/new cells
         let hasCellCache = cache.columnCount == columnCount
@@ -806,7 +891,7 @@ struct AdaptiveTableLayout: Layout {
             if changed {
                 let col = i % columnCount
                 MarkdownRenderProbe.increment(\.adaptiveTableLayoutIdealMeasures)
-                let ideal = subviews[i].sizeThatFits(.unspecified)
+                let ideal = subviews[rowBackgroundCount + i].sizeThatFits(.unspecified)
                 cellIdealWidths[i] = Self.snappedWidth(
                     min(ideal.width, cellMaxWidth),
                     buckets: widthBuckets,
@@ -851,7 +936,7 @@ struct AdaptiveTableLayout: Layout {
                 && cache.cellConstrainedHeights.count == cache.cellHashes.count
                 && cache.cellIdealWidths.count == cache.cellHashes.count
             rowHeights = [CGFloat](repeating: 0, count: rowCount)
-            for (i, sub) in subviews.enumerated() {
+            for i in 0..<cellSubviewCount {
                 let col = i % columnCount
                 let row = i / columnCount
                 guard row < rowCount else { continue }
@@ -866,7 +951,9 @@ struct AdaptiveTableLayout: Layout {
                 let height: CGFloat
                 if needMeasure {
                     MarkdownRenderProbe.increment(\.adaptiveTableLayoutConstrainedMeasures)
-                    height = sub.sizeThatFits(ProposedViewSize(width: newColWidth, height: nil)).height
+                    height = subviews[rowBackgroundCount + i]
+                        .sizeThatFits(ProposedViewSize(width: newColWidth, height: nil))
+                        .height
                 } else {
                     height = cache.cellConstrainedHeights[i]
                 }
@@ -888,9 +975,10 @@ struct AdaptiveTableLayout: Layout {
                 var h: CGFloat = 0
                 for col in 0..<columnCount {
                     let i = row * columnCount + col
-                    guard i < subviews.count else { break }
+                    guard i < cellSubviewCount else { break }
                     MarkdownRenderProbe.increment(\.adaptiveTableLayoutConstrainedMeasures)
-                    let size = subviews[i].sizeThatFits(ProposedViewSize(width: colWidths[col], height: nil))
+                    let size = subviews[rowBackgroundCount + i]
+                        .sizeThatFits(ProposedViewSize(width: colWidths[col], height: nil))
                     cellConstrainedHeights[i] = size.height
                     h = max(h, size.height)
                 }
@@ -902,7 +990,7 @@ struct AdaptiveTableLayout: Layout {
         cache.rowHeights = rowHeights
         cache.columnCount = columnCount
         cache.contentRevision = contentRevision
-        cache.cellCount = subviews.count
+        cache.cellCount = cellSubviewCount
         cache.containerWidth = containerWidth
         cache.cellMaxWidth = cellMaxWidth
         cache.columnWidthBuckets = widthBuckets
@@ -936,8 +1024,10 @@ struct AdaptiveTableLayout: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout CacheData) {
+        let rowBackgroundCount = min(rowBackgroundRows.count, subviews.count)
+        let cellSubviewCount = subviews.count - rowBackgroundCount
         let cellCount = min(
-            subviews.count,
+            cellSubviewCount,
             cache.relativeCellOrigins.count,
             cache.cellProposals.count
         )
@@ -952,8 +1042,26 @@ struct AdaptiveTableLayout: Layout {
             cache.absoluteOriginBase = originBase
         }
 
+        for (backgroundIndex, row) in rowBackgroundRows.enumerated() where backgroundIndex < rowBackgroundCount {
+            guard row >= 0,
+                  row < cache.rowOffsets.count,
+                  row < cache.rowHeights.count
+            else { continue }
+
+            subviews[backgroundIndex].place(
+                at: CGPoint(
+                    x: bounds.minX,
+                    y: bounds.minY + cache.rowOffsets[row]
+                ),
+                proposal: ProposedViewSize(
+                    width: cache.cachedSize.width,
+                    height: cache.rowHeights[row]
+                )
+            )
+        }
+
         for index in 0..<cellCount {
-            subviews[index].place(
+            subviews[rowBackgroundCount + index].place(
                 at: cache.absoluteCellOrigins[index],
                 proposal: cache.cellProposals[index]
             )
@@ -1047,47 +1155,224 @@ struct AdaptiveTableLayout: Layout {
 
 // MARK: - Adaptive Table Cell
 
+/// Per-cell phase store. Every `AdaptiveTableCell` in the scrollable path owns
+/// one (via `@StateObject`) so phase changes invalidate **only that cell**
+/// instead of going through `MarkdownTableContent.body` and forcing SwiftUI to
+/// diff every cell in `ForEach(cache.bodyItems)` (the O(N)-per-publish path
+/// that was the dominant cost at N≈900).
+///
+/// Subscribes to the shared `StreamingRevealManager` listener; every notify
+/// runs `computePhase` and only writes `@Published phase` when it actually
+/// changes — so the per-tick fan-out across N listeners costs essentially an
+/// int compare per cell, and only the handful of cells whose phase actually
+/// transitions trigger a `body` re-eval.
+@MainActor
+private final class AdaptiveTableCellPhaseHolder: ObservableObject {
+    @Published private(set) var phase: MarkdownTableCellPhase = .before
+
+    private weak var manager: StreamingRevealManager?
+    private var listenerID: UUID?
+    private var settleTask: Task<Void, Never>?
+    private var blockTextOffset: Int = 0
+    private var characterCount: Int = 0
+    private var settleDuration: TimeInterval = 0.55
+    /// Re-entrancy guard. `StreamingRevealManager.addListener` synchronously
+    /// invokes the listener once with the current `revealedCount`, which
+    /// re-enters `refreshPhase` *before* `listenerID` has been assigned. The
+    /// flag tells the re-entered `refreshPhase` that a subscribe is already
+    /// in progress, so it doesn't infinitely recurse trying to subscribe
+    /// again.
+    private var isSubscribing: Bool = false
+
+    deinit {
+        settleTask?.cancel()
+        if let listenerID, let manager {
+            Task { @MainActor in
+                manager.removeListener(listenerID)
+            }
+        }
+    }
+
+    func configure(
+        manager: StreamingRevealManager?,
+        blockTextOffset: Int,
+        characterCount: Int,
+        settleDuration: TimeInterval
+    ) {
+        let managerChanged = self.manager !== manager
+        self.blockTextOffset = blockTextOffset
+        self.characterCount = characterCount
+        self.settleDuration = settleDuration
+
+        if managerChanged {
+            unsubscribe()
+            self.manager = manager
+        }
+        // `refreshPhase` decides whether we need a listener — no unconditional
+        // (re)subscribe here. Doing it unconditionally caused thousands of
+        // subscribe/unsubscribe round-trips per second: every chunk triggers
+        // `onChange` cascades that re-call configure on N cells, and any
+        // already-settled cells would re-add a listener only to immediately
+        // drop it again.
+        refreshPhase()
+    }
+
+    func unsubscribe() {
+        settleTask?.cancel()
+        settleTask = nil
+        if let listenerID, let manager {
+            manager.removeListener(listenerID)
+        }
+        listenerID = nil
+    }
+
+    private func subscribe() {
+        guard let manager, listenerID == nil, !isSubscribing else { return }
+        isSubscribing = true
+        defer { isSubscribing = false }
+        // Note: `manager.addListener` synchronously invokes the listener once
+        // with the current `revealedCount` before returning. That re-enters
+        // `refreshPhase` while we're still inside this method — the
+        // `isSubscribing` flag above prevents the re-entrant call from
+        // recursively trying to subscribe again.
+        listenerID = manager.addListener { [weak self] _ in
+            self?.refreshPhase()
+        }
+    }
+
+    private func refreshPhase() {
+        let newPhase = computePhase()
+        if newPhase != phase {
+            phase = newPhase
+        }
+        // Single source of truth for listener subscription state: if there's
+        // any chance we'll still need to react to frontier movement, be
+        // subscribed; otherwise drop.
+        //
+        // `revealedCount` is monotonic, so once we're permanently `.past`
+        // (frontier moved past, settle expired) we can't possibly need to
+        // react again — at N≈1000 cells the per-tick listener fan-out is
+        // the dominant late-stream cost. The `settleTask` scheduled inside
+        // `computePhase` guarantees this `refreshPhase` runs at least once
+        // after the settle expiration even with zero listener notifies.
+        let shouldDrop = newPhase == .past && shouldDropListener()
+        if shouldDrop {
+            if listenerID != nil { unsubscribe() }
+        } else {
+            if listenerID == nil, !isSubscribing, manager != nil { subscribe() }
+        }
+    }
+
+    private func computePhase() -> MarkdownTableCellPhase {
+        guard characterCount > 0 else { return .past }
+        let revealed = manager?.revealedCount ?? Int.max
+        let endOffset = blockTextOffset + characterCount
+
+        if revealed == Int.max { return .past }
+        if revealed < blockTextOffset { return .before }
+        if revealed < endOffset { return .active }
+
+        if let stamp = manager?.firstSeenTimestamp(at: endOffset - 1) {
+            let expiration = stamp.addingTimeInterval(settleDuration)
+            if expiration > Date() {
+                scheduleSettleTransition(at: expiration)
+                return .active
+            }
+        }
+        return .past
+    }
+
+    private func shouldDropListener() -> Bool {
+        guard let manager else { return true }
+        // Stream finished — no more notifies that could matter.
+        if manager.revealedCount == Int.max { return true }
+        guard characterCount > 0 else { return true }
+        let revealed = manager.revealedCount
+        let endOffset = blockTextOffset + characterCount
+        // Frontier still inside or about to reach us — must stay subscribed.
+        if revealed < endOffset { return false }
+        // Settle clock still ticking — `settleTask` will refresh us at
+        // expiration, but we keep the listener as a defensive backup.
+        if let stamp = manager.firstSeenTimestamp(at: endOffset - 1),
+           stamp.addingTimeInterval(settleDuration) > Date() {
+            return false
+        }
+        return true
+    }
+
+    private func scheduleSettleTransition(at date: Date) {
+        settleTask?.cancel()
+        let delay = max(0.01, date.timeIntervalSinceNow)
+        settleTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.refreshPhase()
+            }
+        }
+    }
+}
+
 fileprivate struct AdaptiveTableCell: View, Equatable {
     var cell: Markdown.Table.Cell
     var cellContentHash: Int
     var blockTextOffset: Int
-    var phase: MarkdownTableCellPhase
+    /// Character span this cell covers in the block's reveal frontier. Needed
+    /// by the per-cell phase holder to know when frontier crosses this cell's
+    /// `endOffset = blockTextOffset + characterCount`.
+    var characterCount: Int
     var isHeader: Bool
-    var showTopSeparator: Bool
-    var columnSpacing: CGFloat = 0
-    var isLastColumn: Bool = false
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        // `phase` is intentionally not part of equality — it now lives in the
+        // per-cell `@StateObject phaseHolder`, so the `ForEach`-emitted value
+        // for a given cell stays stable across reveal ticks. Combined with
+        // `.equatable()`, SwiftUI fast-paths the diff of unchanged cells.
         lhs.cellContentHash == rhs.cellContentHash
         && lhs.blockTextOffset == rhs.blockTextOffset
-        && lhs.phase == rhs.phase
+        && lhs.characterCount == rhs.characterCount
         && lhs.isHeader == rhs.isHeader
-        && lhs.showTopSeparator == rhs.showTopSeparator
-        && lhs.columnSpacing == rhs.columnSpacing
-        && lhs.isLastColumn == rhs.isLastColumn
     }
 
     @Environment(\.markdownRendererConfiguration) private var configuration
     @Environment(\.markdownTableCellPadding) private var padding
     @Environment(\.markdownFontGroup.tableHeader) private var headerFont
     @Environment(\.markdownFontGroup.tableBody) private var bodyFont
+    @Environment(\.markdownStreaming) private var revealManager
+    @Environment(\.markdownTableCellSettleDuration) private var settleDuration
+
+    @StateObject private var phaseHolder = AdaptiveTableCellPhaseHolder()
+
+    private var revealManagerID: ObjectIdentifier? {
+        revealManager.map(ObjectIdentifier.init)
+    }
 
     var body: some View {
         let _ = MarkdownRenderProbe.increment(\.adaptiveTableCellBodyCalls)
+        let phase = phaseHolder.phase
         CmarkNodeVisitor(configuration: configuration)
             .makeBody(for: cell)
             .markdownTablePhase(phase, offsetBase: blockTextOffset)
             .multilineTextAlignment(cell.textAlignment)
             ._markdownCellPadding(padding)
             .font(isHeader ? headerFont : bodyFont)
+            .textCase(isHeader ? .uppercase : .none)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: cellAlignment)
-            .overlay(alignment: .topLeading) {
-                if showTopSeparator {
-                    Divider()
-                        .padding(.trailing, isLastColumn ? 0 : -columnSpacing)
-                        .markdownTableRevealVisible(phase != .before)
-                }
-            }
+            .onAppear { configurePhaseHolder() }
+            .onDisappear { phaseHolder.unsubscribe() }
+            .onChange(of: revealManagerID) { _, _ in configurePhaseHolder() }
+            .onChange(of: blockTextOffset) { _, _ in configurePhaseHolder() }
+            .onChange(of: characterCount) { _, _ in configurePhaseHolder() }
+            .onChange(of: settleDuration) { _, _ in configurePhaseHolder() }
+    }
+
+    private func configurePhaseHolder() {
+        phaseHolder.configure(
+            manager: revealManager,
+            blockTextOffset: blockTextOffset,
+            characterCount: characterCount,
+            settleDuration: settleDuration
+        )
     }
 
     private var cellAlignment: Alignment {
@@ -1096,6 +1381,67 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         case .trailing: return .topTrailing
         default: return .top
         }
+    }
+}
+
+fileprivate struct AdaptiveTableRowStripe: View, Equatable {
+    var blockTextOffset: Int
+    var characterCount: Int
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.blockTextOffset == rhs.blockTextOffset
+        && lhs.characterCount == rhs.characterCount
+    }
+
+    @Environment(\.markdownStreaming) private var revealManager
+    @Environment(\.markdownTableCellSettleDuration) private var settleDuration
+    @StateObject private var phaseHolder = AdaptiveTableCellPhaseHolder()
+
+    private var revealManagerID: ObjectIdentifier? {
+        revealManager.map(ObjectIdentifier.init)
+    }
+
+    var body: some View {
+        let phase = phaseHolder.phase
+        RoundedRectangle(
+            cornerRadius: markdownTableScrollableStripeCornerRadius,
+            style: .continuous
+        )
+        .foregroundStyle(.tertiary.opacity(markdownTableScrollableStripeOpacity))
+        .padding(.horizontal, -markdownTableScrollableStripeHorizontalBleed)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .markdownTableRevealVisible(phase != .before)
+        .allowsHitTesting(false)
+        .onAppear { configurePhaseHolder() }
+        .onDisappear { phaseHolder.unsubscribe() }
+        .onChange(of: revealManagerID) { _, _ in configurePhaseHolder() }
+        .onChange(of: blockTextOffset) { _, _ in configurePhaseHolder() }
+        .onChange(of: characterCount) { _, _ in configurePhaseHolder() }
+        .onChange(of: settleDuration) { _, _ in configurePhaseHolder() }
+    }
+
+    private func configurePhaseHolder() {
+        phaseHolder.configure(
+            manager: revealManager,
+            blockTextOffset: blockTextOffset,
+            characterCount: characterCount,
+            settleDuration: settleDuration
+        )
+    }
+}
+
+struct MarkdownTableCellSettleDurationKey: EnvironmentKey {
+    static let defaultValue: TimeInterval = 0.55
+}
+
+extension EnvironmentValues {
+    /// Settle duration (color-trail end time) for table cells in the scrollable
+    /// path. Set by `MarkdownTableContent.scrollableTable` so each cell's phase
+    /// holder can schedule its own `.active → .past` transition without
+    /// involving a parent-level snapshot publish.
+    var markdownTableCellSettleDuration: TimeInterval {
+        get { self[MarkdownTableCellSettleDurationKey.self] }
+        set { self[MarkdownTableCellSettleDurationKey.self] = newValue }
     }
 }
 

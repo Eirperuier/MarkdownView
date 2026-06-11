@@ -461,6 +461,23 @@ private struct RevealFadeRenderer: TextRenderer {
     func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
         MarkdownRenderProbe.increment(\.fadeRevealRendererDrawCalls)
         state.ensureCapacity(characterCount)
+        // A reveal rewind (revealedCount decreased) invalidates the stamps of
+        // every glyph that fell back behind the frontier. This happens when
+        // the reveal catches up mid-stream (coordinator bounces to Int.max),
+        // new text renders once against that stale Int.max and gets stamped,
+        // then the coordinator rewinds. The user never saw those glyphs as
+        // revealed, so keeping the stamps would pre-age them — by the time
+        // the frontier re-reaches them the fade window has already elapsed
+        // and they pop in fully settled.
+        if let lastDrawn = state.lastDrawnRevealedCount, revealedCount < lastDrawn {
+            let newLocal = min(max(0, revealedCount - blockTextOffset), state.firstSeen.count)
+            let oldLocal = lastDrawn == Int.max
+                ? state.firstSeen.count
+                : min(max(newLocal, lastDrawn - blockTextOffset), state.firstSeen.count)
+            for index in newLocal..<oldLocal {
+                state.firstSeen[index] = nil
+            }
+        }
         state.lastDrawnRevealedCount = revealedCount
 
         // Use wall clock rather than the passed-in `now` (which comes from
@@ -533,9 +550,21 @@ private struct RevealFadeRenderer: TextRenderer {
                         //     re-opened finished message). Stamp `.distantPast`
                         //     so they appear settled and don't flash.
                         let absoluteIndex = blockTextOffset + charIdx
-                        let stamp = revealManager?.firstSeenTimestamp(at: absoluteIndex)
+                        let managerStamp = revealManager?.firstSeenTimestamp(at: absoluteIndex)
+                        let stamp = managerStamp
                             ?? ((state.initialized || treatExistingAsFresh) ? now : .distantPast)
-                        if charIdx < state.firstSeen.count {
+                        // Don't cache manager stamps that are already past the
+                        // settle window. They draw as settled either way, and a
+                        // stale stamp can be transient: text that renders during
+                        // the brief revealedCount == Int.max window inherits the
+                        // old completion timestamp, but after the coordinator
+                        // rewinds, the manager hands out a fresh stamp — caching
+                        // would freeze the stale one and permanently skip the
+                        // fade for that glyph.
+                        let settledManagerStamp = managerStamp.map {
+                            now.timeIntervalSince($0) >= colorSettleDurationValue
+                        } ?? false
+                        if charIdx < state.firstSeen.count, !settledManagerStamp {
                             state.firstSeen[charIdx] = stamp
                         }
                         t0 = stamp
@@ -905,18 +934,108 @@ private struct MarkdownTextTableActiveRevealReader: View {
     let freshActivation: Bool
     let minimumInterval: TimeInterval
 
+    @Environment(\.markdownStreaming) private var revealManager
+    @Environment(\.markdownFadeReveal) private var fadeConfig
+
     var body: some View {
-        StreamingRevealCountReader { revealManager, revealCount in
-            RevealAnimatedMarkdownText(
-                displayText: prepared.attributedString,
-                characterCount: prepared.characterCount,
-                blockTextOffset: offsetBase + blockTextOffset,
-                cjkItalicRanges: prepared.cjkItalicRanges,
-                revealManager: revealManager,
-                revealCount: revealCount,
+        // Fast path for iOS 18+ with fade enabled: skip
+        // `StreamingRevealCountReader` (it adds a listener-driven `@State
+        // revealCount` to every active cell — at N≈1000 cells that fan-out
+        // dominated the cost). The TimelineView inside
+        // `TableCellFadeRevealText` polls `revealManager.revealedCount`
+        // directly on each tick, so we still see frontier movement without a
+        // per-cell listener subscription or a per-tick body re-eval cascade.
+        if #available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, *),
+           let fadeConfig,
+           prepared.characterCount > 0,
+           let revealManager
+        {
+            TableCellFadeRevealText(
+                prepared: prepared,
+                offsetBase: offsetBase,
+                blockTextOffset: blockTextOffset,
                 freshActivation: freshActivation,
-                minimumInterval: minimumInterval
+                minimumInterval: minimumInterval,
+                revealManager: revealManager,
+                fadeConfig: fadeConfig
             )
+        } else {
+            // Fallback: legacy / non-fade path keeps the original
+            // listener-driven reader so the static substring-fade still
+            // animates on iOS < 18.
+            StreamingRevealCountReader { manager, revealCount in
+                RevealAnimatedMarkdownText(
+                    displayText: prepared.attributedString,
+                    characterCount: prepared.characterCount,
+                    blockTextOffset: offsetBase + blockTextOffset,
+                    cjkItalicRanges: prepared.cjkItalicRanges,
+                    revealManager: manager,
+                    revealCount: revealCount,
+                    freshActivation: freshActivation,
+                    minimumInterval: minimumInterval
+                )
+            }
+        }
+    }
+}
+
+/// Lightweight fade-reveal view for table cells in the `.active` phase.
+///
+/// **Why this exists**: every active cell otherwise goes through
+/// `StreamingRevealCountReader` → `RevealAnimatedMarkdownText` →
+/// `FadeRevealMarkdownText`. The first link subscribes to the manager
+/// listener and writes `@State revealCount` on every notify — at N≈1000
+/// active cells (real tables), the notify fan-out hits every reader's
+/// `@State` and cascades a body re-eval down the full chain ≈ 1000 times per
+/// second. This view bypasses that: the TimelineView inside reads
+/// `revealManager.revealedCount` synchronously on each draw tick (~30Hz),
+/// so we still get the live frontier value without ever subscribing the
+/// view to the manager's listener queue. Cell phase transitions are owned
+/// by `AdaptiveTableCellPhaseHolder`, so when the cell becomes `.past` the
+/// whole view unmounts and the TimelineView naturally stops.
+@available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, *)
+private struct TableCellFadeRevealText: View {
+    let prepared: PreparedMarkdownText
+    let offsetBase: Int
+    let blockTextOffset: Int
+    let freshActivation: Bool
+    let minimumInterval: TimeInterval
+    let revealManager: StreamingRevealManager
+    let fadeConfig: MarkdownFadeRevealConfig
+
+    @Environment(\.font) private var inheritedFont
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var fadeState = FadeState()
+
+    var body: some View {
+        let _ = MarkdownRenderProbe.increment(\.fadeRevealTextBodyCalls)
+        let fadeDuration = revealManager.adaptiveFadeDuration(baseDuration: fadeConfig.duration)
+        let absoluteOffset = offsetBase + blockTextOffset
+
+        TimelineView(.animation(minimumInterval: minimumInterval, paused: false)) { ctx in
+            let revealed = revealManager.revealedCount
+            markdownTextWithInlineSymbols(prepared.attributedString)
+                .font(inheritedFont)
+                .textRenderer(
+                    RevealFadeRenderer(
+                        revealedCount: revealed,
+                        blockTextOffset: absoluteOffset,
+                        characterCount: prepared.characterCount,
+                        timelineDate: ctx.date,
+                        duration: fadeDuration,
+                        delay: fadeConfig.delay,
+                        highlightColor: fadeConfig.highlightColor,
+                        highlightStartHue: fadeConfig.highlightStartHue,
+                        highlightEndHue: fadeConfig.highlightEndHue,
+                        hueSaturation: fadeConfig.hueSaturation,
+                        hueBrightness: fadeConfig.hueBrightness,
+                        colorScheme: colorScheme,
+                        state: fadeState,
+                        cjkItalicRanges: prepared.cjkItalicRanges,
+                        revealManager: revealManager,
+                        treatExistingAsFresh: freshActivation
+                    )
+                )
         }
     }
 }

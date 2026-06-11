@@ -27,6 +27,13 @@ public protocol MarkdownFontGroup {
     var inlineMath: Font { get }
     var displayMath: Font { get }
 }
+func sfCompactFont(forTextStyle style: UIFont.TextStyle, weight: String = "Regular") -> UIFont {
+    let baseSize = UIFont.preferredFont(forTextStyle: style).pointSize
+    guard let baseFont = UIFont(name: "SFCompactText-\(weight)", size: baseSize) else {
+        return UIFont.preferredFont(forTextStyle: style)
+    }
+    return UIFontMetrics(forTextStyle: style).scaledFont(for: baseFont)
+}
 
 extension MarkdownFontGroup {
     public var h1: Font { Font.title }
@@ -44,7 +51,7 @@ extension MarkdownFontGroup {
     public var blockQuote: Font { Font.system(.body, design: .serif) }
     
     // Tables
-    public var tableHeader: Font { Font.headline }
+    public var tableHeader: Font { Font(sfCompactFont(forTextStyle: .subheadline)).weight(.bold) }
     public var tableBody: Font { Font.body }
     
     // Math

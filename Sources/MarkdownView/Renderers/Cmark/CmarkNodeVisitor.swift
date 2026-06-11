@@ -139,6 +139,7 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
           showFullCode: configuration.showFullCode
         )
       )
+      .streamingRevealFadeIn()
     }
   }
 
@@ -408,8 +409,7 @@ struct LinkItemView: View {
     var body: some View {
         VStack {
             /// Valid link
-            
-            if isValidUrl, let url {
+            if let url = url, isValidUrl {
                 HStack(alignment: .center) {
                     VStack {
                         switch imageStatus {
@@ -432,7 +432,8 @@ struct LinkItemView: View {
                     .clipped()
                     .frame(width: 10, height: 10)
                     .clipShape(Circle())
-                    Text(metadata?.title ?? "url title placeholder")
+                    
+                    //Text(metadata?.title ?? "url title placeholder")
                 }
             }
             /// Invalid link
