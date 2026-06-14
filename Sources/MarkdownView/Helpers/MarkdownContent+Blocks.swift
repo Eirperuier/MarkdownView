@@ -22,23 +22,59 @@ extension MarkdownContent {
         let parserText = MarkdownParseSanitizer.sanitizedForCmark(raw.text)
 
         var result: [MarkdownBlockDescriptor] = []
-        for (index, child) in children.enumerated() {
+        var index = 0
+        while index < children.count {
+            let child = children[index]
             if expandListItems, let items = Self.expandList(child, topLevelIndex: index, parserText: parserText) {
                 result.append(contentsOf: items)
-            } else {
-                let plain = Self.extractPlainText(child)
-                result.append(MarkdownBlockDescriptor(
-                    kind: Self.classifyNode(child),
-                    topLevelIndex: index,
-                    stableHash: child.stableContentHash,
-                    sourceText: Self.sourceText(for: child, in: parserText),
-                    plainText: plain,
-                    childPlainTexts: Self.extractChildPlainTexts(child, fallback: plain),
-                    listItemContext: nil
-                ))
+                index += 1
+                continue
             }
+            // Extended Heading:同级相邻标题合并成一个 descriptor,渲染为
+            // title + secondary subtitle(中间无间距)。topLevelIndex 取 title 的
+            // 真实 child 下标,流式中 subtitle 出现时同 index 的块 key 不变。
+            if let title = child as? Heading,
+               index + 1 < children.count,
+               let subtitle = children[index + 1] as? Heading,
+               subtitle.level == title.level {
+                let titlePlain = Self.extractPlainText(title)
+                let subtitlePlain = Self.extractPlainText(subtitle)
+                result.append(MarkdownBlockDescriptor(
+                    kind: .heading(level: title.level),
+                    topLevelIndex: index,
+                    stableHash: Self.combinedStableHash(title, subtitle),
+                    sourceText: [
+                        Self.sourceText(for: title, in: parserText),
+                        Self.sourceText(for: subtitle, in: parserText),
+                    ].joined(separator: "\n"),
+                    plainText: titlePlain + "\n" + subtitlePlain,
+                    childPlainTexts: [titlePlain, subtitlePlain],
+                    listItemContext: nil,
+                    extendedHeadingContext: .init(level: title.level)
+                ))
+                index += 2
+                continue
+            }
+            let plain = Self.extractPlainText(child)
+            result.append(MarkdownBlockDescriptor(
+                kind: Self.classifyNode(child),
+                topLevelIndex: index,
+                stableHash: child.stableContentHash,
+                sourceText: Self.sourceText(for: child, in: parserText),
+                plainText: plain,
+                childPlainTexts: Self.extractChildPlainTexts(child, fallback: plain),
+                listItemContext: nil
+            ))
+            index += 1
         }
         return result
+    }
+
+    /// Deterministic hash for an Extended Heading pair — must not use `Hasher`
+    /// (per-process random seed) because `MarkdownBlockView` re-derives it to
+    /// resolve the pair against the descriptor.
+    static func combinedStableHash(_ first: any Markup, _ second: any Markup) -> Int {
+        first.stableContentHash ^ (second.stableContentHash &* 31)
     }
 
     private static func sourceText(for node: any Markup, in parserText: String) -> String {

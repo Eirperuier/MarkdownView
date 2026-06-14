@@ -10,26 +10,30 @@ import Markdown
 
 struct MarkdownHeading: View {
     let heading: Heading
-    
+
     @Environment(\.markdownRendererConfiguration) private var configuration
     @Environment(\.markdownFontGroup) private var fontGroup
     @Environment(\.headingStyleGroup) private var headingStyleGroup
     @Environment(\.headingPaddings) private var paddings
-    
+    @Environment(\.markdownHeadingLevelOffset) private var levelOffset
+
+    /// 实际渲染层级 = AST 层级 + 环境偏移(Extended Heading 的 subtitle 注入 +1),
+    /// 钳在 1...6。字体/字重/前景色/padding/无障碍全部按这个层级取。
+    private var level: Int {
+        min(max(heading.level + levelOffset, 1), 6)
+    }
+
     private var fontWeight: Font.Weight {
-        return switch heading.level {
-            case 1: .black
-            case 2: .heavy
-            case 3: .bold
-            case 4: .semibold
-            case 5: .medium
-            case 6: .medium
+        return switch level {
+            case 1: .heavy
+            case 2: .bold
+            case 3: .semibold
+            case 4, 5, 6: .medium
             default: .regular
-        
         }
     }
     private var font: Font {
-        return switch heading.level {
+        return switch level {
         case 1: fontGroup.h1
         case 2: fontGroup.h2
         case 3: fontGroup.h3
@@ -40,7 +44,7 @@ struct MarkdownHeading: View {
         }
     }
     private var foregroundStyle: AnyShapeStyle {
-        return switch heading.level {
+        return switch level {
         case 1: headingStyleGroup.h1
         case 2: headingStyleGroup.h2
         case 3: headingStyleGroup.h3
@@ -51,7 +55,7 @@ struct MarkdownHeading: View {
         }
     }
     private var accessibilityHeadingLevel: AccessibilityHeadingLevel {
-        return switch heading.level {
+        return switch level {
         case 1: .h1
         case 2: .h2
         case 3: .h3
@@ -61,7 +65,7 @@ struct MarkdownHeading: View {
         default: .unspecified
         }
     }
-    
+
     var body: some View {
         CmarkNodeVisitor(configuration: configuration)
             .descendInto(heading)
@@ -69,7 +73,22 @@ struct MarkdownHeading: View {
             .fontWeight(fontWeight)
             .foregroundStyle(foregroundStyle)
             .accessibilityHeading(accessibilityHeadingLevel)
-            .padding(paddings[heading.level])
+            .padding(paddings[level])
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+// MARK: - Heading Level Offset
+
+struct MarkdownHeadingLevelOffsetEnvironmentKey: EnvironmentKey {
+    static let defaultValue: Int = 0
+}
+
+extension EnvironmentValues {
+    /// 标题渲染层级偏移。Extended Heading 的 subtitle 子树注入 +1,
+    /// 使其按 title 的下一级标题样式渲染。
+    var markdownHeadingLevelOffset: Int {
+        get { self[MarkdownHeadingLevelOffsetEnvironmentKey.self] }
+        set { self[MarkdownHeadingLevelOffsetEnvironmentKey.self] = newValue }
     }
 }

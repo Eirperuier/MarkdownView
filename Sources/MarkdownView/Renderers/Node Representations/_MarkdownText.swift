@@ -174,6 +174,12 @@ private struct RevealAnimatedMarkdownText: View {
                   !cjkItalicRanges.isEmpty {
             markdownTextWithInlineSymbols(displayText)
                 .textRenderer(CJKItalicRenderer(ranges: cjkItalicRanges))
+        } else if #available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, *),
+                  revealCount == nil,
+                  displayText.hasLinkChipSegment {
+            // 定稿状态含 chip:挂轻量渲染器画统一胶囊背景。
+            markdownTextWithInlineSymbols(displayText)
+                .textRenderer(ChipCapsuleRenderer())
         } else {
             legacyBody
         }
@@ -499,11 +505,50 @@ private struct RevealFadeRenderer: TextRenderer {
         let currentTintColor = tintColor
         var visitedGlyphs = 0
 
+        // 链接 chip 的原子显隐:span 首字符过 frontier 前整个 chip 不画;
+        // 过线后以首字符的 fade 时间为整体透明度,胶囊 + 全部 run 一次出现。
+        func chipAlpha(spanStart: Int, now: Date) -> Double? {
+            guard spanStart < revealedLocal else { return nil }
+            let t0: Date
+            if spanStart < state.firstSeen.count, let recorded = state.firstSeen[spanStart] {
+                t0 = recorded
+            } else {
+                let stamp = revealManager?.firstSeenTimestamp(at: blockTextOffset + spanStart)
+                    ?? ((state.initialized || treatExistingAsFresh) ? now : .distantPast)
+                if spanStart < state.firstSeen.count { state.firstSeen[spanStart] = stamp }
+                t0 = stamp
+            }
+            guard let durationInv else { return 1 }
+            let age = now.timeIntervalSince(t0)
+            return min(1, max(0, age * durationInv))
+        }
+
         for line in layout {
+            // chip 胶囊背景先于本行所有 glyph 绘制。
+            let chipSpans = ChipCapsulePainter.spans(in: line, startingCharIndex: charIdx)
+            for span in chipSpans {
+                if let alpha = chipAlpha(spanStart: span.charRange.lowerBound, now: now) {
+                    ChipCapsulePainter.draw(span, opacity: alpha, in: &ctx)
+                }
+            }
             for run in line {
                 let runStart = charIdx
                 let runGlyphCount = run.count
                 let runEnd = runStart + runGlyphCount
+
+                // chip run:不逐字 reveal,整 run 跟随 span 透明度原子出现。
+                if run[MarkdownChipRunTextAttribute.self] != nil {
+                    charIdx = runEnd
+                    visitedGlyphs += runGlyphCount
+                    let spanStart = chipSpans.first { $0.charRange.contains(runStart) }?
+                        .charRange.lowerBound ?? runStart
+                    if let alpha = chipAlpha(spanStart: spanStart, now: now) {
+                        var chipCtx = ctx
+                        chipCtx.opacity = alpha
+                        chipCtx.draw(run)
+                    }
+                    continue
+                }
                 if runEnd <= revealedLocal,
                    runCanDrawAsSettled(
                     start: runStart,
@@ -772,7 +817,9 @@ private struct StreamingRevealFadeInModifier: ViewModifier {
 }
 
 extension View {
-    func streamingRevealFadeIn() -> some View {
+    /// Public so the app can apply the same reveal-gated fade to block-level
+    /// content rendered outside this package (e.g. custom `<image/>` tag cards).
+    public func streamingRevealFadeIn() -> some View {
         modifier(StreamingRevealFadeInModifier())
     }
 }

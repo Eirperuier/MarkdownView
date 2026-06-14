@@ -25,6 +25,13 @@ public struct MarkdownBlockDescriptor: Hashable, Sendable, Identifiable {
         case unknown
     }
 
+    /// Context for descriptors that merge two consecutive same-level headings
+    /// (Extended Heading): the first heading is the title, the second renders
+    /// as a `.secondary` subtitle with no gap in between.
+    public struct ExtendedHeadingContext: Hashable, Sendable {
+        public let level: Int
+    }
+
     /// Context for descriptors that represent a single list item
     /// (produced when `expandListItems` is true).
     public struct ListItemContext: Hashable, Sendable {
@@ -62,4 +69,9 @@ public struct MarkdownBlockDescriptor: Hashable, Sendable, Identifiable {
 
     /// Non-nil when this descriptor represents a single list item.
     public let listItemContext: ListItemContext?
+
+    /// Non-nil when this descriptor merges a title + subtitle heading pair
+    /// (Extended Heading). `var` with a default so existing construction
+    /// sites stay untouched.
+    public var extendedHeadingContext: ExtendedHeadingContext? = nil
 }

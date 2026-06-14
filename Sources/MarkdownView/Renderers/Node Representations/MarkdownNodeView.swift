@@ -50,7 +50,7 @@ struct MarkdownNodeView: View {
                 _MarkdownText(attributedString, blockTextOffset: blockTextOffset)
             } else if case .right(let view) = storage {
                 view
-                    
+
             }
         }
         .lineLimit(nil)

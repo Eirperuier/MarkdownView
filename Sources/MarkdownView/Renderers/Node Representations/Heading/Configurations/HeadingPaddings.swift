@@ -8,13 +8,14 @@
 import SwiftUI
 
 struct HeadingPaddings: Sendable {
+    // 下 padding = 上 padding 的一半:标题与上一节拉开、与自己引领的内容贴近。
     private var _padding: [Int : EdgeInsets] = [
-        1 : EdgeInsets(top: 12, leading: 0, bottom: 12, trailing: 0),
-        2 : EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 0),
-        3 : EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0),
-        4 : EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0),
-        5 : EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0),
-        6 : EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0),
+        1 : EdgeInsets(top: 12, leading: 0, bottom: 6, trailing: 0),
+        2 : EdgeInsets(top: 10, leading: 0, bottom: 5, trailing: 0),
+        3 : EdgeInsets(top: 8, leading: 0, bottom: 4, trailing: 0),
+        4 : EdgeInsets(top: 6, leading: 0, bottom: 3, trailing: 0),
+        5 : EdgeInsets(top: 4, leading: 0, bottom: 2, trailing: 0),
+        6 : EdgeInsets(top: 2, leading: 0, bottom: 1, trailing: 0),
     ]
     
     subscript(level: Int) -> EdgeInsets {

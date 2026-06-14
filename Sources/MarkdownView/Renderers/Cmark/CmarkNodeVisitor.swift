@@ -40,10 +40,22 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
 
   func descendInto(_ markup: any Markup) -> MarkdownNodeView {
     var nodeViews = [MarkdownNodeView]()
-    for child in markup.children {
+    let children = Array(markup.children)
+    var index = 0
+    while index < children.count {
+      // 连续 http(s) 链接(允许其间纯空白)折叠成一个行内 chip run。
+      if let group = MarkdownLinkChips.consecutiveChipLinks(in: children, from: index) {
+        nodeViews.append(MarkdownNodeView(MarkdownLinkChips.chipRun(
+          label: group.label,
+          urls: group.urls,
+          tint: configuration.linkTintColor
+        )))
+        index = group.nextIndex
+        continue
+      }
       var renderer = self
-      let nodeView = renderer.visit(child)
-      nodeViews.append(nodeView)
+      nodeViews.append(renderer.visit(children[index]))
+      index += 1
     }
     return MarkdownNodeView(nodeViews)
   }

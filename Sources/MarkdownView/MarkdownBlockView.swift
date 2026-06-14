@@ -35,6 +35,11 @@ public struct MarkdownBlockView: View {
         if let ctx = descriptor.listItemContext {
             _listItemBlock(children: children, ctx: ctx)
                 .environment(\.markdownRendererConfiguration, configuration)
+        } else if descriptor.extendedHeadingContext != nil {
+            if let pair = _resolveExtendedHeadingPair(children: children) {
+                _extendedHeadingBlock(pair: pair)
+                    .environment(\.markdownRendererConfiguration, configuration)
+            }
         } else if let child = _resolveChild(children: children) {
             // 单一分支 + 单次 _renderChild。原来「topLevelIndex 命中」与「按 hash 查找」是两个独立
             // 的 @ViewBuilder 分支,流式时在两者间切换同样会生成 _ConditionalContent、触发整块重挂。
@@ -50,6 +55,59 @@ public struct MarkdownBlockView: View {
             return children[descriptor.topLevelIndex]
         }
         return children.first(where: { $0.stableContentHash == descriptor.stableHash })
+    }
+
+    // MARK: - Extended Heading Rendering
+
+    /// Extended Heading(同级相邻标题对):title 正常渲染,subtitle 默认降一级
+    /// (字号/字重/padding 随层级)并全级改 `.secondary`;两者相向的 heading
+    /// padding 归零,使中间不再有间距。
+    /// subtitle 的 reveal 偏移接在 title 之后(+1 是两者 plainText 间的换行)。
+    private func _extendedHeadingBlock(pair: (title: Heading, subtitle: Heading)) -> some View {
+        // subtitle 的有效渲染层级(降一级,钳在 6);padding 归零要对齐这个层级。
+        let subtitleLevel = min(pair.subtitle.level + 1, 6)
+        return VStack(alignment: .leading, spacing: 0) {
+            _renderChild(pair.title)
+                .transformEnvironment(\.headingPaddings) { paddings in
+                    paddings[pair.title.level, .bottom] = 0
+                }
+            _renderChild(pair.subtitle)
+                .environment(\.markdownHeadingLevelOffset, 1)
+                .transformEnvironment(\.headingPaddings) { paddings in
+                    paddings[subtitleLevel, .top] = 0
+                }
+                .transformEnvironment(\.headingStyleGroup) { group in
+                    let secondary = AnyShapeStyle(.secondary)
+                    group._h1 = secondary
+                    group._h2 = secondary
+                    group._h3 = secondary
+                    group._h4 = secondary
+                    group._h5 = secondary
+                    group._h6 = secondary
+                }
+                .environment(
+                    \.markdownTextOffsetBase,
+                    offsetBase + pair.title.markdownRevealPlainText.count + 1
+                )
+        }
+    }
+
+    /// 先按 topLevelIndex 验证相邻对的组合 hash,失败再全表扫描相邻对。
+    private func _resolveExtendedHeadingPair(children: [any Markup]) -> (title: Heading, subtitle: Heading)? {
+        func pair(at index: Int) -> (title: Heading, subtitle: Heading)? {
+            guard index >= 0, index + 1 < children.count,
+                  let title = children[index] as? Heading,
+                  let subtitle = children[index + 1] as? Heading,
+                  subtitle.level == title.level,
+                  MarkdownContent.combinedStableHash(title, subtitle) == descriptor.stableHash
+            else { return nil }
+            return (title, subtitle)
+        }
+        if let hit = pair(at: descriptor.topLevelIndex) { return hit }
+        for index in children.indices.dropLast() {
+            if let hit = pair(at: index) { return hit }
+        }
+        return nil
     }
 
     // MARK: - List Item Rendering
