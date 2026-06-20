@@ -133,6 +133,10 @@ private struct PreparedMarkdownText {
     let attributedString: AttributedString
     let characterCount: Int
     let cjkItalicRanges: [Range<Int>]
+    /// 处理**前**的输入字数。`prepareDisplayText` 会改变长度(HTML 解析、
+    /// `==高亮==` 删定界符),所以新鲜度判定要拿这个和当前 `text` 比,
+    /// 不能用 `characterCount`(处理后)。
+    var sourceCharacterCount: Int
 }
 
 private struct RevealAnimatedMarkdownText: View {
@@ -1127,7 +1131,8 @@ struct _MarkdownText: View {
         PreparedMarkdownText(
             attributedString: text,
             characterCount: text.characters.count,
-            cjkItalicRanges: text.cjkItalicCharacterRanges()
+            cjkItalicRanges: text.cjkItalicCharacterRanges(),
+            sourceCharacterCount: text.characters.count
         )
     }
     
@@ -1169,17 +1174,21 @@ struct _MarkdownText: View {
             }
         }
 
+        // `==高亮==`:给内部文本套底色、删两侧定界符(reveal 计数侧已同样去定界符)。
+        processed = MarkdownHighlightSyntax.applied(to: processed)
+
         return PreparedMarkdownText(
             attributedString: processed,
             characterCount: processed.characters.count,
-            cjkItalicRanges: processed.cjkItalicCharacterRanges()
+            cjkItalicRanges: processed.cjkItalicCharacterRanges(),
+            sourceCharacterCount: text.characters.count
         )
     }
 
     var body: some View {
         let _ = MarkdownRenderProbe.increment(\.markdownTextBodyCalls)
         let prepared: PreparedMarkdownText = {
-            if let p = preparedText, p.characterCount == text.characters.count {
+            if let p = preparedText, p.sourceCharacterCount == text.characters.count {
                 return p
             }
             return fallbackPreparedText

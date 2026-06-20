@@ -1340,6 +1340,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     @Environment(\.markdownFontGroup.tableBody) private var bodyFont
     @Environment(\.markdownStreaming) private var revealManager
     @Environment(\.markdownTableCellSettleDuration) private var settleDuration
+    @Environment(\.markdownTableHeaderDimsParentheticals) private var dimsParentheticals
 
     @StateObject private var phaseHolder = AdaptiveTableCellPhaseHolder()
 
@@ -1350,8 +1351,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     var body: some View {
         let _ = MarkdownRenderProbe.increment(\.adaptiveTableCellBodyCalls)
         let phase = phaseHolder.phase
-        CmarkNodeVisitor(configuration: configuration)
-            .makeBody(for: cell)
+        cellContent
             .markdownTablePhase(phase, offsetBase: blockTextOffset)
             .multilineTextAlignment(cell.textAlignment)
             ._markdownCellPadding(padding)
@@ -1364,6 +1364,29 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
             .onChange(of: blockTextOffset) { _, _ in configurePhaseHolder() }
             .onChange(of: characterCount) { _, _ in configurePhaseHolder() }
             .onChange(of: settleDuration) { _, _ in configurePhaseHolder() }
+    }
+
+    @ViewBuilder
+    private var cellContent: some View {
+        // 表头 + 开关开 + 纯文本单元格:把 (...) 改小一号 + secondary。
+        // 含图片/数学等非文本 inline 的表头(asAttributedString == nil)走原渲染。
+        if isHeader, dimsParentheticals, let attributed = dimmedHeaderAttributed {
+            MarkdownNodeView(attributed)
+                .environment(\.markdownRendererConfiguration, configuration)
+        } else {
+            CmarkNodeVisitor(configuration: configuration)
+                .makeBody(for: cell)
+        }
+    }
+
+    private var dimmedHeaderAttributed: AttributedString? {
+        var visitor = CmarkNodeVisitor(configuration: configuration)
+        guard let attributed = visitor.visit(cell).asAttributedString else { return nil }
+        return MarkdownTableHeaderStyling.dimmingParentheticals(
+            attributed,
+            font: .caption,
+            color: .secondary
+        )
     }
 
     private func configurePhaseHolder() {
