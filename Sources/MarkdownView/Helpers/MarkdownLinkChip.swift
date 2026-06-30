@@ -28,6 +28,10 @@ public enum MarkdownLinkChips {
     /// 合成 chip URL 的 scheme,app 侧 OpenURLAction 按它拦截。
     public static let scheme = "flowith-linkchip"
 
+    /// 工具引用 chip 的 target scheme:`[Label](flowith-tool://<tool_result_id>[.<view>|.<N>] "cite")`。
+    /// cite 是"最小内联引用",对网页(http/https)与工具(flowith-tool)同构。
+    public static let toolScheme = "flowith-tool"
+
     /// chip 携带的全部目标链接(1 个或折叠的多个)。
     public static func chipURL(for urls: [String]) -> URL? {
         var components = URLComponents()
@@ -80,7 +84,11 @@ public enum MarkdownLinkChips {
         }
         let chipURL = chipURL(for: urls)
         let background = Color.gray.opacity(0.1)
-        let host = URL(string: urls[0])?.host() ?? urls[0]
+        // 工具引用:icon key 用完整 `flowith-tool://…` url(app 据 scheme 解析出工具图标);
+        // 网页:用 host(favicon 仍按 host 缓存/去重)。
+        let host = urls[0].lowercased().hasPrefix("\(toolScheme)://")
+            ? urls[0]
+            : (URL(string: urls[0])?.host() ?? urls[0])
 
         // 左内衬:让图标不顶住胶囊左缘。
         var lead = AttributedString("\u{00A0}\u{2060}")
@@ -103,7 +111,11 @@ public enum MarkdownLinkChips {
         labelRun.backgroundColor = background
         if let chipURL { labelRun.link = chipURL }
 
-        var chip = lead + icon + labelRun
+        // 胶囊前置一个断点(ZWSP):lead 段以 NBSP(\u{00A0},UAX-14 GL 类,禁止前后断行)开头,
+        // 否则 chip 会和紧邻的前一个字粘成不可断单元——空间不足时把那个字一起拖到下一行
+        //(如 CJK "…30 日[chip]" 把"日"拖走)。ZWSP 让断点落在 chip 之前,前文留在原行。
+        var chip = AttributedString("\u{200B}")
+        chip += lead + icon + labelRun
 
         // "+N" 段:小一号、更淡;基线上抬使其与 label 视觉居中
         // (小字号在共享基线上会显得沉底)。
@@ -183,10 +195,11 @@ public enum MarkdownLinkChips {
     /// link title 为 "cite")。普通 `[label](url)` 不受影响,保持原有链接渲染。
     private static func chippableDestination(_ link: Markdown.Link) -> String? {
         guard link.title?.lowercased() == "cite",
-              let destination = link.destination,
-              let url = URL(string: destination),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else { return nil }
+              let destination = link.destination else { return nil }
+        // 用字符串前缀判 scheme,避开 URL(string:) 对 tool_result_id 里下划线/host 的解析坑。
+        let lower = destination.lowercased()
+        guard lower.hasPrefix("http://") || lower.hasPrefix("https://")
+                || lower.hasPrefix("\(toolScheme)://") else { return nil }
         return destination
     }
 }
