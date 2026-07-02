@@ -1268,10 +1268,15 @@ private final class AdaptiveTableCellPhaseHolder: ObservableObject {
         let revealed = manager?.revealedCount ?? Int.max
         let endOffset = blockTextOffset + characterCount
 
-        if revealed == Int.max { return .past }
-        if revealed < blockTextOffset { return .before }
-        if revealed < endOffset { return .active }
+        if revealed != Int.max {
+            if revealed < blockTextOffset { return .before }
+            if revealed < endOffset { return .active }
+        }
 
+        // revealed == Int.max 或已越过本 cell:统一走 settle 窗口判定。
+        // 关键:流式中协调器追上当前尾部会瞬时 finishReveal(Int.max)、内容增长又 rewind(非单调!)。
+        // 旧逻辑 Int.max 直接 .past —— 整表已解析未揭示的 cell 一起无淡入弹出(「新块出现表格瞬间完成」的根因)。
+        // completion 给这些字符盖的是新鲜时间戳 → settle 窗口内应 .active 淡入,与文字路径的 completion-fade 一致。
         if let stamp = manager?.firstSeenTimestamp(at: endOffset - 1) {
             let expiration = stamp.addingTimeInterval(settleDuration)
             if expiration > Date() {
@@ -1284,13 +1289,14 @@ private final class AdaptiveTableCellPhaseHolder: ObservableObject {
 
     private func shouldDropListener() -> Bool {
         guard let manager else { return true }
-        // Stream finished — no more notifies that could matter.
-        if manager.revealedCount == Int.max { return true }
         guard characterCount > 0 else { return true }
         let revealed = manager.revealedCount
         let endOffset = blockTextOffset + characterCount
         // Frontier still inside or about to reach us — must stay subscribed.
-        if revealed < endOffset { return false }
+        // 注意:不能把 Int.max 当"流结束"提前丢监听 —— 流式中协调器追上尾部会瞬时 Int.max、
+        // 内容增长又 rewind;掉了监听就收不到 rewind 通知,cell 永久卡死在 .past。
+        // Int.max 时按下方 settle 窗口判定:窗口内保活(能接住 rewind),窗口过后再丢。
+        if revealed != Int.max, revealed < endOffset { return false }
         // Settle clock still ticking — `settleTask` will refresh us at
         // expiration, but we keep the listener as a defensive backup.
         if let stamp = manager.firstSeenTimestamp(at: endOffset - 1),
@@ -1341,6 +1347,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     @Environment(\.markdownStreaming) private var revealManager
     @Environment(\.markdownTableCellSettleDuration) private var settleDuration
     @Environment(\.markdownTableHeaderDimsParentheticals) private var dimsParentheticals
+    @Environment(\.markdownTableCellsSelectable) private var cellsSelectable
 
     @StateObject private var phaseHolder = AdaptiveTableCellPhaseHolder()
 
@@ -1373,6 +1380,15 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         if isHeader, dimsParentheticals, let attributed = dimmedHeaderAttributed {
             MarkdownNodeView(attributed)
                 .environment(\.markdownRendererConfiguration, configuration)
+        } else if !isHeader, cellsSelectable {
+            // body cell 可选中(per-cell,不跨 cell):cell 源码单独渲染,reveal 锚点经
+            // blockTextOffset 变绝对坐标,与块级 sweep 完全同源(节奏=原版逐 cell 扫过)。
+            // 表头保持原渲染(bold/uppercase 样式)。tableBody 默认 Font.body,与可选中路径字体一致。
+            // 注意:Table.Cell 禁止整体 format()(swift-markdown fatalError),逐个 inline 子节点拼接。
+            MarkdownSelectableText(
+                cell.children.map { $0.format() }.joined().trimmingCharacters(in: .whitespacesAndNewlines),
+                plainOffsetBase: blockTextOffset
+            )
         } else {
             CmarkNodeVisitor(configuration: configuration)
                 .makeBody(for: cell)

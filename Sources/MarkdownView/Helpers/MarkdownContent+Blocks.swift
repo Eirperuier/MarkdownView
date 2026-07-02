@@ -78,10 +78,14 @@ extension MarkdownContent {
     }
 
     private static func sourceText(for node: any Markup, in parserText: String) -> String {
-        if node is CodeBlock,
-           let source = sourceTextFromRange(for: node, in: parserText),
-           isFencedCodeSource(source) {
-            return source.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 一律优先原文 range 切片(与 sourceTextForListItem 同理):`format()` 往返会丢语法细节 ——
+        // 最典型的是 Strikethrough 被 format 成单波浪线 `~x~`,再解析时被 MarkdownParseSanitizer
+        // 转义成字面 `\~` → 删除线消失。原文切片保留用户的确切写法,round-trip 无损。
+        if let source = sourceTextFromRange(for: node, in: parserText) {
+            // 缩进式代码块例外:切片是四空格缩进源码,消费方(编辑器/复制)期待围栏形式 → 落 format()。
+            if !(node is CodeBlock) || isFencedCodeSource(source) {
+                return source.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
         }
 
         return node.format().trimmingCharacters(in: .whitespacesAndNewlines)

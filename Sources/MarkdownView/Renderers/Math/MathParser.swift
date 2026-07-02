@@ -252,19 +252,31 @@ extension MathParser.MathRepresentation {
                 range.upperBound,
                 offsetBy: -rightTerminator.count
             )
-            guard contentStart <= contentEnd else { return false }
+            guard contentStart < contentEnd else { return false }
+
+            // 单 `$…$` 行内公式:紧邻定界符不得是空白(标准 KaTeX/markdown-it 规则),
+            // 用来把货币「$5 and $10」这类误配挡掉(闭合 `$` 前是空格 → 不算公式),同时不会误伤合法公式
+            //(合法公式内容边缘不会是空格)。`$$`/`\(\)`/`\[\]` 无此歧义,不加此约束。
+            if self == .inlineEquation {
+                let first = text[contentStart]
+                let last = text[text.index(before: contentEnd)]
+                if first.isWhitespace || last.isWhitespace { return false }
+            }
 
             let content = text[contentStart..<contentEnd]
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return !content.isEmpty
         }
-        
+
+        // 顺序即匹配优先级:`.texEquation`($$)必须排在 `.inlineEquation`($)之前,
+        // 否则 `$$…$$` 会被单 `$` 先匹配成空行内公式。`.inlineEquation` 放最后。
         public static let allCases: [Kind] = [
             .namedNoNumberEquation,
             .namedEquation,
             .blockEquation,
             .texEquation,
             .inlineParenthesesEquation,
+            .inlineEquation,
         ]
     }
 }

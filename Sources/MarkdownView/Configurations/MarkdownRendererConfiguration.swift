@@ -129,6 +129,18 @@ private final class StreamingRevealTimestampStore: @unchecked Sendable {
         // completion timestamp (when they actually appeared), not `now`.
         let completionFillStamp = oldValue == Int.max ? completionTimestamp : nil
 
+        // 有限值回拉(coordinator remap:plainText 收缩,如段落→表格成型、公式闭合):
+        // frontier 会重扫 [new, old) 这段。旧的 per-index 戳(早已过 settle)若留着,重扫经过的
+        // 字符/表格 cell 会被判定"已定型"瞬间实心 —— 表头无 fade、表格数学 cell 无 reveal 的根因。
+        // 与 RevealFadeRenderer 的 rewind 失效语义一致:重扫必须拿到新鲜戳、重新淡入。
+        if oldValue != Int.max, newValue < oldValue {
+            let hi = min(oldValue, firstSeenTimestamps.count)
+            let lo = max(0, newValue)
+            if lo < hi {
+                for index in lo..<hi { firstSeenTimestamps[index] = nil }
+            }
+        }
+
         completionFreshStart = nil
         completionTimestamp = nil
         self.completionEnd = nil

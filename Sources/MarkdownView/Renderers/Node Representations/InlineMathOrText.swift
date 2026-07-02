@@ -64,7 +64,9 @@ struct InlineMathOrText {
             if processingIndex < range.lowerBound {
                 segments.append(.text(String(text[processingIndex..<range.lowerBound])))
             }
-            segments.append(.math(String(text[range])))
+            // 原始 $ 语法路径:revealUnits = 源文本长度(plainText 原样含定界符)。
+            let source = String(text[range])
+            segments.append(.math(source, revealUnits: source.count))
             processingIndex = range.upperBound
         }
         if processingIndex < text.endIndex {
@@ -106,7 +108,9 @@ struct InlineMathOrText {
             if let suffixRange = text.range(of: suffix, range: afterPrefix..<text.endIndex) {
                 let placeholderId = String(text[afterPrefix..<suffixRange.lowerBound])
                 if let latexText = inlineStorage[placeholderId] {
-                    segments.append(.math(latexText))
+                    // revealUnits = 占位符全长(⸨imath: + id + ⸩),与 manager 的 plainText 计数一致。
+                    let units = text.distance(from: prefixRange.lowerBound, to: suffixRange.upperBound)
+                    segments.append(.math(latexText, revealUnits: units))
                 } else {
                     let fallback = String(text[prefixRange.lowerBound..<suffixRange.upperBound])
                     segments.append(.text(fallback))
@@ -134,13 +138,25 @@ struct InlineTextWithMath: View {
     
     enum Segment {
         case text(String)
-        case math(String)
+        /// revealUnits = 该公式在 manager plain 坐标里占的单位数(app 管线下 = 占位符 ⸨imath:ID⸩ 的字符数,
+        /// 原始 $ 语法下 = 源文本长度)。**不是 1**:manager 按 descriptor.plainText 计数,占位符 ~11 字符;
+        /// 若按 1 记账,后续 run 的 offset 会比 manager 坐标小 ~10 → 公式后内容提前出现。
+        case math(String, revealUnits: Int)
     }
     
     @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.markdownFontGroup) private var fontGroup
-    @Environment(\.markdownTextOffsetBase) private var offsetBase
+    @Environment(\.markdownTextOffsetBase) private var envOffsetBase
+    @Environment(\.markdownTableRevealTextContext) private var tableRevealContext
+
+    /// 表格 cell 内的偏移基准由 tableRevealContext 携带(scrollable 路径不设 markdownTextOffsetBase 环境)。
+    /// `_MarkdownText` 读它 ✓,这里的数学 token 也必须读 —— 否则 cell 内公式的门槛是 `rc > 0+runOffset`,
+    /// 挂载即满足 → 表格公式完全没有 reveal(原版遗留缺口,app 表格没跑过公式)。
+    private var offsetBase: Int {
+        if case let .active(base, _, _) = tableRevealContext { return base }
+        return envOffsetBase
+    }
 
     var body: some View {
         StreamingRevealCountReader { _, revealCount in
@@ -181,10 +197,11 @@ struct InlineTextWithMath: View {
             switch segment {
             case .text(let str):
                 result = result + revealedText(str, remainingUnits: revealedUnits)
-            case .math(let latex):
+            case .math(let latex, let units):
                 result = result + revealedMath(
                     latex,
                     xHeight: xHeight,
+                    revealUnits: units,
                     remainingUnits: revealedUnits
                 )
             }
@@ -215,6 +232,7 @@ struct InlineTextWithMath: View {
     private func revealedMath(
         _ latex: String,
         xHeight: CGFloat,
+        revealUnits: Int,
         remainingUnits: UnsafeMutablePointer<Int>?
     ) -> Text {
         guard let remainingUnits else {
@@ -225,7 +243,8 @@ struct InlineTextWithMath: View {
             return renderedMath(latex, xHeight: xHeight, visible: false)
         }
 
-        remainingUnits.pointee -= 1
+        // 公式原子显隐:frontier 越过起点即整体可见,消耗其 plain 单位数(与 manager 计数对齐)。
+        remainingUnits.pointee -= revealUnits
         return renderedMath(latex, xHeight: xHeight, visible: true)
     }
 
@@ -312,14 +331,16 @@ private struct InlineRevealFlow: View {
                     )
                     offset += textRun.count
                 }
-            case .math(let latex):
+            case .math(let latex, let units):
                 runs.append(
                     InlineRevealRun(
                         content: .math(latex),
                         blockTextOffset: offset
                     )
                 )
-                offset += 1
+                // 与 manager 的 plain 计数对齐(占位符全长,非 1)——否则公式后的 run 偏移
+                // 比 manager 坐标小 ~10,内容提前出现。
+                offset += units
             }
         }
 
@@ -427,18 +448,30 @@ private struct InlineMathRevealToken: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.markdownFontGroup) private var fontGroup
-    @Environment(\.markdownTextOffsetBase) private var offsetBase
+    @Environment(\.markdownTextOffsetBase) private var envOffsetBase
+    @Environment(\.markdownTableRevealTextContext) private var tableRevealContext
+    @Environment(\.markdownFadeReveal) private var fadeConfig
+
+    /// 同 InlineTextWithMath:表格 cell 内偏移基准来自 tableRevealContext(.active 携带),
+    /// 否则 token 门槛 rc>0+runOffset 挂载即满足 → 表格公式无 reveal。
+    private var offsetBase: Int {
+        if case let .active(base, _, _) = tableRevealContext { return base }
+        return envOffsetBase
+    }
 
     var body: some View {
-        StreamingRevealCountReader { _, revealCount in
-            let absoluteOffset = offsetBase + blockTextOffset
-            let visible = revealCount.map { $0 - absoluteOffset > 0 } ?? true
-
+        // 原子显隐统一走 StreamingRevealGate(与 marker/代码块/非文字块同款):
+        // 只在越过阈值时翻转 @State(fresh-crossing 先隐一帧再显 → 动画必触发)、首帧同步判定不闪、
+        // phase 切换重挂安全。阈值 = 公式锚点(offsetBase + run 偏移),经 env 传入。
+        StreamingRevealGate { revealManager, visible in
+            // fade 时长对齐文字(同 streamingRevealFadeIn):fadeConfig.duration 经 adaptive 缩放。
+            let baseDuration = fadeConfig?.duration ?? 0.3
+            let duration = revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
             renderedMath
                 .opacity(visible ? 1 : 0)
-                .contentTransition(.opacity)
-                .animation(.easeOut(duration: 0.2), value: visible)
+                .animation(.easeOut(duration: duration), value: visible)
         }
+        .environment(\.markdownTextOffsetBase, offsetBase + blockTextOffset)
     }
 
     private var renderedMath: Text {

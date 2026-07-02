@@ -346,6 +346,12 @@ private struct CJKItalicRenderer: TextRenderer {
         var rangeCursor = 0
 
         for line in layout {
+            // chip 胶囊底(若本行有 chip run)。分支优先级上 CJK 斜体 renderer 先于 ChipCapsuleRenderer,
+            // 段落同时含 CJK 斜体与 chip 时走本 renderer —— 不画胶囊的话定稿后 chip 背景消失
+            //(流式期间 RevealFadeRenderer 自带胶囊,定稿切到这里就丢)。与 RevealFadeRenderer 同款先底后字。
+            for span in ChipCapsulePainter.spans(in: line, startingCharIndex: characterIndex) {
+                ChipCapsulePainter.draw(span, opacity: 1, in: &context)
+            }
             for run in line {
                 for glyph in run {
                     let offset = CJKItalicGlyphSkew.characterOffset(
@@ -776,8 +782,80 @@ private struct FadeRevealMarkdownText: View {
 /// When a `StreamingRevealManager` is present and hasn't revealed any content
 /// for the block yet, the marker is drawn in clear color so it keeps its layout
 /// slot but stays invisible until the first character arrives.
-struct StreamingRevealMarker<Content: View>: View {
+/// gate 型 reveal:只在 revealedCount 跨过 offsetBase(可见性真变)时才写 @State,定型后不再随 frontier 每帧重渲染。
+/// 用于 marker / 非文字 block 淡入(它们只需"过没过阈值",不需逐字)。这是单 manager 广播下省 CPU 的关键 ——
+/// listener 仍每次被调(廉价比较),但只在 visible 真变时更新 @State → 只重渲染一次。
+struct StreamingRevealGate<Content: View>: View {
+    @Environment(\.markdownStreaming) private var revealManager
     @Environment(\.markdownTextOffsetBase) private var offsetBase
+    @State private var visible = true
+    @State private var listenerID: UUID?
+    @State private var subscribedManager: StreamingRevealManager?
+    private let content: (StreamingRevealManager?, Bool) -> Content
+
+    init(@ViewBuilder content: @escaping (StreamingRevealManager?, Bool) -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content(revealManager, currentVisible)
+            .onAppear { subscribe() }
+            .onDisappear { unsubscribe() }
+    }
+
+    /// 首帧(onAppear/subscribe 之前)按当前 frontier 同步判定可见性,避免 @State 默认 true 先亮一帧再被隐藏
+    ///(= list marker / 代码块出现时闪一下)。判定与 subscribe() 一致:未越过阈值 → 隐藏;刚揭示(age<0.6)→ 隐藏留给淡入。
+    private var currentVisible: Bool {
+        if subscribedManager != nil { return visible }
+        guard let manager = revealManager else { return true }
+        let isRevealed = manager.revealedCount == Int.max || manager.revealedCount > offsetBase
+        if isRevealed,
+           manager.revealedCount != Int.max,
+           let t0 = manager.firstSeenTimestamp(at: offsetBase),
+           Date().timeIntervalSince(t0) < 0.6 {
+            return false
+        }
+        return isRevealed
+    }
+
+    @MainActor
+    private func subscribe() {
+        guard let manager = revealManager else { visible = true; return }
+        if subscribedManager === manager { return }
+        unsubscribe()
+        subscribedManager = manager
+        let isRevealed = manager.revealedCount == Int.max || manager.revealedCount > offsetBase
+        // attachment 的 host view 晚挂载,onAppear 时 frontier 可能已越过 offset。此时若「首次揭示」就在
+        // 不久前(firstSeen age 小),说明它本该正在淡入 → 先隐藏再于下一 runloop 显示,触发 fade-in 动画;
+        // 若早已揭示(age 大或无戳),直接显示,不回放旧淡入。与文字用 firstSeen age 的逻辑一致。
+        if isRevealed,
+           manager.revealedCount != Int.max,
+           let t0 = manager.firstSeenTimestamp(at: offsetBase),
+           Date().timeIntervalSince(t0) < 0.6 {
+            // 先隐藏,让 false 渲染一帧,下一 runloop 再置 true → .animation(value:) 捕捉到 false→true,淡入。
+            visible = false
+            DispatchQueue.main.async { self.visible = true }
+        } else {
+            visible = isRevealed
+        }
+        listenerID = manager.addListener { value in
+            let nowVisible = value == Int.max || value > offsetBase
+            if nowVisible != visible { visible = nowVisible }
+        }
+    }
+
+    @MainActor
+    private func unsubscribe() {
+        if let listenerID, let subscribedManager {
+            subscribedManager.removeListener(listenerID)
+        }
+        listenerID = nil
+        subscribedManager = nil
+    }
+}
+
+/// Renders a list item's bullet/number marker in sync with the streaming reveal.
+struct StreamingRevealMarker<Content: View>: View {
     private let content: Content
 
     init(@ViewBuilder _ content: () -> Content) {
@@ -786,8 +864,7 @@ struct StreamingRevealMarker<Content: View>: View {
 
     var body: some View {
         let _ = MarkdownRenderProbe.increment(\.streamingMarkerBodyCalls)
-        StreamingRevealCountReader { _, revealCount in
-            let visible = revealCount.map { $0 > offsetBase } ?? true
+        StreamingRevealGate { _, visible in
             content
                 .opacity(visible ? 1 : 0)
                 .animation(.easeOut(duration: 0.2), value: visible)
@@ -795,22 +872,12 @@ struct StreamingRevealMarker<Content: View>: View {
     }
 }
 
-/// Fades a non-text block in once its per-block `StreamingRevealManager` has
-/// started advancing. Used for content that can't participate in the per-char
-/// `_MarkdownText` fade (code blocks, images, LaTeX/math, HTML, dividers,
-/// tables). When no streaming manager is in scope, the block shows
-/// immediately.
-///
-/// Mirrors `StreamingRevealMarker`: gate on `revealedCount > 0` with an
-/// `.animation(value:)` transition, so the fade runs when the coordinator
-/// advances the frontier onto this block.
+/// Fades a non-text block in once the frontier reaches it. gate 型(只过阈值一次,不逐字)。
 private struct StreamingRevealFadeInModifier: ViewModifier {
-    @Environment(\.markdownTextOffsetBase) private var offsetBase
     @Environment(\.markdownFadeReveal) private var fadeConfig
 
     func body(content: Content) -> some View {
-        StreamingRevealCountReader { revealManager, revealCount in
-            let visible = revealCount.map { $0 > offsetBase } ?? true
+        StreamingRevealGate { revealManager, visible in
             let baseDuration = fadeConfig?.duration ?? 0.3
             let duration = revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
             content
@@ -845,18 +912,23 @@ struct StreamingRevealCountReader<Content: View>: View {
 
     @ViewBuilder
     var body: some View {
-        if let revealManager,
-           revealManager.revealedCount != Int.max
-            || (subscribedManager === revealManager && revealCount != nil) {
-            content(revealManager, revealCount ?? revealManager.revealedCount)
-                .onChange(of: managerID, initial: true) { _, _ in
-                    subscribe(to: revealManager)
-                }
-                .onDisappear {
-                    unsubscribe()
-                }
-        } else {
-            content(revealManager, nil)
+        Group {
+            if let revealManager,
+               revealManager.revealedCount != Int.max
+                || (subscribedManager === revealManager && revealCount != nil) {
+                content(revealManager, revealCount ?? revealManager.revealedCount)
+            } else {
+                content(revealManager, nil)
+            }
+        }
+        // 订阅移到两个分支之外:Int.max 分支也必须订阅(wake)。挂载瞬间恰逢瞬态 Int.max
+        //(流式 bounce:协调器追上尾部→finishReveal,内容增长→rewind)时,旧逻辑走 else 分支
+        // 且无订阅 → 无人触发重算 → 永久卡在"全显、无 reveal"(表格/段落里数学不淡入的根因之一)。
+        .onChange(of: managerID, initial: true) { _, _ in
+            subscribe(to: revealManager)
+        }
+        .onDisappear {
+            unsubscribe()
         }
     }
 
@@ -873,10 +945,18 @@ struct StreamingRevealCountReader<Content: View>: View {
             return
         }
 
-        revealCount = manager.revealedCount
+        // wake 语义:挂载时若已 Int.max,revealCount 保持 nil(完成态继续走轻量 plain 渲染,
+        // 不为已完成消息挂 fade 机器);listener 只在回到有限值时置值进入 gated 路径,
+        // 已 gated 后的 Int.max(bounce/完成)照原样传递,维持原分支稳定性语义。
+        let current = manager.revealedCount
+        revealCount = current == Int.max ? nil : current
         subscribedManager = manager
         listenerID = manager.addListener { value in
-            revealCount = value
+            if value != Int.max {
+                revealCount = value
+            } else if revealCount != nil {
+                revealCount = Int.max
+            }
         }
     }
 
@@ -1183,6 +1263,16 @@ struct _MarkdownText: View {
             cjkItalicRanges: processed.cjkItalicCharacterRanges(),
             sourceCharacterCount: text.characters.count
         )
+    }
+
+    /// 供 text-based 可选中渲染(MarkdownSelectableText)复用 —— 同文件内能访问 private 的
+    /// `prepareDisplayText`。返回经处理的最终显示文本(含 `==高亮==` / HTML)+ CJK 斜体 ranges。
+    static func selectableDisplayText(
+        from text: AttributedString,
+        configuration: MarkdownRendererConfiguration
+    ) -> (attributedString: AttributedString, cjkItalicRanges: [Range<Int>]) {
+        let prepared = prepareDisplayText(from: text, configuration: configuration)
+        return (prepared.attributedString, prepared.cjkItalicRanges)
     }
 
     var body: some View {
