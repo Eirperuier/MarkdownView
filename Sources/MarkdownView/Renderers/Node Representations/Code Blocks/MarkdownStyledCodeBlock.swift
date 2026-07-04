@@ -11,9 +11,11 @@ struct MarkdownStyledCodeBlock: View {
     var configuration: CodeBlockStyleConfiguration
     @Environment(\.codeBlockStyle) private var codeBlockStyle
     @Environment(\.codeBlockContentRenderers) private var customRenderers
+    @Environment(\.codeBlockRendererDisabledLanguages) private var disabledLanguages
 
     private var bareRenderer: AnyCodeBlockContentRenderer? {
         guard let lang = configuration.language?.lowercased(),
+              !disabledLanguages.contains(lang),
               let renderer = customRenderers[lang],
               renderer.bare else { return nil }
         return renderer

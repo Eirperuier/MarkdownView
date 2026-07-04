@@ -53,9 +53,21 @@ struct CodeBlockContentRenderersKey: EnvironmentKey {
     static let defaultValue: [String: AnyCodeBlockContentRenderer] = [:]
 }
 
+/// 在查找时禁用的自定义 renderer 语言(小写):命中即跳过自定义渲染,fence 落回标准
+/// 代码块路径。与清空注册表不同,它不受子树内的重新注册影响 —— 导出树在根上设置一次
+/// 即可让 mermaid/echarts 等按原生代码块显示(异步/WebView 渲染在离屏导出里出不来)。
+struct CodeBlockRendererDisabledLanguagesKey: EnvironmentKey {
+    static let defaultValue: Set<String> = []
+}
+
 extension EnvironmentValues {
     package var codeBlockContentRenderers: [String: AnyCodeBlockContentRenderer] {
         get { self[CodeBlockContentRenderersKey.self] }
         set { self[CodeBlockContentRenderersKey.self] = newValue }
+    }
+
+    package var codeBlockRendererDisabledLanguages: Set<String> {
+        get { self[CodeBlockRendererDisabledLanguagesKey.self] }
+        set { self[CodeBlockRendererDisabledLanguagesKey.self] = newValue }
     }
 }

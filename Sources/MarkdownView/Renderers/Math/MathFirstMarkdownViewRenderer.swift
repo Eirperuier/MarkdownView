@@ -33,7 +33,11 @@ struct MathFirstMarkdownViewRenderer: MarkdownViewRenderer {
         let probe = MarkdownContent(raw: .plainText(rawText))
         var extractor = ParsingRangesExtractor()
         extractor.visit(probe.parse(options: probe.parseOptions(allowingBlockDirectives: true)))
-        for range in extractor.parsableRanges(in: rawText) {
+        // parsableRanges 升序且基于**替换前**的字符串:占位符替换会改变长度,处理完靠前的
+        // range 后,靠后的 range 索引即失效(String index out of bounds,典型内容 = 公式与
+        // 代码块混排产生多个 parsable 段)。与段内 mathRepresentations.reversed() 同理,
+        // 段间也必须从文档尾部往前处理,让未处理的(更靠前的)range 始终有效。
+        for range in extractor.parsableRanges(in: rawText).reversed() {
             let segment = rawText[range]
             let segmentParser = MathParser(text: segment)
             for mathRep in segmentParser.mathRepresentations.reversed() {
@@ -45,6 +49,15 @@ struct MathFirstMarkdownViewRenderer: MarkdownViewRenderer {
                         with: "\n@math(uuid:\(mathIdentifier))\n"
                     )
                 } else {
+                    // Pandoc 货币规则:单 $ 行内公式的闭合 $ 后紧跟数字 ⇒ 是货币不是公式
+                    // (典型 "$10/$50 每百万":两个 $ 被配成公式 "10/",吞掉定界符还让
+                    // reveal 计数与 parser 侧错位,后文永远揭示不出来)。\(…\)/$$ 不受影响。
+                    let matched = rawText[mathRep.range]
+                    if matched.hasPrefix("$"), !matched.hasPrefix("$$"),
+                       mathRep.range.upperBound < rawText.endIndex,
+                       rawText[mathRep.range.upperBound].isNumber {
+                        continue
+                    }
                     let mathId = math.appendInlineMath(rawText[mathRep.range])
                     rawText.replaceSubrange(
                         mathRep.range,
@@ -82,6 +95,13 @@ public func extractInlineMath(
     var storage: [String: String] = [:]
     let parser = MathParser(text: rawText)
     for math in parser.mathRepresentations.reversed() where math.kind.inline {
+        // Pandoc 货币规则(同 preprocessMath):单 $ 闭合后紧跟数字 ⇒ 货币,跳过。
+        let matched = rawText[math.range]
+        if matched.hasPrefix("$"), !matched.hasPrefix("$$"),
+           math.range.upperBound < rawText.endIndex,
+           rawText[math.range.upperBound].isNumber {
+            continue
+        }
         let id = UUID().uuidString
         storage[id] = String(rawText[math.range])
         let placeholder = "\(MarkdownRendererConfiguration.Math.inlinePlaceholderPrefix)\(id)\(MarkdownRendererConfiguration.Math.inlinePlaceholderSuffix)"

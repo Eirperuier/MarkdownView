@@ -69,6 +69,13 @@ extension Markup {
             hasher.combine(ordered.startIndex)
         case let listItem as ListItem:
             hasher.combine(listItem.checkbox)
+        case let directive as BlockDirective:
+            // 指令名+参数必须入哈希:@math(uuid:A) 与 @math(uuid:B) 曾同 hash,
+            // _resolveChild 的按-hash 兜底永远命中第一条 → 多条公式全渲染成同一条。
+            hasher.combine(directive.name)
+            for segment in directive.argumentText.segments {
+                hasher.combine(segment.trimmedText)
+            }
         default:
             break
         }

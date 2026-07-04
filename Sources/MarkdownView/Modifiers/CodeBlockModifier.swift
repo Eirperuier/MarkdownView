@@ -47,4 +47,16 @@ extension View {
             dict[key] = erased
         }
     }
+
+    /// Disables custom code block renderers for the given languages within this
+    /// subtree — matching fences fall back to the standard code block path.
+    /// Unlike clearing the registry, this survives re-registration inside the
+    /// subtree(注册发生在内层 MarkdownView 链上,清表会被重新注册覆盖;禁用名单
+    /// 在**查找时**生效,根上设一次即可)。导出/离屏渲染场景用。
+    nonisolated public func codeBlockRendererDisabled(forLanguages languages: [String]) -> some View {
+        let keys = Set(languages.map { $0.lowercased() })
+        return transformEnvironment(\.codeBlockRendererDisabledLanguages) { set in
+            set.formUnion(keys)
+        }
+    }
 }

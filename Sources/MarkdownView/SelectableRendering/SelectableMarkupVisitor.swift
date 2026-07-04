@@ -42,6 +42,11 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     let fadeConfig: MarkdownFadeRevealConfig?
     /// 正文行距(NSParagraphStyle.lineSpacing):对齐原版 flowithMarkdownPersonalized 的 `.lineSpacing(5)`。
     let lineSpacing: CGFloat
+    /// heading 上下 padding(环境值,吃 app 覆写):headingContainer 的段落间距按它记账。
+    let headingPaddings: HeadingPaddings
+    /// SwiftUI 环境的动态字型档位:标题字号解析、hosted 附件环境注入都按它
+    ///(app 可能钉死档位,系统 preferredFont 会差一号)。
+    let dynamicTypeSize: DynamicTypeSize?
     /// 列表深度偏移(per-block 单项 re-parse 后 AST depth 归零;marker •/◦ 交替与有序 marker 深度要补上它)。
     let listDepthOffset: Int
     /// 外层的 OpenURLAction:hosting 边界不继承环境,chip 点击(flowith-linkchip:// 合成 URL 由 app
@@ -79,9 +84,11 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         streamingManager: StreamingRevealManager? = nil,
         fadeConfig: MarkdownFadeRevealConfig? = nil,
         lineSpacing: CGFloat = 0,
+        headingPaddings: HeadingPaddings = HeadingPaddings(),
         listDepthOffset: Int = 0,
         plainOffsetBase: Int = 0,
-        openURL: OpenURLAction? = nil
+        openURL: OpenURLAction? = nil,
+        dynamicTypeSize: DynamicTypeSize? = nil
     ) {
         self.configuration = configuration
         self.bodyFont = bodyFont
@@ -91,27 +98,28 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         self.streamingManager = streamingManager
         self.fadeConfig = fadeConfig
         self.lineSpacing = lineSpacing
+        self.headingPaddings = headingPaddings
+        self.dynamicTypeSize = dynamicTypeSize
         self.listDepthOffset = listDepthOffset
         // plain 基准偏移(片段承载,如表格 cell):锚点/映射全部变绝对坐标,与块级 sweep 同源。
         self.plainCursor = plainOffsetBase
         self.openURL = openURL
     }
 
-    /// 给 attachment rootView 补注入 reveal/openURL environment(host 树不继承父环境)。
+    /// 给 attachment rootView 补注入 reveal/openURL/动态字型 environment(host 树不继承父环境)。
     private func injectRevealEnvironment<V: View>(_ view: V) -> AnyView {
-        if let openURL {
-            return AnyView(
-                view
-                    .environment(\.markdownStreaming, streamingManager)
-                    .environment(\.markdownFadeReveal, fadeConfig)
-                    .environment(\.openURL, openURL)
-            )
-        }
-        return AnyView(
+        var injected = AnyView(
             view
                 .environment(\.markdownStreaming, streamingManager)
                 .environment(\.markdownFadeReveal, fadeConfig)
         )
+        if let openURL {
+            injected = AnyView(injected.environment(\.openURL, openURL))
+        }
+        if let dynamicTypeSize {
+            injected = AnyView(injected.environment(\.dynamicTypeSize, dynamicTypeSize))
+        }
+        return injected
     }
 
     func makeTextContent(_ markup: any Markup) -> (content: TextContent, revealTotal: Int, storageToPlain: [Int]) {
@@ -139,11 +147,24 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
            let title = children[0] as? Heading,
            let subtitle = children[1] as? Heading,
            subtitle.level == title.level {
-            var combined = headingContainer(descendInto(title), level: title.level, spacingAfterOverride: 0)
+            // 交界完全归零(原版 VStack spacing 0 + 相向 padding 归零):paragraphSpacing/Before 归 0 外,
+            // 两个标题的 lineSpacing 也要归 0 —— TextKit2 的段落交界会加**下一段**样式的 lineSpacing
+            //(实测 subtitle 片段内行起点 y=lineSpacing;title 归零只管 title 内部)。
+            var combined = headingContainer(
+                descendInto(title),
+                level: title.level,
+                spacingAfterOverride: 0,
+                lineSpacingOverride: 0
+            )
             appendMap(storageCount: 1, plainSpan: 1)  // 描述符 plainText 的 "\n"
             combined += RichText.LineBreak().textContent
             let subLevel = min(title.level + 1, 6)
-            combined += headingContainer(descendInto(subtitle), level: subLevel, spacingBeforeOverride: 0)
+            combined += headingContainer(
+                descendInto(subtitle),
+                level: subLevel,
+                spacingBeforeOverride: 0,
+                lineSpacingOverride: 0
+            )
                 .mergingAttributes(AttributeContainer().foregroundColor(.secondary))
             return combined
         }
@@ -261,9 +282,12 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     }
 
     mutating func visitInlineHTML(_ inlineHTML: InlineHTML) -> TextContent {
-        let content = TextContent(.attributedString(markRevealOffsets(baseAttributed(inlineHTML.rawHTML), start: revealCursor)))
-        appendMap(storageCount: inlineHTML.rawHTML.count, plainSpan: inlineHTML.markdownRevealPlainText.count)
-        revealCursor += inlineHTML.rawHTML.count
+        // 对齐原版 CmarkNodeVisitor.visitInlineHTML:<br> → 换行,其余显示原文。
+        // replacement 与 markdownRevealPlainText 同源(MarkdownInlineHTML),plain 记账天然一致。
+        let display = MarkdownInlineHTML.replacementText(for: inlineHTML.rawHTML) ?? inlineHTML.rawHTML
+        let content = TextContent(.attributedString(markRevealOffsets(baseAttributed(display), start: revealCursor)))
+        appendMap(storageCount: display.count, plainSpan: inlineHTML.markdownRevealPlainText.count)
+        revealCursor += display.count
         return content
     }
 
@@ -274,9 +298,20 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     }
 
     mutating func visitStrong(_ strong: Strong) -> TextContent {
-        // 加粗带 emphasis 主题色(同魔改 visitStrong:.foregroundColor(preferredColor))。
-        mergeInlinePresentationIntent(.stronglyEmphasized, children: Array(strong.children))
-            .mergingAttributes(AttributeContainer().foregroundColor(configuration.preferredColor))
+        // 加粗带 emphasis 主题色(同魔改 visitStrong),但不能整段盖前景:
+        // `**==高亮==**` 时高亮底色=主题色,文字再涂主题色就隐形了 ——
+        // 只给不带高亮底色的 run 上色,高亮 run 保留自己的反色前景。
+        let content = mergeInlinePresentationIntent(.stronglyEmphasized, children: Array(strong.children))
+        return TextContent(content.fragments.map { fragment in
+            guard case .attributedString(var attr) = fragment else { return fragment }
+            let plainRanges = attr.runs.compactMap { run in
+                run.backgroundColor == nil ? run.range : nil
+            }
+            for range in plainRanges {
+                attr[range].foregroundColor = configuration.preferredColor
+            }
+            return .attributedString(attr)
+        })
     }
 
     mutating func visitStrikethrough(_ strikethrough: Strikethrough) -> TextContent {
@@ -284,6 +319,12 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     }
 
     mutating func visitLink(_ link: Markdown.Link) -> TextContent {
+        // App 注入的自定义行内链接(MarkdownInlineLinkRenderers:本地文件引用 = 文件类型
+        // 图标 + 文件名)—— 原版在 CmarkNodeVisitor.visitLink 消费同一钩子;不接的话
+        // 可选择管线里文件链接的前置图标整个丢失。
+        if let custom = customInlineLinkContent(link) {
+            return custom
+        }
         // 链接:魔改链接色 + 下划线 + `.link`(可点击)。textView.linkTextAttributes 已置空字典,
         // 样式由这里的前景色/下划线决定,不会被 tintColor 覆写;点击经 onRichTextOpenLink 路由
         // 到 SwiftUI OpenURLAction(与原版 Text 路径同语义)。
@@ -297,6 +338,138 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
                 descendInto(link).attributedStringValue().mergingAttributes(attributes)
             )
         )
+    }
+
+    /// builder(App 注入)返回的 AttributedString 拆两类 run 重组进可选文本流:
+    /// - inlineSymbol run(\u{FFFC} 占位)→ hosted InlineView 图标。铁律:TextKit2 的 image
+    ///   附件由独立子视图渲染,fragment 逐字 alpha 管不到 → 须 StreamingRevealGate 原子淡入;
+    ///   原版符号与文本间的 NBSP 烤成图标视图 trailing 留白,文本侧剥掉,保持 1:1 映射。
+    /// - 其余文本 run → 正文字体 + builder 的 link/前景/下划线,per-glyph 参与 reveal
+    ///   (与源 plain 计数一致时逐字映射;不一致时整段锚在起点,余量在尾部收口)。
+    private mutating func customInlineLinkContent(_ link: Markdown.Link) -> TextContent? {
+        guard MarkdownInlineLinkRenderers.shared.builder != nil,
+              let destination = link.destination else { return nil }
+        let tint = configuration.linkTintColor
+        let plainLabel = link.plainText
+        // visitor 由 @MainActor 的 render 驱动(builder 本身 @MainActor)。
+        let built = MainActor.assumeIsolated {
+            MarkdownInlineLinkRenderers.shared.builder?(destination, plainLabel, tint)
+        }
+        guard let built else { return nil }
+
+        // 预扫:文本总字数(剥一次符号后的前导 NBSP,它单独记账)决定 1:1 还是锚定映射。
+        var totalTextCount = 0
+        var probeSawSymbol = false
+        var probeStripped = false
+        for run in built.runs {
+            if run[MarkdownInlineSymbolAttribute.self] != nil {
+                probeSawSymbol = true
+                continue
+            }
+            var text = String(built[run.range].characters)
+            if probeSawSymbol, !probeStripped, text.hasPrefix("\u{00A0}") {
+                text.removeFirst()
+                probeStripped = true
+            }
+            totalTextCount += text.count
+        }
+        guard probeSawSymbol || totalTextCount > 0 else { return nil }
+        let plainTotal = link.markdownRevealPlainText.count
+        let oneToOne = totalTextCount == plainTotal
+
+        var content = TextContent([])
+        var plainRemaining = plainTotal
+        var sawSymbol = false
+        var handledNBSP = false
+        for run in built.runs {
+            if let symbol = run[MarkdownInlineSymbolAttribute.self] {
+                sawSymbol = true
+                content += inlineLinkSymbolPiece(
+                    symbol: symbol,
+                    url: run.link,
+                    color: run.foregroundColor ?? tint,
+                    destination: destination
+                )
+                continue
+            }
+            let text = String(built[run.range].characters)
+            guard !text.isEmpty else { continue }
+            // 符号后的前导 NBSP **保留为真实文本**:NBSP 是 UAX14 GL 类(前后都禁断行),
+            // 把图标 attachment 和文件名粘成一个换行单元 —— 剥掉换成图标 trailing 留白的话,
+            // attachment 占位符后就是合法断点,文件名稍长就把图标孤在行尾。与原版同语义
+            //(原版 label 就含 NBSP,复制行为也一致);映射单独记账 storage 1 / plain 0。
+            let leadingNBSP = sawSymbol && !handledNBSP && text.hasPrefix("\u{00A0}")
+            if leadingNBSP { handledNBSP = true }
+            var attr = AttributedString(text)
+            var attrs = AttributeContainer()
+            setFont(&attrs, bodyFont)
+            attr.mergeAttributes(attrs)
+            if let color = run.foregroundColor { attr.foregroundColor = color }
+            if let url = run.link { attr.link = url }
+            if run.underlineStyle != nil { attr.underlineStyle = .single }
+            attr = markRevealOffsets(attr, start: revealCursor)
+            let n = text.count
+            if leadingNBSP {
+                appendMap(storageCount: 1, plainSpan: 0)  // NBSP:锚在链接起点,随图标揭示
+                let rest = n - 1
+                let span = oneToOne ? rest : min(rest, plainRemaining)
+                appendMap(storageCount: rest, plainSpan: span)
+                plainRemaining -= span
+            } else {
+                let span = oneToOne ? n : min(n, plainRemaining)
+                appendMap(storageCount: n, plainSpan: span)
+                plainRemaining -= span
+            }
+            revealCursor += n
+            content += TextContent(.attributedString(attr))
+        }
+        // plain 余量收口(builder 文本比源 plain 短,如 label 空时用文件名):
+        // 0 storage 消耗剩余 plain,保证后续节点的 plain 锚点不漂。
+        if plainRemaining > 0 {
+            appendMap(storageCount: 0, plainSpan: plainRemaining)
+        }
+        return content
+    }
+
+    /// 文件链接前置图标:hosted InlineView(1 storage 字符、0 plain 单位,锚在链接起点,
+    /// frontier 过起点即随文淡现)。缓存键含 id/锚点/manager 身份,同 chip/checkbox 管线。
+    private mutating func inlineLinkSymbolPiece(
+        symbol: String,
+        url: URL?,
+        color: Color,
+        destination: String
+    ) -> TextContent {
+        let plainStart = plainCursor
+        appendMap(storageCount: 1, plainSpan: 0)
+        revealCursor += 1
+        let id = attachmentCounter
+        attachmentCounter += 1
+        let mgrKey = streamingManager.map { String(UInt(bitPattern: ObjectIdentifier($0).hashValue)) } ?? "nil"
+        // config 指纹入键:图标颜色(linkTint,按深浅色算死的静态色)烤在 hosted 视图里,
+        // 不失效的话切换外观后文名文本换新色、图标停旧色。
+        let key = "ilsym\u{1}\(symbol)\u{1}\(destination)\u{1}\(plainStart)\u{1}\(id)\u{1}\(mgrKey)\u{1}\(configuration.stableFingerprint)"
+        if let cache = blockViewCache, let hit = cache.hitContent(key) { return hit }
+        let view = injectRevealEnvironment(
+            SelectableInlineLinkSymbol(
+                systemName: symbol,
+                size: bodyFont.pointSize,
+                color: color,
+                url: url
+            )
+            .environment(\.markdownTextOffsetBase, plainStart)
+        )
+        let piece = TextContent {
+            // 纯装饰图标不参与复制:replacement 空串,copy 时整个附件被干净移除。
+            InlineView(
+                id: SelectableInlineViewID(index: id),
+                replacement: AttributedString(),
+                sizing: .fittingLineFragment
+            ) {
+                view
+            }
+        }
+        blockViewCache?.storeContent(key, piece)
+        return piece
     }
 
     // MARK: - block
@@ -382,17 +555,66 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         #elseif canImport(AppKit)
         attributed.appKit.font = bodyFont
         #endif
+        // 基础正文字色(ThinkingView 等宿主的 secondary):不落 run 时 UITextView 恒画
+        // label 黑。先于高亮处理:高亮区间的反色前景在 applied(to:) 里覆盖。
+        if let baseTextColor = configuration.baseTextColor {
+            attributed.foregroundColor = baseTextColor
+        }
         return MarkdownHighlightSyntax.applied(to: attributed)
     }
 
-    /// 段落容器:块间距(componentSpacing)+ 正文行距(对齐原版 .lineSpacing(5))。
+    /// 段落容器:对齐原版 visitParagraph 的 `.padding(.vertical, 5)` + 块间 VStack(componentSpacing)。
+    /// TextKit 侧:上 5 落 paragraphSpacingBefore(文档首段 no-op,由视图级 edge inset 补);
+    /// 下 5 + componentSpacing 落 paragraphSpacing —— 扣掉 TextKit 在段落末行后自动加的
+    /// lineSpacing(行距在段落交界也生效),净 junction = 5 + componentSpacing + 5,与原版一致。
     private func paragraphContainer(_ content: TextContent) -> TextContent {
+        // CJK 行盒补偿:TextKit2 行高 = max(行内各 run 字体 ascent+descent),CJK 字符落
+        // fallback(PingFang 16pt ≈ 22.0)比主字体(SF ≈ 20.29)高 ~1.7pt/行;原版 SwiftUI
+        // Text 始终按主字体 metrics 取行高 → 逐行累积偏大。min/maximumLineHeight 被 TextKit2
+        // 无视(实测钉 20.29 行高仍 22.0),样式层唯一杠杆 = 含 CJK 的段落把 lineSpacing 减去
+        // 该差值:基线 pitch 与原版一致(20.29+5),残差收敛为段首一次性 +Δ(行盒加高在
+        // 首行上方,不再逐行累积)。junction 公式用同一 effective 值,段落交界净距不变。
+        let spacing = effectiveLineSpacing(for: content)
         let style = NSMutableParagraphStyle()
-        style.paragraphSpacing = configuration.componentSpacing
-        style.lineSpacing = lineSpacing
+        style.paragraphSpacingBefore = 5
+        style.paragraphSpacing = max(0, 5 + configuration.componentSpacing - spacing)
+        style.lineSpacing = spacing
         return content.mergingAttributes(
             AttributeContainer([.paragraphStyle: style as NSParagraphStyle])
         )
+    }
+
+    /// 含 CJK 字符的内容:行距减去 CJK fallback 行盒与主字体行盒的差值(见 paragraphContainer 注)。
+    private func effectiveLineSpacing(for content: TextContent) -> CGFloat {
+        guard lineSpacing > 0 else { return lineSpacing }
+        let delta = Self.cjkLineBoxDelta(for: bodyFont)
+        guard delta > 0 else { return lineSpacing }
+        let hasCJK = content.fragments.contains { fragment in
+            guard case .attributedString(let attr) = fragment else { return false }
+            return attr.characters.contains { $0.triggersCJKLineBox }
+        }
+        guard hasCJK else { return lineSpacing }
+        return max(0, lineSpacing - delta)
+    }
+
+    /// CJK fallback(PingFang)与主字体的行盒(ascent+descent)差值,按字号缓存。
+    private static var cjkLineBoxDeltaCache: [CGFloat: CGFloat] = [:]
+    private static func cjkLineBoxDelta(for font: PlatformFont) -> CGFloat {
+        if let cached = cjkLineBoxDeltaCache[font.pointSize] { return cached }
+        let primary = font.ascender - font.descender
+        var fallback = primary
+        #if canImport(UIKit)
+        if let pingfang = UIFont(name: "PingFangSC-Regular", size: font.pointSize) {
+            fallback = pingfang.ascender - pingfang.descender
+        }
+        #elseif canImport(AppKit)
+        if let pingfang = NSFont(name: "PingFangSC-Regular", size: font.pointSize) {
+            fallback = pingfang.ascender - pingfang.descender
+        }
+        #endif
+        let delta = max(0, fallback - primary)
+        cjkLineBoxDeltaCache[font.pointSize] = delta
+        return delta
     }
 
     /// 标题容器:字号/字重 + 上下 padding。对齐原版 MarkdownHeading 的 `.padding(HeadingPaddings[level])`
@@ -402,13 +624,17 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         _ content: TextContent,
         level: Int,
         spacingBeforeOverride: CGFloat? = nil,
-        spacingAfterOverride: CGFloat? = nil
+        spacingAfterOverride: CGFloat? = nil,
+        lineSpacingOverride: CGFloat? = nil
     ) -> TextContent {
-        let padding = HeadingPaddings()[min(max(level, 1), 6)]
+        let padding = headingPaddings[min(max(level, 1), 6)]
         let style = NSMutableParagraphStyle()
         style.paragraphSpacingBefore = spacingBeforeOverride ?? padding.top
-        style.paragraphSpacing = spacingAfterOverride ?? padding.bottom
-        style.lineSpacing = lineSpacing
+        // 后随块的 junction = 本级 bottom padding + 块间 componentSpacing(扣掉 TextKit 自动加的 lineSpacing);
+        // 文档末块 no-op(由视图级 edge inset 补 bottom padding)。
+        style.paragraphSpacing = spacingAfterOverride
+            ?? max(0, padding.bottom + configuration.componentSpacing - lineSpacing)
+        style.lineSpacing = lineSpacingOverride ?? lineSpacing
         var container = AttributeContainer([.paragraphStyle: style as NSParagraphStyle])
         #if canImport(UIKit)
         container.uiKit.font = headingFont(level)
@@ -418,14 +644,39 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         return content.mergingAttributes(container)
     }
 
+    /// 对齐原版 MarkdownHeading:fontGroup 默认字体 = title/title2/title3/headline(动态字型),
+    /// 再叠 fontWeight(h1 .heavy / h2 .bold / h3 .semibold / h4-6 .medium)。
+    /// 不能用 bodyFont×倍率推导 —— 字号与原版明显不一致(h2 23.8 vs 22 等)。
     private func headingFont(_ level: Int) -> PlatformFont {
-        let scales: [CGFloat] = [1.6, 1.4, 1.25, 1.1, 1.0, 0.9]
-        let size = bodyFont.pointSize * scales[min(max(level, 1), 6) - 1]
+        let clamped = min(max(level, 1), 6)
         #if canImport(UIKit)
-        let weight: UIFont.Weight = level <= 1 ? .heavy : level <= 2 ? .bold : level <= 3 ? .semibold : .medium
+        let style: UIFont.TextStyle = switch clamped {
+        case 1: .title1
+        case 2: .title2
+        case 3: .title3
+        default: .headline
+        }
+        // 与正文同源:按环境动态字型档位解析(app 钉档时系统 preferredFont 会差一号)。
+        let size: CGFloat
+        if let dynamicTypeSize {
+            size = UIFont.preferredFont(
+                forTextStyle: style,
+                compatibleWith: UITraitCollection(preferredContentSizeCategory: dynamicTypeSize.uiContentSizeCategory)
+            ).pointSize
+        } else {
+            size = UIFont.preferredFont(forTextStyle: style).pointSize
+        }
+        let weight: UIFont.Weight = clamped <= 1 ? .heavy : clamped <= 2 ? .bold : clamped <= 3 ? .semibold : .medium
         return UIFont.systemFont(ofSize: size, weight: weight)
         #elseif canImport(AppKit)
-        let weight: NSFont.Weight = level <= 1 ? .heavy : level <= 2 ? .bold : level <= 3 ? .semibold : .medium
+        let style: NSFont.TextStyle = switch clamped {
+        case 1: .title1
+        case 2: .title2
+        case 3: .title3
+        default: .headline
+        }
+        let size = NSFont.preferredFont(forTextStyle: style).pointSize
+        let weight: NSFont.Weight = clamped <= 1 ? .heavy : clamped <= 2 ? .bold : clamped <= 3 ? .semibold : .medium
         return NSFont.systemFont(ofSize: size, weight: weight)
         #endif
     }
@@ -447,7 +698,9 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         // 复用同一 rootView 实例,updateContent 就不会重新求值/测量;当前正在增长的 block 键会变、重建。
         // manager 身份必须入键:rootView 烤死了 reveal 环境,manager 被修剪重建后旧缓存绑死死实例 → gate 失效。
         let blockMgrKey = streamingManager.map { String(UInt(bitPattern: ObjectIdentifier($0).hashValue)) } ?? "nil"
-        let cacheKey = "\(markup.format())\u{1}\(blockStart)\u{1}\(id)\u{1}\(configOverride != nil)\u{1}\(blockMgrKey)"
+        // config 指纹入键:rootView 在这里把 env config(含按深浅色算死的主题色)烤进
+        // AnyView,切换外观后不失效的话块附件(代码块/表格等)颜色停在旧模式。
+        let cacheKey = "\(markup.format())\u{1}\(blockStart)\u{1}\(id)\u{1}\(configOverride != nil)\u{1}\(blockMgrKey)\u{1}\(configuration.stableFingerprint)"
         if let cache = blockViewCache, let hit = cache.hitContent(cacheKey) {
             return hit
         }
@@ -466,7 +719,12 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
             view = injectRevealEnvironment(base.environment(\.markdownTextOffsetBase, blockStart))
         }
         let content = TextContent {
-            InlineView(id: SelectableInlineViewID(index: id), sizing: .fittingLineFragment) { view }
+            // 块附件参与复制,内容 = 块源文(代码围栏/表格等原 markdown)。
+            InlineView(
+                id: SelectableInlineViewID(index: id),
+                replacement: AttributedString(markup.format()),
+                sizing: .fittingLineFragment
+            ) { view }
         }
         blockViewCache?.storeContent(cacheKey, content)
         return content
@@ -512,7 +770,8 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
                 mathContent = TextContent {
                     InlineView(
                         id: SelectableInlineViewID(index: id),
-                        replacement: AttributedString(latex),
+                        // $…$ 包裹:粘贴回输入框/markdown 编辑器可还原公式(裸 LaTeX 不可)。
+                        replacement: AttributedString("$\(latex)$"),
                         sizing: .fittingLineFragment
                     ) {
                         mathView
@@ -665,19 +924,9 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         let (marker, markerWidth) = makeListMarker(listItem, revealOffset: plainCursor)
         let markerStorageCount = marker.fragments.reduce(0) { $0 + $1.asAttributedString().characters.count }
         appendMap(storageCount: markerStorageCount, plainSpan: 0)
-        appendMap(storageCount: 1, plainSpan: 0)  // "\t"
-        revealCursor += markerStorageCount + 1
+        appendMap(storageCount: 2, plainSpan: 0)  // "\t" + WORD JOINER(见下)
+        revealCursor += markerStorageCount + 2
         let contentIndent = baseIndent + markerWidth + spacing
-
-        let itemStyle = NSMutableParagraphStyle()
-        itemStyle.firstLineHeadIndent = baseIndent          // marker 起始
-        itemStyle.headIndent = contentIndent                // wrap 内容缩进对齐
-        itemStyle.tabStops = [NSTextTab(textAlignment: .left, location: contentIndent)]
-        itemStyle.paragraphSpacing = configuration.componentSpacing
-        itemStyle.lineSpacing = lineSpacing
-        let paragraphOnly = AttributeContainer([.paragraphStyle: itemStyle as NSParagraphStyle])
-        var itemAttrs = paragraphOnly
-        setFont(&itemAttrs, bodyFont)
 
         // leading = item 首段(inline,可选);trailing = 嵌套 list / 其他 block。
         // 注意映射顺序:leading 先 visit(记账),trailing 的 "\n" 分隔在其内容 visit **之前**记账。
@@ -713,9 +962,30 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
             revealCursor -= 1
         }
 
+        // style 在内容 visit 之后构造:CJK 行盒补偿要看 leading 文本(见 paragraphContainer 注)。
+        let itemStyle = NSMutableParagraphStyle()
+        itemStyle.firstLineHeadIndent = baseIndent          // marker 起始
+        itemStyle.headIndent = contentIndent                // wrap 内容缩进对齐
+        itemStyle.tabStops = [NSTextTab(textAlignment: .left, location: contentIndent)]
+        // 原版 list row 内容也是 visitParagraph 产物(.padding(.vertical,5))+ 行间 VStack(componentSpacing):
+        // 与 paragraphContainer 同一套上 5 / 下 5+componentSpacing−lineSpacing 记账。
+        let itemLineSpacing = effectiveLineSpacing(for: leadingContent)
+        itemStyle.paragraphSpacingBefore = 5
+        itemStyle.paragraphSpacing = max(0, 5 + configuration.componentSpacing - itemLineSpacing)
+        itemStyle.lineSpacing = itemLineSpacing
+
+        let paragraphOnly = AttributeContainer([.paragraphStyle: itemStyle as NSParagraphStyle])
+        var itemAttrs = paragraphOnly
+        setFont(&itemAttrs, bodyFont)
+
         return TextContent {
             marker.mergingAttributes(paragraphOnly)        // marker 保留灰色/字体,只加段落样式
-            AttributedString("\t", attributes: itemAttrs)  // tab → contentIndent
+            // tab → contentIndent;tab 后跟 WORD JOINER(U+2060,UAX14 LB11 前后禁断):
+            // 原版 list 是 HStack 双列,marker 永不与内容分行;文本流模拟里 tab 后是合法
+            // 断点,内容首单元过宽(典型 = 文件链接的图标+NBSP+长文件名整体粘连)会被
+            // 整体断到下一行,marker 孤在首行。WJ 把 tab 与首单元粘死,过宽 token 只能
+            // 走行内 emergency break(长文件名行中折断),与原版双列观感一致。
+            AttributedString("\t\u{2060}", attributes: itemAttrs)
             if !leadingContent.fragments.isEmpty {
                 leadingContent.mergingAttributes(itemAttrs)
             }
@@ -730,12 +1000,33 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     /// 返回 (marker 内容, 测量宽度) —— 宽度用于算内容缩进 tabStop。
     private mutating func makeListMarker(_ listItem: ListItem, revealOffset: Int) -> (TextContent, CGFloat) {
         if let checkbox = listItem.checkbox {
+            // checkbox = hosted InlineView + StreamingRevealGate(与 chip 同管线,gate 的
+            // fresh-activation/首帧判定现成)—— 对齐原版 _markerView 的 StreamingRevealMarker 语义。
+            // 曾试 image NSTextAttachment:TextKit2 把 image 附件交给独立子视图渲染(allowsTextAttachmentView
+            // 关掉也不可靠),fragment 的逐字 alpha 管不到 → 无淡入。
             let checked = checkbox == .checked
             let size = bodyFont.pointSize
-            // checkbox 不再用 SwiftUI host attachment(host 晚挂载、gate 拿不到淡入起点)。改成文字流里的
-            // image NSTextAttachment:它是 super.draw 系统绘制的一部分,RevealFadeFragment 的遮罩会像对文字
-            // 一样按 firstSeen age 降它的 opacity → 与文字同步淡入、无挂载时序、无 gate。
-            return (Self.checkboxImageContent(checked: checked, size: size, descender: bodyFont.descender), size)
+            let id = attachmentCounter
+            attachmentCounter += 1
+            let anchor = plainCursor  // marker 随内容首字符揭示
+            let mgrKey = streamingManager.map { String(UInt(bitPattern: ObjectIdentifier($0).hashValue)) } ?? "nil"
+            let key = "checkbox\u{1}\(checked)\u{1}\(anchor)\u{1}\(id)\u{1}\(mgrKey)"
+            if let cache = blockViewCache, let hit = cache.hitContent(key) { return (hit, size) }
+            let view = injectRevealEnvironment(
+                SelectableTaskCheckbox(checked: checked, size: size)
+                    .environment(\.markdownTextOffsetBase, anchor)
+            )
+            let content = TextContent {
+                InlineView(
+                    id: SelectableInlineViewID(index: id),
+                    replacement: AttributedString(checked ? "[x]" : "[ ]"),
+                    sizing: .fittingLineFragment
+                ) {
+                    view
+                }
+            }
+            blockViewCache?.storeContent(key, content)
+            return (content, size)
         }
         let markerText: String
         let monospaced: Bool
@@ -766,38 +1057,6 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         return (TextContent(.attributedString(attr)), width)
     }
 
-    /// checkbox → image NSTextAttachment(SF Symbol)。checked 用 template(随 textView.tintColor 染 accent),
-    /// unchecked 用 secondaryLabel。作为文字流的 image「字」,自动走 super.draw + reveal 遮罩,与文字同步淡入。
-    /// 相同(checked,size)复用同一 attachment 实例 → AttributedString 相等,前缀增量复用不被 checkbox 断链。
-    nonisolated(unsafe) private static var checkboxContentCache: [String: TextContent] = [:]
-    static func checkboxImageContent(checked: Bool, size: CGFloat, descender: CGFloat) -> TextContent {
-        let cacheKey = "\(checked)_\(Int(size.rounded()))_\(Int(descender.rounded()))"
-        if let hit = checkboxContentCache[cacheKey] { return hit }
-        let content = buildCheckboxImageContent(checked: checked, size: size, descender: descender)
-        checkboxContentCache[cacheKey] = content
-        return content
-    }
-
-    private static func buildCheckboxImageContent(checked: Bool, size: CGFloat, descender: CGFloat) -> TextContent {
-        #if canImport(UIKit)
-        let cfg = UIImage.SymbolConfiguration(pointSize: size, weight: .regular)
-        let symbol = checked ? "checkmark.circle.fill" : "circle"
-        let attachment = NSTextAttachment()
-        // 都用 template:模板图跟随前景色 → reveal 的 rendering-attr(alpha=phase)能让勾选框随文字一起逐字淡入,
-        // 而不是 attachment 图直接满不透明地"啪"出现。checked 交给 textView.tintColor(主题色),unchecked 显式
-        // 设 secondaryLabel(定型后即恢复该内容色,淡入过程走 reveal 的前景色)。
-        attachment.image = UIImage(systemName: symbol, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
-        attachment.bounds = CGRect(x: 0, y: descender, width: size, height: size)
-        let ns = NSMutableAttributedString(attachment: attachment)
-        if !checked {
-            ns.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: NSRange(location: 0, length: ns.length))
-        }
-        return TextContent(.attributedString(AttributedString(ns)))
-        #else
-        return TextContent(.string(checked ? "☑" : "☐"))
-        #endif
-    }
-
     private func setFont(_ container: inout AttributeContainer, _ font: PlatformFont) {
         #if canImport(UIKit)
         container.uiKit.font = font
@@ -819,6 +1078,349 @@ private struct SelectableInlineViewID: Hashable {
     let index: Int
 }
 
+// MARK: - 文本级行内锚插入(话题气泡)
+
+#if canImport(UIKit)
+extension MarkdownSelectableText {
+    /// 把 hosted 气泡附件按 plain 偏移插进已渲染内容(post-render):
+    /// 附件 = storage 1 字符 / plain 0 单位(映射插桩,revealTotal 不变),
+    /// 气泡随锚点末字符揭示(StreamingRevealGate,阈值 = plainOffset-1)。
+    /// 从 plain 偏移降序处理,先插靠后的,前面的 storage 索引保持有效。
+    @MainActor
+    static func insertingInlineAnchors(
+        _ anchors: [MarkdownTextInlineAnchor],
+        into result: (content: TextContent, revealTotal: Int, storageToPlain: [Int]),
+        openURL: OpenURLAction?,
+        streamingManager: StreamingRevealManager?,
+        fadeConfig: MarkdownFadeRevealConfig?,
+        bubbleSize: CGFloat,
+        dynamicTypeSize: DynamicTypeSize?,
+        topicPreview: (@MainActor (String) -> AnyView?)? = nil
+    ) -> (content: TextContent, revealTotal: Int, storageToPlain: [Int]) {
+        var fragments = result.content.fragments
+        var map = result.storageToPlain
+
+        for (seq, anchor) in anchors.sorted(by: { $0.plainOffset > $1.plainOffset }).enumerated() {
+            // storage 插入点 = 第一个 plain 起点 >= offset 的字符位置(lowerBound 二分)。
+            var lo = 0, hi = map.count
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if map[mid] < anchor.plainOffset { lo = mid + 1 } else { hi = mid }
+            }
+            let storagePos = lo
+
+            // preview 闭包只烤引用不烤结果:渲染可能早于控制器挂接(singleFlowVM 尚 nil),
+            // 急切求值会把 nil 烤死进渲染缓存;长按弹菜单那一刻才解析。
+            let anchorId = anchor.id
+            var previewProvider: (@MainActor () -> AnyView?)? = nil
+            if let tp = topicPreview {
+                previewProvider = { tp(anchorId) }
+            }
+            var view = AnyView(
+                SelectableTopicBubble(
+                    size: bubbleSize,
+                    url: anchor.url,
+                    openActionTitle: anchor.openActionTitle,
+                    previewProvider: previewProvider
+                )
+                .environment(\.markdownStreaming, streamingManager)
+                .environment(\.markdownFadeReveal, fadeConfig)
+                .environment(\.markdownTextOffsetBase, max(0, anchor.plainOffset - 1))
+            )
+            if let openURL { view = AnyView(view.environment(\.openURL, openURL)) }
+            if let dynamicTypeSize { view = AnyView(view.environment(\.dynamicTypeSize, dynamicTypeSize)) }
+            let bubble = TextContent {
+                // 话题气泡是导航示能不是内容:不参与复制(replacement 空串)。
+                InlineView(
+                    id: SelectableInlineViewID(index: 1_000_000 + seq),
+                    replacement: AttributedString(),
+                    sizing: .fittingLineFragment
+                ) {
+                    view
+                }
+            }
+            guard let bubbleFragment = bubble.fragments.first else { continue }
+
+            // fragment 定位;落在片段内部时切开再插。
+            var cursor = 0
+            var idx = 0
+            var inserted = false
+            while idx < fragments.count {
+                let count = fragmentLength(fragments[idx])
+                if storagePos <= cursor {
+                    fragments.insert(bubbleFragment, at: idx)
+                    inserted = true
+                    break
+                }
+                if storagePos < cursor + count {
+                    let local = storagePos - cursor
+                    let (head, tail) = splitFragment(fragments[idx], at: local)
+                    fragments.replaceSubrange(idx...idx, with: [head, bubbleFragment, tail].compactMap { $0 })
+                    inserted = true
+                    break
+                }
+                cursor += count
+                idx += 1
+            }
+            if !inserted { fragments.append(bubbleFragment) }
+
+            map.insert(anchor.plainOffset, at: min(storagePos, map.count))
+        }
+
+        return (TextContent(fragments), result.revealTotal, map)
+    }
+
+    /// 区间装饰(mark 下划线):把着色下划线属性落到 plain 区间对应的 storage 范围。
+    /// 只改属性不改长度,映射不动;按数组顺序覆盖(调用方把最新的排最后 = 显示最新色)。
+    static func applyingRangeDecorations(
+        _ decorations: [MarkdownTextRangeDecoration],
+        to content: TextContent,
+        storageToPlain map: [Int]
+    ) -> TextContent {
+        guard !map.isEmpty else { return content }
+        var fragments = content.fragments
+
+        func lowerBound(_ plain: Int) -> Int {
+            var lo = 0, hi = map.count
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if map[mid] < plain { lo = mid + 1 } else { hi = mid }
+            }
+            return lo
+        }
+
+        for deco in decorations {
+            let s = lowerBound(deco.plainStart)
+            let e = lowerBound(deco.plainStart + deco.plainLength)
+            guard e > s else { continue }
+
+            var cursor = 0
+            for idx in fragments.indices {
+                let length = fragmentLength(fragments[idx])
+                let fragmentStart = cursor
+                let fragmentEnd = cursor + length
+                cursor = fragmentEnd
+                guard fragmentEnd > s, fragmentStart < e,
+                      case .attributedString(var attr) = fragments[idx] else { continue }
+                let localStart = max(0, s - fragmentStart)
+                let localEnd = min(length, e - fragmentStart)
+                let chars = attr.characters
+                guard let li = chars.index(chars.startIndex, offsetBy: localStart, limitedBy: chars.endIndex),
+                      let ui = chars.index(chars.startIndex, offsetBy: localEnd, limitedBy: chars.endIndex),
+                      ui > li else { continue }
+                // 只落 underlineColor **不落 underlineStyle**:系统下划线紧贴文本下沿且
+                // 位置不可调;InlineAttachmentTextView 布局后按「有色无 style」的区间自绘
+                // 分离式下划线条(同厚度、下移出间隙)。
+                // link 让区间可点(空 linkTextAttributes → 不改样式),点击弹浮动菜单。
+                attr[li..<ui].uiKit.underlineColor = UIColor(deco.underlineColor)
+                if let url = deco.tapURL {
+                    attr[li..<ui].link = url  // .link 在 foundation 作用域,非 uiKit
+                }
+                fragments[idx] = .attributedString(attr)
+            }
+        }
+        return TextContent(fragments)
+    }
+
+    private static func fragmentLength(_ fragment: TextContent.Fragment) -> Int {
+        switch fragment {
+        case .string(let s): return s.count
+        case .attributedString(let a): return a.characters.count
+        case .view: return 1
+        }
+    }
+
+    /// 在片段内部第 local 个字符前切开(边界侧返回 nil,由调用方 compactMap 收掉)。
+    private static func splitFragment(
+        _ fragment: TextContent.Fragment,
+        at local: Int
+    ) -> (TextContent.Fragment?, TextContent.Fragment?) {
+        switch fragment {
+        case .string(let s):
+            let i = s.index(s.startIndex, offsetBy: min(local, s.count))
+            let head = String(s[..<i]), tail = String(s[i...])
+            return (head.isEmpty ? nil : .string(head), tail.isEmpty ? nil : .string(tail))
+        case .attributedString(let a):
+            let chars = a.characters
+            guard let i = chars.index(chars.startIndex, offsetBy: local, limitedBy: chars.endIndex),
+                  i > a.startIndex, i < a.endIndex else {
+                return local <= 0 ? (nil, .attributedString(a)) : (.attributedString(a), nil)
+            }
+            return (
+                .attributedString(AttributedString(a[a.startIndex..<i])),
+                .attributedString(AttributedString(a[i..<a.endIndex]))
+            )
+        case .view:
+            // 附件 1 字符不可切;local 只能是 0(上游 storagePos <= cursor 已处理)。
+            return (nil, fragment)
+        }
+    }
+}
+
+/// 文本级话题入口气泡(hosted InlineView rootView):选段末尾的小胶囊图标,
+/// 点击经 openURL 路由(app 拦截 flowith-topic scheme);StreamingRevealGate 原子淡入。
+@available(iOS 17.0, macOS 14.0, *)
+@available(watchOS, unavailable)
+@available(tvOS, unavailable)
+@available(visionOS, unavailable)
+private struct SelectableTopicBubble: View {
+    let size: CGFloat
+    let url: URL?
+    var openActionTitle: String = "Open"
+    var previewProvider: (@MainActor () -> AnyView?)? = nil
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        StreamingRevealGate { _, visible in
+            bubble
+                .opacity(visible ? 1 : 0)
+                .animation(.easeOut(duration: 0.2), value: visible)
+        }
+    }
+
+    private var bubble: some View {
+        Image(systemName: "ellipsis.bubble")
+            .font(.system(size: size * 0.72))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2.5)
+            .background(Capsule().fill(Color.gray.opacity(0.12)))
+            .padding(.leading, 3)
+            // SwiftUI 手势 / .contextMenu 在 textView 附件宿主里装不上交互
+            //(长按会落到外层块级菜单),tap + 长按预览统一走最深处的 UIKit 交互桥。
+            .overlay {
+                TopicBubbleInteractionBridge(
+                    openActionTitle: openActionTitle,
+                    previewProvider: previewProvider
+                ) {
+                    if let url { openURL(url) }
+                }
+            }
+    }
+}
+
+/// 话题气泡的 UIKit 交互桥:UIContextMenuInteraction(长按预览)+ UITapGestureRecognizer(打开)。
+/// 挂在附件子视图最深处,长按判定优先于外层块级 contextMenu。
+@available(iOS 17.0, *)
+@available(watchOS, unavailable)
+@available(tvOS, unavailable)
+@available(visionOS, unavailable)
+private struct TopicBubbleInteractionBridge: UIViewRepresentable {
+    let openActionTitle: String
+    let previewProvider: (@MainActor () -> AnyView?)?
+    let onOpen: () -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.addInteraction(UIContextMenuInteraction(delegate: context.coordinator))
+        view.addGestureRecognizer(
+            UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.didTap))
+        )
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    @MainActor
+    final class Coordinator: NSObject, UIContextMenuInteractionDelegate {
+        var parent: TopicBubbleInteractionBridge
+        init(_ parent: TopicBubbleInteractionBridge) { self.parent = parent }
+
+        @objc func didTap() { parent.onOpen() }
+
+        nonisolated func contextMenuInteraction(
+            _ interaction: UIContextMenuInteraction,
+            configurationForMenuAtLocation location: CGPoint
+        ) -> UIContextMenuConfiguration? {
+            MainActor.assumeIsolated {
+                // 长按此刻才解析预览:渲染期烤结果会把控制器挂接前的 nil 冻死在缓存里。
+                let preview = parent.previewProvider?()
+                let title = parent.openActionTitle
+                let onOpen = parent.onOpen
+                return UIContextMenuConfiguration(identifier: nil) {
+                    guard let preview else { return nil }
+                    let host = UIHostingController(rootView: preview)
+                    host.preferredContentSize = CGSize(width: 360, height: 520)
+                    return host
+                } actionProvider: { _ in
+                    UIMenu(children: [
+                        UIAction(
+                            title: title,
+                            image: UIImage(systemName: "arrow.up.forward")
+                        ) { _ in onOpen() }
+                    ])
+                }
+            }
+        }
+    }
+}
+#endif
+
+/// 任务列表勾选框(hosted InlineView 的 rootView):对齐原版 _markerView —— checked 用
+/// checkmark.circle.fill 随 tint,unchecked 用 circle secondary;StreamingRevealGate 原子淡入
+///(阈值 = 内容首字符 plain 锚点,经 markdownTextOffsetBase 注入)。
+@available(iOS 17.0, macOS 14.0, *)
+@available(watchOS, unavailable)
+@available(tvOS, unavailable)
+@available(visionOS, unavailable)
+private struct SelectableTaskCheckbox: View {
+    let checked: Bool
+    let size: CGFloat
+
+    var body: some View {
+        StreamingRevealGate { _, visible in
+            Group {
+                if checked {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.tint)
+                } else {
+                    Image(systemName: "circle")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.system(size: size))
+            .opacity(visible ? 1 : 0)
+            .animation(.easeOut(duration: 0.2), value: visible)
+        }
+    }
+}
+
+/// 自定义行内链接的前置 SF Symbol(hosted InlineView rootView):对齐原版
+/// `AttributedString.inlineSymbol` 的 Text 内联符号 —— 尺寸随正文字号、颜色随链接 tint;
+/// 与文件名的间距由后随 NBSP 文本承担(兼作断行胶水,不在这里加 padding);
+/// 点击走注入的 openURL(与文本段同路由);
+/// StreamingRevealGate 原子淡入(阈值 = 链接起点 plain 锚,经 markdownTextOffsetBase 注入)。
+@available(iOS 17.0, macOS 14.0, *)
+@available(watchOS, unavailable)
+@available(tvOS, unavailable)
+@available(visionOS, unavailable)
+private struct SelectableInlineLinkSymbol: View {
+    let systemName: String
+    let size: CGFloat
+    let color: Color
+    let url: URL?
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        StreamingRevealGate { _, visible in
+            Image(systemName: systemName)
+                .font(.system(size: size))
+                .foregroundStyle(color)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if let url { openURL(url) }
+                }
+                .opacity(visible ? 1 : 0)
+                .animation(.easeOut(duration: 0.2), value: visible)
+        }
+    }
+}
+
 private extension Character {
     /// CJK(汉/假名)字符:斜体走 obliqueness 倾斜,西文走 trait italic。
     var isCJKForItalic: Bool {
@@ -827,6 +1429,19 @@ private extension Character {
             || (0x3040...0x30FF).contains(scalar.value) // Hiragana + Katakana
             || (0x3400...0x4DBF).contains(scalar.value) // CJK Ext A
             || (0xF900...0xFAFF).contains(scalar.value) // CJK Compatibility
+        }
+    }
+
+    /// 会把 TextKit2 行盒抬到 CJK fallback 字体(PingFang 等)metrics 的字符:
+    /// 汉字/假名/谚文/全角标点(,。「」等 CJK 标点同样走 fallback 字体渲染)。
+    var triggersCJKLineBox: Bool {
+        unicodeScalars.contains { scalar in
+            (0x2E80...0x9FFF).contains(scalar.value)      // 部首/CJK 标点/假名/注音/统一表意
+            || (0x3400...0x4DBF).contains(scalar.value)   // Ext A
+            || (0xAC00...0xD7AF).contains(scalar.value)   // Hangul 音节
+            || (0xF900...0xFAFF).contains(scalar.value)   // 兼容表意
+            || (0xFF00...0xFFEF).contains(scalar.value)   // 全角/半角形
+            || (0x20000...0x2FFFF).contains(scalar.value) // Ext B+
         }
     }
 }

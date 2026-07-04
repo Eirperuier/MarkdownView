@@ -78,6 +78,7 @@ struct DefaultMarkdownCodeBlock: View {
     @Environment(\.markdownRendererConfiguration) private var rendererConfiguration
     @Environment(\.codeHighlighter) private var injectedHighlighter
     @Environment(\.codeBlockContentRenderers) private var customRenderers
+    @Environment(\.codeBlockRendererDisabledLanguages) private var disabledLanguages
 
     @State private var attributedCode: AttributedString?
     @State private var attributedCodeStyleTrigger: Int?
@@ -97,7 +98,8 @@ struct DefaultMarkdownCodeBlock: View {
     enum DisplayMode: Hashable { case rendered, code }
 
     private var customRenderer: AnyCodeBlockContentRenderer? {
-        guard let lang = codeBlockConfiguration.language?.lowercased() else { return nil }
+        guard let lang = codeBlockConfiguration.language?.lowercased(),
+              !disabledLanguages.contains(lang) else { return nil }
         return customRenderers[lang]
     }
 

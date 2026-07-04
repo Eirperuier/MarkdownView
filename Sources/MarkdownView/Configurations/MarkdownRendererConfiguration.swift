@@ -20,7 +20,10 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     var inlineCodeTintColor: Color = .gray
     var blockQuoteTintColor: Color = .accentColor
     var preferredColor: Color = .accentColor
-    
+    /// 基础正文字色:UITextView 路径(可选中渲染)不吃 SwiftUI `.foregroundStyle` 级联,
+    /// 需显式传入(如 ThinkingView 宿主的 secondary)。原版 Text 路径不受影响。
+    var baseTextColor: Color? = nil
+
     var showFullCode: Bool = false
     
     var listConfiguration: MarkdownListConfiguration = MarkdownListConfiguration()
@@ -55,6 +58,7 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
         hasher.combine(inlineCodeTintColor.description)
         hasher.combine(blockQuoteTintColor.description)
         hasher.combine(preferredColor.description)
+        hasher.combine(baseTextColor?.description ?? "")
         hasher.combine(highlightedColor.description)
         hasher.combine(highlightedBackgroundColor.description)
         return hasher.finalize()
@@ -455,6 +459,15 @@ extension EnvironmentValues {
 }
 
 extension View {
+    /// 基础正文字色注入(可选中/UITextView 路径专用):
+    /// UITextView 不吃 SwiftUI `.foregroundStyle` 级联,必须显式传入;
+    /// 原版 Text 路径不受影响(继续走 foregroundStyle)。
+    nonisolated public func markdownBaseTextColor(_ color: Color?) -> some View {
+        transformEnvironment(\.markdownRendererConfiguration) { configuration in
+            configuration.baseTextColor = color
+        }
+    }
+
     /// Enable per-character fade-in animation during streaming reveal.
     /// Requires iOS 18+; on older OS this is a no-op.
     nonisolated public func markdownFadeReveal(

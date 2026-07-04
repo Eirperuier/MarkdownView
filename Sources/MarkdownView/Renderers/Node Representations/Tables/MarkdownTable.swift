@@ -226,6 +226,11 @@ struct MarkdownTableContent: View {
     @Environment(\.markdownRendererConfiguration.table) private var tableConfiguration
     @Environment(\.markdownStreaming) private var revealManager
     @Environment(\.markdownFadeReveal) private var fadeConfig
+    @Environment(\.markdownTableCellsSelectable) private var cellsSelectable
+    /// 表格 cell 可选中的**惰性升级(逐 cell)**:初载全部走原版 Text(大表逐 cell UITextView
+    /// 实测把初载拖到 ~4×),某个 cell 第一次被点按才升级为可选中 —— 双击选字的第一击即完成
+    /// 该 cell 升级,第二击已落在 UITextView 上;粒度=单 cell(整表升级在超大表上会卡一帧)。
+    @State private var upgradedCells: Set<MarkdownTableCellKey> = []
     @State private var containerWidth: CGFloat = MarkdownTableContent.estimatedContainerWidth
     /// Held via `@State` (not `@StateObject`) so SwiftUI does not subscribe
     /// to the class's `objectWillChange`. The scrollable path doesn't read
@@ -370,15 +375,20 @@ struct MarkdownTableContent: View {
                 }
                 ForEach(cache.bodyItems) { item in
                     let info = cache.flatCellInfos[item.flatIndex]
+                    let upgraded = upgradedCells.contains(item.id)
                     AdaptiveTableCell(
                         cell: item.cell,
                         cellContentHash: item.contentHash,
                         blockTextOffset: item.blockTextOffset,
                         characterCount: info.count,
-                        isHeader: item.isHeader
+                        isHeader: item.isHeader,
+                        selectableUpgraded: upgraded,
+                        onSelectableUpgrade: { upgradedCells.insert(item.id) }
                     )
                         .equatable()
-                        .tableCellHash(item.contentHash)
+                        // 升级混入 hash:该 cell 切可选中后高度会变(UITextView 行盒),
+                        // 让 AdaptiveTableLayout 重测,不能吃原版的缓存尺寸。
+                        .tableCellHash(item.contentHash ^ (upgraded ? 0x5e1ec7 : 0))
                 }
             }
         }
@@ -1328,6 +1338,9 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     /// `endOffset = blockTextOffset + characterCount`.
     var characterCount: Int
     var isHeader: Bool
+    /// 惰性升级:本 cell 已被点按 → 内容走可选中渲染(见 MarkdownTableContent.upgradedCells)。
+    var selectableUpgraded: Bool = false
+    var onSelectableUpgrade: (() -> Void)? = nil
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         // `phase` is intentionally not part of equality — it now lives in the
@@ -1338,6 +1351,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         && lhs.blockTextOffset == rhs.blockTextOffset
         && lhs.characterCount == rhs.characterCount
         && lhs.isHeader == rhs.isHeader
+        && lhs.selectableUpgraded == rhs.selectableUpgraded
     }
 
     @Environment(\.markdownRendererConfiguration) private var configuration
@@ -1380,15 +1394,25 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         if isHeader, dimsParentheticals, let attributed = dimmedHeaderAttributed {
             MarkdownNodeView(attributed)
                 .environment(\.markdownRendererConfiguration, configuration)
-        } else if !isHeader, cellsSelectable {
+        } else if !isHeader, cellsSelectable, selectableUpgraded {
             // body cell 可选中(per-cell,不跨 cell):cell 源码单独渲染,reveal 锚点经
             // blockTextOffset 变绝对坐标,与块级 sweep 完全同源(节奏=原版逐 cell 扫过)。
             // 表头保持原渲染(bold/uppercase 样式)。tableBody 默认 Font.body,与可选中路径字体一致。
             // 注意:Table.Cell 禁止整体 format()(swift-markdown fatalError),逐个 inline 子节点拼接。
             MarkdownSelectableText(
                 cell.children.map { $0.format() }.joined().trimmingCharacters(in: .whitespacesAndNewlines),
-                plainOffsetBase: blockTextOffset
+                plainOffsetBase: blockTextOffset,
+                applyEdgeInsets: false  // cell 内容无竖向 padding(原版 cell 同)
             )
+        } else if !isHeader, cellsSelectable {
+            // 惰性升级前的原版渲染:首击本 cell 即升级(simultaneous 不消费触摸,
+            // 双击选字的第二击落在升级后的 UITextView 上)。
+            CmarkNodeVisitor(configuration: configuration)
+                .makeBody(for: cell)
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded {
+                    onSelectableUpgrade?()
+                })
         } else {
             CmarkNodeVisitor(configuration: configuration)
                 .makeBody(for: cell)
