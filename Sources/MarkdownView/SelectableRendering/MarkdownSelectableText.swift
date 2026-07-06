@@ -93,6 +93,7 @@ public struct MarkdownSelectableText: View, Equatable {
         .environment(\.onRichTextSelectionChanged, externalHooks?.onSelectionChanged)
         .environment(\.onRichTextEditMenu, externalHooks?.editMenu)
         .environment(\.onRichTextLinkMenu, externalHooks?.linkMenu)
+        .environment(\.onRichTextLinkTap, externalHooks?.linkTap)
         // `.link` 点击路由到 SwiftUI OpenURLAction(app 可拦截;与原版 Text 路径同语义),
         // 不再由 UITextView 直接开 Safari。
         .environment(\.onRichTextOpenLink, { url in openURL(url) })
@@ -246,7 +247,17 @@ public struct MarkdownSelectableText: View, Equatable {
         config.math = math
         config.allowedBlockDirectiveRenderers.insert("math")
 
-        let mdContent = MarkdownContent(raw: .plainText(processedText))
+        // 内联脚注 `^[…]` 预处理(math 之后):替换成占位符,visitor 遇占位符渲染上标数字链接。
+        // 仅在 app 注入了脚注上下文且本块确有内联脚注时才扫描,plain 记账与未预处理的 AST 一致。
+        var footnoteText = processedText
+        var inlineFootnoteTokens: [Int: MarkdownFootnoteSyntax.InlineToken] = [:]
+        if let footnotes = config.footnotes, !footnotes.inlineNotes.isEmpty {
+            let pre = MarkdownFootnoteSyntax.preprocessInlineNotes(processedText)
+            footnoteText = pre.text
+            inlineFootnoteTokens = pre.tokens
+        }
+
+        let mdContent = MarkdownContent(raw: .plainText(footnoteText))
         let document = mdContent.parse(options: mdContent.parseOptions(allowingBlockDirectives: true))
         #if DEBUG
         let __t1 = CFAbsoluteTimeGetCurrent()
@@ -255,6 +266,7 @@ public struct MarkdownSelectableText: View, Equatable {
             configuration: config,
             bodyFont: bodyPlatformFont(for: dynamicTypeSize),
             inlineMathStorage: math.inlineMathStorage ?? [:],
+            inlineFootnoteTokens: inlineFootnoteTokens,
             blockViewCache: blockViewCache,
             streamingManager: streamingManager,
             fadeConfig: fadeConfig,
@@ -413,13 +425,24 @@ public struct MarkdownTextRangeDecoration: Equatable, Hashable, Sendable, Identi
     public let underlineColor: Color
     /// 点击 URL(app 拦截 scheme 弹菜单);nil = 不可点。
     public let tapURL: URL?
+    /// true = tapURL 只落到**尚无链接**的 run(整段可点但不覆盖内容里的真实链接,
+    /// 如脚注定义整行可点、行内引用/URL 保持各自点击)。false = 整段覆盖(mark 语义)。
+    public let preservesInnerLinks: Bool
 
-    public init(id: String, plainStart: Int, plainLength: Int, underlineColor: Color, tapURL: URL? = nil) {
+    public init(
+        id: String,
+        plainStart: Int,
+        plainLength: Int,
+        underlineColor: Color,
+        tapURL: URL? = nil,
+        preservesInnerLinks: Bool = false
+    ) {
         self.id = id
         self.plainStart = plainStart
         self.plainLength = plainLength
         self.underlineColor = underlineColor
         self.tapURL = tapURL
+        self.preservesInnerLinks = preservesInnerLinks
     }
 }
 
@@ -497,6 +520,9 @@ public final class MarkdownSelectableTextHooks: Equatable, Sendable {
     public let editMenu: (@MainActor (PlatformTextView, NSRange, [UIMenuElement]) -> UIMenu?)?
     /// 可选:点击 `.link`(如 mark 下划线)在链接位置弹浮动菜单;返回 nil = 该链接走默认点击。
     public let linkMenu: (@MainActor (URL) -> [UIMenuElement]?)?
+    /// 可选:链接点击最先回调(textView, URL, 链接 rect);返回 true = 已处理
+    /// (如脚注引用在链接位置弹悬浮面板),false = 继续 linkMenu → openURL 链。
+    public let linkTap: (@MainActor (PlatformTextView, URL, CGRect) -> Bool)?
     /// 可选:话题气泡长按预览(id = rootMessageId → 预览视图;nil = 无预览)。
     public let topicPreview: (@MainActor (String) -> AnyView?)?
     #endif
@@ -507,12 +533,14 @@ public final class MarkdownSelectableTextHooks: Equatable, Sendable {
         onSelectionChanged: @escaping @MainActor (PlatformTextView) -> Void,
         editMenu: (@MainActor (PlatformTextView, NSRange, [UIMenuElement]) -> UIMenu?)? = nil,
         linkMenu: (@MainActor (URL) -> [UIMenuElement]?)? = nil,
+        linkTap: (@MainActor (PlatformTextView, URL, CGRect) -> Bool)? = nil,
         topicPreview: (@MainActor (String) -> AnyView?)? = nil
     ) {
         self.onTextViewReady = onTextViewReady
         self.onSelectionChanged = onSelectionChanged
         self.editMenu = editMenu
         self.linkMenu = linkMenu
+        self.linkTap = linkTap
         self.topicPreview = topicPreview
     }
     #else

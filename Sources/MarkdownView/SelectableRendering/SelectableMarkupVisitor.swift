@@ -31,6 +31,9 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     let bodyFont: PlatformFont
     /// inline math 的 LaTeX storage(来自预处理),用占位符还原公式。
     let inlineMathStorage: [String: String]
+    /// 内联脚注 `^[…]` 的预处理占位符 storage(K → 内容/plainSpan;来自
+    /// MarkdownFootnoteSyntax.preprocessInlineNotes,与 configuration.footnotes.inlineNotes 按序对应)。
+    let inlineFootnoteTokens: [Int: MarkdownFootnoteSyntax.InlineToken]
     /// 复用魔改 view 渲染 block(代码块/表格/引用块…)。visitor 只产文本/InlineView。
     var blockViewVisitor: CmarkNodeVisitor
     /// block rootView 缓存:内容未变的 block 复用同一实例 → applyAttributedStringPreservingAttachments 里
@@ -80,6 +83,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         configuration: MarkdownRendererConfiguration,
         bodyFont: PlatformFont,
         inlineMathStorage: [String: String],
+        inlineFootnoteTokens: [Int: MarkdownFootnoteSyntax.InlineToken] = [:],
         blockViewCache: BlockViewCache? = nil,
         streamingManager: StreamingRevealManager? = nil,
         fadeConfig: MarkdownFadeRevealConfig? = nil,
@@ -93,6 +97,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         self.configuration = configuration
         self.bodyFont = bodyFont
         self.inlineMathStorage = inlineMathStorage
+        self.inlineFootnoteTokens = inlineFootnoteTokens
         self.blockViewVisitor = CmarkNodeVisitor(configuration: configuration)
         self.blockViewCache = blockViewCache
         self.streamingManager = streamingManager
@@ -233,6 +238,13 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
            plain.contains(MarkdownRendererConfiguration.Math.inlinePlaceholderPrefix) {
             return inlineMathTextContent(plain: plain)
         }
+        // 脚注(标准引用/定义标记/内联占位符)→ 上标数字链接;无脚注上下文时零开销直通。
+        return footnoteAwareTextContent(plain, isNodeStart: true)
+    }
+
+    /// 纯文本片段(自动链接识别 + 基准样式 + 映射记账)。脚注/数学切分后的正文段都走这里。
+    private mutating func plainTextPiece(_ plain: String) -> TextContent {
+        guard !plain.isEmpty else { return TextContent([]) }
         // 自动链接识别(对齐原版 visitText):裸 URL/邮箱(www.x.com 等 cmark autolink 漏掉的形态)
         // 加 .link+下划线+链接色;字符 1:1,reveal 记账不变。
         if configuration.autolinkDetectionEnabled,
@@ -256,6 +268,163 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         appendMap(storageCount: n, plainSpan: n)  // 正文 1:1(高亮定界符两侧同步剥除)
         revealCursor += n
         return TextContent(.attributedString(attr))
+    }
+
+    // MARK: - 脚注(标准引用 [^id] / 定义标记 [^id]: / 内联占位符)
+
+    private enum FootnoteToken {
+        case reference(id: String)
+        case definition(id: String)
+        case inlineNote(index: Int)
+    }
+
+    /// 把文本按脚注 token 切分:token → 上标数字链接,间隙 → plainTextPiece。
+    /// 无脚注上下文 / 文本无相关标记时零切分直通。
+    /// isNodeStart:定义标记 `[^id]:` 仅在 Text 节点起始处生效(= 段首或 softbreak 后的行首)。
+    private mutating func footnoteAwareTextContent(_ plain: String, isNodeStart: Bool) -> TextContent {
+        guard let footnotes = configuration.footnotes, !footnotes.isEmpty else {
+            return plainTextPiece(plain)
+        }
+        let mayHaveStandard = !footnotes.references.isEmpty && plain.contains("[^")
+        let mayHaveInline = !inlineFootnoteTokens.isEmpty
+            && plain.contains(MarkdownFootnoteSyntax.inlinePlaceholderPrefix)
+        guard mayHaveStandard || mayHaveInline else { return plainTextPiece(plain) }
+
+        var content = TextContent([])
+        var cursor = plain.startIndex
+        while cursor < plain.endIndex {
+            guard let (token, range) = nextFootnoteToken(
+                in: plain,
+                from: cursor,
+                allowDefinition: isNodeStart && cursor == plain.startIndex,
+                footnotes: footnotes
+            ) else { break }
+            if range.lowerBound > cursor {
+                content += plainTextPiece(String(plain[cursor..<range.lowerBound]))
+            }
+            content += footnotePiece(token, sourceText: String(plain[range]), footnotes: footnotes)
+            cursor = range.upperBound
+        }
+        if cursor < plain.endIndex {
+            content += plainTextPiece(String(plain[cursor...]))
+        }
+        return content
+    }
+
+    /// 从 cursor 起找最近的脚注 token(标准引用/定义标记/内联占位符),无则 nil。
+    /// 无定义的 `[^x]` 不算 token(保持字面),继续向后扫。
+    private func nextFootnoteToken(
+        in plain: String,
+        from cursor: String.Index,
+        allowDefinition: Bool,
+        footnotes: MarkdownFootnotes
+    ) -> (FootnoteToken, Range<String.Index>)? {
+        var search = cursor
+        var standard: (FootnoteToken, Range<String.Index>)? = nil
+        while search < plain.endIndex, standard == nil,
+              let open = plain.range(of: "[^", range: search..<plain.endIndex) {
+            // id = `[^` 后到 `]` 的非空、无空白/中括号字符序列。
+            var idEnd = open.upperBound
+            while idEnd < plain.endIndex {
+                let c = plain[idEnd]
+                if c == "]" { break }
+                if c.isWhitespace || c == "[" { idEnd = plain.endIndex; break }
+                idEnd = plain.index(after: idEnd)
+            }
+            guard idEnd < plain.endIndex, plain[idEnd] == "]", idEnd > open.upperBound else {
+                search = open.upperBound
+                continue
+            }
+            let id = String(plain[open.upperBound..<idEnd])
+            let afterBracket = plain.index(after: idEnd)
+            guard footnotes.references[id] != nil else {
+                search = afterBracket
+                continue
+            }
+            if afterBracket < plain.endIndex, plain[afterBracket] == ":" {
+                // 定义标记只认节点起始(行首);其他位置的 `[^id]:` 保持字面。
+                if allowDefinition, open.lowerBound == plain.startIndex {
+                    standard = (.definition(id: id), open.lowerBound..<plain.index(after: afterBracket))
+                } else {
+                    search = plain.index(after: afterBracket)
+                    continue
+                }
+            } else {
+                standard = (.reference(id: id), open.lowerBound..<afterBracket)
+            }
+        }
+
+        var inline: (FootnoteToken, Range<String.Index>)? = nil
+        if !inlineFootnoteTokens.isEmpty,
+           let prefixRange = plain.range(
+               of: MarkdownFootnoteSyntax.inlinePlaceholderPrefix,
+               range: cursor..<plain.endIndex
+           ),
+           let suffixRange = plain.range(
+               of: MarkdownFootnoteSyntax.inlinePlaceholderSuffix,
+               range: prefixRange.upperBound..<plain.endIndex
+           ),
+           let index = Int(plain[prefixRange.upperBound..<suffixRange.lowerBound]) {
+            inline = (.inlineNote(index: index), prefixRange.lowerBound..<suffixRange.upperBound)
+        }
+
+        switch (standard, inline) {
+        case (nil, nil): return nil
+        case (let s?, nil): return s
+        case (nil, let i?): return i
+        case (let s?, let i?): return s.1.lowerBound <= i.1.lowerBound ? s : i
+        }
+    }
+
+    /// token → 上标数字链接片段。映射记账:storage = 显示字符数,plainSpan = 源文本的
+    /// plain 单位数(整段锚在起点,与占位符/marker 同语义)→ 块级 plain 坐标系不变,
+    /// reveal frontier / mark 锚点与字面渲染完全同源。
+    private mutating func footnotePiece(
+        _ token: FootnoteToken,
+        sourceText: String,
+        footnotes: MarkdownFootnotes
+    ) -> TextContent {
+        var display: AttributedString
+        let plainSpan: Int
+        switch token {
+        case .reference(let id):
+            guard let ref = footnotes.references[id] else { return plainTextPiece(sourceText) }
+            display = AttributedString(MarkdownFootnoteSyntax.superscriptDigits(ref.number))
+            var attrs = AttributeContainer().foregroundColor(configuration.linkTintColor)
+            setFont(&attrs, bodyFont)
+            display.mergeAttributes(attrs)
+            if let url = ref.referenceURL { display.link = url }
+            plainSpan = sourceText.count
+        case .definition(let id):
+            guard let ref = footnotes.references[id] else { return plainTextPiece(sourceText) }
+            display = AttributedString("\(ref.number).")
+            var attrs = AttributeContainer().foregroundColor(configuration.linkTintColor)
+            setFont(&attrs, mediumWeightFont(ofSize: bodyFont.pointSize))
+            display.mergeAttributes(attrs)
+            if let url = ref.definitionURL { display.link = url }
+            plainSpan = sourceText.count
+        case .inlineNote(let index):
+            let note = index < footnotes.inlineNotes.count ? footnotes.inlineNotes[index] : nil
+            display = AttributedString(MarkdownFootnoteSyntax.superscriptDigits(note?.number ?? 0))
+            var attrs = AttributeContainer().foregroundColor(configuration.linkTintColor)
+            setFont(&attrs, bodyFont)
+            display.mergeAttributes(attrs)
+            if let url = note?.url { display.link = url }
+            // plainSpan = 源 `^[…]` 的 plain 计数(预处理时算好);驱动方按未预处理 AST 记账。
+            plainSpan = inlineFootnoteTokens[index]?.plainSpan ?? sourceText.count
+        }
+        let n = display.characters.count
+        appendMap(storageCount: n, plainSpan: plainSpan)
+        revealCursor += n
+        return TextContent(.attributedString(display))
+    }
+
+    private func mediumWeightFont(ofSize size: CGFloat) -> PlatformFont {
+        #if canImport(UIKit)
+        UIFont.systemFont(ofSize: size, weight: .medium)
+        #else
+        NSFont.systemFont(ofSize: size, weight: .medium)
+        #endif
     }
 
     mutating func visitSoftBreak(_ softBreak: SoftBreak) -> TextContent {
@@ -736,11 +905,11 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         var search = plain.startIndex..<plain.endIndex
         while let match = firstInlineMath(in: plain, range: search) {
             if search.lowerBound < match.range.lowerBound {
-                let attr = markRevealOffsets(baseAttributed(String(plain[search.lowerBound..<match.range.lowerBound])), start: revealCursor)
-                let n = attr.characters.count
-                appendMap(storageCount: n, plainSpan: n)
-                content += TextContent(.attributedString(attr))
-                revealCursor += n
+                // 公式间的正文段:走脚注感知切分(同一 Text 节点可同时含公式与脚注 token)。
+                content += footnoteAwareTextContent(
+                    String(plain[search.lowerBound..<match.range.lowerBound]),
+                    isNodeStart: search.lowerBound == plain.startIndex
+                )
             }
             let latex = match.latex
             let id = attachmentCounter
@@ -783,11 +952,10 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
             search = match.range.upperBound..<plain.endIndex
         }
         if search.lowerBound < plain.endIndex {
-            let attr = markRevealOffsets(baseAttributed(String(plain[search])), start: revealCursor)
-            let n = attr.characters.count
-            appendMap(storageCount: n, plainSpan: n)
-            content += TextContent(.attributedString(attr))
-            revealCursor += n
+            content += footnoteAwareTextContent(
+                String(plain[search]),
+                isNodeStart: search.lowerBound == plain.startIndex
+            )
         }
         return content
     }
@@ -1214,7 +1382,18 @@ extension MarkdownSelectableText {
                 // link 让区间可点(空 linkTextAttributes → 不改样式),点击弹浮动菜单。
                 attr[li..<ui].uiKit.underlineColor = UIColor(deco.underlineColor)
                 if let url = deco.tapURL {
-                    attr[li..<ui].link = url  // .link 在 foundation 作用域,非 uiKit
+                    if deco.preservesInnerLinks {
+                        // 只给尚无链接的 run 挂 tapURL:整段可点,但内容里的真实链接保持各自点击。
+                        // 先收集 range 再赋值,避免边遍历 runs 边改属性。
+                        let gapRanges = attr[li..<ui].runs.compactMap { run in
+                            run.link == nil ? run.range : nil
+                        }
+                        for range in gapRanges {
+                            attr[range].link = url
+                        }
+                    } else {
+                        attr[li..<ui].link = url  // .link 在 foundation 作用域,非 uiKit
+                    }
                 }
                 fragments[idx] = .attributedString(attr)
             }

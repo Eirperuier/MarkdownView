@@ -1394,7 +1394,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         if isHeader, dimsParentheticals, let attributed = dimmedHeaderAttributed {
             MarkdownNodeView(attributed)
                 .environment(\.markdownRendererConfiguration, configuration)
-        } else if !isHeader, cellsSelectable, selectableUpgraded {
+        } else if !isHeader, cellsSelectable, !cellContainsImage, selectableUpgraded {
             // body cell 可选中(per-cell,不跨 cell):cell 源码单独渲染,reveal 锚点经
             // blockTextOffset 变绝对坐标,与块级 sweep 完全同源(节奏=原版逐 cell 扫过)。
             // 表头保持原渲染(bold/uppercase 样式)。tableBody 默认 Font.body,与可选中路径字体一致。
@@ -1404,7 +1404,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
                 plainOffsetBase: blockTextOffset,
                 applyEdgeInsets: false  // cell 内容无竖向 padding(原版 cell 同)
             )
-        } else if !isHeader, cellsSelectable {
+        } else if !isHeader, cellsSelectable, !cellContainsImage {
             // 惰性升级前的原版渲染:首击本 cell 即升级(simultaneous 不消费触摸,
             // 双击选字的第二击落在升级后的 UITextView 上)。
             CmarkNodeVisitor(configuration: configuration)
@@ -1414,9 +1414,21 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
                     onSelectableUpgrade?()
                 })
         } else {
+            // 含图片的 cell 不做可选中升级:升级会把图片交给文本渲染路径(偏移),
+            // 且升级手势会盖住图片自身的点击(要点两次才打开)。保持原渲染,手势不动。
             CmarkNodeVisitor(configuration: configuration)
                 .makeBody(for: cell)
         }
+    }
+
+    /// cell 内是否含图片(含图片则不走可选中升级:文本路径渲染不了图片、还抢点击)。
+    private var cellContainsImage: Bool {
+        func hasImage(_ markup: any Markup) -> Bool {
+            if markup is Markdown.Image { return true }
+            for child in markup.children where hasImage(child) { return true }
+            return false
+        }
+        return hasImage(cell)
     }
 
     private var dimmedHeaderAttributed: AttributedString? {

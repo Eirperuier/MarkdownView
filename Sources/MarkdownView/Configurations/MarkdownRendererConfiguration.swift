@@ -37,6 +37,10 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     var highlightedColor: Color = .white
     var highlightedBackgroundColor: Color = .yellow
 
+    /// 当前块的脚注上下文(app 经 `markdownFootnotes(_:)` 按块注入;nil = 不做脚注变换)。
+    /// 仅可选中渲染路径(SelectableMarkupVisitor)消费,原版 Text 路径不读它。
+    var footnotes: MarkdownFootnotes? = nil
+
     /// Lightweight fingerprint for node-level cache keys.
     /// Captures the fields most likely to affect block-level rendering.
     var stableFingerprint: Int {
@@ -61,6 +65,8 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
         hasher.combine(baseTextColor?.description ?? "")
         hasher.combine(highlightedColor.description)
         hasher.combine(highlightedBackgroundColor.description)
+        // 脚注上下文(编号/URL)入指纹:流式期间定义陆续到达 → 编号表变化必须失效缓存重渲染。
+        hasher.combine(footnotes)
         return hasher.finalize()
     }
 }
