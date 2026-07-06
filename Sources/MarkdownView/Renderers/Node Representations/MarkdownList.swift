@@ -58,7 +58,9 @@ struct MarkdownList<List: ListItemContainer>: View {
         
         var body: some View {
             StreamingRevealMarker {
-                if let checkBox = listItem.checkbox {
+                if let match = listItem.customListMarkerMatch {
+                    CustomListMarkerView(marker: match.marker)
+                } else if let checkBox = listItem.checkbox {
                     MarkdownCheckbox(checkbox: checkBox)
                 } else if case let .left(unorderedMarker) = list.marker {
                     SwiftUI.Text(unorderedMarker.marker(listDepth: list.depth))
@@ -100,8 +102,9 @@ private struct MarkdownListRow<List: ListItemContainer>: View {
         HStack(alignment: .firstTextBaseline) {
             MarkdownList<List>.CheckboxOrMarker(list: list, listItem: listItem, index: index)
                 .padding(.leading, leadingIndentation)
+            // 自定义 bullet 标记的项:内容渲染用剥掉 `{token}` 前缀的副本。
             CmarkNodeVisitor(configuration: configuration)
-                .makeBody(for: listItem)
+                .makeBody(for: listItem.strippingCustomMarker())
         }
     }
 }

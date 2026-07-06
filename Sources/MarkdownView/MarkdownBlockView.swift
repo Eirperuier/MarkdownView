@@ -118,11 +118,26 @@ public struct MarkdownBlockView: View {
         if let listItem {
             let baseIndent = configuration.listConfiguration.leadingIndentation
             let perLevel: CGFloat = 20
+            let markerMatch = listItem.customListMarkerMatch
+            // 自定义 bullet 不加行首 leadingIndentation(嵌套仍按 depth 缩进)。
+            let markerLeading = markerMatch != nil
+                ? CGFloat(ctx.depth) * perLevel
+                : baseIndent + CGFloat(ctx.depth) * perLevel
             HStack(alignment: .firstTextBaseline) {
-                _markerView(ctx: ctx, checkbox: listItem.checkbox)
-                    .font(bodyFont)
-                    .padding(.leading, baseIndent + CGFloat(ctx.depth) * perLevel)
-                _listItemContent(listItem: listItem)
+                Group {
+                    if let markerMatch {
+                        // 自定义 bullet(emoji / SF Symbol),仍走 reveal marker gate。
+                        StreamingRevealMarker {
+                            CustomListMarkerView(marker: markerMatch.marker)
+                        }
+                    } else {
+                        _markerView(ctx: ctx, checkbox: listItem.checkbox)
+                            .font(bodyFont)
+                    }
+                }
+                .padding(.leading, markerLeading)
+                // 自定义标记项:内容用剥掉 `{token}` 前缀的副本。
+                _listItemContent(listItem: markerMatch != nil ? listItem.strippingCustomMarker() : listItem)
             }
         }
     }

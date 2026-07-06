@@ -1088,20 +1088,24 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
 
     private mutating func renderListItem(_ listItem: ListItem, baseIndent: CGFloat) -> TextContent {
         let spacing: CGFloat = 8  // 同魔改 list HStack 默认 spacing
+        // 自定义 bullet 标记:内容渲染用剥掉 `{token}` 前缀的副本(标记本身由 makeListMarker 呈现);
+        // 且不要行首 leadingIndentation(顶格;嵌套缩进由外层 padding 承担)。
+        let contentItem = listItem.strippingCustomMarker()
+        let effectiveBaseIndent = listItem.customListMarkerMatch != nil ? 0 : baseIndent
         // marker 随内容首字符揭示:marker/tab 占 storage 字符但 0 plain 单位(锚在内容首字符的 plain 起点)。
         let (marker, markerWidth) = makeListMarker(listItem, revealOffset: plainCursor)
         let markerStorageCount = marker.fragments.reduce(0) { $0 + $1.asAttributedString().characters.count }
         appendMap(storageCount: markerStorageCount, plainSpan: 0)
         appendMap(storageCount: 2, plainSpan: 0)  // "\t" + WORD JOINER(见下)
         revealCursor += markerStorageCount + 2
-        let contentIndent = baseIndent + markerWidth + spacing
+        let contentIndent = effectiveBaseIndent + markerWidth + spacing
 
         // leading = item 首段(inline,可选);trailing = 嵌套 list / 其他 block。
         // 注意映射顺序:leading 先 visit(记账),trailing 的 "\n" 分隔在其内容 visit **之前**记账。
         var leadingContent = TextContent([])
         var trailingContent = TextContent([])
         var trailingSeparatorPending = false
-        for child in listItem.children {
+        for child in contentItem.children {
             if child is Paragraph {
                 leadingContent += descendInto(child)
             } else {
@@ -1132,7 +1136,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
 
         // style 在内容 visit 之后构造:CJK 行盒补偿要看 leading 文本(见 paragraphContainer 注)。
         let itemStyle = NSMutableParagraphStyle()
-        itemStyle.firstLineHeadIndent = baseIndent          // marker 起始
+        itemStyle.firstLineHeadIndent = effectiveBaseIndent // marker 起始(自定义 bullet 顶格 → 0)
         itemStyle.headIndent = contentIndent                // wrap 内容缩进对齐
         itemStyle.tabStops = [NSTextTab(textAlignment: .left, location: contentIndent)]
         // 原版 list row 内容也是 visitParagraph 产物(.padding(.vertical,5))+ 行间 VStack(componentSpacing):
@@ -1195,6 +1199,41 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
             }
             blockViewCache?.storeContent(key, content)
             return (content, size)
+        }
+        // 自定义 bullet:emoji 用文字 marker(inline,不破坏 tab 布局);SF Symbol 用 hosted
+        // InlineView(高亮圆底白字)。symbol 上报宽度 = 实际圆直径,否则会吃掉与内容的间距。
+        if let match = listItem.customListMarkerMatch {
+            switch match.marker {
+            case .emoji(let e):
+                var attrs = AttributeContainer()
+                setFont(&attrs, bodyFont)
+                let attr = AttributedString(e, attributes: attrs)
+                let width = (e as NSString).size(withAttributes: [.font: bodyFont]).width
+                return (TextContent(.attributedString(attr)), width)
+            case .symbol(let name):
+                let diameter = bodyFont.pointSize * 1.2
+                let id = attachmentCounter
+                attachmentCounter += 1
+                let anchor = plainCursor
+                let mgrKey = streamingManager.map { String(UInt(bitPattern: ObjectIdentifier($0).hashValue)) } ?? "nil"
+                let key = "listsym\u{1}\(name)\u{1}\(anchor)\u{1}\(id)\u{1}\(mgrKey)"
+                if let cache = blockViewCache, let hit = cache.hitContent(key) { return (hit, diameter) }
+                let view = injectRevealEnvironment(
+                    SelectableListSymbolMarker(systemName: name, diameter: diameter)
+                        .environment(\.markdownTextOffsetBase, anchor)
+                )
+                let content = TextContent {
+                    InlineView(
+                        id: SelectableInlineViewID(index: id),
+                        replacement: AttributedString("- "),  // 复制退回标准 bullet
+                        sizing: .fittingLineFragment
+                    ) {
+                        view
+                    }
+                }
+                blockViewCache?.storeContent(key, content)
+                return (content, diameter)
+            }
         }
         let markerText: String
         let monospaced: Bool
@@ -1565,6 +1604,26 @@ private struct SelectableTaskCheckbox: View {
             .font(.system(size: size))
             .opacity(visible ? 1 : 0)
             .animation(.easeOut(duration: 0.2), value: visible)
+        }
+    }
+}
+
+/// 自定义 SF Symbol bullet(hosted InlineView rootView):高亮色圆底 + 白前景,
+/// 直径 = diameter(= 上报的 markerWidth);StreamingRevealGate 原子淡入(同 checkbox 管线)。
+private struct SelectableListSymbolMarker: View {
+    let systemName: String
+    let diameter: CGFloat
+    @Environment(\.markdownRendererConfiguration) private var configuration
+
+    var body: some View {
+        StreamingRevealGate { _, visible in
+            Image(systemName: systemName)
+                .font(.system(size: diameter * 0.52, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: diameter, height: diameter)
+                .background(Circle().fill(configuration.preferredColor))
+                .opacity(visible ? 1 : 0)
+                .animation(.easeOut(duration: 0.2), value: visible)
         }
     }
 }

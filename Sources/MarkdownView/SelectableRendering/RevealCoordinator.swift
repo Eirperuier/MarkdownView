@@ -96,6 +96,10 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
         self.fade = fade
         self.colorScheme = colorScheme
         self.storageToPlain = storageToPlain
+        // 重挂(cell 离屏回来 / host-shell 池复用)必须重置停表基准:lastAdvance 只被 manager 事件刷新,
+        // manager 已完成时不再有事件 —— 留着旧值会让第一帧 tick 就命中 settle 停链,
+        // 从 manager 戳恢复的 mid-fade 字符被冻在半程。
+        lastAdvance = Date()
         textView.textLayoutManager?.delegate = self
         updateSnapshot()
         subscribe(to: manager)
@@ -194,7 +198,13 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
                 // 已过 settle 窗口的 manager 戳不缓存(它们画出来都是定型的,且可能是 Int.max 瞬窗的陈旧戳,
                 // rewind 后 manager 会重发新戳——缓存会把陈旧的冻死、永久跳过淡入)。
                 let settled = ms.map { now.timeIntervalSince($0) >= snapColorSettle } ?? false
-                if !settled { firstSeen[i] = ms ?? (firstSeenInitialized ? now : .distantPast) }
+                if !settled {
+                    let stamp = ms ?? (firstSeenInitialized ? now : .distantPast)
+                    firstSeen[i] = stamp
+                    // 缓存进未定型的戳 = 这个字的 fade 还要画到 stamp+settle:顺延停表基准,
+                    // 保证 CADisplayLink 至少活到它定型(manager 已完成时不再有事件刷 lastAdvance)。
+                    if stamp > .distantPast { lastAdvance = max(lastAdvance, stamp) }
+                }
             }
             stampedFrontier = upper
         }
