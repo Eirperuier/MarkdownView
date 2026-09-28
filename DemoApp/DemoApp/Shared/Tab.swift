@@ -47,6 +47,15 @@ extension Tab {
     struct TabDestination: View {
         let tab: Tab
         var body: some View {
+            if tab == .streaming {
+                // Owns its scroll view: block selection needs to reach it.
+                StreamingDestination()
+            } else {
+                scrolling
+            }
+        }
+
+        private var scrolling: some View {
             ScrollView {
                 Group {
                     switch tab {
@@ -59,7 +68,7 @@ extension Tab {
                     case .interact: InteractDestination()
                     case .blockDirective: BlockDirectiveDestination()
                     case .math: MathDestination()
-                    case .streaming: StreamingDestination()
+                    case .streaming: EmptyView()
                     }
                 }
                 .frame(maxWidth: .infinity)

@@ -821,6 +821,9 @@ public struct MarkdownBlockSelectionOverlay: View {
                     }
                 }
             }
+            // Offsets don't size the stack: pin it to the container's top-leading corner,
+            // where the frames' origin is, whatever alignment the caller's overlay uses.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .allowsHitTesting(false)
             .transition(.opacity)
         }
