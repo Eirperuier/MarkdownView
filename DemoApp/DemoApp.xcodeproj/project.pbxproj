@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		8C21E5B02D9E7FB20097554E /* MarkdownView in Frameworks */ = {isa = PBXBuildFile; productRef = 8C21E5AF2D9E7FB20097554E /* MarkdownView */; };
+		8C21E5C22D9E7FB20097554E /* MessagingUI in Frameworks */ = {isa = PBXBuildFile; productRef = 8C21E5C12D9E7FB20097554E /* MessagingUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8C21E5B02D9E7FB20097554E /* MarkdownView in Frameworks */,
+				8C21E5C22D9E7FB20097554E /* MessagingUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +73,7 @@
 			name = DemoApp;
 			packageProductDependencies = (
 				8C21E5AF2D9E7FB20097554E /* MarkdownView */,
+				8C21E5C12D9E7FB20097554E /* MessagingUI */,
 			);
 			productName = DemoApp;
 			productReference = 38A580AF2CC8D6D9001EDFCA /* DemoApp.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				8C21E5AE2D9E7FB20097554E /* XCLocalSwiftPackageReference "../../MarkdownView" */,
+				8C21E5C02D9E7FB20097554E /* XCRemoteSwiftPackageReference "swiftui-messaging-ui" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 38A580B02CC8D6D9001EDFCA /* Products */;
@@ -360,10 +364,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		8C21E5C02D9E7FB20097554E /* XCRemoteSwiftPackageReference "swiftui-messaging-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Eirperuier/swiftui-messaging-ui.git";
+			requirement = {
+				kind = revision;
+				revision = c7628dbb3d4118eb8ecfe7499affd9dace107026;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		8C21E5AF2D9E7FB20097554E /* MarkdownView */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MarkdownView;
+		};
+		8C21E5C12D9E7FB20097554E /* MessagingUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8C21E5C02D9E7FB20097554E /* XCRemoteSwiftPackageReference "swiftui-messaging-ui" */;
+			productName = MessagingUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -9,7 +9,7 @@ import SwiftUI
 import MarkdownView
 
 struct ContentView: View {
-    @State private var selection: Tab? = .overview
+    @State private var selection: Tab? = ChatBenchmark.autorunExchanges == nil ? .overview : .chat
     
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.doubleColumn)) {
