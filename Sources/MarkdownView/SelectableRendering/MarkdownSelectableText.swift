@@ -119,16 +119,30 @@ public struct MarkdownSelectableText: View, Equatable {
     }
 
     #if canImport(UIKit)
-    /// textView 创建回调 = reveal coordinator attach + app 侧钩子登记,二者串联。
+    /// textView 创建回调 = reveal coordinator attach + app 侧钩子登记 + 笔迹 overlay 同步,三者串联。
     private func textViewReadyHook(map: [Int]) -> (@MainActor (PlatformTextView) -> Void)? {
         let reveal = revealHook(map: map)
         let external = externalHooks?.onTextViewReady
-        if reveal == nil, external == nil { return nil }
+        let penRevealed = penMarkRevealedCheck(map: map)
         return { textView in
             // 登记 storage→plain 映射(app 侧选区换算锚点坐标用,如文本级话题)。
             MarkdownSelectableTextPlainMap.register(map, for: textView)
             reveal?(textView)
             external?(textView)
+            SelectablePenMarkOverlayView.sync(on: textView, isRevealed: penRevealed)
+        }
+    }
+
+    /// 笔迹 overlay 的揭示判定:mark 末字符(storage NSRange → plain 偏移)过 frontier 才画。
+    /// 静态(无 streaming manager)返回 nil = 恒真。
+    private func penMarkRevealedCheck(map: [Int]) -> (@MainActor (PlatformTextView, NSRange) -> Bool)? {
+        guard let manager = streamingManager, fadeConfig != nil else { return nil }
+        return { textView, range in
+            // NSRange(UTF-16)→ 字符偏移再查 map(与 MarkdownSelectableTextPlainMap 同法)。
+            guard let plain = MarkdownSelectableTextPlainMap.plainRange(for: range, in: textView) else {
+                return true
+            }
+            return manager.revealedCount >= plain.upperBound
         }
     }
 
@@ -149,13 +163,18 @@ public struct MarkdownSelectableText: View, Equatable {
         }
     }
 
-    /// 内容流式增长后(updateUIView 末尾)同帧让 coordinator 补一次色,避免露出一帧 base 色。
+    /// 内容流式增长后(updateUIView 末尾)同帧让 coordinator 补一次色,避免露出一帧 base 色;
+    /// 笔迹 overlay 也在此重扫(marks 会随内容增长出现/位移)。
     private func contentChangeHook(map: [Int]) -> (@MainActor (PlatformTextView) -> Void)? {
-        guard streamingManager != nil, fadeConfig != nil else { return nil }
+        let isStreaming = streamingManager != nil && fadeConfig != nil
         let coordinator = revealCoordinator
+        let penRevealed = penMarkRevealedCheck(map: map)
         return { textView in
             MarkdownSelectableTextPlainMap.register(map, for: textView)
-            coordinator.contentDidChange(storageToPlain: map)
+            if isStreaming {
+                coordinator.contentDidChange(storageToPlain: map)
+            }
+            SelectablePenMarkOverlayView.sync(on: textView, isRevealed: penRevealed)
         }
     }
     #endif

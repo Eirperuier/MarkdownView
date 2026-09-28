@@ -56,7 +56,7 @@ public extension AttributedString {
 /// Falls back to `Text(_:)` directly when there are no symbol runs.
 @MainActor
 func markdownTextWithInlineSymbols(_ attributed: AttributedString) -> Text {
-    guard attributed.hasInlineSymbol else { return Text(attributed) }
+    guard attributed.hasInlineSymbol || attributed.hasPenMark else { return Text(attributed) }
     // 在调用方 body 的执行作用域内读修订号建立观察:favicon 异步载完 bump 后,
     // 持有这段文本的视图(_MarkdownText 等)body 重跑、Text 重建换上真图。
     if attributed.hasLinkChipIcon {
@@ -104,6 +104,18 @@ func markdownTextWithInlineSymbols(_ attributed: AttributedString) -> Text {
                 iconText = iconText.customAttribute(MarkdownChipRunTextAttribute())
             }
             result = result + iconText
+        } else if let penRaw = run[MarkdownPenMarkAttribute.self],
+                  let mark = MarkdownPenMarkSyntax.decodeAttributeValue(penRaw) {
+            // 笔迹注记 run:文本照常,iOS 18+ 打 TextAttribute 供 PenMarkPainter 定位;
+            // 更早系统无 TextRenderer,文字正常显示、无笔迹(优雅降级)。
+            let segment = Text(AttributedString(attributed[run.range]))
+            if #available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, *) {
+                result = result + segment.customAttribute(
+                    PenMarkTextAttribute(kind: mark.kind, colorToken: mark.color, seed: mark.seed)
+                )
+            } else {
+                result = result + segment
+            }
         } else if run[MarkdownLinkChipSegmentAttribute.self] == true {
             // chip 文本段:iOS 18+ 由 TextRenderer 画统一胶囊背景,剥掉逐 run 的
             // 矩形 backgroundColor;更早系统保留矩形背景作为降级。
@@ -173,19 +185,31 @@ enum ChipCapsulePainter {
     }
 }
 
-/// 定稿(无 reveal)状态下专画 chip 胶囊的轻量渲染器。
+/// 定稿(无 reveal)状态下专画 chip 胶囊 + 笔迹注记的轻量渲染器。
 @available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, *)
 struct ChipCapsuleRenderer: TextRenderer {
+    var hasPenMark = false
+
+    /// 笔迹会画出文字排版框,必须上报绘制余量,否则行首尾/首末行被裁。
+    var displayPadding: EdgeInsets {
+        PenMarkPainter.mergedDisplayPadding(EdgeInsets(), hasPenMark: hasPenMark)
+    }
+
     func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
         var charIdx = 0
         for line in layout {
             for span in ChipCapsulePainter.spans(in: line, startingCharIndex: charIdx) {
                 ChipCapsulePainter.draw(span, opacity: 1, in: &ctx)
             }
+            let penSpans = PenMarkPainter.spans(in: line, startingCharIndex: charIdx)
             for run in line {
                 charIdx += run.count
             }
             ctx.draw(line)
+            // 笔迹画在文字之上(注记层),胶囊画在文字之下(背景层)。
+            for span in penSpans {
+                PenMarkPainter.draw(span, opacity: 1, in: &ctx)
+            }
         }
     }
 }

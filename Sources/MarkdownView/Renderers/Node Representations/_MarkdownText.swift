@@ -177,13 +177,13 @@ private struct RevealAnimatedMarkdownText: View {
                   revealCount == nil,
                   !cjkItalicRanges.isEmpty {
             markdownTextWithInlineSymbols(displayText)
-                .textRenderer(CJKItalicRenderer(ranges: cjkItalicRanges))
+                .textRenderer(CJKItalicRenderer(ranges: cjkItalicRanges, hasPenMark: displayText.hasPenMark))
         } else if #available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, *),
                   revealCount == nil,
-                  displayText.hasLinkChipSegment {
-            // 定稿状态含 chip:挂轻量渲染器画统一胶囊背景。
+                  displayText.hasLinkChipSegment || displayText.hasPenMark {
+            // 定稿状态含 chip / 笔迹注记:挂轻量渲染器画胶囊背景 + 笔迹。
             markdownTextWithInlineSymbols(displayText)
-                .textRenderer(ChipCapsuleRenderer())
+                .textRenderer(ChipCapsuleRenderer(hasPenMark: displayText.hasPenMark))
         } else {
             legacyBody
         }
@@ -335,9 +335,13 @@ private enum CJKItalicGlyphSkew {
 @available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, *)
 private struct CJKItalicRenderer: TextRenderer {
     let ranges: [Range<Int>]
+    var hasPenMark = false
 
     var displayPadding: EdgeInsets {
-        CJKItalicGlyphSkew.displayPadding(for: ranges)
+        PenMarkPainter.mergedDisplayPadding(
+            CJKItalicGlyphSkew.displayPadding(for: ranges),
+            hasPenMark: hasPenMark
+        )
     }
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
@@ -352,6 +356,7 @@ private struct CJKItalicRenderer: TextRenderer {
             for span in ChipCapsulePainter.spans(in: line, startingCharIndex: characterIndex) {
                 ChipCapsulePainter.draw(span, opacity: 1, in: &context)
             }
+            let penSpans = PenMarkPainter.spans(in: line, startingCharIndex: characterIndex)
             for run in line {
                 for glyph in run {
                     let offset = CJKItalicGlyphSkew.characterOffset(
@@ -366,6 +371,10 @@ private struct CJKItalicRenderer: TextRenderer {
                     CJKItalicGlyphSkew.draw(glyph, in: &context, skewed: isSkewed)
                     characterIndex += max(glyph.characterIndices.count, 1)
                 }
+            }
+            // 笔迹注记在文字之上(与 ChipCapsuleRenderer 同理:本 renderer 抢占定稿分支时不画会丢)。
+            for span in penSpans {
+                PenMarkPainter.draw(span, opacity: 1, in: &context)
             }
         }
     }
@@ -404,6 +413,8 @@ private struct RevealFadeRenderer: TextRenderer {
     /// because the cell mounts the moment the frontier crosses, so already-
     /// revealed glyphs are actually fresh and should fade in.
     let treatExistingAsFresh: Bool
+    /// 含笔迹注记时上报绘制余量(笔迹画出排版框,不报会被裁)。
+    var hasPenMark = false
 
     var colorDuration: TimeInterval {
         guard duration.isFinite, duration > 0 else { return 0 }
@@ -413,7 +424,10 @@ private struct RevealFadeRenderer: TextRenderer {
         colorScheme == .dark ? 0.35 : 0.5
     }
     var displayPadding: EdgeInsets {
-        CJKItalicGlyphSkew.displayPadding(for: cjkItalicRanges)
+        PenMarkPainter.mergedDisplayPadding(
+            CJKItalicGlyphSkew.displayPadding(for: cjkItalicRanges),
+            hasPenMark: hasPenMark
+        )
     }
 
     private static func normalizedHue(_ hue: Double) -> Double {
@@ -541,6 +555,8 @@ private struct RevealFadeRenderer: TextRenderer {
                     ChipCapsulePainter.draw(span, opacity: alpha, in: &ctx)
                 }
             }
+            // 笔迹注记 span(画在本行 glyph 之后,注记压在文字上)。
+            let penSpans = PenMarkPainter.spans(in: line, startingCharIndex: charIdx)
             for run in line {
                 let runStart = charIdx
                 let runGlyphCount = run.count
@@ -663,6 +679,14 @@ private struct RevealFadeRenderer: TextRenderer {
                     }
                 }
             }
+
+            // 笔迹注记:span 末字符过 frontier 后整体淡入(用末字符的 fade 时间),
+            // 像写完字才落笔画圈/划线;未写完不画。
+            for span in penSpans where span.charRange.upperBound <= revealedLocal {
+                if let alpha = chipAlpha(spanStart: span.charRange.upperBound - 1, now: now) {
+                    PenMarkPainter.draw(span, opacity: alpha, in: &ctx)
+                }
+            }
         }
 
         state.initialized = true
@@ -714,7 +738,8 @@ private struct FadeRevealMarkdownText: View {
                         state: fadeState,
                         cjkItalicRanges: cjkItalicRanges,
                         revealManager: revealManager,
-                        treatExistingAsFresh: freshActivation
+                        treatExistingAsFresh: freshActivation,
+                        hasPenMark: displayText.hasPenMark
                     )
                 )
                 .id(cleanupToken)
@@ -1164,7 +1189,8 @@ private struct TableCellFadeRevealText: View {
                         state: fadeState,
                         cjkItalicRanges: prepared.cjkItalicRanges,
                         revealManager: revealManager,
-                        treatExistingAsFresh: freshActivation
+                        treatExistingAsFresh: freshActivation,
+                        hasPenMark: prepared.attributedString.hasPenMark
                     )
                 )
         }
@@ -1256,6 +1282,10 @@ struct _MarkdownText: View {
 
         // `==高亮==`:给内部文本套底色、删两侧定界符(reveal 计数侧已同样去定界符)。
         processed = MarkdownHighlightSyntax.applied(to: processed)
+
+        // `:circle[…]` / `:wavy[…]` 笔迹注记:内容打 kind 属性、删定界符
+        // (处理顺序与 reveal 计数侧的 stripped 链一致:先高亮后笔迹)。
+        processed = MarkdownPenMarkSyntax.applied(to: processed)
 
         return PreparedMarkdownText(
             attributedString: processed,

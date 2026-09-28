@@ -9,9 +9,11 @@ enum MarkdownRevealPlainText {
     static func extract(from node: any Markup) -> String {
         switch node {
         case let text as Markdown.Text:
-            // `==高亮==` 的定界符不计入 reveal 字符数,与显示侧
-            // (`prepareDisplayText`)删除定界符保持一致。
-            return MarkdownHighlightSyntax.strippedPlainText(text.plainText)
+            // `==高亮==` / `:circle[…]` 笔迹注记的定界符不计入 reveal 字符数,
+            // 与显示侧(`prepareDisplayText`)删除定界符保持一致(链式顺序也一致)。
+            return MarkdownPenMarkSyntax.strippedPlainText(
+                MarkdownHighlightSyntax.strippedPlainText(text.plainText)
+            )
         case let code as InlineCode:
             return code.code
         case let codeBlock as CodeBlock:

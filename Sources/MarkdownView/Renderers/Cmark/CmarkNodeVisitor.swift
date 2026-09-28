@@ -324,18 +324,20 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
   }
 
   mutating func visitLink(_ link: Markdown.Link) -> MarkdownNodeView {
-    guard let destination = link.destination,
-      let url = URL(string: destination)
-    else { return descendInto(link) }
+    guard let destination = link.destination else { return descendInto(link) }
 
     // App-provided inline link renderer (e.g. a local-file reference rendered
     // as an inline SF Symbol + filename). Returns an AttributedString so it
     // merges into the surrounding text flow and reveal animation; falls through
-    // to the default when it declines (returns nil).
+    // to the default when it declines (returns nil). Checked before the
+    // URL(string:) guard: the builder takes the raw destination string, so
+    // filenames URL(string:) can't parse (spaces, some CJK forms) still render.
     if let builder = MarkdownInlineLinkRenderers.shared.builder,
        let attributed = builder(destination, link.plainText, configuration.linkTintColor) {
       return MarkdownNodeView(attributed)
     }
+
+    guard let url = URL(string: destination) else { return descendInto(link) }
 
     let nodeView = descendInto(link)
     if let text = nodeView.asAttributedString {

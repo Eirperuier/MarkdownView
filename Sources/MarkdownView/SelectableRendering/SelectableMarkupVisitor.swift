@@ -644,11 +644,13 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     // MARK: - block
 
     mutating func visitParagraph(_ paragraph: Paragraph) -> TextContent {
-        paragraphContainer(descendInto(paragraph))
+        let hlStart = storageToPlain.count
+        return paragraphContainer(applyingCrossNodeHighlight(descendInto(paragraph), storageStart: hlStart))
     }
 
     mutating func visitHeading(_ heading: Heading) -> TextContent {
-        headingContainer(descendInto(heading), level: heading.level)
+        let hlStart = storageToPlain.count
+        return headingContainer(applyingCrossNodeHighlight(descendInto(heading), storageStart: hlStart), level: heading.level)
     }
 
     // 纯 block:复用魔改 view 作 block attachment(渲染 + reveal 自带)。
@@ -716,6 +718,114 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
 
     // MARK: - Helpers
 
+    /// 跨 node 高亮:`baseAttributed` 逐 text-node 处理 `==高亮==`,单个 node 里只有半个 `==`
+    /// 的情况(高亮内含行内代码/加粗/链接等,把 span 劈成多个 node)匹配不上 —— 在段落/标题/
+    /// 列表项**内容组装完**后再扫一遍整段:补套底色/前景 + 删两侧 `==`,并同步修 storageToPlain
+    /// 尾段(删的 `==` 各占 1 storage/1 plain,后续 plain 值下移;reveal 计数侧本就已 strip)。
+    /// storageStart = descendInto 前的 storageToPlain.count(本段内容在映射表尾部,1:1 对应扁平字符)。
+    private mutating func applyingCrossNodeHighlight(_ content: TextContent, storageStart: Int) -> TextContent {
+        guard MarkdownHighlightSyntax.isEnabled else { return content }
+        // 扁平化成字符串(view 附件 = 1 个 ￼,与 storage/映射 1:1)。
+        var flat = ""
+        for f in content.fragments {
+            switch f {
+            case .string(let s): flat += s
+            case .attributedString(let a): flat += String(a.characters)
+            case .view: flat.append("\u{FFFC}")
+            }
+        }
+        let matches = MarkdownHighlightSyntax.matchOffsets(flat)
+        guard !matches.isEmpty else { return content }
+
+        var removeSet = Set<Int>()
+        var styleRanges: [Range<Int>] = []
+        for m in matches {
+            for o in m.start..<m.innerStart { removeSet.insert(o) }
+            for o in m.innerEnd..<m.end { removeSet.insert(o) }
+            styleRanges.append(m.innerStart..<m.innerEnd)
+        }
+        func styled(_ o: Int) -> Bool { styleRanges.contains { $0.contains(o) } }
+        let bg = MarkdownHighlightSyntax.backgroundColor
+        let fg = MarkdownHighlightSyntax.foregroundColor
+
+        // 重建 fragments:未触及的整段透传;触及的逐字重建(删定界符 + 套高亮属性)。
+        var newFragments: [TextContent.Fragment] = []
+        var offset = 0
+        for f in content.fragments {
+            let len: Int
+            switch f {
+            case .string(let s): len = s.count
+            case .attributedString(let a): len = a.characters.count
+            case .view: len = 1
+            }
+            let frange = offset..<(offset + len)
+            let touched = removeSet.contains { frange.contains($0) }
+                || styleRanges.contains { $0.overlaps(frange) }
+            if !touched {
+                newFragments.append(f)
+                offset += len
+                continue
+            }
+            switch f {
+            case .view:
+                // 附件不含 `==`,不会被删;若落在 inner 区间也无法套底色 → 原样保留。
+                newFragments.append(f)
+                offset += 1
+            case .string(let s):
+                var rebuilt = AttributedString()
+                var any = false
+                for ch in s {
+                    if !removeSet.contains(offset) {
+                        var piece = AttributedString(String(ch))
+                        #if canImport(UIKit)
+                        piece.uiKit.font = bodyFont
+                        #elseif canImport(AppKit)
+                        piece.appKit.font = bodyFont
+                        #endif
+                        if styled(offset) {
+                            if let bg { piece.backgroundColor = bg }
+                            if let fg { piece.foregroundColor = fg }
+                        }
+                        rebuilt += piece; any = true
+                    }
+                    offset += 1
+                }
+                if any { newFragments.append(.attributedString(rebuilt)) }
+            case .attributedString(let a):
+                var rebuilt = AttributedString()
+                var any = false
+                var idx = a.characters.startIndex
+                while idx < a.characters.endIndex {
+                    let next = a.characters.index(after: idx)
+                    if !removeSet.contains(offset) {
+                        var piece = AttributedString(a[idx..<next])  // 保留原 run 属性
+                        if styled(offset) {
+                            if let bg { piece.backgroundColor = bg }
+                            if let fg { piece.foregroundColor = fg }
+                        }
+                        rebuilt += piece; any = true
+                    }
+                    idx = next; offset += 1
+                }
+                if any { newFragments.append(.attributedString(rebuilt)) }
+            }
+        }
+
+        // 修 storageToPlain 尾段:删掉定界符位置,后续 plain 值按前面已删数下移。
+        if storageStart <= storageToPlain.count {
+            var newTail: [Int] = []
+            var removedBefore = 0
+            for (i, plainVal) in storageToPlain[storageStart...].enumerated() {
+                if removeSet.contains(i) { removedBefore += 1 }
+                else { newTail.append(plainVal - removedBefore) }
+            }
+            storageToPlain.replaceSubrange(storageStart..., with: newTail)
+            plainCursor -= removedBefore
+            revealCursor -= removedBefore
+        }
+        return TextContent(newFragments)
+    }
+
     /// 基准 inline AttributedString:套正文 PlatformFont(RichText 叠 trait 用)+ 处理 ==高亮==。
     private func baseAttributed(_ string: String) -> AttributedString {
         var attributed = AttributedString(string)
@@ -729,7 +839,11 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         if let baseTextColor = configuration.baseTextColor {
             attributed.foregroundColor = baseTextColor
         }
-        return MarkdownHighlightSyntax.applied(to: attributed)
+        // 笔迹注记:剥定界符 + PenMarkAttribute 进 storage(reveal 计数两侧同链已对齐),
+        // 笔迹由 SelectablePenMarkOverlay 绘制。
+        return MarkdownPenMarkSyntax.appliedSelectable(
+            to: MarkdownHighlightSyntax.applied(to: attributed)
+        )
     }
 
     /// 段落容器:对齐原版 visitParagraph 的 `.padding(.vertical, 5)` + 块间 VStack(componentSpacing)。
@@ -1107,7 +1221,8 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         var trailingSeparatorPending = false
         for child in contentItem.children {
             if child is Paragraph {
-                leadingContent += descendInto(child)
+                let hlStart = storageToPlain.count
+                leadingContent += applyingCrossNodeHighlight(descendInto(child), storageStart: hlStart)
             } else {
                 if !trailingContent.fragments.isEmpty {
                     appendMap(storageCount: 1, plainSpan: 0)

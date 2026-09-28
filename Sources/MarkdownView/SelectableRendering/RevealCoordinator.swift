@@ -50,10 +50,30 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
     nonisolated(unsafe) fileprivate var firstSeenInitialized = false
     private var stampedFrontier = 0
 
-    /// storage↔plain 坐标映射(storageToPlain[i] = 第 i 个 textStorage 字符的 plain 单位起点,非降)。
-    /// manager.revealedCount / firstSeenTimestamp 都在 plain 坐标系(app normalize 后占位符 11 单位、
-    /// marker 0 单位),fragment 绘制在 textStorage 坐标系 —— 全部经此映射换算,不能直接混用。
+    /// storage↔plain 坐标映射,**UTF-16 索引**(storageToPlain[u] = 第 u 个 UTF-16 单位的 plain 起点,非降)。
+    /// visitor 交来的映射按 Character(字素)记账,但 fragment 绘制/contentManager.offset 全是 UTF-16 ——
+    /// emoji(1 字素 = 2+ UTF-16)不展开会让 frontier 永远短于 fragmentEnd,块尾永远画不到
+    ///(「行首 emoji 必现后半段消失」的根因)。attach/contentDidChange 时经 expandToUTF16 展开;
+    /// 一个字素的所有 UTF-16 单位共享同一 plain 起点 → 前沿天然落在字素边界。
     nonisolated(unsafe) fileprivate var storageToPlain: [Int] = []
+    /// visitor 原始映射(Character 索引),rebind 透传用(展开不可幂等,不能拿展开表再展开)。
+    private var characterMap: [Int] = []
+
+    /// Character 索引映射 → UTF-16 索引映射(按 textStorage 当前字符串逐字素展开)。
+    private static func expandToUTF16(_ map: [Int], string: String) -> [Int] {
+        // 快路径:无代理对/组合序列(utf16 数 == 字素数)直接用。
+        let utf16Count = string.utf16.count
+        guard utf16Count != string.count else { return map }
+        var out: [Int] = []
+        out.reserveCapacity(utf16Count)
+        var i = 0
+        for ch in string {
+            let plain = i < map.count ? map[i] : (map.last ?? 0)
+            for _ in 0..<ch.utf16.count { out.append(plain) }
+            i += 1
+        }
+        return out
+    }
 
     /// plain frontier → storage frontier:storage 字符 i 已揭示 ⇔ storageToPlain[i] < frontier(二分)。
     nonisolated fileprivate func storageFrontier(fromPlain frontier: Int) -> Int {
@@ -95,7 +115,8 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
         self.manager = manager
         self.fade = fade
         self.colorScheme = colorScheme
-        self.storageToPlain = storageToPlain
+        self.characterMap = storageToPlain
+        self.storageToPlain = Self.expandToUTF16(storageToPlain, string: textView.text ?? "")
         // 重挂(cell 离屏回来 / host-shell 池复用)必须重置停表基准:lastAdvance 只被 manager 事件刷新,
         // manager 已完成时不再有事件 —— 留着旧值会让第一帧 tick 就命中 settle 停链,
         // 从 manager 戳恢复的 mid-fade 字符被冻在半程。
@@ -117,7 +138,7 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
             manager: manager,
             fade: fade,
             colorScheme: colorScheme,
-            storageToPlain: storageToPlain
+            storageToPlain: characterMap  // 原始 Character 表(attach 内会重新展开)
         )
     }
 
@@ -134,19 +155,22 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
         // splice 检测:映射表首个差异点之后,storage 下标的字符含义已变(公式闭合把 28 个字面字符
         // 拼成 1 个附件,后段文字挪进原字面区的下标)——那里的冻结戳是旧字符的(已 settle),
         // 留着会让新落位的文字被当成定型、直接实心出现(fade 消失)。作废差异区,重按 manager 戳来。
-        let oldMap = storageToPlain
-        storageToPlain = newMap
+        // 新旧都用 UTF-16 展开表比较(冻结戳数组同为 UTF-16 索引)。
+        characterMap = newMap
+        let oldExpanded = storageToPlain
+        storageToPlain = Self.expandToUTF16(newMap, string: textView?.text ?? "")
+        let newExpanded = storageToPlain
         var common = 0
-        let n = min(oldMap.count, newMap.count)
-        while common < n, oldMap[common] == newMap[common] { common += 1 }
-        if common < oldMap.count {  // 非纯 append(splice/收缩)才需要作废
+        let n = min(oldExpanded.count, newExpanded.count)
+        while common < n, oldExpanded[common] == newExpanded[common] { common += 1 }
+        if common < oldExpanded.count {  // 非纯 append(splice/收缩)才需要作废
             if common < firstSeen.count {
                 for i in common..<firstSeen.count { firstSeen[i] = nil }
             }
             stampedFrontier = min(stampedFrontier, common)
         }
-        if newMap.count < firstSeen.count {
-            firstSeen.removeLast(firstSeen.count - newMap.count)
+        if newExpanded.count < firstSeen.count {
+            firstSeen.removeLast(firstSeen.count - newExpanded.count)
         }
         updateSnapshot()
         textView?.setNeedsDisplay()
