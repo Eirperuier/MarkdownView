@@ -102,3 +102,27 @@ final class ChatConversation {
         }
     }
 }
+
+extension ChatRow {
+    /// A rough height from the text alone, for the list to use until the row is measured.
+    func estimatedHeight(width: CGFloat) -> CGFloat {
+        let textWidth = max(100, min(width, 752) - 32)
+        func proseHeight(_ text: String, lineHeight: CGFloat, charWidth: CGFloat) -> CGFloat {
+            let perLine = max(1, Int(textWidth / charWidth))
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+                .reduce(0) { $0 + max(1, ($1.count + perLine - 1) / perLine) }
+            return CGFloat(lines) * lineHeight
+        }
+        switch kind {
+        case .prompt(let text):
+            return proseHeight(text, lineHeight: 22, charWidth: 8.5) + 52
+        case .block(let block):
+            let source = block.source
+            let lines = CGFloat(source.split(separator: "\n", omittingEmptySubsequences: false).count)
+            if source.hasPrefix("```") { return lines * 18 + 56 }
+            if source.hasPrefix("|") { return (lines - 1) * 44 + 10 }
+            if source.hasPrefix("$$") || source.hasPrefix("\\[") || source.contains("@math(") { return 90 }
+            return proseHeight(source, lineHeight: 24, charWidth: 8.5) + 10
+        }
+    }
+}

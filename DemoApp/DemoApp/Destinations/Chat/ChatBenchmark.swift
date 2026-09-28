@@ -13,26 +13,80 @@
 import SwiftUI
 import MessagingUI
 
-/// Measured heights by row and width, fed back to the list as height hints.
+/// Measured heights by row content and width, fed back to the list as height hints.
+/// Keyed by content, as flowith's cache was: a row that changed (a streaming block)
+/// must not get its old height back.
 @MainActor
 final class ChatHeightCache {
-    private var heights: [String: CGFloat] = [:]
+    private var heights: [Key: CGFloat] = [:]
     var isEnabled = true
 
-    func height(for id: String, width: CGFloat) -> CGFloat? {
-        isEnabled ? heights[key(id, width)] : nil
+    private struct Key: Hashable {
+        let id: String
+        let content: Int
+        let width: Int
     }
 
-    func record(_ height: CGFloat, for id: String, width: CGFloat) {
-        heights[key(id, width)] = height
+    func height(for row: ChatRow, width: CGFloat) -> CGFloat? {
+        isEnabled ? heights[key(row, width)] : nil
+    }
+
+    func record(_ height: CGFloat, for row: ChatRow, width: CGFloat) {
+        heights[key(row, width)] = height
     }
 
     func removeAll() {
         heights = [:]
     }
 
-    private func key(_ id: String, _ width: CGFloat) -> String {
-        "\(id)@\(Int(width.rounded()))"
+    private func key(_ row: ChatRow, _ width: CGFloat) -> Key {
+        let content: Int
+        switch row.kind {
+        case .prompt(let text): content = text.hashValue
+        case .block(let block): content = block.source.hashValue
+        }
+        return Key(id: row.id, content: content, width: Int(width.rounded()))
+    }
+}
+
+/// Watches the rows on screen frame by frame: any move the scroll didn't ask for, or a
+/// height change, is jitter.
+@MainActor
+final class JitterProbe {
+    /// Screen shift the scroll asked for since the last sample (content moves up as the offset grows).
+    var intendedShift: CGFloat = 0
+    private(set) var jitterFrames = 0
+    private(set) var maxDeviation: CGFloat = 0
+    private var previous: [String: CGRect] = [:]
+
+    func reset() {
+        intendedShift = 0
+        jitterFrames = 0
+        maxDeviation = 0
+        previous = [:]
+    }
+
+    func sample(_ reader: TiledViewReader<String>) {
+        guard let height = reader.containerView?.bounds.height, height > 0 else { return }
+        let offset = reader.contentOffsetY()
+        let visible = CGRect(x: 0, y: offset, width: 100_000, height: height)
+        var screen: [String: CGRect] = [:]
+        for (id, frame) in reader.contentFrames(intersecting: visible) {
+            screen[id] = frame.offsetBy(dx: 0, dy: -offset)
+        }
+        var deviation: CGFloat = 0
+        for (id, now) in screen {
+            guard let before = previous[id] else { continue }
+            deviation = max(
+                deviation,
+                abs(now.minY - (before.minY + intendedShift)),
+                abs(now.height - before.height)
+            )
+        }
+        if deviation > 0.5 { jitterFrames += 1 }
+        maxDeviation = max(maxDeviation, deviation)
+        previous = screen
+        intendedShift = 0
     }
 }
 
@@ -44,12 +98,15 @@ final class ChatBenchmark {
         let scenario: String
         let wallMilliseconds: Double
         let stats: FrameStats
+        let jitterFrames: Int
+        let maxJitter: CGFloat
 
         var line: String {
             String(
-                format: "%-8@ %7.0fms  hitch %5.1fms/s  p95 %5.1f  max %6.1f  long %3d/%d",
+                format: "%-8@ %7.0fms  hitch %5.1fms/s  p95 %5.1f  max %6.1f  long %3d/%d  jitter %3d (%.0fpt)",
                 scenario as NSString, wallMilliseconds, stats.hitchMillisecondsPerSecond,
-                stats.p95Milliseconds, stats.maxMilliseconds, stats.longFrames, stats.frames
+                stats.p95Milliseconds, stats.maxMilliseconds, stats.longFrames, stats.frames,
+                jitterFrames, maxJitter
             )
         }
     }
@@ -64,6 +121,8 @@ final class ChatBenchmark {
     private(set) var header = ""
 
     @ObservationIgnored private let clock = FrameClock()
+    @ObservationIgnored private let jitter = JitterProbe()
+    @ObservationIgnored private weak var reader: TiledViewReader<String>?
     @ObservationIgnored private var layoutWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Call from the list's content layout callback.
@@ -83,6 +142,7 @@ final class ChatBenchmark {
         isRunning = true
         results = []
         defer { isRunning = false }
+        self.reader = reader
 
         conversation.seed(0)
         heightCache.removeAll()
@@ -96,6 +156,11 @@ final class ChatBenchmark {
             await self.settle()
         }
         header += " · \(conversation.rows.count) rows"
+
+        // Nothing touched: whatever the list still does after loading (measuring, say).
+        await measure("idle") {
+            await self.settle(3)
+        }
 
         // Same rows again: heights come from the cache.
         conversation.hide()
@@ -153,12 +218,16 @@ final class ChatBenchmark {
             let step = speed * CGFloat(delta)
             if goingUp {
                 let target = max(start - distance, top)
-                reader.scrollToContentOffsetY(max(offset - step, target), animated: false)
+                let next = max(offset - step, target)
+                self.jitter.intendedShift += offset - next
+                reader.scrollToContentOffsetY(next, animated: false)
                 if offset - step <= target { goingUp = false }
                 return true
             }
             let target = max(top, bottom - visible)
-            reader.scrollToContentOffsetY(min(offset + step, target), animated: false)
+            let next = min(offset + step, target)
+            self.jitter.intendedShift += offset - next
+            reader.scrollToContentOffsetY(next, animated: false)
             return offset + step < target
         }
     }
@@ -184,10 +253,22 @@ final class ChatBenchmark {
         clock.start()
         // Let the clock tick first: a stall in the very first frame would go unrecorded.
         await settle(0.1)
+        jitter.reset()
+        clock.onFrame = { [weak self] in
+            guard let self, let reader = self.reader else { return }
+            self.jitter.sample(reader)
+        }
         let start = CACurrentMediaTime()
         await body()
         let wall = (CACurrentMediaTime() - start) * 1000
-        let result = Result(scenario: scenario, wallMilliseconds: wall, stats: clock.stop())
+        clock.onFrame = nil
+        let result = Result(
+            scenario: scenario,
+            wallMilliseconds: wall,
+            stats: clock.stop(),
+            jitterFrames: jitter.jitterFrames,
+            maxJitter: jitter.maxDeviation
+        )
         results.append(result)
         print("BENCH", json(result))
     }
@@ -213,6 +294,8 @@ final class ChatBenchmark {
             ("p95_ms", String(format: "%.2f", stats.p95Milliseconds)),
             ("max_ms", String(format: "%.1f", stats.maxMilliseconds)),
             ("long_frames", stats.longFrames),
+            ("jitter_frames", result.jitterFrames),
+            ("max_jitter_pt", String(format: "%.1f", result.maxJitter)),
         ]
         return "{" + fields.map { "\"\($0.0)\":\($0.1)" }.joined(separator: ",") + "}"
     }

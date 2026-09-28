@@ -104,10 +104,13 @@ struct ChatDestination: View {
         }
         .reader(reader, invalidatesOnScroll: selection.state.isActive)
         .heightHint { [heightCache] row, width in
-            MainActor.assumeIsolated { heightCache.height(for: row.id, width: width) }
+            MainActor.assumeIsolated { heightCache.height(for: row, width: width) }
+        }
+        .heightEstimate { row, width in
+            row.estimatedHeight(width: width)
         }
         .onItemHeightMeasured { [heightCache] row, width, height in
-            MainActor.assumeIsolated { heightCache.record(height, for: row.id, width: width) }
+            MainActor.assumeIsolated { heightCache.record(height, for: row, width: width) }
         }
         .onTiledContentLayoutChange {
             selection.install(layout: reader)
@@ -203,6 +206,8 @@ private struct ChatRowView: View {
     @ViewBuilder
     private func blockView(_ block: MarkdownStreamBlock) -> some View {
         let view = MarkdownStreamBlockView(block)
+            // Rows are measured off screen before they show; math needs its real height then.
+            .markdownDisplayMathRendersSynchronously()
             .environment(\.markdownSelectableTextHooks, selection.hooks(for: row.id))
             .frame(maxWidth: .infinity, alignment: .leading)
         if conversation.streamingExchange == row.exchange {

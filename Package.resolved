@@ -1,5 +1,5 @@
 {
-  "originHash" : "b27246f1115623c3bcc0ad464b334b749e9dc99c3c554c781f6b97a94674b760",
+  "originHash" : "f0a6b68402d7b22a9ec4152221704cdb80fb58cff42f6085428e7c995fa84a88",
   "pins" : [
     {
       "identity" : "highlightr",
@@ -15,7 +15,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Eirperuier/LaTeXSwiftUI.git",
       "state" : {
-        "revision" : "52792fd382dd68a06a6615f280e8aa5d7a6037b5"
+        "revision" : "a72e1ce1babaa36d0f14e81a62476a582e7fe5d4"
       }
     },
     {

@@ -6,9 +6,14 @@
 //
 
 import SwiftUI
+import MarkdownView
 
 @main
 struct DemoAppApp: App {
+    init() {
+        prewarmMarkdownMathRenderer()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

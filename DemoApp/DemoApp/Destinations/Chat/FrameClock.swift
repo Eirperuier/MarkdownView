@@ -27,6 +27,8 @@ final class FrameClock: NSObject {
     private var intervals: [CFTimeInterval] = []
     private var hitch: CFTimeInterval = 0
     private var budget: CFTimeInterval = 1.0 / 60
+    /// Called on every frame while recording, before the driven step.
+    var onFrame: (() -> Void)?
     private var step: ((CFTimeInterval) -> Bool)?
     private var stepDone: CheckedContinuation<Void, Never>?
 
@@ -83,6 +85,7 @@ final class FrameClock: NSObject {
             if delta > budget * 1.5 { hitch += delta - budget }
         }
         lastTimestamp = link.timestamp
+        onFrame?()
         if let step, !step(delta) { finishStep() }
     }
 

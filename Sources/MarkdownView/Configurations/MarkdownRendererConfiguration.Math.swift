@@ -26,6 +26,8 @@ extension MarkdownRendererConfiguration {
         }
         var displayMathStorage: [UUID : String]? = nil
         var inlineMathStorage: [String : String]? = nil
+        /// Display math renders on first layout instead of appearing empty and growing.
+        var rendersDisplayMathSynchronously = false
         
         mutating func appendDisplayMath(_ displayMath: some StringProtocol) -> UUID {
             if displayMathStorage == nil {
