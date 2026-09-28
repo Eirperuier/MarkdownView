@@ -204,3 +204,33 @@ struct MarkdownFootnoteIndexTests {
         #expect(footnotes.references["a"]?.number == 1)
     }
 }
+
+@MainActor
+struct MarkdownStreamParserTests {
+    @Test func coalescesAndCommitsTheFinalText() async {
+        let parser = MarkdownStreamParser()
+        var commits: [[MarkdownStreamBlock]] = []
+        parser.onBlocks = { commits.append($0) }
+        var text = ""
+        let words = (0..<200).map { "word\($0) " }
+        for word in words {
+            text += word
+            parser.submit("# Title\n\n" + text, isStreaming: true)
+        }
+        let final = "# Title\n\n" + text + "\n\nTail."
+        await parser.update(final, isStreaming: false)
+
+        #expect(commits.count < words.count + 1, "superseded texts are skipped")
+        #expect(parser.blocks.map(\.source) == ["# Title", text.trimmingCharacters(in: .whitespaces), "Tail."])
+        // The heading kept its id from the first commit.
+        #expect(parser.blocks.first?.id == commits.first?.first?.id)
+    }
+
+    @Test func resetDropsTheParseInFlight() async {
+        let parser = MarkdownStreamParser()
+        parser.submit("Old document.")
+        parser.reset()
+        await parser.update("New document.")
+        #expect(parser.blocks.map(\.source) == ["New document."])
+    }
+}

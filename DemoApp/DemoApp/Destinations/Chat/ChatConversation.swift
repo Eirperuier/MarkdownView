@@ -69,25 +69,27 @@ final class ChatConversation {
         streamingExchange = id
         publishRows()
 
+        // Parsing runs off the main actor; blocks arrive as each parse commits.
+        let parser = MarkdownStreamParser()
+        parser.onBlocks = { [weak self] blocks in
+            self?.commit(blocks, toExchange: id)
+        }
         var text = ""
         for chunk in ChatCorpus.chunks(of: reply) {
             try? await Task.sleep(for: interval)
             if Task.isCancelled { break }
             text += chunk
-            update(exchange: id, text: text, isStreaming: true)
+            parser.submit(text, isStreaming: true)
         }
-        update(exchange: id, text: text, isStreaming: false)
+        await parser.update(text, isStreaming: false)
         coordinator.finishQuickly()
     }
 
-    private func update(exchange id: Int, text: String, isStreaming: Bool) {
+    private func commit(_ blocks: [MarkdownStreamBlock], toExchange id: Int) {
         guard let index = exchanges.lastIndex(where: { $0.id == id }) else { return }
-        exchanges[index].blocks = exchanges[index].splitter.split(text, isStreaming: isStreaming)
+        exchanges[index].blocks = blocks
         generation += 1
-        coordinator.syncBlocks(
-            exchanges[index].blocks.map { ($0.id, $0.revealPlainTextCount) },
-            generation: generation
-        )
+        coordinator.syncBlocks(blocks.map { ($0.id, $0.revealPlainTextCount) }, generation: generation)
         publishRows()
     }
 

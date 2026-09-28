@@ -10,9 +10,9 @@ import SwiftUI
 import MarkdownView
 
 struct StreamingDestination: View {
-    @State private var splitter = MarkdownBlockSplitter(
+    @State private var parser = MarkdownStreamParser(splitter: MarkdownBlockSplitter(
         normalizer: MarkdownSourceNormalizer(streamingFenceLanguages: ["writing"])
-    )
+    ))
     @State private var coordinator = StreamingRevealCoordinator<UUID>()
     @State private var footnoteIndexCache = MarkdownFootnoteIndexCache()
     @State private var blocks: [MarkdownStreamBlock] = []
@@ -105,18 +105,23 @@ struct StreamingDestination: View {
 
     private func start() {
         coordinator.reset()
-        splitter.reset()
+        parser.reset()
         blocks = []
+        var generation = 0
+        parser.onBlocks = { [coordinator] parsed in
+            blocks = parsed
+            generation += 1
+            coordinator.syncBlocks(parsed.map { ($0.id, $0.revealPlainTextCount) }, generation: generation)
+        }
         streamTask = Task {
             var text = ""
-            var generation = 0
             for chunk in Self.chunks(of: Self.reply) {
                 try? await Task.sleep(for: .milliseconds(60))
                 if Task.isCancelled { break }
                 text += chunk
-                update(text, isStreaming: true, generation: &generation)
+                parser.submit(text, isStreaming: true)
             }
-            update(text, isStreaming: false, generation: &generation)
+            await parser.update(text, isStreaming: false)
             coordinator.finishQuickly()
             streamTask = nil
         }
@@ -126,12 +131,6 @@ struct StreamingDestination: View {
         streamTask?.cancel()
         streamTask = nil
         coordinator.revealAll()
-    }
-
-    private func update(_ text: String, isStreaming: Bool, generation: inout Int) {
-        blocks = splitter.split(text, isStreaming: isStreaming)
-        generation += 1
-        coordinator.syncBlocks(blocks.map { ($0.id, $0.revealPlainTextCount) }, generation: generation)
     }
 
     /// Uneven chunks, like a model's token stream.
