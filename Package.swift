@@ -21,7 +21,7 @@ let package = Package(
         // Forks carrying the changes the selectable path and math rendering need;
         // see each fork's history on top of its upstream tag.
         .package(url: "https://github.com/Eirperuier/LaTeXSwiftUI.git", revision: "8ceff0dfea469dba36c21a7691082200477a203f"),
-        .package(url: "https://github.com/Eirperuier/RichText.git", revision: "09cc1832c0cbb4f3e160eb557caa22b55e1bbc98"),
+        .package(url: "https://github.com/Eirperuier/RichText.git", revision: "5367ac323aea59e60ca5d55887456fbe03f8087b"),
     ],
     targets: [
         .target(

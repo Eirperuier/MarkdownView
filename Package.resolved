@@ -1,5 +1,5 @@
 {
-  "originHash" : "7f68db7d0da02160e4cd129089777bfc42836831e17eee2b38576373be9a9284",
+  "originHash" : "419076696f422ac035cae136f36d3fcca4f0172818c421cd5ef5aaf3e19dce3d",
   "pins" : [
     {
       "identity" : "highlightr",
@@ -32,7 +32,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Eirperuier/RichText.git",
       "state" : {
-        "revision" : "09cc1832c0cbb4f3e160eb557caa22b55e1bbc98"
+        "revision" : "5367ac323aea59e60ca5d55887456fbe03f8087b"
       }
     },
     {
