@@ -240,6 +240,10 @@ struct MarkdownTableContent: View {
     /// per publish if we subscribed. The instance itself stays stable across
     /// rebuilds because SwiftUI compares `@State` references.
     @State private var revealState: MarkdownTableRevealState = MarkdownTableRevealState()
+    /// Bumped when the non-scrollable path's reveal snapshot changes. That path has no
+    /// other trigger: without it a table whose surroundings don't re-render stalls at
+    /// the cells revealed when its body last ran.
+    @State private var revealSnapshotRevision = 0
 
     private static var estimatedContainerWidth: CGFloat {
         #if os(iOS) || os(tvOS)
@@ -286,6 +290,7 @@ struct MarkdownTableContent: View {
                 // Non-scrollable path still uses the snapshot-driven
                 // `phasesByRow` env, since its cell count is small (native
                 // SwiftUI Table) and per-publish O(N) is negligible.
+                let _ = revealSnapshotRevision
                 let revealSnapshot = revealState.currentSnapshot(cellInfos: cache.flatCellInfos)
                 let _ = MarkdownRenderProbe.recordTablePhaseCounts(
                     active: revealSnapshot.activeKeys.count,
@@ -306,6 +311,9 @@ struct MarkdownTableContent: View {
                     .coordinateSpace(name: MarkdownTable.CoordinateSpaceName)
                     .environment(\.markdownTableCellOffsetsByRow, offsetsByRow)
                     .environment(\.markdownTableCellPhasesByRow, phasesByRow)
+                    .onReceive(revealState.$snapshot.dropFirst()) { _ in
+                        revealSnapshotRevision &+= 1
+                    }
             }
         }
         // Cells fade their own content via `FadeRevealMarkdownText`; we
