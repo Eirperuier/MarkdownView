@@ -1,5 +1,5 @@
 {
-  "originHash" : "419076696f422ac035cae136f36d3fcca4f0172818c421cd5ef5aaf3e19dce3d",
+  "originHash" : "b27246f1115623c3bcc0ad464b334b749e9dc99c3c554c781f6b97a94674b760",
   "pins" : [
     {
       "identity" : "highlightr",
@@ -15,7 +15,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Eirperuier/LaTeXSwiftUI.git",
       "state" : {
-        "revision" : "8ceff0dfea469dba36c21a7691082200477a203f"
+        "revision" : "52792fd382dd68a06a6615f280e8aa5d7a6037b5"
       }
     },
     {
@@ -32,7 +32,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Eirperuier/RichText.git",
       "state" : {
-        "revision" : "5367ac323aea59e60ca5d55887456fbe03f8087b"
+        "revision" : "33040f50d475362e05b989b53422ae56176afe73"
       }
     },
     {
@@ -66,7 +66,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Eirperuier/SwiftDraw.git",
       "state" : {
-        "revision" : "8ebd4bc397550d98f17ce7a7e66c29728ea16a80"
+        "revision" : "8569df8377945bcd61d25a672de143cf17ce7587"
       }
     }
   ],

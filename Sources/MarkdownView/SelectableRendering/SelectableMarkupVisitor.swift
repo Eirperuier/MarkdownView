@@ -255,7 +255,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
             var attr = autolinked
             #if canImport(UIKit)
             attr.uiKit.font = bodyFont
-            #elseif canImport(AppKit)
+            #elseif os(macOS)
             attr.appKit.font = bodyFont
             #endif
             let n = attr.characters.count
@@ -779,7 +779,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
                         var piece = AttributedString(String(ch))
                         #if canImport(UIKit)
                         piece.uiKit.font = bodyFont
-                        #elseif canImport(AppKit)
+                        #elseif os(macOS)
                         piece.appKit.font = bodyFont
                         #endif
                         if styled(offset) {
@@ -831,7 +831,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         var attributed = AttributedString(string)
         #if canImport(UIKit)
         attributed.uiKit.font = bodyFont
-        #elseif canImport(AppKit)
+        #elseif os(macOS)
         attributed.appKit.font = bodyFont
         #endif
         // 基础正文字色(ThinkingView 等宿主的 secondary):不落 run 时 UITextView 恒画
@@ -890,7 +890,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         if let pingfang = UIFont(name: "PingFangSC-Regular", size: font.pointSize) {
             fallback = pingfang.ascender - pingfang.descender
         }
-        #elseif canImport(AppKit)
+        #elseif os(macOS)
         if let pingfang = NSFont(name: "PingFangSC-Regular", size: font.pointSize) {
             fallback = pingfang.ascender - pingfang.descender
         }
@@ -921,7 +921,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         var container = AttributeContainer([.paragraphStyle: style as NSParagraphStyle])
         #if canImport(UIKit)
         container.uiKit.font = headingFont(level)
-        #elseif canImport(AppKit)
+        #elseif os(macOS)
         container.appKit.font = headingFont(level)
         #endif
         return content.mergingAttributes(container)
@@ -951,7 +951,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         }
         let weight: UIFont.Weight = clamped <= 1 ? .heavy : clamped <= 2 ? .bold : clamped <= 3 ? .semibold : .medium
         return UIFont.systemFont(ofSize: size, weight: weight)
-        #elseif canImport(AppKit)
+        #elseif os(macOS)
         let style: NSFont.TextStyle = switch clamped {
         case 1: .title1
         case 2: .title2
@@ -1142,7 +1142,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
                     #if canImport(UIKit)
                     let base = result[idx..<next].uiKit.font ?? bodyFont
                     result[idx..<next].uiKit.font = Self.obliqueFont(base)
-                    #elseif canImport(AppKit)
+                    #elseif os(macOS)
                     let base = result[idx..<next].appKit.font ?? bodyFont
                     result[idx..<next].appKit.font = Self.obliqueFont(base)
                     #endif
@@ -1382,7 +1382,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     private func setFont(_ container: inout AttributeContainer, _ font: PlatformFont) {
         #if canImport(UIKit)
         container.uiKit.font = font
-        #elseif canImport(AppKit)
+        #elseif os(macOS)
         container.appKit.font = font
         #endif
     }
