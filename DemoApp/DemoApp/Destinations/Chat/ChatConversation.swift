@@ -31,6 +31,10 @@ final class ChatConversation {
     }
 
     private(set) var rows: [ChatRow] = []
+    /// Exchanges before this one aren't loaded yet: a paged conversation shows its latest
+    /// page first and loads older ones as the list reaches the top.
+    private(set) var firstLoadedExchange = 0
+    var hasOlder: Bool { firstLoadedExchange > 0 }
     /// The exchange whose reply streams (or last streamed); its blocks fade in.
     private(set) var streamingExchange: Int?
     var exchangeCount: Int { exchanges.count }
@@ -39,15 +43,25 @@ final class ChatConversation {
     @ObservationIgnored private var exchanges: [Exchange] = []
     @ObservationIgnored private var generation = 0
 
-    /// Replaces the conversation with `count` finished exchanges.
-    func seed(_ count: Int) {
+    /// Replaces the conversation with `count` finished exchanges, showing the last `loaded`
+    /// of them (all by default).
+    func seed(_ count: Int, loaded: Int? = nil) {
         exchanges = (0..<count).map { index in
             var exchange = Exchange(id: index, prompt: ChatCorpus.prompt(index))
             exchange.blocks = exchange.splitter.split(ChatCorpus.reply(index))
             return exchange
         }
+        firstLoadedExchange = max(0, count - (loaded ?? count))
         streamingExchange = nil
         coordinator.reset()
+        publishRows()
+    }
+
+    /// Loads the `count` exchanges before the loaded ones, after `latency` (a fetch).
+    func loadOlder(_ count: Int, latency: Duration) async {
+        guard hasOlder else { return }
+        try? await Task.sleep(for: latency)
+        firstLoadedExchange = max(0, firstLoadedExchange - count)
         publishRows()
     }
 
@@ -94,7 +108,7 @@ final class ChatConversation {
     }
 
     private func publishRows() {
-        rows = exchanges.flatMap { exchange in
+        rows = exchanges[firstLoadedExchange...].flatMap { exchange in
             [ChatRow(id: "\(exchange.id)#prompt", exchange: exchange.id, kind: .prompt(exchange.prompt))]
                 + exchange.blocks.map {
                     ChatRow(id: "\(exchange.id)#\($0.id.uuidString)", exchange: exchange.id, kind: .block($0))

@@ -30,6 +30,12 @@ struct ChatDestination: View {
     @State private var benchmark = ChatBenchmark()
     @State private var streamTask: Task<Void, Never>?
     @State private var exchanges = 100
+    @State private var paged = false
+
+    /// A paged conversation shows this many exchanges at first and loads this many more
+    /// each time the list reaches the top, after `pageLatency` (a fetch).
+    static let pageSize = 10
+    static let pageLatency = Duration.milliseconds(300)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -56,10 +62,13 @@ struct ChatDestination: View {
             }
             if let count = ChatBenchmark.autorunExchanges {
                 await runBenchmark(count)
+                // Time for a profiler attached to the run to finish its trace (more when
+                // profiling a few scenarios, where the recording's end is harder to aim).
+                try? await Task.sleep(for: .seconds(ChatBenchmark.onlyScenarios == nil ? 3 : 20))
                 exit(0)
             }
             if conversation.rows.isEmpty {
-                conversation.seed(exchanges)
+                seed()
             }
         }
     }
@@ -82,7 +91,10 @@ struct ChatDestination: View {
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
-                .onChange(of: exchanges) { _, count in conversation.seed(count) }
+                .onChange(of: exchanges) { seed() }
+                Toggle("Paged", isOn: $paged)
+                    .fixedSize()
+                    .onChange(of: paged) { seed() }
                 Button(streamTask == nil ? "Send" : "Stop") {
                     streamTask == nil ? send() : stop()
                 }
@@ -102,6 +114,13 @@ struct ChatDestination: View {
         TiledView(items: conversation.rows, scrollPosition: $scrollPosition) { row in
             ChatRowCell(item: row, conversation: conversation, selection: selection)
         }
+        .prependLoader(conversation.hasOlder ? .loader(perform: { [conversation] in
+            await conversation.loadOlder(Self.pageSize, latency: Self.pageLatency)
+        }) {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+        } : nil)
         .reader(reader, invalidatesOnScroll: selection.state.isActive)
         .heightHint { [heightCache] row, width in
             MainActor.assumeIsolated { heightCache.height(for: row, width: width) }
@@ -143,6 +162,10 @@ struct ChatDestination: View {
     }
 
     // MARK: Actions
+
+    private func seed() {
+        conversation.seed(exchanges, loaded: paged ? Self.pageSize : nil)
+    }
 
     private func send() {
         streamTask = Task {

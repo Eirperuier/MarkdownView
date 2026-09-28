@@ -3,11 +3,12 @@
 //  DemoApp
 //
 //  Scripted scenarios over the chat list, measured frame by frame:
-//  cold load, load with cached heights, a fast scroll sweep, a streamed reply and,
-//  on the Mac, window resizes. Results show in the page and print as `BENCH {json}` lines.
+//  cold load, load with cached heights, a fast scroll sweep, a streamed reply,
+//  on the Mac window resizes, and a paged conversation loading older pages. Results show in the page and print as `BENCH {json}` lines.
 //
 //  Run unattended with `-chatBenchmark <exchanges>`: the app opens the chat page,
-//  runs every scenario, prints the results and exits.
+//  runs every scenario, prints the results and exits. `-chatBenchmarkOnly pages,page-rest`
+//  times only the named scenarios (the others' setup still runs).
 //
 
 import SwiftUI
@@ -117,6 +118,12 @@ final class ChatBenchmark {
         return value > 0 ? value : nil
     }
 
+    /// Scenarios to time; nil times all of them.
+    static var onlyScenarios: Set<String>? {
+        UserDefaults.standard.string(forKey: "chatBenchmarkOnly")
+            .map { Set($0.split(separator: ",").map(String.init)) }
+    }
+
     private(set) var isRunning = false
     private(set) var results: [Result] = []
     private(set) var header = ""
@@ -190,6 +197,29 @@ final class ChatBenchmark {
             await self.resizeWindow(times: 6)
         }
         #endif
+
+        // Paged: the latest page first, older pages as the list reaches the top, none measured before.
+        await openPaged(exchanges, conversation: conversation, heightCache: heightCache)
+        await measure("pages") {
+            await self.climb(reader: reader, conversation: conversation, speed: 2_000)
+        }
+
+        // A page arriving while the list rests at the top: the jump there (which starts the
+        // fetch) isn't timed, only the page landing.
+        await openPaged(exchanges, conversation: conversation, heightCache: heightCache)
+        reader.scrollToContentOffsetY(reader.contentOffsetY() - 100_000, animated: false)
+        await settle(0.1)
+        await measure("page-rest") {
+            await self.settle(1)
+        }
+    }
+
+    private func openPaged(_ exchanges: Int, conversation: ChatConversation, heightCache: ChatHeightCache) async {
+        conversation.seed(0)
+        heightCache.removeAll()
+        await settle()
+        conversation.seed(exchanges, loaded: ChatDestination.pageSize)
+        await settle(1)
     }
 
     // MARK: Scenarios
@@ -237,6 +267,21 @@ final class ChatBenchmark {
         }
     }
 
+    /// Scrolls up at `speed` like a finger holding the list against its top: pages load as
+    /// the top is reached, until nothing older is left.
+    private func climb(reader: TiledViewReader<String>, conversation: ChatConversation, speed: CGFloat) async {
+        var framesAtTop = 0
+        await clock.drive { delta in
+            let offset = reader.contentOffsetY()
+            reader.scrollToContentOffsetY(offset - speed * CGFloat(delta), animated: false)
+            // Only what the scroll itself moved is intended; anything the list does later is jitter.
+            let moved = reader.contentOffsetY()
+            self.jitter.intendedShift += offset - moved
+            framesAtTop = moved < offset - 0.5 ? 0 : framesAtTop + 1
+            return conversation.hasOlder || framesAtTop < 30
+        }
+    }
+
     #if targetEnvironment(macCatalyst)
     private func resizeWindow(times: Int) async {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
@@ -257,6 +302,7 @@ final class ChatBenchmark {
     private static let signposter = OSSignposter(subsystem: "DemoApp", category: "ChatBenchmark")
 
     private func measure(_ scenario: String, _ body: () async -> Void) async {
+        if let only = Self.onlyScenarios, !only.contains(scenario) { return }
         clock.start()
         // Let the clock tick first: a stall in the very first frame would go unrecorded.
         await settle(0.1)
