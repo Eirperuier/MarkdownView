@@ -34,22 +34,29 @@ extension View {
 /// attachments inside the text flow don't size reliably, so only the text before the
 /// fence is selectable.
 ///
-/// Inject the reveal with `markdownStreaming(_:)` and the block's math storage with
-/// `markdownInlineMathStorage(_:)` / `markdownDisplayMathStorage(_:)`, as for `MarkdownBlockView`.
+/// Created from a ``MarkdownStreamBlock``, it renders the block's math itself: the
+/// splitter moves math into storage and would otherwise leave display math blank.
+/// Inject the reveal with `markdownStreaming(_:)`.
 public struct MarkdownStreamBlockView: View {
     let content: MarkdownContent
     let descriptor: MarkdownBlockDescriptor
+    let inlineMathStorage: [String: String]?
+    let displayMathStorage: [UUID: String]?
 
     @Environment(\.markdownSelectableTextEnabled) private var selectableEnabled
 
     public init(_ block: MarkdownStreamBlock) {
         self.content = block.content
         self.descriptor = block.descriptor
+        self.inlineMathStorage = block.inlineMathStorage
+        self.displayMathStorage = block.displayMathStorage
     }
 
     public init(content: MarkdownContent, descriptor: MarkdownBlockDescriptor) {
         self.content = content
         self.descriptor = descriptor
+        self.inlineMathStorage = nil
+        self.displayMathStorage = nil
     }
 
     private var usesSelectableText: Bool {
@@ -107,6 +114,18 @@ public struct MarkdownStreamBlockView: View {
     }
 
     public var body: some View {
+        if inlineMathStorage != nil || displayMathStorage != nil {
+            leaf
+                .markdownMathRenderingEnabled()
+                .markdownInlineMathStorage(inlineMathStorage)
+                .markdownDisplayMathStorage(displayMathStorage)
+        } else {
+            leaf
+        }
+    }
+
+    @ViewBuilder
+    private var leaf: some View {
         if isSelectableQuote {
             SelectableBlockQuote(quoteSource: descriptor.sourceText)
         } else if let lines = footnoteDefinitionLines {
