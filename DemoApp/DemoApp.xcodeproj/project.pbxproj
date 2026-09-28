@@ -352,7 +352,7 @@
 /* Begin XCLocalSwiftPackageReference section */
 		8C21E5AE2D9E7FB20097554E /* XCLocalSwiftPackageReference "../../MarkdownView" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../MarkdownView;
+			relativePath = ..;
 		};
 /* End XCLocalSwiftPackageReference section */
 
