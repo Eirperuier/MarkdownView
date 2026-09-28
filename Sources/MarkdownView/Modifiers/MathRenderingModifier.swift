@@ -12,6 +12,7 @@ import LaTeXSwiftUI
 
 /// Loads the math renderer in the background. Call at launch so the first formula
 /// rendered (and the first list measurement containing one) doesn't wait for it.
+@MainActor
 public func prewarmMarkdownMathRenderer() {
     #if canImport(LaTeXSwiftUI)
     LaTeX.prewarm()

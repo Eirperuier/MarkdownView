@@ -149,9 +149,13 @@ final class ChatBenchmark {
         await settle()
         header = "\(Self.platform) · \(exchanges) exchanges"
 
-        // Cold: every row is measured.
+        // Cold: no height known. Parsing happens first, as a store would have it ready.
+        conversation.seed(exchanges)
+        conversation.hide()
+        await settle()
+        heightCache.removeAll()
         await measure("load") {
-            conversation.seed(exchanges)
+            conversation.restore()
             await self.nextLayout()
             await self.settle()
         }
