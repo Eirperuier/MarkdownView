@@ -12,6 +12,7 @@
 
 import SwiftUI
 import MessagingUI
+import os
 
 /// Measured heights by row content and width, fed back to the list as height hints.
 /// Keyed by content, as flowith's cache was: a row that changed (a streaming block)
@@ -253,6 +254,8 @@ final class ChatBenchmark {
 
     // MARK: Measuring
 
+    private static let signposter = OSSignposter(subsystem: "DemoApp", category: "ChatBenchmark")
+
     private func measure(_ scenario: String, _ body: () async -> Void) async {
         clock.start()
         // Let the clock tick first: a stall in the very first frame would go unrecorded.
@@ -262,9 +265,12 @@ final class ChatBenchmark {
             guard let self, let reader = self.reader else { return }
             self.jitter.sample(reader)
         }
+        // An interval per scenario, to line Instruments traces (Animation Hitches, say) up with it.
+        let interval = Self.signposter.beginInterval("scenario", "\(scenario)")
         let start = CACurrentMediaTime()
         await body()
         let wall = (CACurrentMediaTime() - start) * 1000
+        Self.signposter.endInterval("scenario", interval)
         clock.onFrame = nil
         let result = Result(
             scenario: scenario,
