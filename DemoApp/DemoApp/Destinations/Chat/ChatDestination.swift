@@ -27,6 +27,7 @@ struct ChatDestination: View {
     @State private var reader = TiledViewReader<String>()
     @State private var selection = MarkdownBlockSelectionController()
     @State private var heightCache = ChatHeightCache()
+    @State private var renderedHeights = ChatRenderedHeights()
     @State private var benchmark = ChatBenchmark()
     @State private var streamTask: Task<Void, Never>?
     @State private var exchanges = 100
@@ -112,7 +113,7 @@ struct ChatDestination: View {
 
     private var list: some View {
         TiledView(items: conversation.rows, scrollPosition: $scrollPosition) { row in
-            ChatRowCell(item: row, conversation: conversation, selection: selection)
+            ChatRowCell(item: row, conversation: conversation, selection: selection, renderedHeights: renderedHeights)
         }
         .prependLoader(conversation.hasOlder ? .loader(perform: { [conversation] in
             await conversation.loadOlder(Self.pageSize, latency: Self.pageLatency)
@@ -186,7 +187,8 @@ struct ChatDestination: View {
             exchanges: count,
             conversation: conversation,
             reader: reader,
-            heightCache: heightCache
+            heightCache: heightCache,
+            renderedHeights: renderedHeights
         )
     }
 }
@@ -195,9 +197,14 @@ struct ChatRowCell: TiledCellContent {
     let item: ChatRow
     let conversation: ChatConversation
     let selection: MarkdownBlockSelectionController
+    let renderedHeights: ChatRenderedHeights
 
     func body(context: CellContext<Void>) -> some View {
         ChatRowView(row: item, conversation: conversation, selection: selection)
+            // The height the row renders at, for the benchmark to hold the list's layout against.
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [renderedHeights, id = item.id] height in
+                MainActor.assumeIsolated { renderedHeights.heights[id] = height }
+            }
     }
 }
 

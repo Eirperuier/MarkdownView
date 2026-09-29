@@ -370,7 +370,7 @@
 			repositoryURL = "https://github.com/Eirperuier/swiftui-messaging-ui.git";
 			requirement = {
 				kind = revision;
-				revision = 04deea1c567e4ffe01ecc6b417173b1dd968bd8c;
+				revision = c106db5b7666c1e17339d8c0f50a88edc720fe27;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

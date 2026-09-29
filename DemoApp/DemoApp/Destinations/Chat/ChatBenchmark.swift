@@ -97,6 +97,49 @@ final class JitterProbe {
     }
 }
 
+/// Each row's rendered height, as the row itself lays out (reported by the row view).
+@MainActor
+final class ChatRenderedHeights {
+    var heights: [String: CGFloat] = [:]
+}
+
+/// Watches for rows whose layout height stays different from the height they render at:
+/// the list then overlaps rows or leaves gaps. Self-sizing settles within a frame or two,
+/// so only a mismatch lasting `tolerance` counts.
+@MainActor
+final class StaleHeightProbe {
+    private(set) var staleFrames = 0
+    private(set) var maxMismatch: CGFloat = 0
+    private var mismatchSince: [String: CFTimeInterval] = [:]
+    private let tolerance: CFTimeInterval = 0.25
+
+    func reset() {
+        staleFrames = 0
+        maxMismatch = 0
+        mismatchSince = [:]
+    }
+
+    func sample(_ reader: TiledViewReader<String>, rendered: ChatRenderedHeights) {
+        guard let height = reader.containerView?.bounds.height, height > 0 else { return }
+        let offset = reader.contentOffsetY()
+        let now = CACurrentMediaTime()
+        var stale: CGFloat = 0
+        var mismatched = Set<String>()
+        for (id, frame) in reader.contentFrames(intersecting: CGRect(x: 0, y: offset, width: 100_000, height: height)) {
+            guard let renderedHeight = rendered.heights[id] else { continue }
+            let mismatch = abs(renderedHeight - frame.height)
+            guard mismatch > 1 else { continue }
+            mismatched.insert(id)
+            let since = mismatchSince[id] ?? now
+            mismatchSince[id] = since
+            if now - since > tolerance { stale = max(stale, mismatch) }
+        }
+        mismatchSince = mismatchSince.filter { mismatched.contains($0.key) }
+        if stale > 0 { staleFrames += 1 }
+        maxMismatch = max(maxMismatch, stale)
+    }
+}
+
 @MainActor
 @Observable
 final class ChatBenchmark {
@@ -107,13 +150,15 @@ final class ChatBenchmark {
         let stats: FrameStats
         let jitterFrames: Int
         let maxJitter: CGFloat
+        let staleFrames: Int
+        let maxStale: CGFloat
 
         var line: String {
             String(
-                format: "%-8@ %7.0fms  hitch %5.1fms/s  p95 %5.1f  max %6.1f  long %3d/%d  jitter %3d (%.0fpt)",
+                format: "%-8@ %7.0fms  hitch %5.1fms/s  p95 %5.1f  max %6.1f  long %3d/%d  jitter %3d (%.0fpt)  stale %3d (%.0fpt)",
                 scenario as NSString, wallMilliseconds, stats.hitchMillisecondsPerSecond,
                 stats.p95Milliseconds, stats.maxMilliseconds, stats.longFrames, stats.frames,
-                jitterFrames, maxJitter
+                jitterFrames, maxJitter, staleFrames, maxStale
             )
         }
     }
@@ -135,6 +180,8 @@ final class ChatBenchmark {
 
     @ObservationIgnored private let clock = FrameClock()
     @ObservationIgnored private let jitter = JitterProbe()
+    @ObservationIgnored private let stale = StaleHeightProbe()
+    @ObservationIgnored private var renderedHeights: ChatRenderedHeights?
     @ObservationIgnored private weak var reader: TiledViewReader<String>?
     @ObservationIgnored private var layoutWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -149,9 +196,11 @@ final class ChatBenchmark {
         exchanges: Int,
         conversation: ChatConversation,
         reader: TiledViewReader<String>,
-        heightCache: ChatHeightCache
+        heightCache: ChatHeightCache,
+        renderedHeights: ChatRenderedHeights
     ) async {
         guard !isRunning else { return }
+        self.renderedHeights = renderedHeights
         isRunning = true
         results = []
         defer { isRunning = false }
@@ -202,6 +251,17 @@ final class ChatBenchmark {
             await self.resizeWindow(times: 6)
         }
         #endif
+
+        // A reply streamed right after the conversation opens (nothing scrolled or measured yet).
+        conversation.seed(0)
+        heightCache.removeAll()
+        await settle()
+        conversation.seed(exchanges)
+        await settle(1)
+        await measure("stream-fresh") {
+            await conversation.stream(ChatCorpus.longReply, every: .milliseconds(30))
+            await self.settle(0.6)
+        }
 
         // Paged: the latest page first, older pages as the list reaches the top, none measured before.
         await openPaged(exchanges, conversation: conversation, heightCache: heightCache)
@@ -312,9 +372,11 @@ final class ChatBenchmark {
         // Let the clock tick first: a stall in the very first frame would go unrecorded.
         await settle(0.1)
         jitter.reset()
+        stale.reset()
         clock.onFrame = { [weak self] in
             guard let self, let reader = self.reader else { return }
             self.jitter.sample(reader)
+            if let rendered = self.renderedHeights { self.stale.sample(reader, rendered: rendered) }
         }
         // An interval per scenario, to line Instruments traces (Animation Hitches, say) up with it.
         let interval = Self.signposter.beginInterval("scenario", "\(scenario)")
@@ -328,7 +390,9 @@ final class ChatBenchmark {
             wallMilliseconds: wall,
             stats: clock.stop(),
             jitterFrames: jitter.jitterFrames,
-            maxJitter: jitter.maxDeviation
+            maxJitter: jitter.maxDeviation,
+            staleFrames: stale.staleFrames,
+            maxStale: stale.maxMismatch
         )
         results.append(result)
         print("BENCH", json(result))
@@ -357,6 +421,8 @@ final class ChatBenchmark {
             ("long_frames", stats.longFrames),
             ("jitter_frames", result.jitterFrames),
             ("max_jitter_pt", String(format: "%.1f", result.maxJitter)),
+            ("stale_frames", result.staleFrames),
+            ("max_stale_pt", String(format: "%.1f", result.maxStale)),
         ]
         return "{" + fields.map { "\"\($0.0)\":\($0.1)" }.joined(separator: ",") + "}"
     }
