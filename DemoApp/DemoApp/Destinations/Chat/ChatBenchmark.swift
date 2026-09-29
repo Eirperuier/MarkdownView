@@ -52,7 +52,7 @@ final class ChatHeightCache {
 }
 
 /// Watches the rows on screen frame by frame: any move the scroll didn't ask for, or a
-/// height change, is jitter.
+/// height change, is jitter. A frame where the list's width changed is skipped: rows rewrap then.
 @MainActor
 final class JitterProbe {
     /// Screen shift the scroll asked for since the last sample (content moves up as the offset grows).
@@ -60,16 +60,21 @@ final class JitterProbe {
     private(set) var jitterFrames = 0
     private(set) var maxDeviation: CGFloat = 0
     private var previous: [String: CGRect] = [:]
+    private var previousWidth: CGFloat = 0
 
     func reset() {
         intendedShift = 0
         jitterFrames = 0
         maxDeviation = 0
         previous = [:]
+        previousWidth = 0
     }
 
     func sample(_ reader: TiledViewReader<String>) {
-        guard let height = reader.containerView?.bounds.height, height > 0 else { return }
+        guard let bounds = reader.containerView?.bounds, bounds.height > 0 else { return }
+        let height = bounds.height
+        defer { previousWidth = bounds.width }
+        if bounds.width != previousWidth { previous = [:] }
         let offset = reader.contentOffsetY()
         let visible = CGRect(x: 0, y: offset, width: 100_000, height: height)
         var screen: [String: CGRect] = [:]

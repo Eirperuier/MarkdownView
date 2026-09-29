@@ -136,9 +136,10 @@ struct ChatDestination: View {
             benchmark.contentLayoutChanged()
         }
         .overlay(alignment: .topLeading) {
-            // TiledView lays out past the safe area; so does the overlay, to share its origin.
+            // TiledView lays out past the top and bottom safe area but inside the side ones
+            // (a Catalyst sidebar); the overlay does the same, to share its origin.
             MarkdownBlockSelectionOverlay(controller: selection)
-                .ignoresSafeArea()
+                .ignoresSafeArea(edges: .vertical)
         }
     }
 
