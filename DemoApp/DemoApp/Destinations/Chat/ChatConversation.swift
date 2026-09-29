@@ -18,6 +18,35 @@ struct ChatRow: Identifiable, Equatable {
     let id: String
     let exchange: Int
     let kind: Kind
+    /// Part of the reply streaming in (or last streamed): its blocks fade in. Carried by the
+    /// row, not read from the conversation, so starting a stream updates only its own rows.
+    let isStreaming: Bool
+    /// What the row shows, flattened so comparing rows copies nothing.
+    private let text: String
+    private let revealCount: Int
+
+    init(id: String, exchange: Int, kind: Kind, isStreaming: Bool = false) {
+        self.id = id
+        self.exchange = exchange
+        self.kind = kind
+        self.isStreaming = isStreaming
+        switch kind {
+        case .prompt(let prompt):
+            text = prompt
+            revealCount = 0
+        case .block(let block):
+            text = block.source
+            revealCount = block.revealPlainTextCount
+        }
+    }
+
+    /// The list compares every row on every update (SwiftUI, TiledView's diff, @Observable),
+    /// so this must stay cheap: an unchanged row shares its text's storage with the last one.
+    /// A block's rendering follows from its source (its document and descriptor come from it).
+    static func == (lhs: ChatRow, rhs: ChatRow) -> Bool {
+        lhs.id == rhs.id && lhs.revealCount == rhs.revealCount && lhs.isStreaming == rhs.isStreaming
+            && lhs.text == rhs.text
+    }
 }
 
 @MainActor
@@ -25,9 +54,31 @@ struct ChatRow: Identifiable, Equatable {
 final class ChatConversation {
     private struct Exchange {
         let id: Int
-        let prompt: String
         var splitter = MarkdownBlockSplitter()
-        var blocks: [MarkdownStreamBlock] = []
+        /// Rows are built when the blocks change, not on every publish: an unchanged row
+        /// keeps its id and text storage, so comparing it with the last publish is cheap.
+        private(set) var rows: [ChatRow]
+        private var rowIDs: [UUID: String] = [:]
+        private var blocks: [MarkdownStreamBlock] = []
+        var isStreaming = false {
+            didSet { if isStreaming != oldValue { setBlocks(blocks) } }
+        }
+
+        init(id: Int, prompt: String) {
+            self.id = id
+            rows = [ChatRow(id: "\(id)#prompt", exchange: id, kind: .prompt(prompt))]
+        }
+
+        mutating func setBlocks(_ blocks: [MarkdownStreamBlock]) {
+            self.blocks = blocks
+            var ids: [UUID: String] = [:]
+            rows = [rows[0]] + blocks.map { block in
+                let rowID = rowIDs[block.id] ?? "\(id)#\(block.id.uuidString)"
+                ids[block.id] = rowID
+                return ChatRow(id: rowID, exchange: id, kind: .block(block), isStreaming: isStreaming)
+            }
+            rowIDs = ids
+        }
     }
 
     private(set) var rows: [ChatRow] = []
@@ -35,8 +86,6 @@ final class ChatConversation {
     /// page first and loads older ones as the list reaches the top.
     private(set) var firstLoadedExchange = 0
     var hasOlder: Bool { firstLoadedExchange > 0 }
-    /// The exchange whose reply streams (or last streamed); its blocks fade in.
-    private(set) var streamingExchange: Int?
     var exchangeCount: Int { exchanges.count }
 
     @ObservationIgnored let coordinator = StreamingRevealCoordinator<UUID>()
@@ -48,11 +97,10 @@ final class ChatConversation {
     func seed(_ count: Int, loaded: Int? = nil) {
         exchanges = (0..<count).map { index in
             var exchange = Exchange(id: index, prompt: ChatCorpus.prompt(index))
-            exchange.blocks = exchange.splitter.split(ChatCorpus.reply(index))
+            exchange.setBlocks(exchange.splitter.split(ChatCorpus.reply(index)))
             return exchange
         }
         firstLoadedExchange = max(0, count - (loaded ?? count))
-        streamingExchange = nil
         coordinator.reset()
         publishRows()
     }
@@ -77,10 +125,15 @@ final class ChatConversation {
     /// Appends an exchange and streams `reply` into it chunk by chunk.
     func stream(_ reply: String, every interval: Duration) async {
         let id = (exchanges.last?.id ?? -1) + 1
-        exchanges.append(Exchange(id: id, prompt: ChatCorpus.prompt(id)))
+        // The last streamed reply stops fading in; the new one starts.
+        for index in exchanges.indices where exchanges[index].isStreaming {
+            exchanges[index].isStreaming = false
+        }
+        var exchange = Exchange(id: id, prompt: ChatCorpus.prompt(id))
+        exchange.isStreaming = true
+        exchanges.append(exchange)
         coordinator.reset()
         generation = 0
-        streamingExchange = id
         publishRows()
 
         // Parsing runs off the main actor; blocks arrive as each parse commits.
@@ -101,19 +154,14 @@ final class ChatConversation {
 
     private func commit(_ blocks: [MarkdownStreamBlock], toExchange id: Int) {
         guard let index = exchanges.lastIndex(where: { $0.id == id }) else { return }
-        exchanges[index].blocks = blocks
+        exchanges[index].setBlocks(blocks)
         generation += 1
         coordinator.syncBlocks(blocks.map { ($0.id, $0.revealPlainTextCount) }, generation: generation)
         publishRows()
     }
 
     private func publishRows() {
-        rows = exchanges[firstLoadedExchange...].flatMap { exchange in
-            [ChatRow(id: "\(exchange.id)#prompt", exchange: exchange.id, kind: .prompt(exchange.prompt))]
-                + exchange.blocks.map {
-                    ChatRow(id: "\(exchange.id)#\($0.id.uuidString)", exchange: exchange.id, kind: .block($0))
-                }
-        }
+        rows = exchanges[firstLoadedExchange...].flatMap(\.rows)
     }
 }
 

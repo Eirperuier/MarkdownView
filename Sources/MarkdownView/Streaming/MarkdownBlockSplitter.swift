@@ -181,13 +181,18 @@ public struct MarkdownBlockSplitter: Sendable {
             }
 
             let previous = cache[key]
-            // An unchanged block keeps its previous document, so views keyed on it don't re-render.
-            let unchanged = previous.map { $0.source == descriptor.sourceText && $0.descriptor == descriptor } ?? false
+            // An unchanged block is its previous value, document and all: views keyed on it
+            // don't re-render, and comparing it with the last parse is cheap (same storage).
+            if let previous, previous.source == descriptor.sourceText, previous.descriptor == descriptor,
+               previous.kind == kind, previous.revealPlainTextCount == revealCount {
+                nextCache[key] = previous
+                return previous
+            }
             let block = MarkdownStreamBlock(
                 id: previous?.id ?? UUID(),
                 kind: kind,
                 source: descriptor.sourceText,
-                content: unchanged ? previous!.content : content,
+                content: content,
                 descriptor: descriptor,
                 inlineMathStorage: inlineStorage,
                 displayMathStorage: displayStorage,

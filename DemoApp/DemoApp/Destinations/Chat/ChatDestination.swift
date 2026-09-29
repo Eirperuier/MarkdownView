@@ -241,7 +241,7 @@ private struct ChatRowView: View {
             .markdownDisplayMathRendersSynchronously()
             .environment(\.markdownSelectableTextHooks, selection.hooks(for: row.id))
             .frame(maxWidth: .infinity, alignment: .leading)
-        if conversation.streamingExchange == row.exchange {
+        if row.isStreaming {
             view
                 .markdownStreaming(conversation.coordinator.ensureManager(for: block.id))
                 .markdownFadeReveal(
