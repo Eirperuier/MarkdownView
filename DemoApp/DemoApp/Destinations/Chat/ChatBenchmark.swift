@@ -8,7 +8,9 @@
 //
 //  Run unattended with `-chatBenchmark <exchanges>`: the app opens the chat page,
 //  runs every scenario, prints the results and exits. `-chatBenchmarkOnly pages,page-rest`
-//  times only the named scenarios (the others' setup still runs).
+//  times only the named scenarios (the others still run, untimed: later ones start from
+//  where they leave the list). `-chatScrollSpeed <points per second>` sets the scroll
+//  sweep's speed (3000 by default). `-chatOpen YES` opens on the chat page, to try it by hand.
 //
 
 import SwiftUI
@@ -168,6 +170,12 @@ final class ChatBenchmark {
         return value > 0 ? value : nil
     }
 
+    /// The scroll sweep's speed, points per second.
+    static var scrollSpeed: CGFloat {
+        let value = UserDefaults.standard.double(forKey: "chatScrollSpeed")
+        return value > 0 ? value : 3_000
+    }
+
     /// Scenarios to time; nil times all of them.
     static var onlyScenarios: Set<String>? {
         UserDefaults.standard.string(forKey: "chatBenchmarkOnly")
@@ -238,7 +246,7 @@ final class ChatBenchmark {
         }
 
         await measure("scroll") {
-            await self.sweep(reader: reader, conversation: conversation, distance: 20_000, speed: 3_000)
+            await self.sweep(reader: reader, conversation: conversation, distance: 20_000, speed: Self.scrollSpeed)
         }
 
         await measure("stream") {
@@ -367,7 +375,10 @@ final class ChatBenchmark {
     private static let signposter = OSSignposter(subsystem: "DemoApp", category: "ChatBenchmark")
 
     private func measure(_ scenario: String, _ body: () async -> Void) async {
-        if let only = Self.onlyScenarios, !only.contains(scenario) { return }
+        if let only = Self.onlyScenarios, !only.contains(scenario) {
+            await body()
+            return
+        }
         clock.start()
         // Let the clock tick first: a stall in the very first frame would go unrecorded.
         await settle(0.1)
