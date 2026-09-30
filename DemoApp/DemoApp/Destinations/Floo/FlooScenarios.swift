@@ -10,7 +10,8 @@ import CardUI
 
 @MainActor
 enum FlooScenario: Int, CaseIterable, Identifiable {
-    case slowWork, interjection, waitingOnYou, catchingUp, group, answerWithCards, pushes, research, longAnswer, errands
+    case slowWork, interjection, waitingOnYou, catchingUp, group, answerWithCards, pushes, research, longAnswer, errands,
+        onDevice
 
     nonisolated var id: Int { rawValue }
 
@@ -26,6 +27,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         case .research: "调研：几分钟的活，一篇长报告"
         case .longAnswer: "长回答：从头读，它在下面接着写"
         case .errands: "手上几件事：随时交代，各自回来"
+        case .onDevice: "本机：动你设备上的东西，先问你"
         }
     }
 
@@ -41,6 +43,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         case .research: try await Self.research(m)
         case .longAnswer: try await Self.longAnswer(m)
         case .errands: try await Self.errands(m)
+        case .onDevice: try await Self.onDevice(m)
         }
     }
 
@@ -127,6 +130,117 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
             """)
     }
 
+    // MARK: On your devices
+
+    /// It works on your devices: reading your calendar it just does, on the phone in your hand;
+    /// changing it waits for you, shown as what the phone will do, not as its words. What can't
+    /// be undone is asked every time, and no is an answer too. What only your Mac has, you
+    /// allow on the Mac.
+    private static func onDevice(_ m: FlooDemo) async throws {
+        m.reset(title: "管家")
+        m.time("10:12")
+        let ask = try await m.type("周六上午 9 点约了牙医，记到日历里，提前一小时提醒我")
+        try await m.wait(400)
+        m.mark(ask, .read)
+        let add = m.begin(.butler, at: "10:12")
+        m.step(add, "在看这台 iPhone 上周六的日程")
+        try await m.wait(1400)
+        m.step(add, "周六上午空着，等你确认")
+        let added = try await m.approve(
+            FlooApproval(
+                agent: .butler,
+                device: "iPhone",
+                action: "在日历里新建日程",
+                details: ["牙医", "10月3日 周六 09:00–10:00", "提前 1 小时提醒"],
+                call: """
+                    calendar.create_event
+                    {"title": "牙医", "start": "2026-10-03T09:00+08:00",
+                     "duration_minutes": 60, "reminders": [60]}
+                    """,
+                standing: ["以后新建日程都允许", "日历的都允许"]
+            ),
+            for: add,
+            autoAfter: 9000,
+            deciding: .once
+        )
+        m.step(add, Self.decided(added))
+        m.finishWork(add, added.allowed ? "在日历里建了「牙医」" : "没建：你没允许")
+        try await m.stream(add, added.allowed ? "记好了：周六 9:00 牙医，8:00 提醒你。" : "好，没记。换个时间再跟我说。")
+        m.mark(ask, .answered)
+
+        try await m.wait(1500)
+        m.time("10:15")
+        let drop = try await m.type("把下周三的周会删了")
+        try await m.wait(400)
+        m.mark(drop, .read)
+        let remove = m.begin(.butler, at: "10:15")
+        m.step(remove, "在找下周三的周会")
+        try await m.wait(1200)
+        m.step(remove, "找到了，等你确认")
+        let removed = try await m.approve(
+            FlooApproval(
+                agent: .butler,
+                device: "iPhone",
+                action: "删除日程",
+                details: ["周会", "10月7日 周三 10:00–11:00", "每周重复：只删这一次"],
+                call: """
+                    calendar.delete_event
+                    {"event": "周会", "occurrence": "2026-10-07T10:00+08:00", "span": "this"}
+                    """,
+                confirm: "删除",
+                dangerous: true
+            ),
+            for: remove,
+            autoAfter: 9000,
+            deciding: .denied
+        )
+        m.step(remove, Self.decided(removed))
+        m.finishWork(remove, removed.allowed ? "删了下周三的周会" : "没删：你没确认")
+        try await m.stream(remove, removed.allowed ? "删了，只删了下周三这一次。" : "好，没删。周会还在。")
+        m.mark(drop, .answered)
+
+        try await m.wait(1500)
+        m.time("10:18")
+        let send = try await m.type("把体检报告发给王医生")
+        try await m.wait(400)
+        m.mark(send, .read)
+        let mail = m.begin(.butler, at: "10:18")
+        m.step(mail, "在 MacBook 的邮件里找体检报告")
+        try await m.wait(1400)
+        m.step(mail, "找到了，等你确认")
+        let sent = try await m.approve(
+            FlooApproval(
+                agent: .butler,
+                device: "MacBook",
+                action: "用邮件发送",
+                details: ["给 王医生 <wang@clinic.example>", "附件：体检报告 2026-09.pdf"],
+                call: """
+                    mail.send
+                    {"to": ["wang@clinic.example"], "subject": "体检报告",
+                     "attachments": ["体检报告 2026-09.pdf"]}
+                    """,
+                elsewhere: true,
+                standing: ["以后发给王医生都允许"]
+            ),
+            for: mail,
+            autoAfter: 9000,
+            deciding: .once
+        )
+        m.step(mail, Self.decided(sent))
+        m.finishWork(mail, sent.allowed ? "在 MacBook 上发给了王医生" : "没发：你没允许")
+        try await m.stream(mail, sent.allowed ? "发了，附件是 9 月的体检报告。" : "好，没发。")
+        m.mark(send, .answered)
+    }
+
+    /// What you decided, as a step of the work that waited on it.
+    private static func decided(_ decision: FlooDecision) -> String {
+        switch decision {
+        case .once: "你允许了这一次"
+        case .always(let choice): "你允许了：\(choice)"
+        case .denied: "你没允许"
+        }
+    }
+
     // MARK: Interjection
 
     /// You add something while it writes: it shows as not seen yet, is read at the next
@@ -204,17 +318,19 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
             .butler,
             "#517 要改数据库结构，现在做，还是先出个方案给你看？",
             options: ["现在做", "先出方案"],
-            autoAfter: 12000
+            autoAfter: 12000,
+            own: "先在测试库跑一遍迁移，没问题再说"
         )
         try await others.value
         try await m.wait(500)
         let reply = m.begin(.butler, at: "15:09")
-        try await m.stream(
-            reply,
-            chosen.text == "现在做"
-                ? "好，我让 codex 先在测试库跑一遍迁移，没问题再上线。"
-                : "好，二十分钟内把方案发你，迁移脚本和回滚方式都写上。"
-        )
+        let answer =
+            switch chosen.text {
+            case "现在做": "好，我让 codex 先在测试库跑一遍迁移，没问题再上线。"
+            case "先出方案": "好，二十分钟内把方案发你，迁移脚本和回滚方式都写上。"
+            default: "好，先让 codex 在测试库跑一遍迁移，跑完把结果给你，上不上线你定。"
+            }
+        try await m.stream(reply, answer)
         m.mark(chosen, .answered)
     }
 

@@ -23,12 +23,12 @@ struct FlooWorkView: View {
                 demo.toggle(id)
             } label: {
                 HStack(spacing: 8) {
-                    FlooWorkGlyph(state: process.running ? .running : .done, tint: tint)
+                    FlooWorkGlyph(state: process.waitsForYou ? .waiting : process.running ? .running : .done, tint: tint)
                     Text(process.running ? process.doing ?? "在弄" : process.summary ?? "")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .flooShimmer(process.running)
+                        .flooShimmer(process.running && !process.waitsForYou)
                         .id(process.running ? process.doing : process.summary)
                         .transition(.push(from: .bottom).combined(with: .opacity))
                     FlooSources(sources: process.sources)

@@ -74,6 +74,8 @@ struct FlooProcess: Hashable, Sendable {
     var tasks: [FlooTask] = []
     /// What it read itself, apart from what its tasks read.
     var read: [String] = []
+    /// It can't go on until you allow something on your device.
+    var waitsForYou = false
 
     /// What it's at: the last move of a thing it's still looking into, else its last step.
     var doing: String? {
@@ -136,6 +138,43 @@ struct FlooAsk: Equatable {
     let agent: FlooAgent
     let question: String
     let options: [String]
+    /// What you'd write if none of the options is it: picking "其他…" types it out.
+    var own: String?
+}
+
+/// Something an agent wants to do on one of your devices, as that device will do it: the
+/// operation and what it's done with, not the agent's words about it. Kept above the composer
+/// until you allow it or not.
+struct FlooApproval: Equatable {
+    let agent: FlooAgent
+    /// The device it runs on: "iPhone", "MacBook".
+    let device: String
+    let action: String
+    /// What it's done with, one thing a line: the event's title, its time, the reminder.
+    let details: [String]
+    /// The call itself, as the device gets it: the tool and its arguments.
+    let call: String
+    /// What allowing it is called: "允许", or for what can't be undone, what it does ("删除").
+    var confirm = "允许"
+    /// Can't be undone: asked every time, never covered by having allowed it before.
+    var dangerous = false
+    /// Runs on another of your devices; allowed here all the same.
+    var elsewhere = false
+    /// What you may allow from now on instead of just this once: this kind of call, the service.
+    var standing: [String] = []
+
+    /// "这台 iPhone", or "你的 MacBook" when it's another one.
+    var place: String { elsewhere ? "你的 \(device)" : "这台 \(device)" }
+}
+
+/// What you said to something an agent wanted to do on your device.
+enum FlooDecision: Equatable {
+    case once
+    /// Allowed from now on, as the standing choice put it.
+    case always(String)
+    case denied
+
+    var allowed: Bool { self != .denied }
 }
 
 @MainActor
@@ -207,6 +246,7 @@ final class FlooDemo {
     private(set) var presence: [(agent: FlooAgent, doing: String)] = []
     private(set) var composer = ""
     private(set) var ask: FlooAsk?
+    private(set) var approval: FlooApproval?
     private(set) var expanded: Set<String> = []
     /// What you said while an agent was mid-message: it waits over the composer, not yet
     /// seen, and takes its place once the agent has finished speaking.
@@ -221,6 +261,9 @@ final class FlooDemo {
     @ObservationIgnored private var nextID = 0
     @ObservationIgnored private var nextTouch = 0
     @ObservationIgnored private var answer: CheckedContinuation<Said, Never>?
+    @ObservationIgnored private var decision: CheckedContinuation<FlooDecision, Never>?
+    /// A question you're answering in your own words: over the composer while you write.
+    private(set) var answering: FlooAsk?
     @ObservationIgnored private(set) var sessions: [String: CardSession] = [:]
     @ObservationIgnored private var versions: [String: Int] = [:]
     @ObservationIgnored private var jumpTarget: String?
@@ -233,6 +276,10 @@ final class FlooDemo {
         // The script waiting on it is cancelled; what it gets back is never used.
         answer?.resume(returning: Said(id: -1, speaker: .me, text: "", receipt: nil))
         answer = nil
+        decision?.resume(returning: .denied)
+        decision = nil
+        approval = nil
+        answering = nil
         entries = []
         sessions = [:]
         versions = [:]
@@ -439,7 +486,10 @@ final class FlooDemo {
 
     private func refreshPresence(_ agent: FlooAgent) {
         let working = entries.compactMap { entry -> FlooProcess? in
-            if case .message(let message) = entry, message.agent == agent, let process = message.process, process.running {
+            // Waiting on you it isn't at anything: what it waits for is over the composer.
+            if case .message(let message) = entry, message.agent == agent, let process = message.process, process.running,
+                !process.waitsForYou
+            {
                 process
             } else {
                 nil
@@ -531,13 +581,20 @@ final class FlooDemo {
     }
 
     /// Asks the person and waits for an answer; the script answers for them after `autoAfter`
-    /// milliseconds if they don't. The answer is read at once, since the agent is waiting on it;
+    /// milliseconds if they don't, in its `own` words if it has them. The answer is read at once, since the agent is waiting on it;
     /// it's the script's to mark it answered when the agent acts on it.
-    func ask(_ agent: FlooAgent, _ question: String, options: [String], autoAfter: Int) async throws -> Said {
-        ask = FlooAsk(agent: agent, question: question, options: options)
+    func ask(
+        _ agent: FlooAgent,
+        _ question: String,
+        options: [String],
+        autoAfter: Int,
+        own: String? = nil
+    ) async throws -> Said {
+        ask = FlooAsk(agent: agent, question: question, options: options, own: own)
         let auto = Task { [weak self] in
             try await self?.wait(autoAfter)
-            self?.respond(options.last ?? "")
+            // With words of its own ready, the script shows answering that way.
+            if own != nil { self?.answerOwn() } else { self?.respond(options.last ?? "") }
         }
         let chosen = await withCheckedContinuation { answer = $0 }
         auto.cancel()
@@ -545,11 +602,59 @@ final class FlooDemo {
         return chosen
     }
 
+    /// Asks to do something on your device and waits for you; the script decides for you after
+    /// `autoAfter` milliseconds if you don't. Its work waits on you meanwhile.
+    func approve(
+        _ approval: FlooApproval,
+        for message: Message,
+        autoAfter: Int,
+        deciding: FlooDecision
+    ) async throws -> FlooDecision {
+        self.approval = approval
+        message.process?.waitsForYou = true
+        workChanged(message.agent)
+        let auto = Task { [weak self] in
+            try await self?.wait(autoAfter)
+            self?.decide(deciding)
+        }
+        let decided = await withCheckedContinuation { decision = $0 }
+        auto.cancel()
+        message.process?.waitsForYou = false
+        workChanged(message.agent)
+        try Task.checkCancellation()
+        return decided
+    }
+
+    func decide(_ decided: FlooDecision) {
+        guard let continuation = decision else { return }
+        decision = nil
+        approval = nil
+        continuation.resume(returning: decided)
+    }
+
     func respond(_ option: String) {
-        guard let continuation = answer else { return }
+        guard let continuation = answer, let asked = ask else { return }
         answer = nil
         ask = nil
-        continuation.resume(returning: say(.me, option, receipt: .read))
+        continuation.resume(returning: say(.me, option, receipt: .read, quote: asked.question))
+    }
+
+    /// None of the options: you answer in your own words, the question over the composer
+    /// while you write.
+    func answerOwn() {
+        guard let continuation = answer, let asked = ask, let own = asked.own else { return }
+        answer = nil
+        ask = nil
+        answering = asked
+        Task {
+            try? await typeOut(own)  // try?: cut short, it's sent as far as it got
+            // Reset meanwhile: the script waiting on it is gone.
+            guard answering == asked else {
+                return continuation.resume(returning: Said(id: -1, speaker: .me, text: "", receipt: nil))
+            }
+            answering = nil
+            continuation.resume(returning: say(.me, own, receipt: .read, quote: asked.question))
+        }
     }
 
     /// Opens the conversation where it was last read rather than at its end.

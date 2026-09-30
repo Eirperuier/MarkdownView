@@ -83,6 +83,15 @@ struct FlooDestination: View {
                 }
             }
             bottom
+                // Something opened over the composer: what was at the bottom stays in sight.
+                // Once the list has taken its new height: before, its bottom is where it was.
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(450))  // try?: cancelled, no matter
+                        guard demo.following else { return }
+                        demo.scrollPosition.scrollTo(edge: .bottom, animated: true)
+                    }
+                }
         }
         .toolbar(.hidden, for: .navigationBar)
         .task { play() }
@@ -121,8 +130,16 @@ struct FlooDestination: View {
 
     private var bottom: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let approval = demo.approval {
+                FlooApprovalBar(approval: approval) { demo.decide($0) }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             if let ask = demo.ask {
-                FlooAskBar(ask: ask) { demo.respond($0) }
+                FlooAskBar(ask: ask, respond: { demo.respond($0) }, own: { demo.answerOwn() })
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if let answering = demo.answering {
+                FlooAnswering(ask: answering)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             ForEach(demo.queued, id: \.id) { said in
@@ -163,6 +180,8 @@ struct FlooDestination: View {
         .padding(.top, 8)
         .padding(.bottom, 6)
         .animation(.snappy, value: demo.ask)
+        .animation(.snappy, value: demo.approval)
+        .animation(.snappy, value: demo.answering)
         .animation(.snappy, value: demo.queued.map(\.id))
         .animation(.snappy, value: demo.showsErrands)
         .animation(.snappy, value: demo.presence.isEmpty)
@@ -231,10 +250,12 @@ private struct FlooQueued: View {
     }
 }
 
-/// A question an agent is waiting on you for; stays until you answer.
+/// A question an agent is waiting on you for; stays until you answer. None of the options
+/// fits: "其他…" and you say it yourself.
 private struct FlooAskBar: View {
     let ask: FlooAsk
     let respond: (String) -> Void
+    let own: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -245,17 +266,133 @@ private struct FlooAskBar: View {
             .font(.caption.weight(.semibold))
             .foregroundStyle(ask.agent.tint)
             Text(ask.question).font(.subheadline)
-            HStack(spacing: 8) {
+            FlowLayoutRow {
                 ForEach(ask.options, id: \.self) { option in
                     Button(option) { respond(option) }
                         .buttonStyle(.bordered)
-                        .controlSize(.small)
+                }
+                if ask.own != nil {
+                    Button(action: own) {
+                        Label("其他…", systemImage: "pencil")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
                 }
             }
+            .controlSize(.small)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(ask.agent.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+/// The question you're answering in your own words, over the composer while you write.
+private struct FlooAnswering: View {
+    let ask: FlooAsk
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Capsule().fill(ask.agent.tint.opacity(0.6)).frame(width: 2.5)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("回答\(ask.agent.rawValue)").font(.caption.weight(.semibold)).foregroundStyle(ask.agent.tint)
+                Text(ask.question).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 6)
+    }
+}
+
+/// Buttons in a row, as many as fit.
+private struct FlowLayoutRow<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { content }
+            VStack(alignment: .leading, spacing: 8) { content }
+        }
+    }
+}
+
+/// Something an agent wants to do on one of your devices, as that device will do it; allowed
+/// from the one in your hand whichever it runs on. Allowing is for this once; held, it offers
+/// more. What can't be undone is only ever allowed once.
+private struct FlooApprovalBar: View {
+    let approval: FlooApproval
+    let decide: (FlooDecision) -> Void
+    @State private var details = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: approval.device.contains("Mac") ? "laptopcomputer" : "iphone")
+                Text("\(approval.agent.rawValue) 要在\(approval.place) 上")
+                Spacer(minLength: 8)
+                Button {
+                    details.toggle()
+                } label: {
+                    Text(details ? "收起" : "详情").font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(approval.agent.tint)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(approval.action).font(.subheadline.weight(.medium))
+                ForEach(approval.details, id: \.self) { detail in
+                    Text(detail).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            if details {
+                Text(approval.call)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button("不用了") { decide(.denied) }
+                    .buttonStyle(.bordered)
+                    .tint(.secondary)
+                if approval.dangerous || approval.standing.isEmpty {
+                    Button(approval.confirm) { decide(.once) }
+                        .buttonStyle(.borderedProminent)
+                        .tint(approval.dangerous ? .red : approval.agent.tint)
+                } else {
+                    Menu {
+                        Button("仅这一次") { decide(.once) }
+                        ForEach(approval.standing, id: \.self) { choice in
+                            Button(choice) { decide(.always(choice)) }
+                        }
+                    } label: {
+                        Text(approval.confirm)
+                    } primaryAction: {
+                        decide(.once)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(approval.agent.tint)
+                }
+            }
+            .controlSize(.small)
+            if let hint = approval.dangerous
+                ? "这类操作每次都要你确认" : approval.standing.isEmpty ? nil : "长按「\(approval.confirm)」可以以后都允许"
+            {
+                Text(hint)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(approval.agent.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .animation(.snappy, value: details)
     }
 }
 
