@@ -152,6 +152,9 @@ final class ChatBenchmark {
         let id = UUID()
         let scenario: String
         let wallMilliseconds: Double
+        /// Main thread CPU time: the work itself, which a busy machine doesn't skew as it
+        /// does frame times.
+        let cpuMilliseconds: Double
         let stats: FrameStats
         let jitterFrames: Int
         let maxJitter: CGFloat
@@ -398,13 +401,16 @@ final class ChatBenchmark {
         // An interval per scenario, to line Instruments traces (Animation Hitches, say) up with it.
         let interval = Self.signposter.beginInterval("scenario", "\(scenario)")
         let start = CACurrentMediaTime()
+        let cpuStart = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         await body()
+        let cpu = Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - cpuStart) / 1_000_000
         let wall = (CACurrentMediaTime() - start) * 1000
         Self.signposter.endInterval("scenario", interval)
         clock.onFrame = nil
         let result = Result(
             scenario: scenario,
             wallMilliseconds: wall,
+            cpuMilliseconds: cpu,
             stats: clock.stop(),
             jitterFrames: jitter.jitterFrames,
             maxJitter: jitter.maxDeviation,
@@ -429,6 +435,7 @@ final class ChatBenchmark {
             ("platform", "\"\(Self.platform)\""),
             ("scenario", "\"\(result.scenario)\""),
             ("wall_ms", String(format: "%.1f", result.wallMilliseconds)),
+            ("cpu_ms", String(format: "%.1f", result.cpuMilliseconds)),
             ("frames", stats.frames),
             ("budget_ms", String(format: "%.2f", stats.budgetMilliseconds)),
             ("hitch_ms_per_s", String(format: "%.2f", stats.hitchMillisecondsPerSecond)),
