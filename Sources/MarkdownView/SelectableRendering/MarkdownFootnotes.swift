@@ -194,7 +194,7 @@ public enum MarkdownFootnoteSyntax {
     /// `^[content]` 在源 AST plain 坐标系的单位数:字面 `^` `[` `]` 各 1 + 内容 inline 的 plain 计数
     /// (内容里的 markup 定界符不计,与 MarkdownRevealPlainText 同源)。
     static func inlinePlainSpan(content: String) -> Int {
-        let document = Document(parsing: content)
+        let document = Markdown.Document(parsing: content)
         let plain = document.children.map { $0.markdownRevealPlainText }.joined()
         return plain.count + 3
     }

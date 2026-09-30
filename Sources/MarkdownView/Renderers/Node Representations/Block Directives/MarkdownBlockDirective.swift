@@ -35,7 +35,7 @@ struct MarkdownBlockDirective: View {
             // 整条消息渲染成空白。回退为按**原文**当普通 markdown 渲染(re-parse 时
             // 默认不开 directive,无递归)。
             CmarkNodeVisitor(configuration: configuration)
-                .makeBody(for: Document(parsing: blockDirective.format()))
+                .makeBody(for: Markdown.Document(parsing: blockDirective.format()))
         }
     }
 }
