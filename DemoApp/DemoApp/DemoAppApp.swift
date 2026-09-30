@@ -7,11 +7,13 @@
 
 import SwiftUI
 import MarkdownView
+import MessagingUI
 
 @main
 struct DemoAppApp: App {
     init() {
         prewarmMarkdownMathRenderer()
+        TrackpadScrollMomentum.install()
     }
 
     var body: some Scene {
