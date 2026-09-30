@@ -102,7 +102,9 @@ final class JitterProbe {
 /// Each row's rendered height, as the row itself lays out (reported by the row view).
 @MainActor
 final class ChatRenderedHeights {
-    var heights: [String: CGFloat] = [:]
+    /// The size each row last rendered at. The width tells a row's cell from another host
+    /// rendering the same row off screen at another width (measuring, or pooled).
+    var sizes: [String: CGSize] = [:]
 }
 
 /// Watches for rows whose layout height stays different from the height they render at:
@@ -128,7 +130,8 @@ final class StaleHeightProbe {
         var stale: CGFloat = 0
         var mismatched = Set<String>()
         for (id, frame) in reader.contentFrames(intersecting: CGRect(x: 0, y: offset, width: 100_000, height: height)) {
-            guard let renderedHeight = rendered.heights[id] else { continue }
+            guard let renderedSize = rendered.sizes[id], abs(renderedSize.width - frame.width) < 1 else { continue }
+            let renderedHeight = renderedSize.height
             let mismatch = abs(renderedHeight - frame.height)
             guard mismatch > 1 else { continue }
             mismatched.insert(id)
@@ -376,7 +379,10 @@ final class ChatBenchmark {
 
     private func measure(_ scenario: String, _ body: () async -> Void) async {
         if let only = Self.onlyScenarios, !only.contains(scenario) {
+            // Untimed, but the clock still drives the scenarios that scroll frame by frame.
+            clock.start()
             await body()
+            clock.stop()
             return
         }
         clock.start()

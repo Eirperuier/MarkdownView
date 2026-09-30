@@ -202,8 +202,8 @@ struct ChatRowCell: TiledCellContent {
     func body(context: CellContext<Void>) -> some View {
         ChatRowView(row: item, conversation: conversation, selection: selection)
             // The height the row renders at, for the benchmark to hold the list's layout against.
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [renderedHeights, id = item.id] height in
-                MainActor.assumeIsolated { renderedHeights.heights[id] = height }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { [renderedHeights, id = item.id] size in
+                MainActor.assumeIsolated { renderedHeights.sizes[id] = size }
             }
     }
 }
