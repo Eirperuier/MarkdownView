@@ -367,7 +367,7 @@
 /* Begin XCRemoteSwiftPackageReference section */
 		8C21E5C02D9E7FB20097554E /* XCRemoteSwiftPackageReference "swiftui-messaging-ui" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Eirperuier/swiftui-messaging-ui.git";
+			repositoryURL = "https://github.com/techx-academy/floo-swiftui-messaging-ui.git";
 			requirement = {
 				kind = revision;
 				revision = c8f9bd755c5ec8c4b6735cb6a67ae29821903ca8;
