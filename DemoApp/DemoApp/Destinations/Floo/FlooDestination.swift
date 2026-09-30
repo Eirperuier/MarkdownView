@@ -380,8 +380,8 @@ private struct FlooApprovalBar: View {
                 }
             }
             .controlSize(.small)
-            if let hint = approval.dangerous
-                ? "这类操作每次都要你确认" : approval.standing.isEmpty ? nil : "长按「\(approval.confirm)」可以以后都允许"
+            if let hint = approval.dangerous || approval.standing.isEmpty
+                ? nil : "长按「\(approval.confirm)」可以以后都允许"
             {
                 Text(hint)
                     .font(.caption2)

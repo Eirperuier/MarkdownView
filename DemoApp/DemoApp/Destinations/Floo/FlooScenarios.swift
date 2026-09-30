@@ -132,10 +132,11 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
 
     // MARK: On your devices
 
-    /// It works on your devices: reading your calendar it just does, on the phone in your hand;
-    /// changing it waits for you, shown as what the phone will do, not as its words. What can't
-    /// be undone is asked every time, and no is an answer too. What only your Mac has, you
-    /// allow on the Mac.
+    /// It works on your devices, as when you've chosen to be asked (by default nothing is, not
+    /// even deleting): reading your calendar it just does, on the phone in your hand; changing
+    /// it waits for you, shown as what the phone will do, not as its words. What can't be undone
+    /// has no standing choice, and no is an answer too. What only your Mac has, you allow on
+    /// the Mac.
     private static func onDevice(_ m: FlooDemo) async throws {
         m.reset(title: "管家")
         m.time("10:12")
