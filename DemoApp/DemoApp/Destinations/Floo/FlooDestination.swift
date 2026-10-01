@@ -134,12 +134,27 @@ struct FlooDestination: View {
                 FlooApprovalBar(approval: approval) { demo.decide($0) }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            if let ask = demo.ask {
-                FlooAskBar(ask: ask, respond: { demo.respond($0) }, own: { demo.answerOwn() })
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            if !demo.openAsks.isEmpty {
+                if demo.showsAsks {
+                    FlooAskList(waiting: demo.openAsks) { demo.jump(toAsk: $0) }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                // What's waiting on you; one jumps to its card, more open the list.
+                Button {
+                    if demo.openAsks.count > 1 {
+                        demo.showsAsks.toggle()
+                    } else if let waiting = demo.openAsks.first {
+                        demo.jump(toAsk: waiting)
+                    }
+                } label: {
+                    FlooWaiting(count: demo.openAsks.count, tint: demo.openAsks.first?.card.agent.tint ?? .accentColor,
+                                opens: demo.openAsks.count > 1, open: demo.showsAsks)
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
             }
             if let answering = demo.answering {
-                FlooAnswering(ask: answering)
+                FlooAnswering(item: answering)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             ForEach(demo.queued, id: \.id) { said in
@@ -179,7 +194,8 @@ struct FlooDestination: View {
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 6)
-        .animation(.snappy, value: demo.ask)
+        .animation(.snappy, value: demo.openAsks.count)
+        .animation(.snappy, value: demo.showsAsks)
         .animation(.snappy, value: demo.approval)
         .animation(.snappy, value: demo.answering)
         .animation(.snappy, value: demo.queued.map(\.id))
@@ -250,53 +266,87 @@ private struct FlooQueued: View {
     }
 }
 
-/// A question an agent is waiting on you for; stays until you answer. None of the options
-/// fits: "其他…" and you say it yourself.
-private struct FlooAskBar: View {
-    let ask: FlooAsk
-    let respond: (String) -> Void
-    let own: () -> Void
+/// What's waiting on you over the composer: one line however many asks are open.
+private struct FlooWaiting: View {
+    let count: Int
+    let tint: Color
+    /// Whether it opens the list of open asks, and whether that's open.
+    var opens = false
+    var open = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "hourglass")
-                Text("\(ask.agent.rawValue) 在等你")
+        HStack(spacing: 6) {
+            Image(systemName: "hourglass")
+            Text("\(count) 件在等你").fontWeight(.medium)
+            if opens {
+                Image(systemName: "chevron.up")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(open ? 180 : 0))
             }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(ask.agent.tint)
-            Text(ask.question).font(.subheadline)
-            FlowLayoutRow {
-                ForEach(ask.options, id: \.self) { option in
-                    Button(option) { respond(option) }
-                        .buttonStyle(.bordered)
-                }
-                if ask.own != nil {
-                    Button(action: own) {
-                        Label("其他…", systemImage: "pencil")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                }
-            }
-            .controlSize(.small)
+            Spacer(minLength: 0)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ask.agent.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .font(.caption)
+        .foregroundStyle(tint)
+        .padding(.horizontal, 6)
+        .contentShape(Rectangle())
     }
 }
 
-/// The question you're answering in your own words, over the composer while you write.
+/// The open asks, over the composer when there's more than one to jump to.
+private struct FlooAskList: View {
+    let waiting: [(message: Int, card: FlooAskCard)]
+    let jump: ((message: Int, card: FlooAskCard)) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(waiting.enumerated()), id: \.element.card.id) { index, entry in
+                if index > 0 {
+                    Rectangle().fill(.primary.opacity(0.08)).frame(height: 0.5).padding(.leading, 35)
+                }
+                Button {
+                    jump(entry)
+                } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "hourglass")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(entry.card.agent.tint)
+                            .frame(width: 15)
+                            .padding(.top, 2)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.card.agent.rawValue)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(entry.card.agent.tint)
+                            Text(entry.card.items.first { $0.answer == nil }?.question ?? "")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 8)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .secondarySystemBackground).opacity(0.7), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+/// What you're answering in your own words, over the composer while you write.
 private struct FlooAnswering: View {
-    let ask: FlooAsk
+    let item: FlooAnsweringItem
 
     var body: some View {
         HStack(spacing: 8) {
-            Capsule().fill(ask.agent.tint.opacity(0.6)).frame(width: 2.5)
+            Capsule().fill(item.agent.tint.opacity(0.6)).frame(width: 2.5)
             VStack(alignment: .leading, spacing: 1) {
-                Text("回答\(ask.agent.rawValue)").font(.caption.weight(.semibold)).foregroundStyle(ask.agent.tint)
-                Text(ask.question).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text("回答\(item.agent.rawValue)").font(.caption.weight(.semibold)).foregroundStyle(item.agent.tint)
+                Text(item.question).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
@@ -467,7 +517,19 @@ private struct FlooRowView: View {
         case .fence(let language, let body, _):
             fence(language, body)
                 .padding(.vertical, 6)
+        case .choice(let choices, let chosen):
+            FlooOptions(choices: choices, chosen: chosen, tint: tint, demo: demo) { index, option in
+                demo.choose(row.id, index, option)
+            }
+            .padding(.vertical, 6)
+        case .ask(let card):
+            FlooAskView(card: card, demo: demo)
+                .padding(.vertical, 6)
         }
+    }
+
+    private var tint: Color {
+        row.message.flatMap(demo.message)?.agent.tint ?? .accentColor
     }
 
     // MARK: People
@@ -629,6 +691,326 @@ private struct FlooRowView: View {
     }
 }
 
+/// Tappable next steps under a sentence or inside an ask: bordered chips, full-width rows
+/// when an option has a detail line, or a row of tiles when it carries an image or a small
+/// card. An option not yet tappable is dimmed; the one you picked is marked 选了, and picking
+/// another later is allowed.
+private struct FlooOptions: View {
+    let choices: [FlooChoice]
+    var chosen: Int? = nil
+    let tint: Color
+    let demo: FlooDemo
+    let pick: (Int, FlooOption) -> Void
+
+    private var tiled: Bool { choices.contains { $0.option.image != nil || $0.option.from != nil } }
+    private var detailed: Bool { choices.contains { $0.option.detail != nil } }
+
+    var body: some View {
+        if tiled { tiles } else if detailed { rows } else { chips }
+    }
+
+    private var chips: some View {
+        FlowLayoutRow {
+            ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
+                Button {
+                    pick(index, choice.option)
+                } label: {
+                    // Conditional views inside a Button label don't re-render on
+                    // TiledView's reconfigure pass — keep the mark always in the tree.
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark")
+                            .font(.caption2.weight(.bold))
+                            .opacity(chosen == index ? 1 : 0)
+                            .frame(width: chosen == index ? nil : 0)
+                        Text(choice.option.label)
+                        Text("选了")
+                            .font(.caption.weight(.medium))
+                            .opacity(chosen == index ? 1 : 0)
+                            .frame(width: chosen == index ? nil : 0)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .tint(chosen == index ? tint : nil)
+                .disabled(!choice.tappable)
+                .opacity(choice.tappable ? 1 : 0.45)
+            }
+        }
+        .controlSize(.small)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Options that carry a detail line, one tappable row each.
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
+                Button {
+                    pick(index, choice.option)
+                } label: {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(tint)
+                            .opacity(chosen == index ? 1 : 0)
+                            .frame(width: chosen == index ? nil : 0)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(choice.option.label).font(.subheadline.weight(.semibold))
+                                Text("选了")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(tint)
+                                    .opacity(chosen == index ? 1 : 0)
+                                    .frame(width: chosen == index ? nil : 0)
+                            }
+                            if let detail = choice.option.detail {
+                                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(tint.opacity(chosen == index ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(.primary.opacity(0.08), lineWidth: 0.5)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!choice.tappable)
+                .opacity(choice.tappable ? 1 : 0.45)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var tiles: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 10) {
+                ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
+                    Button {
+                        pick(index, choice.option)
+                    } label: {
+                        tile(choice, index: index)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!choice.tappable)
+                    .opacity(choice.tappable ? 1 : 0.45)
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func tile(_ choice: FlooChoice, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let image = choice.option.image {
+                Image(image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 150, height: 96)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            } else if let from = choice.option.from {
+                optionFrom(from)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(tint)
+                        .opacity(chosen == index ? 1 : 0)
+                        .frame(width: chosen == index ? nil : 0)
+                    Text(choice.option.label)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(chosen == index ? tint : .primary)
+                        .lineLimit(2)
+                    Text("选了")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(tint)
+                        .opacity(chosen == index ? 1 : 0)
+                        .frame(width: chosen == index ? nil : 0)
+                }
+                if let detail = choice.option.detail {
+                    Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+        }
+        .frame(width: 172, alignment: .topLeading)
+        .padding(8)
+        .background(Color(uiColor: .secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    /// What a `from:` option carries: the result's small card, or a compact mention.
+    @ViewBuilder
+    private func optionFrom(_ from: String) -> some View {
+        if let mention = FlooDemoMentions.all[from] {
+            MentionView(mention, now: FlooDemoMentions.date(30, 16, 0))
+        } else if let session = demo.card(from) {
+            FlooCardFrame(size: FlooDemoCards.all[from]?.size ?? .small) { CardView(tree: session.tree) }
+        }
+    }
+}
+
+/// An agent's ask on the message that asked it: its items answered one at a time, the card
+/// and the entry over the composer turning answered together.
+private struct FlooAskView: View {
+    let card: FlooAskCard
+    let demo: FlooDemo
+    /// Toggled options of a choose(multiple:) item, before "好了" sends them.
+    @State private var picked: [Int: Set<Int>] = [:]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                Text("\(card.agent.rawValue) \(state)")
+                if card.items.count > 1 {
+                    Text("· \(card.items.count) 项")
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(card.state == .open ? card.agent.tint : .secondary)
+            ForEach(Array(card.items.enumerated()), id: \.offset) { index, item in
+                self.item(item, at: index)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            card.state == .answered ? Color(uiColor: .secondarySystemBackground) : card.agent.tint.opacity(0.08),
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+    }
+
+    private var icon: String {
+        switch card.state {
+        case .open: "hourglass"
+        case .answered: "checkmark"
+        case .withdrawn: "xmark"
+        case .expired: "clock"
+        }
+    }
+
+    private var state: String {
+        switch card.state {
+        case .open: "在问你"
+        case .answered: "已答"
+        case .withdrawn: "已撤回"
+        case .expired: "过期了"
+        }
+    }
+
+    private var dead: Bool { card.state == .withdrawn || card.state == .expired }
+
+    @ViewBuilder
+    private func item(_ item: FlooAskItem, at index: Int) -> some View {
+        if let answer = item.answer {
+            Label("你答了：\(answer)", systemImage: "checkmark.circle.fill")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(item.question)
+                    .font(.subheadline)
+                    .strikethrough(dead)
+                    .foregroundStyle(dead ? .secondary : .primary)
+                if card.state == .open {
+                    form(item, at: index)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func form(_ item: FlooAskItem, at index: Int) -> some View {
+        switch item.form {
+        case .choose(let options, let multiple, let own):
+            if multiple {
+                FlowLayoutRow {
+                    ForEach(Array(options.enumerated()), id: \.offset) { option, o in
+                        let on = picked[index, default: []].contains(option)
+                        Button(o.label) {
+                            picked[index, default: []] = picked[index, default: []].symmetricDifference([option])
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .tint(on ? card.agent.tint : .secondary)
+                    }
+                    Button("好了") {
+                        demo.answerAsk(card.id, item: index, .options(Array(picked[index, default: []])))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(card.agent.tint)
+                    .disabled(picked[index, default: []].isEmpty)
+                }
+                .controlSize(.small)
+            } else {
+                FlooOptions(choices: options.map { FlooChoice(option: $0, tappable: true) },
+                            tint: card.agent.tint, demo: demo) { option, _ in
+                    demo.answerAsk(card.id, item: index, .option(option))
+                }
+                if own != nil {
+                    Button {
+                        demo.answerAsk(card.id, item: index, .own)
+                    } label: {
+                        Label("其他…", systemImage: "pencil")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .controlSize(.small)
+                }
+            }
+        case .confirm(let effect, let yes, let no):
+            Text(effect).font(.footnote).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button(yes) { demo.answerAsk(card.id, item: index, .confirm(true)) }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(card.agent.tint)
+                Button(no) { demo.answerAsk(card.id, item: index, .confirm(false)) }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+            }
+            .controlSize(.small)
+        case .fill(let fields):
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(fields, id: \.label) { field in
+                    HStack(spacing: 8) {
+                        Label(field.label, systemImage: Self.fieldIcon(field.kind))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 110, alignment: .leading)
+                        Text(field.guess)
+                            .font(.footnote.weight(.medium))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(card.agent.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                }
+            }
+            Button("就这样") { demo.answerAsk(card.id, item: index, .fill) }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+        }
+    }
+
+    private static func fieldIcon(_ kind: FlooAskItem.Field.Kind) -> String {
+        switch kind {
+        case .text: "textformat"
+        case .number: "number"
+        case .date: "calendar"
+        case .time: "clock"
+        case .place: "mappin"
+        case .person: "person"
+        }
+    }
+}
+
 private struct FlooReceiptLabel: View {
     let receipt: FlooReceipt
 
@@ -711,6 +1093,22 @@ extension FlooRow {
             return 40 + CGFloat(process.tasks.count) * 44 + CGFloat(steps) * 21
         case .block(let block, _): return prose(block.source) + 10
         case .fence(let language, _, _): return language == "floo.mention" ? 90 : 220
+        case .choice(let choices, _):
+            if choices.contains(where: { $0.option.image != nil || $0.option.from != nil }) { return 230 }
+            if choices.contains(where: { $0.option.detail != nil }) { return 14 + CGFloat(choices.count) * 56 }
+            return 56
+        case .ask(let card):
+            return 60 + CGFloat(card.items.reduce(0) { sum, item in
+                if item.answer != nil { return sum + 24 }
+                switch item.form {
+                case .choose(let options, _, _):
+                    if options.contains(where: { $0.image != nil || $0.from != nil }) { return sum + 250 }
+                    if options.contains(where: { $0.detail != nil }) { return sum + 46 + options.count * 56 }
+                    return sum + 90
+                case .confirm: return sum + 100
+                case .fill(let fields): return sum + 40 + fields.count * 30
+                }
+            })
         }
     }
 }

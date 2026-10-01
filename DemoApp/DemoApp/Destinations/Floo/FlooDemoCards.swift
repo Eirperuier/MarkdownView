@@ -306,6 +306,50 @@ VStack(alignment: .leading, spacing: 14) {
 """#,
             size: .medium
         ),
+        "g7315": Card(
+            source: #"""
+VStack(alignment: .leading, spacing: 6) {
+    Label("G7315", systemImage: "train.side.front.car")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.indigo)
+    HStack(alignment: .firstTextBaseline, spacing: 5) {
+        Text("9:15").font(.title3.weight(.bold).monospacedDigit())
+        Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
+        Text("9:48").font(.title3.weight(.bold).monospacedDigit())
+    }
+    Text("上海虹桥 → 苏州")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    Text("二等座有票")
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(.green)
+}
+"""#,
+            data: "{}",
+            size: .small
+        ),
+        "g7001": Card(
+            source: #"""
+VStack(alignment: .leading, spacing: 6) {
+    Label("G7001", systemImage: "train.side.front.car")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.indigo)
+    HStack(alignment: .firstTextBaseline, spacing: 5) {
+        Text("8:05").font(.title3.weight(.bold).monospacedDigit())
+        Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
+        Text("8:40").font(.title3.weight(.bold).monospacedDigit())
+    }
+    Text("上海虹桥 → 苏州")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    Text("只剩一等座")
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(.orange)
+}
+"""#,
+            data: "{}",
+            size: .small
+        ),
         "arcaea": Card(
             source: #"""
 VStack(alignment: .leading, spacing: 14) {

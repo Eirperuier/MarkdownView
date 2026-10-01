@@ -126,6 +126,10 @@ struct FlooRow: Identifiable, Equatable {
         case block(MarkdownStreamBlock, streaming: Bool)
         /// A ```floo.* fence: its language, what's in it, and how far its card is drawn.
         case fence(String, String, version: Int)
+        /// A ```floo.choice fence: its options so far, and which one you picked if you did.
+        case choice([FlooChoice], chosen: Int?)
+        /// An ask card on a message: in the conversation where it was asked.
+        case ask(FlooAskCard)
     }
 
     let id: String
@@ -133,13 +137,74 @@ struct FlooRow: Identifiable, Equatable {
     let kind: Kind
 }
 
-/// A question an agent is waiting on you for, kept above the composer until answered.
-struct FlooAsk: Equatable {
+/// One option of a choice or an ask: a few words, and the complete request tapping it sends.
+/// `image` is an asset name here, standing in for a tool-result URL; `from` keys a mention or
+/// a small card shown on the option.
+struct FlooOption: Hashable {
+    var label: String
+    var send: String?
+    var detail: String?
+    var image: String?
+    var from: String?
+}
+
+/// A floo.choice option as a row shows it: it can be tapped once its `send:` line is whole.
+struct FlooChoice: Hashable {
+    let option: FlooOption
+    let tappable: Bool
+}
+
+/// Something an agent asks without stopping: the card rides on the message that asked, the
+/// agent goes on, and it stays until answered, withdrawn, or expired.
+struct FlooAskItem: Hashable {
+    enum Form: Hashable {
+        /// Pick one or more; `own` is what the script types when "其他…" is the answer.
+        case choose(options: [FlooOption], multiple: Bool, own: String?)
+        /// Whether to do what `effect` says will happen.
+        case confirm(effect: String, yes: String, no: String)
+        /// A few things to fill in, each with the agent's guess.
+        case fill(fields: [Field])
+    }
+
+    struct Field: Hashable {
+        let label: String
+        let kind: Kind
+        var guess: String
+        enum Kind { case text, number, date, time, place, person }
+    }
+
+    /// A short name, for the quote the answer carries: "修复方向".
+    let title: String
+    let question: String
+    let form: Form
+    /// nil while it's still open.
+    var answer: String?
+}
+
+struct FlooAskCard: Hashable, Identifiable {
+    let id: String
+    let agent: FlooAgent
+    var items: [FlooAskItem]
+    var state: State
+    enum State { case open, answered, withdrawn, expired }
+}
+
+/// How an ask's item gets answered, by you or by the script answering for you.
+enum FlooAnswerPick {
+    case option(Int)
+    /// Several of a choose(multiple:) item.
+    case options([Int])
+    /// In your own words: the item's `own` is typed out over the composer, then sent.
+    case own
+    case confirm(Bool)
+    /// Its guesses are right as they are.
+    case fill
+}
+
+/// An item you're answering in your own words, over the composer while you write.
+struct FlooAnsweringItem: Equatable {
     let agent: FlooAgent
     let question: String
-    let options: [String]
-    /// What you'd write if none of the options is it: picking "其他…" types it out.
-    var own: String?
 }
 
 /// Something an agent wants to do on one of your devices, as that device will do it: the
@@ -213,6 +278,8 @@ final class FlooDemo {
         /// Its work shows under what it said (a quick answer, then the slow work it started),
         /// not above it.
         var processAfterText = false
+        /// What it asked without stopping: cards on this message, after its words.
+        var asks: [FlooAskCard] = []
         var splitter = MarkdownBlockSplitter(customFence: { language, source in
             guard language.hasPrefix("floo.") else { return nil }
             // In the list from its first whole line: what the card will show, or what it points
@@ -245,7 +312,8 @@ final class FlooDemo {
     /// Who is doing what right now, in the order they started.
     private(set) var presence: [(agent: FlooAgent, doing: String)] = []
     private(set) var composer = ""
-    private(set) var ask: FlooAsk?
+    /// The asks still open, oldest message first: what the line over the composer counts.
+    private(set) var openAsks: [(message: Int, card: FlooAskCard)] = []
     private(set) var approval: FlooApproval?
     private(set) var expanded: Set<String> = []
     /// What you said while an agent was mid-message: it waits over the composer, not yet
@@ -260,10 +328,17 @@ final class FlooDemo {
     @ObservationIgnored private var entries: [Entry] = []
     @ObservationIgnored private var nextID = 0
     @ObservationIgnored private var nextTouch = 0
-    @ObservationIgnored private var answer: CheckedContinuation<Said, Never>?
+    /// Which option of a floo.choice fence you picked, by the fence's row: picking another
+    /// later is allowed.
+    private var chosen: [String: Int] = [:]
+    @ObservationIgnored private var choiceSaid: [String: (option: FlooOption, said: Said)] = [:]
+    @ObservationIgnored private var choiceWaits: [String: CheckedContinuation<(option: FlooOption, said: Said), Never>] = [:]
+    @ObservationIgnored private var askWaits: [String: CheckedContinuation<Said, Never>] = [:]
     @ObservationIgnored private var decision: CheckedContinuation<FlooDecision, Never>?
-    /// A question you're answering in your own words: over the composer while you write.
-    private(set) var answering: FlooAsk?
+    /// The list of open asks, open over the composer.
+    var showsAsks = false
+    /// What you're answering in your own words: over the composer while you write.
+    private(set) var answering: FlooAnsweringItem?
     @ObservationIgnored private(set) var sessions: [String: CardSession] = [:]
     @ObservationIgnored private var versions: [String: Int] = [:]
     @ObservationIgnored private var jumpTarget: String?
@@ -274,10 +349,15 @@ final class FlooDemo {
 
     func reset(title: String) {
         // The script waiting on it is cancelled; what it gets back is never used.
-        answer?.resume(returning: Said(id: -1, speaker: .me, text: "", receipt: nil))
-        answer = nil
+        let cancelled = Said(id: -1, speaker: .me, text: "", receipt: nil)
+        for wait in choiceWaits.values { wait.resume(returning: (FlooOption(label: ""), cancelled)) }
+        for wait in askWaits.values { wait.resume(returning: cancelled) }
         decision?.resume(returning: .denied)
         decision = nil
+        choiceWaits = [:]
+        askWaits = [:]
+        choiceSaid = [:]
+        chosen = [:]
         approval = nil
         answering = nil
         entries = []
@@ -285,7 +365,8 @@ final class FlooDemo {
         versions = [:]
         presence = []
         composer = ""
-        ask = nil
+        openAsks = []
+        showsAsks = false
         expanded = []
         queued = []
         showsErrands = false
@@ -580,26 +661,159 @@ final class FlooDemo {
         if let doing { presence.append((agent, doing)) }
     }
 
-    /// Asks the person and waits for an answer; the script answers for them after `autoAfter`
-    /// milliseconds if they don't, in its `own` words if it has them. The answer is read at once, since the agent is waiting on it;
-    /// it's the script's to mark it answered when the agent acts on it.
-    func ask(
-        _ agent: FlooAgent,
-        _ question: String,
-        options: [String],
-        autoAfter: Int,
-        own: String? = nil
-    ) async throws -> Said {
-        ask = FlooAsk(agent: agent, question: question, options: options, own: own)
-        let auto = Task { [weak self] in
-            try await self?.wait(autoAfter)
-            // With words of its own ready, the script shows answering that way.
-            if own != nil { self?.answerOwn() } else { self?.respond(options.last ?? "") }
+    /// Asks without stopping: the card rides on the message that asked, the script goes on.
+    /// Answers come in as your messages, each quoting its item.
+    func ask(_ message: Message, _ card: FlooAskCard) {
+        message.asks.append(card)
+        publish()
+    }
+
+    /// Waits for one item of an ask; the script answers for you after `autoAfter`
+    /// milliseconds if you don't. Several asks and items can be waited on at once.
+    func awaitAnswer(_ id: String, item: Int, autoAfter: Int, auto: FlooAnswerPick) async throws -> Said {
+        if let message = askMessage(id), let card = message.asks.first(where: { $0.id == id }),
+           card.items.indices.contains(item), let answered = card.items[item].answer
+        {
+            return Said(id: -1, speaker: .me, text: answered, receipt: .read, quote: "回答「\(card.items[item].title)」")
         }
-        let chosen = await withCheckedContinuation { answer = $0 }
-        auto.cancel()
+        let automatic = Task { [weak self] in
+            try await self?.wait(autoAfter)
+            self?.answerAsk(id, item: item, auto)
+        }
+        let said = await withCheckedContinuation { askWaits["\(id)#\(item)"] = $0 }
+        automatic.cancel()
         try Task.checkCancellation()
-        return chosen
+        return said
+    }
+
+    /// Your answer to an item: a message of yours quoting it, and the card closes when every
+    /// item is answered.
+    func answerAsk(_ id: String, item index: Int, _ pick: FlooAnswerPick) {
+        guard let message = askMessage(id), let ci = message.asks.firstIndex(where: { $0.id == id }),
+              message.asks[ci].state == .open,
+              message.asks[ci].items.indices.contains(index), message.asks[ci].items[index].answer == nil
+        else { return }
+        let item = message.asks[ci].items[index]
+        let value: String
+        switch (pick, item.form) {
+        case (.option(let i), .choose(let options, _, _)) where options.indices.contains(i):
+            value = options[i].send ?? options[i].label
+        case (.options(let picked), .choose(let options, _, _)):
+            value = picked.sorted().compactMap { options.indices.contains($0) ? options[$0].send ?? options[$0].label : nil }
+                .joined(separator: "、")
+            guard !value.isEmpty else { return }
+        case (.confirm(let yes), .confirm(_, let y, let n)):
+            value = yes ? y : n
+        case (.fill, .fill(let fields)):
+            value = fields.map(\.guess).joined(separator: "，")
+        case (.own, .choose(_, _, let own)):
+            guard let own else { return }
+            answering = FlooAnsweringItem(agent: message.asks[ci].agent, question: item.question)
+            Task {
+                try? await typeOut(own)  // try?: cut short, it's sent as far as it got
+                // Reset meanwhile: the script waiting on it is gone.
+                guard answering == FlooAnsweringItem(agent: message.asks[ci].agent, question: item.question) else { return }
+                answering = nil
+                finishAnswer(id, item: index, own)
+            }
+            return
+        default:
+            return
+        }
+        finishAnswer(id, item: index, value)
+    }
+
+    private func finishAnswer(_ id: String, item index: Int, _ value: String) {
+        guard let message = askMessage(id), let ci = message.asks.firstIndex(where: { $0.id == id }) else { return }
+        message.asks[ci].items[index].answer = value
+        if message.asks[ci].items.allSatisfy({ $0.answer != nil }) { message.asks[ci].state = .answered }
+        let said = say(.me, value, receipt: .read, quote: "回答「\(message.asks[ci].items[index].title)」")
+        askWaits.removeValue(forKey: "\(id)#\(index)")?.resume(returning: said)
+    }
+
+    /// The ask is taken back: the card stays, struck through, and nothing waits on it.
+    func withdraw(_ id: String) {
+        guard let message = askMessage(id), let ci = message.asks.firstIndex(where: { $0.id == id }) else { return }
+        message.asks[ci].state = .withdrawn
+        for index in message.asks[ci].items.indices {
+            askWaits.removeValue(forKey: "\(id)#\(index)")?
+                .resume(returning: Said(id: -1, speaker: .me, text: "", receipt: nil))
+        }
+        publish()
+    }
+
+    private func askMessage(_ id: String) -> Message? {
+        for entry in entries {
+            if case .message(let message) = entry, message.asks.contains(where: { $0.id == id }) { return message }
+        }
+        return nil
+    }
+
+    /// Tapping a floo.choice option sends its `send` as your message and marks it 选了;
+    /// picking another later is allowed.
+    func choose(_ row: String, _ index: Int, _ option: FlooOption) {
+        chosen[row] = index
+        let said = say(.me, option.send ?? option.label, receipt: .read)
+        choiceSaid[row] = (option, said)
+        choiceWaits.removeValue(forKey: row)?.resume(returning: (option, said))
+    }
+
+    /// Waits for a tap on the `nth` choice fence of a message; the script taps option `auto`
+    /// for you after `autoAfter` milliseconds if you don't. Waits on different fences run
+    /// side by side.
+    func awaitChoice(_ message: Message, _ nth: Int = 0, autoAfter: Int, auto: Int) async throws -> (option: FlooOption, said: Said) {
+        guard let (row, options) = choiceRow(message, nth) else { throw CancellationError() }
+        if let done = choiceSaid[row] { return done }
+        let automatic = Task { [weak self] in
+            try await self?.wait(autoAfter)
+            if options.indices.contains(auto) { self?.choose(row, auto, options[auto]) }
+        }
+        let picked = await withCheckedContinuation { choiceWaits[row] = $0 }
+        automatic.cancel()
+        try Task.checkCancellation()
+        return picked
+    }
+
+    /// The row of a message's `nth` floo.choice fence and its options, once it's in the list.
+    private func choiceRow(_ message: Message, _ nth: Int) -> (id: String, options: [FlooOption])? {
+        var seen = 0
+        for block in message.blocks {
+            guard case .customFence(let language) = block.kind, language == "floo.choice" else { continue }
+            if seen == nth {
+                return ("m\(message.id)#\(block.id)", Self.choiceOptions(block.source).map(\.option))
+            }
+            seen += 1
+        }
+        return nil
+    }
+
+    /// A floo.choice fence's options so far: an option shows once its `- ` label line is
+    /// whole, and it can be tapped once its `send:` line is whole too or the fence is closed.
+    nonisolated static func choiceOptions(_ source: String) -> [(option: FlooOption, tappable: Bool)] {
+        let body = fenceBody(source)
+        let whole = wholeLines(source)
+        let closed = source.split(separator: "\n", omittingEmptySubsequences: false).dropFirst().last?
+            .trimmingCharacters(in: .whitespaces).hasPrefix("```") ?? false
+        var options: [(option: FlooOption, tappable: Bool)] = []
+        for (index, line) in body.enumerated() where !line.isEmpty {
+            if line.hasPrefix("- ") {
+                guard closed || index < whole.count else { continue }
+                options.append((FlooOption(label: String(line.dropFirst(2))), tappable: closed))
+            } else if !options.isEmpty, let colon = line.firstIndex(of: ":") {
+                let key = line[..<colon].trimmingCharacters(in: .whitespaces)
+                let value = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                switch key {
+                case "send":
+                    options[options.count - 1].option.send = value
+                    options[options.count - 1].tappable = closed || index < whole.count
+                case "detail": options[options.count - 1].option.detail = value
+                case "image": options[options.count - 1].option.image = value
+                case "from": options[options.count - 1].option.from = value
+                default: break
+                }
+            }
+        }
+        return options
     }
 
     /// Asks to do something on your device and waits for you; the script decides for you after
@@ -632,31 +846,6 @@ final class FlooDemo {
         continuation.resume(returning: decided)
     }
 
-    func respond(_ option: String) {
-        guard let continuation = answer, let asked = ask else { return }
-        answer = nil
-        ask = nil
-        continuation.resume(returning: say(.me, option, receipt: .read, quote: asked.question))
-    }
-
-    /// None of the options: you answer in your own words, the question over the composer
-    /// while you write.
-    func answerOwn() {
-        guard let continuation = answer, let asked = ask, let own = asked.own else { return }
-        answer = nil
-        ask = nil
-        answering = asked
-        Task {
-            try? await typeOut(own)  // try?: cut short, it's sent as far as it got
-            // Reset meanwhile: the script waiting on it is gone.
-            guard answering == asked else {
-                return continuation.resume(returning: Said(id: -1, speaker: .me, text: "", receipt: nil))
-            }
-            answering = nil
-            continuation.resume(returning: say(.me, own, receipt: .read, quote: asked.question))
-        }
-    }
-
     /// Opens the conversation where it was last read rather than at its end.
     func openAtUnread() {
         guard let id = rows.first(where: { if case .unread = $0.kind { true } else { false } })?.id else { return }
@@ -680,6 +869,13 @@ final class FlooDemo {
         showsErrands = false
         following = false
         scrollPosition.scrollTo(id: "m\(errand.id)#sig", anchor: .top, animated: true)
+    }
+
+    /// To the card an open ask rides on, wherever in the conversation it was asked.
+    func jump(toAsk waiting: (message: Int, card: FlooAskCard)) {
+        showsAsks = false
+        following = false
+        scrollPosition.scrollTo(id: "m\(waiting.message)#ask-\(waiting.card.id)", anchor: .top, animated: true)
     }
 
     /// Back to the newest, as the "回到最新" button does.
@@ -733,6 +929,11 @@ final class FlooDemo {
             else { return nil }
             return Errand(id: message.id, agent: message.agent, title: title, doing: process.doing ?? "在弄", since: message.time)
         }
+        openAsks = entries.flatMap { entry -> [(message: Int, card: FlooAskCard)] in
+            guard case .message(let message) = entry else { return [] }
+            return message.asks.filter { $0.state == .open }.map { (message: message.id, card: $0) }
+        }
+        if openAsks.count < 2 { showsAsks = false }
     }
 
     private func rows(for entry: Entry) -> [FlooRow] {
@@ -765,6 +966,11 @@ final class FlooDemo {
             for block in message.blocks {
                 let id = "m\(message.id)#\(block.id)"
                 if case .customFence(let language) = block.kind {
+                    if language == "floo.choice" {
+                        let options = Self.choiceOptions(block.source).map { FlooChoice(option: $0.option, tappable: $0.tappable) }
+                        rows.append(FlooRow(id: id, message: message.id, kind: .choice(options, chosen: chosen[id])))
+                        continue
+                    }
                     let body = Self.fenceBody(block.source)
                     let card = Self.cardName(language, body)
                     rows.append(FlooRow(
@@ -775,6 +981,10 @@ final class FlooDemo {
                 } else {
                     rows.append(FlooRow(id: id, message: message.id, kind: .block(block, streaming: message.streaming)))
                 }
+            }
+            // What it asked rides on its words; the work it went on with is under them.
+            for card in message.asks {
+                rows.append(FlooRow(id: "m\(message.id)#ask-\(card.id)", message: message.id, kind: .ask(card)))
             }
             if let work, message.processAfterText { rows.append(work) }
             return rows

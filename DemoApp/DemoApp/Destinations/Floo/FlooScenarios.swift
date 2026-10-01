@@ -282,57 +282,99 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
             3. **一行健康**——只在异常时展开
 
             要的话明早 7 点就按这个发。
+
+            ```floo.choice
+            - 📅 按这个发
+              send: 明早 7 点按「要你决定的 / 今天会发生的 / 一行健康」三段发早报
+            - ✏️ 再改改
+              send: 早报先别发，我还想调整
+            ```
             """)
         m.mark(added, .answered)
+        // Tappable next steps, not a question that blocks: picking one is your reply.
+        let picked = try await m.awaitChoice(second, autoAfter: 5000, auto: 0)
+        let reply = m.begin(.butler, at: "21:42")
+        try await m.stream(reply, "好，明早 7 点发第一份。")
+        m.mark(picked.said, .answered)
     }
 
     // MARK: Waiting on you
 
-    /// Its question stays above the composer while other things come in, until you answer.
+    /// #517 要你决定的修复方向：选哪种做法，或者自己写。
+    private static let a517 = FlooAskCard(
+        id: "a517",
+        agent: .butler,
+        items: [
+            FlooAskItem(
+                title: "修复方向",
+                question: "#517 要按最后一条消息排序，选哪种做法？",
+                form: .choose(
+                    options: [
+                        FlooOption(label: "方案 1：加一列", detail: "会话表加 last_message_at，线上跑一次迁移；列表最快"),
+                        FlooOption(label: "方案 2：查询时算", detail: "不改表结构，每次取会话时算最新消息；会话很多时慢一点"),
+                    ],
+                    multiple: false,
+                    own: "先在测试库跑一遍迁移，没问题再说"
+                )
+            ),
+        ],
+        state: .open
+    )
+
+    /// It asks and goes on: the card rides on the message that asked, the asks waiting on you
+    /// are counted over the composer, and each is answered where it sits, whenever you get to
+    /// it — including in your own words.
     private static func waitingOnYou(_ m: FlooDemo) async throws {
         m.reset(title: "管家")
         m.time("15:02")
         let question = m.begin(.butler, at: "15:02", marks: [.continuing("接着 #517")])
         try await m.stream(question, """
             #517 的排序问题查清楚了：会话表缺一个排序用的时间字段。修它要**改数据库结构**，线上得跑一次迁移。
-            """)
-        let others = Task { @MainActor in
-            try await m.wait(2500)
-            m.time("15:06")
-            let done = m.begin(.butler, at: "15:06", marks: [.continuing("接着 #482")])
-            try await m.stream(done, "#482 修好了，测试全过，codex 已经提了 PR。")
-            try await m.wait(1200)
-            let ask = try await m.type("PR 发我看看")
-            try await m.wait(400)
-            m.mark(ask, .read)
-            let link = m.begin(.butler, at: "15:07")
-            try await m.stream(link, """
-                在这：
+            """, finishing: false)
+        m.ask(question, a517)
+        try await m.stream(question, "这个等你定，我先把不需要它的 #482 做完。")
 
-                ```floo.mention
-                pr482
-                ```
-                """)
-            m.mark(ask, .answered)
-        }
-        let chosen = try await m.ask(
-            .butler,
-            "#517 要改数据库结构，现在做，还是先出个方案给你看？",
-            options: ["现在做", "先出方案"],
-            autoAfter: 12000,
-            own: "先在测试库跑一遍迁移，没问题再说"
-        )
-        try await others.value
-        try await m.wait(500)
-        let reply = m.begin(.butler, at: "15:09")
-        let answer =
-            switch chosen.text {
-            case "现在做": "好，我让 codex 先在测试库跑一遍迁移，没问题再上线。"
-            case "先出方案": "好，二十分钟内把方案发你，迁移脚本和回滚方式都写上。"
-            default: "好，先让 codex 在测试库跑一遍迁移，跑完把结果给你，上不上线你定。"
-            }
-        try await m.stream(reply, answer)
-        m.mark(chosen, .answered)
+        try await m.wait(2500)
+        m.time("15:06")
+        let done = m.begin(.butler, at: "15:06", marks: [.continuing("接着 #482")])
+        try await m.stream(done, "#482 修好了，测试全过，codex 已经提了 PR。")
+        try await m.wait(1200)
+        let ask = try await m.type("PR 发我看看")
+        try await m.wait(400)
+        m.mark(ask, .read)
+        let link = m.begin(.butler, at: "15:07")
+        try await m.stream(link, """
+            在这：
+
+            ```floo.mention
+            pr482
+            ```
+            """, finishing: false)
+        // Now two asks are open at once; the entry over the composer reads "2 件在等你".
+        m.ask(link, FlooAskCard(
+            id: "a482",
+            agent: .butler,
+            items: [
+                FlooAskItem(
+                    title: "合并 #482",
+                    question: "#482 的 PR 要我合进 main 吗？",
+                    form: .confirm(effect: "会合进 main 并关掉 #482；CI 已经全过", yes: "合并", no: "先别")
+                ),
+            ],
+            state: .open
+        ))
+        try await m.stream(link, "你点头我就合。")
+        m.mark(ask, .answered)
+
+        // Answered one at a time, each where its card sits.
+        let merged = try await m.awaitAnswer("a482", item: 0, autoAfter: 4000, auto: .confirm(true))
+        let mergedReply = m.begin(.butler, at: "15:09")
+        try await m.stream(mergedReply, "合好了，#482 已关。")
+        m.mark(merged, .answered)
+        let way = try await m.awaitAnswer("a517", item: 0, autoAfter: 6000, auto: .own)
+        let reply = m.begin(.butler, at: "15:10")
+        try await m.stream(reply, "好，先让 codex 在测试库跑一遍迁移，跑完把结果给你，上不上线你定。")
+        m.mark(way, .answered)
     }
 
     // MARK: Catching up
@@ -359,7 +401,9 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
             """)
         m.time("15:02")
         let question = m.begin(.butler, at: "15:02", marks: [.continuing("接着 #517")])
-        m.write(question, "#517 的排序问题查清楚了：会话表缺一个排序用的时间字段。修它要**改数据库结构**，线上得跑一次迁移。现在做，还是先出个方案给你看？")
+        m.write(question, "#517 的排序问题查清楚了：会话表缺一个排序用的时间字段。修它要**改数据库结构**，线上得跑一次迁移。")
+        // Asked while you were away: the card is still open where it was asked.
+        m.ask(question, a517)
         m.setJumpTarget(question)
         m.time("16:40")
         m.write(m.begin(.butler, at: "16:40", marks: [.proactive]), """
@@ -373,14 +417,9 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         m.openAtUnread()
         try await m.wait(3500)
         m.jump()
-        let chosen = try await m.ask(
-            .butler,
-            "#517 要改数据库结构，现在做，还是先出个方案给你看？",
-            options: ["现在做", "先出方案"],
-            autoAfter: 5000
-        )
+        let chosen = try await m.awaitAnswer("a517", item: 0, autoAfter: 5000, auto: .option(1))
         let reply = m.begin(.butler, at: "16:52")
-        try await m.stream(reply, "好，二十分钟内把方案发你。")
+        try await m.stream(reply, "好，不改表结构，按查询时算来改。")
         m.mark(chosen, .answered)
     }
 
@@ -415,13 +454,58 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         try await weather.value
         m.finishWork(butler, "查了高铁 · 5 秒")
         try await m.stream(butler, """
-            高铁 **G7315**，9:15 上海虹桥发车，9:48 到苏州，还有票。结合天气，上午先去拙政园，下午去苏州博物馆。
+            高铁 **G7315**，9:15 上海虹桥发车，9:48 到苏州，还有票。
 
-            要我帮你们俩盯着放票吗？
+            上午二选一：
+
+            ```floo.choice
+            - 🌿 拙政园
+              image: zhuozhengyuan
+              detail: 上午人少，7:30 开门
+              send: 周六上午去拙政园，帮我们俩订 10 点的门票
+            - 🏮 平江路
+              image: pingjianglu
+              detail: 免门票，边走边吃
+              send: 周六上午去平江路逛
+            ```
+
+            要我帮你们俩盯着 G7315 放票吗？
+
+            ```floo.choice
+            - 👀 盯着
+              send: 帮我们俩盯着周六 G7315 的余票，有票就告诉我
+            - 不用
+              send: 不用盯票
+            ```
             """)
         m.mark(ask, .answered)
         try await m.wait(1500)
         m.say(.person("阿岚"), "好，就买这班")
+        _ = try await m.awaitChoice(butler, autoAfter: 4000, auto: 0)
+        _ = try await m.awaitChoice(butler, 1, autoAfter: 4000, auto: 0)
+        // Watching tickets needs a few details: it asks, its guesses already filled in.
+        let seat = m.begin(.butler, at: "20:17")
+        try await m.stream(seat, "盯票要几样信息，我先猜了：")
+        m.ask(seat, FlooAskCard(
+            id: "seat",
+            agent: .butler,
+            items: [
+                FlooAskItem(
+                    title: "盯票信息",
+                    question: "按这样盯？",
+                    form: .fill(fields: [
+                        FlooAskItem.Field(label: "乘车人", kind: .person, guess: "你、阿岚"),
+                        FlooAskItem.Field(label: "席别", kind: .text, guess: "二等座"),
+                        FlooAskItem.Field(label: "最晚到苏州", kind: .time, guess: "10:30"),
+                    ])
+                ),
+            ],
+            state: .open
+        ))
+        let confirmed = try await m.awaitAnswer("seat", item: 0, autoAfter: 5000, auto: .fill)
+        let reply = m.begin(.butler, at: "20:18")
+        try await m.stream(reply, "好，盯着了：G7315 二等座两张，一有票就在群里说。")
+        m.mark(confirmed, .answered)
     }
 
     // MARK: Answer with cards
@@ -460,10 +544,23 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
 
             """, finishing: false)
         let heart = Task { @MainActor in try await m.draw("heart") }
-        try await m.stream(answer, "周三和周日走得最少，那两天你都在家办公。要不要下周在那两天午饭后提醒你走一圈？")
+        try await m.stream(answer, """
+            周三和周日走得最少，那两天你都在家办公。要不要下周在那两天午饭后提醒你走一圈？
+
+            ```floo.choice
+            - 🚶 提醒我
+              send: 下周三和周日午饭后提醒我走一圈
+            - 不用
+              send: 不用提醒
+            ```
+            """)
         m.mark(ask, .answered)
         try await steps.value
         try await heart.value
+        let remind = try await m.awaitChoice(answer, autoAfter: 5000, auto: 0)
+        let reply = m.begin(.health, at: "21:06")
+        try await m.stream(reply, "好，下周三和周日 12:40 提醒你。")
+        m.mark(remind.said, .answered)
     }
 
     // MARK: Research
@@ -612,13 +709,22 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
             1. 聊天和画卡片继续用 luna。
             2. 以后要做操作电脑的活，再单独评估 Sol。
             3. 护栏写在代码里，不靠模型自觉——我们现在就是这么做的。
+
+            要我盯着 6.1 Sol 的第三方评测吗？
+
+            ```floo.choice
+            - 👀 盯着
+              send: 6.1 Sol 有新的第三方评测就告诉我
+            - 不用
+              send: 不用盯
+            ```
             """, perSecond: 90)
         try await bench.value
         try await cost.value
 
-        // Its question stays over the composer while you ask about a part of the report.
+        // The choice rides at the end of the report while you ask about a part of it.
         let watch = Task { @MainActor in
-            try await m.ask(.butler, "要我盯着 6.1 Sol 的第三方评测，出来了告诉你吗？", options: ["不用", "好，盯着"], autoAfter: 16000)
+            try await m.awaitChoice(report, autoAfter: 16000, auto: 0)
         }
         try await m.wait(4000)
         m.time("21:19")
@@ -636,7 +742,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         try await m.wait(500)
         let promise = m.begin(.butler, at: "21:20")
         try await m.stream(promise, "好，记下了：6.1 Sol 有新的第三方评测，我就在这告诉你。")
-        m.mark(chosen, .answered)
+        m.mark(chosen.said, .answered)
     }
 
     // MARK: Long answer
@@ -800,9 +906,22 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         try await m.wait(600)
         m.time("20:34")
         let trainBack = m.begin(.butler, at: "20:34", marks: [.continuing("接着 周六的高铁")])
-        try await m.stream(trainBack, "周六上午最合适的是 **G7315**：9:15 虹桥发车，9:48 到苏州，二等座还有票。早一班 8:05 的只剩一等座。")
+        try await m.stream(trainBack, """
+            周六上午最合适的是 **G7315**：9:15 虹桥发车，9:48 到苏州，二等座还有票。早一班 8:05 的只剩一等座。
+
+            ```floo.choice
+            - G7315 · 9:15
+              from: g7315
+              detail: 二等座有票，9:48 到
+              send: 就 G7315，周六 8:30 提醒我出发
+            - G7001 · 8:05
+              from: g7001
+              detail: 只剩一等座
+              send: 坐 8:05 的 G7001，周六 7:20 提醒我出发
+            ```
+            """)
         let remind = Task { @MainActor in
-            try await m.ask(.butler, "周六要我提醒你出发吗？", options: ["不用", "提醒我"], autoAfter: 9000)
+            try await m.awaitChoice(trainBack, autoAfter: 9000, auto: 0)
         }
 
         // How is the other one going: from where it's at.
@@ -819,7 +938,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         try await m.wait(500)
         let promise = m.begin(.butler, at: "20:36")
         try await m.stream(promise, "好，周六 8:30 提醒你出发。")
-        m.mark(chosen, .answered)
+        m.mark(chosen.said, .answered)
 
         // More for a thing in hand: it goes in with it, and comes back with it.
         try await m.wait(1000)
