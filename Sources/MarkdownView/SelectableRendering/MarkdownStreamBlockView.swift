@@ -44,6 +44,7 @@ public struct MarkdownStreamBlockView: View {
     let displayMathStorage: [UUID: String]?
 
     @Environment(\.markdownSelectableTextEnabled) private var selectableEnabled
+    @Environment(\.markdownStreamBlockEdgeInsets) private var edgeInsets
 
     public init(_ block: MarkdownStreamBlock) {
         self.content = block.content
@@ -132,7 +133,7 @@ public struct MarkdownStreamBlockView: View {
             FootnoteDefinitionList(lines: lines)
         } else if usesSelectableText {
             let depth = descriptor.listItemContext?.depth ?? 0
-            MarkdownSelectableText(descriptor.sourceText, listDepthOffset: depth)
+            MarkdownSelectableText(descriptor.sourceText, listDepthOffset: depth, applyEdgeInsets: edgeInsets)
                 // A nested item re-parsed alone has depth 0; add the 20 pt per level `MarkdownBlockView` uses.
                 .padding(.leading, CGFloat(depth) * 20)
         } else if let split = listItemFenceSplit {
@@ -157,9 +158,11 @@ private struct SelectableListItemWithFence: View {
     let depth: Int
     let ordered: Bool
 
+    @Environment(\.markdownStreamBlockEdgeInsets) private var edgeInsets
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            MarkdownSelectableText(leading, listDepthOffset: depth)
+            MarkdownSelectableText(leading, listDepthOffset: depth, applyEdgeInsets: edgeInsets)
                 .padding(.leading, CGFloat(depth) * 20)
             MarkdownView(rest)
                 .padding(.leading, CGFloat(depth) * 20 + 12 + (ordered ? 15 : 7) + 8)
