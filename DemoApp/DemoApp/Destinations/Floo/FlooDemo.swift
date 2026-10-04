@@ -626,23 +626,23 @@ final class FlooDemo {
     }
 
     /// Draws the card a ```floo.draw asked for, in its place, as the drawing model streams it.
+    /// The row changes once, to take the session; the card watches the session itself and
+    /// shows when it's finished.
     func draw(_ card: String, chunk: Int = 24) async throws {
         guard let spec = FlooDemoCards.all[card] else { return }
         let session = CardSession(data: Self.value(spec.data))
         sessions[card] = session
+        versions[card, default: 0] += 1
+        publish()
         let source = Array(spec.source)
         var index = 0
         while index < source.count {
             let end = min(source.count, index + chunk)
             session.append(String(source[index..<end]))
             index = end
-            versions[card, default: 0] += 1
-            publish()
             try await wait(40)
         }
         session.finish()
-        versions[card, default: 0] += 1
-        publish()
     }
 
     /// A card that comes whole: a tool's own, or one drawn before.

@@ -661,13 +661,8 @@ private struct FlooRowView: View {
             let card = FlooDemo.cardName(language, lines)
             let request = lines.first { !$0.hasPrefix("card:") } ?? ""
             let size = card.flatMap { FlooDemoCards.all[$0]?.size } ?? .medium
-            if let card, let session = demo.sessions[card], !session.tree.roots.isEmpty {
-                FlooCardFrame(size: size) { CardView(tree: session.tree) }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                FlooPendingDraw(request: request, size: size)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            FlooDrawnCard(request: request, size: size, session: card.flatMap { demo.sessions[$0] })
+                .frame(maxWidth: .infinity, alignment: .leading)
         case "floo.card":
             HStack(alignment: .top, spacing: 12) {
                 ForEach(lines, id: \.self) { name in
@@ -1040,8 +1035,8 @@ private struct FlooCardFrame<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        let width = size == .small ? 172.0 : 360.0
-        let padding = size == .small ? 12.0 : 16.0
+        let width = size.width
+        let padding = size.padding
         let radius = size == .small ? 18.0 : 20.0
         CardPanel(padding: padding, cornerRadius: radius) {
             content.frame(width: width - 2 * padding, alignment: .topLeading)
@@ -1053,21 +1048,114 @@ private struct FlooCardFrame<Content: View>: View {
     }
 }
 
-/// Where a card will be while it's drawn: what it will show.
-private struct FlooPendingDraw: View {
+/// A card a model draws, in its place. While it's drawn, its frame stands at the height
+/// cards of its size come out at, with what it will show and a light passing over it.
+/// Once drawn whole, the card is laid out out of sight first; with its height known, the
+/// frame takes that height in one move as the card fades in, and the rows below move with
+/// it. Nothing in between is shown: a card growing as it streams would push the
+/// conversation on every chunk.
+private struct FlooDrawnCard: View {
     let request: String
     let size: FlooDemoCards.Size
+    let session: CardSession?
+    @Environment(\.updateSelfSizing) private var updateSelfSizing
+    /// The finished card's height, as laid out out of sight; it may take a pass or two.
+    @State private var measuring: CGFloat?
+    /// The card is in place: from the start for one drawn before the row was built.
+    @State private var shown: Bool
+
+    init(request: String, size: FlooDemoCards.Size, session: CardSession?) {
+        self.request = request
+        self.size = size
+        self.session = session
+        _shown = State(initialValue: session.map(Self.drawn) ?? false)
+    }
+
+    /// Finished with nothing to show, it never is: the request stays, still.
+    private static func drawn(_ session: CardSession) -> Bool {
+        session.isFinal && !session.tree.roots.isEmpty
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "sparkles")
-            Text(request).font(.footnote).lineLimit(3)
+        FlooCardFrame(size: size) {
+            Group {
+                if shown, let session {
+                    CardView(tree: session.tree)
+                        .transition(.opacity)
+                } else {
+                    Color.clear.frame(height: size.drawingHeight - 2 * size.padding)
+                }
+            }
+            .background {
+                if !shown { FlooDrawingSweep(active: !(session?.isFinal ?? false), padding: size.padding) }
+            }
+            // Over the card's place, not in it: the frame's height is the card's alone.
+            .overlay(alignment: .topLeading) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "sparkles")
+                    Text(request).lineLimit(size == .small ? 3 : 4)
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .flooShimmer(!(session?.isFinal ?? false))
+                .opacity(shown ? 0 : 1)
+            }
         }
-        .foregroundStyle(.secondary)
-        .padding(16)
-        .frame(width: size == .small ? 172 : 360, height: size == .small ? 120 : 180, alignment: .topLeading)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        // Outside the panel, so what the card sets as its background isn't the panel's yet.
+        .background(alignment: .topLeading) {
+            if !shown, let session, Self.drawn(session) {
+                CardView(tree: session.tree)
+                    .frame(width: size.width - 2 * size.padding)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .hidden()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measuring = $0 }
+            }
+        }
+        .task(id: measuring) {
+            guard measuring != nil, !shown else { return }
+            // Settled when a few frames pass with no new height.
+            guard (try? await Task.sleep(for: .milliseconds(100))) != nil else { return }
+            withAnimation(.smooth(duration: 0.3)) { shown = true }
+            updateSelfSizing(.smooth(duration: 0.3))
+        }
     }
+}
+
+/// A light passing across the whole of a card's place while it's drawn, slower than the
+/// one over words at work: the card is coming, it isn't stuck.
+private struct FlooDrawingSweep: View {
+    let active: Bool
+    let padding: Double
+
+    var body: some View {
+        TimelineView(.animation(paused: !active)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.2) / 2.2
+            GeometryReader { geometry in
+                let band = geometry.size.width * 0.6
+                LinearGradient(
+                    colors: [.clear, .primary.opacity(0.05), .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: band)
+                .offset(x: -band + phase * (geometry.size.width + band))
+            }
+            .opacity(active ? 1 : 0)
+        }
+        // To the panel's edge, not just the content's.
+        .padding(-padding)
+        .allowsHitTesting(false)
+    }
+}
+
+extension FlooDemoCards.Size {
+    var width: Double { self == .small ? 172 : 360 }
+    var padding: Double { self == .small ? 12 : 16 }
+
+    /// The height a card of this size is drawn in until it's there: about what the cards
+    /// come out at (the demo's medium ones are 300 to 370 with the frame), so the frame
+    /// moves little when the card arrives.
+    var drawingHeight: Double { self == .small ? 170 : 320 }
 }
 
 extension FlooRow {
@@ -1092,7 +1180,10 @@ extension FlooRow {
             let steps = process.tasks.filter { open.contains($0.id) }.reduce(0) { $0 + $1.steps.count }
             return 40 + CGFloat(process.tasks.count) * 44 + CGFloat(steps) * 21
         case .block(let block, _): return prose(block.source) + 10
-        case .fence(let language, _, _): return language == "floo.mention" ? 90 : 220
+        case .fence(let language, let body, _):
+            guard language != "floo.mention" else { return 90 }
+            let card = FlooDemo.cardName(language, body.split(separator: "\n").map(String.init))
+            return (card.flatMap { FlooDemoCards.all[$0]?.size } ?? .medium).drawingHeight + 12
         case .choice(let choices, _):
             if choices.contains(where: { $0.option.image != nil || $0.option.from != nil }) { return 230 }
             if choices.contains(where: { $0.option.detail != nil }) { return 14 + CGFloat(choices.count) * 56 }
