@@ -18,6 +18,28 @@ struct ExtensionsDestination: View {
 
     Highlight ==this phrase== and mark :circle[关键词] or :wavy[a doubt] by hand.
 
+    Pen marks: :marker[yellow marker], :marker[pink]{color=pink}, :marker[green]{c=green}, :box[a box] and :wavy[blue wave]{color=blue}.
+
+    Underlines: :u[single], :u[thick]{style=thick}, :u[double]{style=double}, :u[dot]{style=dot}, :u[dash]{style=dash}, :u[dash-dot]{style=dashdot}, :u[wavy]{style=wavy}, :u[colored]{style=double color=red}.
+
+    Strikethrough: :s[原价 ¥99] ¥59, :s[thick]{style=thick}, :s[double]{style=double color=red}.
+
+    Text color: :color[+2.4%]{c=positive} / :color[−1.1%]{c=negative}, :color[warning]{c=warning}, :color[accent]{c=accent}, :color[hex]{c=#8e44ad}.
+
+    > [!note]
+    > Callouts take the kind's color, symbol and title.
+
+    > [!tip] Custom title
+    > A tip with its own title and a :marker[marked] word.
+
+    > [!warning]
+    > Don't block the main thread.
+
+    > [!caution] 别这样做
+    > Caution reads in red.
+
+    > A plain quote stays a quote.
+
     Cited inline [Apple](https://www.apple.com "cite") and folded [Swift](https://swift.org "cite") [GitHub](https://github.com "cite"); a plain [link](https://example.com) stays a link.
 
     - {🚀} Emoji bullet
@@ -73,6 +95,7 @@ struct ExtensionsDestination: View {
         MarkdownHighlightSyntax.backgroundColor = .orange
         MarkdownHighlightSyntax.foregroundColor = .white
         MarkdownPenMarkSyntax.isEnabled = true
+        MarkdownCalloutSyntax.isEnabled = true
         MarkdownLinkChips.placeholderIcon = { Image(systemName: "globe") }
     }
 }

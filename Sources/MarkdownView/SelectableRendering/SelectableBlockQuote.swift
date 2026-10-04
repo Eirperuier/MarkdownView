@@ -17,6 +17,8 @@ import SwiftUI
 @available(visionOS, unavailable)
 public struct SelectableBlockQuote: View {
     private let innerMarkdown: String
+    /// 提示块(`> [!note]`)的种类与标题;普通引用为 nil。
+    private let callout: MarkdownCallout?
 
     @Environment(\.markdownFontGroup.blockQuote) private var font
     @Environment(\.markdownRendererConfiguration.blockQuoteTintColor) private var tint
@@ -25,7 +27,14 @@ public struct SelectableBlockQuote: View {
 
     /// - Parameter quoteSource: 引用块源码("> …" 形式);逐行剥 `>` 标记得到内部 markdown。
     public init(quoteSource: String) {
-        self.innerMarkdown = Self.strippingQuoteMarkers(quoteSource)
+        let inner = Self.strippingQuoteMarkers(quoteSource)
+        if let split = MarkdownCallout.split(innerMarkdown: inner) {
+            self.innerMarkdown = split.body
+            self.callout = split.callout
+        } else {
+            self.innerMarkdown = inner
+            self.callout = nil
+        }
     }
 
     private func decorationVisible(revealCount: Int?) -> Bool {
@@ -35,10 +44,18 @@ public struct SelectableBlockQuote: View {
     public var body: some View {
         StreamingRevealCountReader { _, revealCount in
             let visible = decorationVisible(revealCount: revealCount)
-            MarkdownSelectableText(innerMarkdown)
-                // 引用块内部黑白(同魔改覆写:不带 theme 色)。
-                .preferredColor(.primary)
-                .tint(.primary, for: .link)
+            let tint = callout?.kind.color ?? tint
+            VStack(alignment: .leading, spacing: 6) {
+                if let callout {
+                    MarkdownCalloutHeader(callout: callout)
+                        .opacity(visible ? 1 : 0)
+                        .animation(.easeOut(duration: 0.3), value: visible)
+                }
+                MarkdownSelectableText(innerMarkdown)
+                    // 引用块内部黑白(同魔改覆写:不带 theme 色)。
+                    .preferredColor(.primary)
+                    .tint(.primary, for: .link)
+            }
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .font(font)

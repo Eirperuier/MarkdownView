@@ -107,14 +107,15 @@ func markdownTextWithInlineSymbols(_ attributed: AttributedString) -> Text {
         } else if let penRaw = run[MarkdownPenMarkAttribute.self],
                   let mark = MarkdownPenMarkSyntax.decodeAttributeValue(penRaw) {
             // 笔迹注记 run:文本照常,iOS 18+ 打 TextAttribute 供 PenMarkPainter 定位;
-            // 更早系统无 TextRenderer,文字正常显示、无笔迹(优雅降级)。
-            let segment = Text(AttributedString(attributed[run.range]))
+            // 更早系统无 TextRenderer:下划线 / 删除线退成系统单线,其余文字正常显示、无笔迹。
             if #available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, *) {
-                result = result + segment.customAttribute(
-                    PenMarkTextAttribute(kind: mark.kind, colorToken: mark.color, seed: mark.seed)
-                )
+                result = result + Text(AttributedString(attributed[run.range]))
+                    .customAttribute(PenMarkTextAttribute(mark: mark))
             } else {
-                result = result + segment
+                var segment = AttributedString(attributed[run.range])
+                if mark.kind == .u { segment.underlineStyle = .single }
+                if mark.kind == .s { segment.strikethroughStyle = .single }
+                result = result + Text(segment)
             }
         } else if run[MarkdownLinkChipSegmentAttribute.self] == true {
             // chip 文本段:iOS 18+ 由 TextRenderer 画统一胶囊背景,剥掉逐 run 的
@@ -201,13 +202,16 @@ struct ChipCapsuleRenderer: TextRenderer {
             for span in ChipCapsulePainter.spans(in: line, startingCharIndex: charIdx) {
                 ChipCapsulePainter.draw(span, opacity: 1, in: &ctx)
             }
-            let penSpans = PenMarkPainter.spans(in: line, startingCharIndex: charIdx)
+            let pen = PenMarkPainter.split(PenMarkPainter.spans(in: line, startingCharIndex: charIdx))
             for run in line {
                 charIdx += run.count
             }
+            // 胶囊、荧光笔在文字之下(背景层),其余笔迹在文字之上(注记层)。
+            for span in pen.under {
+                PenMarkPainter.draw(span, opacity: 1, in: &ctx)
+            }
             ctx.draw(line)
-            // 笔迹画在文字之上(注记层),胶囊画在文字之下(背景层)。
-            for span in penSpans {
+            for span in pen.over {
                 PenMarkPainter.draw(span, opacity: 1, in: &ctx)
             }
         }
