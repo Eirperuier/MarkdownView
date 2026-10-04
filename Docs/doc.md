@@ -1,0 +1,336 @@
+# floo · 文档(Doc)
+
+> 2026-10-04 起草。标注约定同 floo `docs/cards.md`:**【定】** · **【倾向】** · **【待定】**。
+> 内部名 `Doc`,避开小程序那条线已经占用的 `Page`(`PageStorage`、`page_store`、`Apps/PageLab`)。给用户看的名字叫"文档";英文名【待定】。
+
+---
+
+## 0. 目标
+
+一种人和 agent 都能写的文档,在 iPhone、Mac(Catalyst)和 Web 上都能看、都能改。
+
+- 支持 MarkdownView 现有的全部设计:标题、列表、引用、代码、公式、表格、链接 chip、脚注、CJK 强调。在这之外,还支持可视化卡片、多维表格和看板。
+- **查看**:性能接近聊天里的 MarkdownView(最长帧 118–160ms,滚动卡顿约 2ms/s),reveal 也和聊天里一样。
+- **编辑**:比 flowith Composer 好。撤销/重做要可靠;要有实时同步和版本记录;agent 的修改能看见、也能撤回。
+- **编辑和查看是同一种实现**:同一个块视图、同一个文本视图、同一套排版。查看就是关掉编辑、打开 reveal。切换时内容不跳,两种模式的视觉不会走样。
+
+**对标 Craft**(本机 Craft 3.5.3 的二进制,加上它公开的 Connect API。没有源码,下面是推断):
+- 原生端是 Catalyst,界面是 UIKit 加 SwiftUI。编辑器模块叫 `CraftBlockEditor`,一块一个文本视图(`v2BlockTextView`)。
+- 本地数据用 Realm 存块(`BlockStorage`)。同步走 WebSocket(`wss://api.craft.do/ws/v1`),实时协作另有一条通道(`ws-rtc/v1`)。
+- 冲突按块处理(`BlockConflictResolver`、`BlockSyncSnapshot`),表格的冲突单独处理。
+- 版本记录叫 Snapshots,带列表和详情界面。
+- 多维表格和看板是同一份数据(collection)的不同视图。
+- 对外 API 里每块是 `{id, type, textStyle, indentationLevel 0–5, listStyle, markdown}`,整篇也能按 `text/markdown` 导出。
+
+所以 Craft 的真实模型是**平铺的块,加缩进层级**;Markdown 只出现在对外接口上。floo 采用同样的分层,冲突粒度比 Craft 细:到字,而不是到块。
+
+## 1. 结论一览
+
+| 问题 | 决定 |
+|---|---|
+| 存储格式 | 结构化模型:平铺块 + 缩进,块内是文字加标记区间。Markdown 只做交换格式(agent 读写、导出、复制粘贴、搜索)【定】 |
+| 基础代码 | MarkdownView 的逐块渲染。Composer 只借设计,不搬代码【定】 |
+| 改动的表达 | 封闭枚举的可逆 step。撤销、同步、版本、agent 编辑都建立在 step 上【定】 |
+| 同步 | 服务端定序,客户端 rebase(prosemirror-collab 的做法)。不用 CRDT【定】 |
+| 版本记录 | 检查点 + step 日志。恢复旧版本 = 追加新 step,历史只往前走【定】 |
+| 多维表格 / 看板 | 文档内的一个数据库块,表格和看板是它的两种视图【定】 |
+| 卡片 | 卡片块,和 `AnswerCard` 同构(source + data + size)【定】 |
+| Web | 用 TypeScript 再写一份核心,两边跑同一套黄金用例;编辑视图倾向用 ProseMirror【倾向】 |
+
+## 2. 为什么不直接存 Markdown【定】
+
+1. **块没有身份。** MarkdownView 的块 id 跟位置绑定,`NodeViewCache` 的 key 和 descriptor id 都是内容哈希:中间插一块,后面全部错位。实时同步、撤销、评论、agent"改这一块",都需要稳定的块 id。
+2. **块的属性放不进去。** 卡片的 data、表格的列定义、看板分组、作者(人或 agent),塞进 fence 或 HTML 注释都只是变通。
+3. **并发合并会改坏语法。** `**` 本身就是文字。两端同时改一段,合并后可能变成没闭合的粗体。存成"文字 + 标记区间",就没有这个问题。
+4. **撤销和版本只能靠文本 diff。** 不准,也没法知道是谁改的。
+5. **Web 编辑器是树模型。** ProseMirror、Lexical 都是;存 Markdown,两端都要反复解析。
+
+## 3. 文档模型(DocKit)
+
+DocKit 是纯 Swift,不依赖 UIKit,要能在 Linux 上编译,因为服务端和 agent 也要读写文档。
+
+### 3.1 结构【定】
+
+```swift
+struct Doc: Hashable, Sendable, Codable {
+    var id: DocID
+    var blocks: [Block]            // 平铺,顺序即文档顺序
+}
+
+struct Block: Hashable, Sendable, Codable, Identifiable {
+    var id: BlockID                // 随机生成,终身不变
+    var kind: BlockKind
+    var indent: Int                // 0…6;列表嵌套、折叠的从属都靠它
+    var text: RichText             // 不带文字的块(分隔线、卡片、数据库)为空
+}
+
+enum BlockKind: Hashable, Sendable, Codable {
+    case paragraph
+    case heading(level: Int)                   // 1…6
+    case listItem(ListStyle)                   // bullet / numbered / task(done) / toggle(open)
+    case quote
+    case code(language: String?)
+    case math                                  // 显示公式,text 是 LaTeX
+    case divider
+    case image(BlobRef, caption…)
+    case card(DocCard)                         // §3.4
+    case database(DatabaseID, DatabaseView)    // §3.5
+}
+```
+
+**为什么平铺、不嵌套:**
+- 和 Craft 一致。
+- MarkdownView 本来就把每个列表项拆成单独的块渲染,用 `ListItemContext.depth` 表示层级;一块正好对应 TiledView 的一行。
+- 跨块选择、拖动、step 的寻址都更简单。
+
+真正需要嵌套的东西(表格的行和格、数据库、卡片)自成一块,内部有自己的结构。引用先做成块的一个种类;引用里套列表、套多段,到时候看需求再定【待定】。
+
+### 3.2 块内文字【定】
+
+```swift
+struct RichText: Hashable, Sendable, Codable {
+    var string: String             // 偏移一律按 UTF-16 码元(TextKit 和 JS 用的都是它)
+    var marks: [MarkSpan]          // 按起点排序,同种标记不重叠
+}
+struct MarkSpan { var range: Range<Int>; var mark: Mark }
+enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mention(EntityRef), inlineMath }
+```
+
+- 行内原子(提及、行内公式、链接 chip)在 `string` 里占一个 U+FFFC,内容放在这个位置的 mark 上。光标不能停在原子中间。
+- **标记在边界处要不要延伸**(在粗体末尾打字,新字是否还是粗体),按标记种类写死:粗体、斜体、高亮延伸;代码、链接不延伸。
+
+### 3.3 Markdown 互转【定】
+
+- **导出** `Doc → Markdown`:
+  - 卡片写成 ```` ```floo.card ```` fence(和聊天里一样),数据库按当前视图导出成 GFM 表格。
+  - 每块单独导出一份 markdown,渲染(§6)、agent 读取(§9)和搜索都用它。
+- **导入** `Markdown → Doc`:
+  - 用 swift-markdown 解析,和 MarkdownView 用的是同一个 cjk fork;块 id 新生成。
+  - 粘贴的流水线借 Composer 的:HTML 表格 → TSV → markdown。
+- **黄金用例**:导入再导出必须等于规范化后的原文,用例和 Web 共用(§10)。
+
+### 3.4 卡片块【定】
+
+`DocCard{size, view?, source?, data: JSONValue?}`,和 `Wire.AnswerCard` 去掉 fence/item 之后的部分相同。
+
+- 渲染用 `CardView`,和聊天里画出来的卡片是同一个组件,生成中同样用 shimmer。
+- agent 可以重画一张卡(替换 source),也可以只更新 data。
+- 用户能把聊天里的卡片直接拖进或复制进文档。
+
+### 3.5 数据库块:多维表格和看板【定】
+
+```swift
+struct Database { var id: DatabaseID; var columns: [Column]; var rows: [Row] }
+struct Column { var id: ColumnID; var name: String; var type: ColumnType }   // 文本 / 数字 / 单选 / 多选 / 日期 / 勾选 / 链接 / 人
+struct Row { var id: RowID; var cells: [ColumnID: CellValue] }
+enum DatabaseView { case table(…), kanban(groupBy: ColumnID, …) }           // 列的显示、筛选、排序都放在视图里
+```
+
+- 数据库属于文档,存在同一个 Doc 里,改动走同一条 step 日志。
+- 同一个数据库可以放多个视图块,比如一个表格加一个看板,它们看到的是同一份数据。
+- 单元格里的文字先只做纯文本加简单标记,不在格子里嵌整篇文档。
+
+## 4. 改动:step【定】
+
+文档的每次改动都是一个 step。step 是封闭枚举,带足够的信息,能求出自己的逆。
+
+```swift
+enum DocStep: Hashable, Sendable, Codable {
+    case insertText(BlockID, at: Int, String, marks: [Mark])
+    case deleteText(BlockID, Range<Int>, removed: RichText)              // 带上被删的内容,才能求逆
+    case setMark(BlockID, Range<Int>, Mark, on: Bool, previous: [MarkSpan])
+    case splitBlock(BlockID, at: Int, newID: BlockID, newKind: BlockKind)
+    case joinBlock(BlockID, into: BlockID, removed: Block)               // 退格把一块并进上一块
+    case insertBlocks([Block], after: BlockID?)
+    case deleteBlocks([Block], after: BlockID?)                          // 带内容和原位置
+    case moveBlocks([BlockID], after: BlockID?, from: BlockID?)
+    case setBlock(BlockID, kind: BlockKind, indent: Int, previous: (BlockKind, Int))
+    case database(DatabaseID, DatabaseStep)                              // 改格子、加删行、移行、改列、改视图
+}
+```
+
+- **寻址用 `(BlockID, UTF-16 偏移)`,不用全文偏移。** 块 id 稳定,远端在别的块里改动,不会挪动本地的位置。
+- `apply(_:to:) throws -> Doc`:target 块不存在就抛错,调用方负责丢弃这个 step。
+- `invert(_:) -> DocStep`:有了逆,撤销和版本恢复都只是"追加逆 step"。
+- `map(_ position:, through:) -> Position?`:把位置映射过一个 step。块被删了就返回 nil。rebase、远端改动后的选区还原、撤销都用它。
+- **事务** `DocTransaction{steps, selectionBefore, selectionAfter, author, time}`:一次用户操作对应一个事务,比如回车、粘贴、加粗。
+
+**测试**(swift-testing,属性测试):
+- 随机文档上随机生成 step:先 apply 再 invert 回到原样;
+- 随机并发 rebase 后,所有端收敛;
+- Markdown 往返;
+- 和 Web 共用 JSON 黄金用例。
+
+## 5. 同步与协作:服务端定序【定】
+
+### 5.1 做法
+
+这是 prosemirror-collab 的思路,和 floo 现有的"云端为准 + 游标补拉 + SSE 门铃"同构:
+
+1. 每篇文档在服务端有一条 step 日志,序号 `seq` 从 1 单调递增,和对话的 `pts` 是一回事。
+2. 客户端本地先应用 step,同时放进待确认队列。提交时带上 `base`,也就是自己见到的最后一个 seq。
+3. 服务端只做一件事:`base == head` 就接受并分配 seq,否则返回 409,带上缺的那些 step。服务端**不需要读懂 step**,payload 可以是密文。
+4. 客户端拿到缺的 step 后先应用它们,再把自己待确认的 step 映射过去(rebase),然后重新提交。
+5. 新 seq 到达时,SSE 只发门铃(`doc N 到了 seq M`),各端按游标补拉。
+
+**为什么不用 CRDT:**
+- 所有端都按服务端的同一个顺序应用 step,天然收敛。不需要 OT 的变换性质,也不需要 CRDT 的墓碑和元数据。
+- Loro 的 Swift 绑定是实验性的,只有 xcframework;automerge-swift 在 Linux 上直接编译报错。服务端和 agent 都在 Linux 上,用它们就得自己编 Rust FFI。
+- SyncKit 的定位本来就写着"不用 CRDT"。
+
+**代价**:两台设备都长时间离线、改同一句话,回来后按到达顺序 rebase,两边的字会交错,不会智能合并。文档场景能接受。被删块里的待提交改动会被丢弃,丢弃时要提示用户。
+
+### 5.2 服务端【倾向】
+
+```sql
+create table floo.doc_step (
+    account_id uuid   not null,
+    doc_id     uuid   not null,
+    seq        bigint not null,       -- 每篇文档内单调,从 1 起
+    op_id      uuid   not null,       -- 客户端生成,重复提交去重
+    client_id  uuid   not null,       -- 设备或 agent 运行
+    payload    bytea  not null,       -- EncryptKit 信封:[DocStep] + 作者 + 时间
+    created_at timestamptz not null default now(),
+    primary key (account_id, doc_id, seq)
+);
+```
+
+- **端点**:
+  - `POST /v1/docs/{id}/steps {base, op_id, steps}` → `{seq}`;落后时返回 409 加缺的 step;
+  - `GET /v1/docs/{id}/steps?after=`;
+  - `GET /v1/docs/{id}/events`(SSE 门铃)。
+- **文档元数据和检查点**:
+  - 用现有的 `record` 存,集合叫 `docs`,内容是标题、`checkpoint_seq`、检查点快照或它的 BlobRef。文档列表因此直接走 SyncKit。
+  - 检查点每 200 个 step 或空闲 30 秒打一次,由提交方顺手上传。
+- **加密**:集合 `docs` 用一把云端打得开的 DEK,和对话一样,这样 agent 才能读写。
+- **在线状态**(别的设备或 agent 的光标、"agent 正在写"):走一条不落库的 SSE 通道【待定】。
+
+### 5.3 设备端
+
+- 本地 GRDB 存检查点、已确认的 step 和待确认队列。打开文档时先读本地,不等网络。
+- 离线编辑照常进待确认队列,恢复网络后自动 rebase 并提交。
+
+## 6. 渲染:编辑和查看同一种实现【定】
+
+### 6.1 结构
+
+- 文档是一个 TiledView,一块一行,行 id 就是 `BlockID`。块身份的问题就此解决:插入一块只是插入一行。
+- 锚定在顶部:`autoScrollsToBottomOnAppend` 和 `scrollsToBottomOnReplace` 都关掉,这两个开关默认就是关的。
+- 每块的视图 `DocBlockView`:
+  - 文字类块(段落、标题、列表项、引用)用 `MarkdownSelectableText`,输入是这一块导出的 markdown(§3.3)。渲染器原样复用:设计、缓存、`RichTextViewPool`、数学公式高度缓存都不变。
+  - 代码、公式、表格沿用 MarkdownView 的 SwiftUI 路径;编辑时换成各自的编辑器。代码借 Composer 的做法用 Runestone 编辑器,公式是源码加实时预览。
+  - 卡片、数据库是 App 自己的视图,和现在 `floo.draw`/`floo.card` 走 `customFence` 一样。
+- 性能沿用聊天里调好的那些手段:只测量视口内的行、按长度估高、后台解析、行 Equatable。行的比较改成按 `(BlockID, 块的修订号)`。
+
+### 6.2 编辑在同一个文本视图里
+
+- 获得焦点的块,它的 UITextView 打开 `isEditable`;其余块保持只读,点进去时再打开。
+- **输入的路径**:
+  1. `shouldChangeTextIn` 把这次改动翻成 step;
+  2. step 应用到模型;
+  3. 先让 TextKit 自己改 storage(快);
+  4. 再用模型重新渲染这一块,和 storage 比较:一样就什么都不做;不一样(比如触发了 markdown 快捷键)就替换 storage,并按 step 映射还原光标。
+- **偏移换算**:渲染器已经有 storage → plain 的映射(`storageToPlain`)。由于 plain 文本就是模型的 `string` 去掉语法字符,这个映射基本就是 storage ↔ 模型的映射。列表符号、chip 这类占 storage 但不占 plain 的区段,光标要跳过。
+- **IME**:有 marked text 时不生成 step,上屏后一次提交。这一点借 Composer。
+- **快捷操作**:
+  - 回车拆块,在空列表项上回车退出列表;
+  - 块开头按退格并进上一块,Tab / Shift-Tab 改缩进;
+  - `# `、`- `、`1. `、`[] `、`> `、` ``` `、`---` 变换块类型;
+  - 行内 `**x**`、`` `x` `` 变换标记;
+  - `/` 唤出插入菜单。
+  
+  每一种都是一个事务,一次撤销就能退回。
+- **风险**:`MarkdownSelectableText` 现在靠"原文相等就跳过更新"来保住 reveal 的着色。编辑时每次按键原文都会变。需要加一个钩子,让正在编辑的块直接沿用 TextKit 已经改好的 storage。D3 第一件事就是把这个钩子原型做出来(§11)。
+
+### 6.3 reveal
+
+- 复用 `StreamingRevealCoordinator`、`RevealCoordinator` 和 `markdownFadeReveal`,不另做。
+- **打开文档**:和聊天里加载消息一样,默认直接显示全文。是否从头淡入整篇,作为一个选项,在 demo 里给你看两种效果再定【待定】。
+- **远端和 agent 的改动**:
+  - 新块:整块进入 reveal,和流式回答一样逐字淡入;
+  - 块尾追加:现有逻辑已经只淡入尾部;
+  - **块中间插入**:要新增一种按区间淡入的方式。`RevealCoordinator.contentDidChange` 现在只比较公共前缀;再加上公共后缀的比较,只给中间那段新字打首见时间戳。
+- **本地输入不淡入**:自己打的字时间戳记成 `distantPast`,马上就是实心的。
+- agent 正在一段段写的时候,用的就是聊天里流式输出的同一套节奏和视觉。
+
+### 6.4 选择
+
+- **块内选择**:就是 UITextView 自己的选择。
+- **块选择**:沿用 `MarkdownBlockSelectionController`,用来批量移动、删除、改类型。
+- **跨块文字选择**:文档层自己维护 `(块, 偏移)` 的锚点和焦点。中间的块整块画选中,两端的块用各自的 UITextView 选区。复制、删除、加标记都按文档选区生成 step。Composer 没有这项,放在 D6。
+
+## 7. 撤销 / 重做【定】
+
+- **每个客户端只撤销自己的改动。** 历史里存的是自己的事务(step 的逆加上选区)。
+- **撤销**:取最近一个事务的逆 step,映射过这之后到达的远端 step 再应用。远端改动不会清空本地历史(Composer 的 `applyRemoteDocument` 会清空,这是它的问题之一)。映射后目标已经不存在的 step 丢弃;整个事务都丢光了,就跳过它,接着撤销上一个。
+- **合并**:连续输入按 `(块, 输入会话)` 在 1.5 秒内并成一次;换块、移动光标、空格加停顿都会断开。这一点借 Composer 的 intent/session 设计。
+- 只有一套撤销,所有改动都走事务,不会有 Composer 那种新旧两套撤销并存。
+- 撤销栈属于文档会话,不是全局静态的,所以同时开多个编辑器也互不干扰。
+- 重做栈在有新的本地改动时清空,远端改动不清空它。
+- 键盘 ⌘Z / ⇧⌘Z,iPhone 上摇一摇和三指手势,都接到系统 `UndoManager` 上,只是它的实现是我们的事务栈。
+
+## 8. 版本记录【定】
+
+- **自动版本**:按作者和时间切成一段一段,比如"你,10:02–10:15""agent,10:16"。列表从 step 日志和检查点算出来,不额外存数据。
+- **命名版本**:在某个 seq 上打一个名字,存在文档元数据里。
+- **查看旧版本**:从最近的检查点重放 step 到那个 seq,用同一个渲染器以只读方式显示,和当前版本之间的差异逐块标出。
+- **恢复**:算出"从当前到旧版本"的 step,作为一个新事务提交。历史不改写;恢复本身也能撤销,也会出现在版本列表里。
+- **撤回 agent 的一次修改**:就是把 agent 那次事务的逆 step rebase 到当前状态。这和 Composer 的 diff 卡片对应,但能真正撤回。
+- **保留期限**:step 日志多久合并一次,检查点保留多少【待定】,先全部保留。
+
+## 9. agent 读写【倾向】
+
+- **读**:`doc_read` 返回每块的 `{id, kind, markdown}`,这是 Craft API 的形状,模型最熟悉。数据库返回列加行。
+- **写**:`doc_edit` 收块级操作:
+  - 在某块后插入一段 markdown;
+  - 替换某块的 markdown;
+  - 删除、移动;
+  - 改卡片;
+  - 改数据库的格子和行。
+  
+  服务端把它翻成 step。替换文字时,对新旧文本做最小 diff,生成插入和删除,原有的标记和块 id 尽量保留。这样用户的光标和撤销历史不受影响。
+- agent 和设备一样,走 §5 的提交与 rebase。它的改动带作者,在界面上用 reveal 淡入,在版本记录里单独成段。
+- 具体工具的形状放到 floo 的 agent-kernel 文档里定,这里只定"块 id + markdown"这层接口。
+
+## 10. Web【倾向】
+
+- **核心**:用 TypeScript 写一份 `@floo/doc`,包括模型、step、apply/invert/map、rebase 和 Markdown 互转。
+  - 正确性靠共享黄金用例保证:Swift 测试生成 JSON 用例(文档 + step 序列 + 期望结果),两边都必须通过。
+  - 不把 Swift 编译成 Wasm 给 Web 用:包太大,而且核心逻辑不多。
+- **编辑视图**:倾向 ProseMirror。它的 schema 能和平铺块一一对应;再用一层桥,把 PM 的 transaction 翻成我们的 step。
+- **视觉**:按同一套设计写一份 CSS 版,reveal 用逐字的 CSS 动画移植。
+- 不在第一期。先把模型格式和 step 的线上格式定死,保证 Web 以后能接上。
+
+## 11. 实施(demo 先行)
+
+所有界面都先在 MarkdownView-demos 里做,你确认后才移植到 floo。
+
+| 阶段 | 内容 | 验收 |
+|---|---|---|
+| D1 | DocKit:模型、step、事务、撤销栈、Markdown 互转、内存里的"服务端"和 rebase | swift-testing 属性测试全部通过;macOS 和 Linux 都能编译 |
+| D2 | demo 里的文档页:只读渲染、顶部锚定、reveal | 用一篇长文档跑聊天那套基准,最长帧和滚动卡顿接近聊天 |
+| D3 | 在同一个视图里编辑:输入、IME、拆块合块、快捷变换、斜杠菜单、撤销重做。第一件事是 §6.2 的 storage 钩子原型 | 录屏;撤销重做的脚本化测试 |
+| D4 | 卡片块、数据库块(表格视图 + 看板视图)的显示和编辑 | 录屏 |
+| D5 | 模拟协作:同一屏两个编辑器,加一个脚本化的 agent,经过内存服务端互相同步;远端改动 reveal;版本记录面板 | 录屏;随机并发测试收敛 |
+| D6 | 跨块文字选择 | 录屏 |
+| 之后 | 移植进 floo:DocKit 进 Core,服务端加 `doc_step` 和端点,App 接入;再做 Web | 走 floo 的流程 |
+
+D1 是纯模型,不涉及界面,可以直接开工。工具栏、斜杠菜单、版本面板的样子都在 demo 里给你看过再定,这份文档不决定界面。
+
+## 12. 从 Composer 借什么、不借什么
+
+- **借**:
+  - intent → 事务、按输入会话合并,以及它的历史测试用例(改写成我们的);
+  - IME 期间不记历史;
+  - 解码时保留不认识的块;
+  - 粘贴流水线;
+  - 远端到达时有未保存编辑就先暂存,保存后再应用(在我们这里由 rebase 取代)。
+- **不借**:
+  - 两套撤销并存;
+  - 整篇快照式的历史;
+  - 每次改动重配所有 cell;
+  - 远端到达清空历史;
+  - 全局静态的活跃控制器;
+  - AI 工具直接改 `vm.document`;
+  - 表格用 `UITextField`;
+  - 整篇最后写入者胜。
