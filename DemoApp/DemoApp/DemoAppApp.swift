@@ -12,6 +12,7 @@ import MessagingUI
 @main
 struct DemoAppApp: App {
     init() {
+        ExtensionsDestination.enableSyntax()
         prewarmMarkdownMathRenderer()
         TrackpadScrollMomentum.install()
     }
