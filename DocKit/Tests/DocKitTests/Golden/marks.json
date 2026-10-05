@@ -1,0 +1,250 @@
+{
+  "doc" : {
+    "blocks" : [
+      {
+        "id" : "00000000-0000-7000-8000-000000000002",
+        "indent" : 0,
+        "kind" : {
+          "paragraph" : {
+
+          }
+        },
+        "text" : {
+          "marks" : [
+            {
+              "mark" : {
+                "bold" : {
+
+                }
+              },
+              "range" : [
+                0,
+                4
+              ]
+            }
+          ],
+          "string" : "abcdefgh"
+        }
+      }
+    ],
+    "databases" : {
+
+    },
+    "id" : "00000000-0000-7000-8000-000000000001"
+  },
+  "final" : {
+    "blocks" : [
+      {
+        "id" : "00000000-0000-7000-8000-000000000002",
+        "indent" : 0,
+        "kind" : {
+          "paragraph" : {
+
+          }
+        },
+        "text" : {
+          "marks" : [
+            {
+              "mark" : {
+                "bold" : {
+
+                }
+              },
+              "range" : [
+                0,
+                1
+              ]
+            },
+            {
+              "mark" : {
+                "bold" : {
+
+                }
+              },
+              "range" : [
+                3,
+                6
+              ]
+            },
+            {
+              "mark" : {
+                "link" : {
+                  "url" : "https:\/\/example.com"
+                }
+              },
+              "range" : [
+                4,
+                8
+              ]
+            }
+          ],
+          "string" : "abcdefgh"
+        }
+      }
+    ],
+    "databases" : {
+
+    },
+    "id" : "00000000-0000-7000-8000-000000000001"
+  },
+  "resolved" : [
+    {
+      "setMarks" : {
+        "block" : "00000000-0000-7000-8000-000000000002",
+        "kind" : "bold",
+        "previous" : [
+          {
+            "mark" : {
+              "bold" : {
+
+              }
+            },
+            "range" : [
+              2,
+              4
+            ]
+          }
+        ],
+        "range" : [
+          2,
+          6
+        ],
+        "spans" : [
+          {
+            "mark" : {
+              "bold" : {
+
+              }
+            },
+            "range" : [
+              2,
+              6
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "setMarks" : {
+        "block" : "00000000-0000-7000-8000-000000000002",
+        "kind" : "bold",
+        "previous" : [
+          {
+            "mark" : {
+              "bold" : {
+
+              }
+            },
+            "range" : [
+              1,
+              3
+            ]
+          }
+        ],
+        "range" : [
+          1,
+          3
+        ],
+        "spans" : [
+
+        ]
+      }
+    },
+    {
+      "setMarks" : {
+        "block" : "00000000-0000-7000-8000-000000000002",
+        "kind" : "link",
+        "previous" : [
+
+        ],
+        "range" : [
+          4,
+          8
+        ],
+        "spans" : [
+          {
+            "mark" : {
+              "link" : {
+                "url" : "https:\/\/example.com"
+              }
+            },
+            "range" : [
+              4,
+              8
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "steps" : [
+    {
+      "setMarks" : {
+        "block" : "00000000-0000-7000-8000-000000000002",
+        "kind" : "bold",
+        "previous" : [
+
+        ],
+        "range" : [
+          2,
+          6
+        ],
+        "spans" : [
+          {
+            "mark" : {
+              "bold" : {
+
+              }
+            },
+            "range" : [
+              2,
+              6
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "setMarks" : {
+        "block" : "00000000-0000-7000-8000-000000000002",
+        "kind" : "bold",
+        "previous" : [
+
+        ],
+        "range" : [
+          1,
+          3
+        ],
+        "spans" : [
+
+        ]
+      }
+    },
+    {
+      "setMarks" : {
+        "block" : "00000000-0000-7000-8000-000000000002",
+        "kind" : "link",
+        "previous" : [
+
+        ],
+        "range" : [
+          4,
+          8
+        ],
+        "spans" : [
+          {
+            "mark" : {
+              "link" : {
+                "url" : "https:\/\/example.com"
+              }
+            },
+            "range" : [
+              4,
+              8
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

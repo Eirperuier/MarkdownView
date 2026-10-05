@@ -1,0 +1,248 @@
+{
+  "doc" : {
+    "blocks" : [
+      {
+        "id" : "00000000-0000-7000-8000-000000000002",
+        "indent" : 0,
+        "kind" : {
+          "paragraph" : {
+
+          }
+        },
+        "text" : {
+          "marks" : [
+
+          ],
+          "string" : "one"
+        }
+      },
+      {
+        "id" : "00000000-0000-7000-8000-000000000003",
+        "indent" : 0,
+        "kind" : {
+          "paragraph" : {
+
+          }
+        },
+        "text" : {
+          "marks" : [
+
+          ],
+          "string" : "two"
+        }
+      },
+      {
+        "id" : "00000000-0000-7000-8000-000000000004",
+        "indent" : 0,
+        "kind" : {
+          "paragraph" : {
+
+          }
+        },
+        "text" : {
+          "marks" : [
+
+          ],
+          "string" : "three"
+        }
+      }
+    ],
+    "databases" : {
+
+    },
+    "id" : "00000000-0000-7000-8000-000000000001"
+  },
+  "final" : {
+    "blocks" : [
+      {
+        "id" : "00000000-0000-7000-8000-000000000004",
+        "indent" : 0,
+        "kind" : {
+          "paragraph" : {
+
+          }
+        },
+        "text" : {
+          "marks" : [
+
+          ],
+          "string" : "three"
+        }
+      },
+      {
+        "id" : "00000000-0000-7000-8000-000000000002",
+        "indent" : 0,
+        "kind" : {
+          "heading" : {
+            "level" : 3
+          }
+        },
+        "text" : {
+          "marks" : [
+
+          ],
+          "string" : "one"
+        }
+      },
+      {
+        "id" : "00000000-0000-7000-8000-000000000005",
+        "indent" : 1,
+        "kind" : {
+          "listItem" : {
+            "style" : {
+              "task" : {
+                "done" : false
+              }
+            }
+          }
+        },
+        "text" : {
+          "marks" : [
+
+          ],
+          "string" : "item"
+        }
+      }
+    ],
+    "databases" : {
+
+    },
+    "id" : "00000000-0000-7000-8000-000000000001"
+  },
+  "resolved" : [
+    {
+      "insertBlock" : {
+        "after" : "00000000-0000-7000-8000-000000000002",
+        "block" : {
+          "id" : "00000000-0000-7000-8000-000000000005",
+          "indent" : 1,
+          "kind" : {
+            "listItem" : {
+              "style" : {
+                "task" : {
+                  "done" : false
+                }
+              }
+            }
+          },
+          "text" : {
+            "marks" : [
+
+            ],
+            "string" : "item"
+          }
+        }
+      }
+    },
+    {
+      "moveBlock" : {
+        "block" : "00000000-0000-7000-8000-000000000004",
+        "from" : "00000000-0000-7000-8000-000000000003"
+      }
+    },
+    {
+      "setBlock" : {
+        "block" : "00000000-0000-7000-8000-000000000002",
+        "indent" : 0,
+        "kind" : {
+          "heading" : {
+            "level" : 3
+          }
+        },
+        "previousIndent" : 0,
+        "previousKind" : {
+          "paragraph" : {
+
+          }
+        }
+      }
+    },
+    {
+      "deleteBlock" : {
+        "after" : "00000000-0000-7000-8000-000000000005",
+        "block" : {
+          "id" : "00000000-0000-7000-8000-000000000003",
+          "indent" : 0,
+          "kind" : {
+            "paragraph" : {
+
+            }
+          },
+          "text" : {
+            "marks" : [
+
+            ],
+            "string" : "two"
+          }
+        }
+      }
+    }
+  ],
+  "steps" : [
+    {
+      "insertBlock" : {
+        "after" : "00000000-0000-7000-8000-000000000002",
+        "block" : {
+          "id" : "00000000-0000-7000-8000-000000000005",
+          "indent" : 1,
+          "kind" : {
+            "listItem" : {
+              "style" : {
+                "task" : {
+                  "done" : false
+                }
+              }
+            }
+          },
+          "text" : {
+            "marks" : [
+
+            ],
+            "string" : "item"
+          }
+        }
+      }
+    },
+    {
+      "moveBlock" : {
+        "block" : "00000000-0000-7000-8000-000000000004"
+      }
+    },
+    {
+      "setBlock" : {
+        "block" : "00000000-0000-7000-8000-000000000002",
+        "indent" : 0,
+        "kind" : {
+          "heading" : {
+            "level" : 3
+          }
+        },
+        "previousIndent" : 0,
+        "previousKind" : {
+          "paragraph" : {
+
+          }
+        }
+      }
+    },
+    {
+      "deleteBlock" : {
+        "block" : {
+          "id" : "00000000-0000-7000-8000-000000000003",
+          "indent" : 0,
+          "kind" : {
+            "paragraph" : {
+
+            }
+          },
+          "text" : {
+            "marks" : [
+
+            ],
+            "string" : ""
+          }
+        }
+      }
+    }
+  ]
+}
