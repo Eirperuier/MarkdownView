@@ -21,8 +21,21 @@ public enum DatabaseFormula {
         return evaluator.display(row: row, column: column)
     }
 
+    /// Starts with `=` (or `＝`, what a Chinese input method types).
     public static func isFormula(_ text: String) -> Bool {
-        text.hasPrefix("=") && text.count > 1
+        (text.hasPrefix("=") || text.hasPrefix("＝")) && text.count > 1
+    }
+
+    /// Full-width forms (`（`, `，`, `：`, `＋`, `Ａ１`…), which a Chinese input method
+    /// types, read as their ASCII ones; an ideographic space as a space.
+    static func halfWidth(_ text: Substring) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in
+            switch scalar.value {
+            case 0xFF01...0xFF5E: UnicodeScalar(scalar.value - 0xFEE0) ?? scalar
+            case 0x3000: " "
+            default: scalar
+            }
+        }))
     }
 
     /// A column's letters: 0 → A, 25 → Z, 26 → AA.
@@ -89,7 +102,7 @@ public enum DatabaseFormula {
             guard !evaluating.contains(key) else { return .failure(.cycle) }
             evaluating.insert(key)
             defer { evaluating.remove(key) }
-            var parser = Parser(source: String(text.dropFirst()), row: row, column: column)
+            var parser = Parser(source: DatabaseFormula.halfWidth(text.dropFirst()), row: row, column: column)
             let result: Result<Double?, Failure>
             do {
                 let expression = try parser.parse()

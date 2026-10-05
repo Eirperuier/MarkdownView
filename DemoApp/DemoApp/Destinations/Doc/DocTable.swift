@@ -36,7 +36,7 @@ struct DocCellKey: Hashable {
 enum DocTableAction: CaseIterable, Identifiable {
     case insertRowAbove, insertRowBelow, insertColumnLeft, insertColumnRight
     case moveRowUp, moveRowDown, moveColumnLeft, moveColumnRight
-    case sortAscending, sortDescending
+    case sortAscending, sortDescending, insertFormula
     case deleteRow, deleteColumn, clearCell, deleteTable
 
     var id: Self { self }
@@ -53,6 +53,7 @@ enum DocTableAction: CaseIterable, Identifiable {
         case .moveColumnRight: "右移列"
         case .sortAscending: "按此列升序排序"
         case .sortDescending: "按此列降序排序"
+        case .insertFormula: "插入公式"
         case .deleteRow: "删除行"
         case .deleteColumn: "删除列"
         case .clearCell: "清除单元格内容"
@@ -72,6 +73,7 @@ enum DocTableAction: CaseIterable, Identifiable {
         case .moveColumnRight: "arrow.right"
         case .sortAscending: "arrow.up.arrow.down"
         case .sortDescending: "arrow.up.arrow.down"
+        case .insertFormula: "function"
         case .deleteRow, .deleteColumn, .deleteTable: "trash"
         case .clearCell: "eraser"
         }
@@ -88,7 +90,7 @@ enum DocTableAction: CaseIterable, Identifiable {
     static let sections: [[DocTableAction]] = [
         [.insertRowAbove, .insertRowBelow, .insertColumnLeft, .insertColumnRight],
         [.moveRowUp, .moveRowDown, .moveColumnLeft, .moveColumnRight],
-        [.sortAscending, .sortDescending],
+        [.sortAscending, .sortDescending, .insertFormula],
         [.clearCell, .deleteRow, .deleteColumn, .deleteTable],
     ]
 }
@@ -289,6 +291,7 @@ final class DocTableController {
         case .deleteRow: return r > 0
         case .deleteColumn: return columns.count > 1
         case .sortAscending, .sortDescending: return rows.count > 2
+        case .insertFormula: return r > 0
         default: return true
         }
     }
@@ -375,9 +378,69 @@ final class DocTableController {
         case .clearCell:
             changed(key, to: "")
             session &+= 1
+        case .insertFormula:
+            // Craft starts a formula with "="; a sum of the cells above is the usual one.
+            if !DatabaseFormula.isFormula(text(key)) {
+                changed(key, to: "=SUM(ABOVE)")
+                session &+= 1
+            }
+            focusSoon(key, atEnd: true)
         case .deleteTable:
             deleteTable(key.block)
         }
+    }
+
+    /// What a formula cell computes (nil for other cells).
+    func result(_ key: DocCellKey) -> String? {
+        guard let (_, database) = database(key.block), let row = key.row, DatabaseFormula.isFormula(text(key)),
+              let r = database.rows.firstIndex(where: { $0.id == row }), let c = database.columns.firstIndex(where: { $0.id == key.column })
+        else { return nil }
+        return DatabaseFormula.displayed(text(key), in: database, row: r + 1, column: c)
+    }
+
+    /// Pasted text with tabs or line breaks (a range copied from a spreadsheet, or a
+    /// table's cells): it fills the cells from `key` right and down, adding the rows and
+    /// columns it needs. One undo step. Returns false for plain text (a normal paste).
+    func paste(_ string: String, at key: DocCellKey) -> Bool {
+        var lines = string.replacing("\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if lines.last?.isEmpty == true { lines.removeLast() }
+        let grid = lines.map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        guard grid.count > 1 || (grid.first?.count ?? 0) > 1, let (_, database) = database(key.block),
+              let c0 = database.columns.firstIndex(where: { $0.id == key.column })
+        else { return false }
+        let r0 = key.row.flatMap { id in database.rows.firstIndex { $0.id == id }.map { $0 + 1 } } ?? 0
+        var steps: [DatabaseStep] = []
+        var columns = database.columns
+        var rows = database.rows
+        let width = grid.map(\.count).max() ?? 0
+        while columns.count < c0 + width {
+            let column = Column(id: demo.newID(), name: "", type: .text)
+            steps.append(.insertColumn(column: column, after: columns.last?.id, cells: [:]))
+            columns.append(column)
+        }
+        while rows.count < r0 + grid.count - 1 {
+            let row = Row(id: demo.newID())
+            steps.append(.insertRow(row: row, after: rows.last?.id))
+            rows.append(row)
+        }
+        for (i, line) in grid.enumerated() {
+            for (j, value) in line.enumerated() {
+                let column = columns[c0 + j]
+                if r0 + i == 0 {
+                    var renamed = column
+                    renamed.name = value
+                    if renamed != column { steps.append(.updateColumn(column: renamed, previous: column)) }
+                } else {
+                    let row = rows[r0 + i - 1]
+                    let previous = row.cells[column.id]
+                    let next: CellValue? = value.isEmpty ? nil : .text(value: value)
+                    if next != previous { steps.append(.setCell(row: row.id, column: column.id, value: next, previous: previous)) }
+                }
+            }
+        }
+        commit(key.block, steps)
+        focusSoon(key, atEnd: true)
+        return true
     }
 
     /// The table's block goes, then its database (a database still shown can't go).
@@ -468,6 +531,11 @@ final class DocCellTextView: UITextView, UITextViewDelegate, UIContextMenuIntera
         }
         for command in commands { command.wantsPriorityOverSystemBehavior = true }
         return (super.keyCommands ?? []) + commands
+    }
+
+    override func paste(_ sender: Any?) {
+        if let key, let string = UIPasteboard.general.string, controller?.paste(string, at: key) == true { return }
+        super.paste(sender)
     }
 
     private func move(_ move: DocTableController.Move) {
@@ -612,6 +680,21 @@ struct DocTableCellEditor: View {
             .overlay(alignment: .trailing) {
                 DocTableCellMenu(key: key, controller: controller)
                     .offset(x: 10)
+            }
+            .overlay(alignment: .bottomLeading) {
+                // A formula is edited as its text; what it computes shows under the cell
+                // (Craft shows the two the other way round).
+                if let result = controller.result(key) {
+                    Text("= \(result)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .fixedSize()
+                        .offset(y: 30)
+                        .allowsHitTesting(false)
+                }
             }
     }
 }

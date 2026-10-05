@@ -99,6 +99,17 @@ struct FormulaTests {
         #expect(doc.markdown(of: fixedID(9))?.contains("| a | 2 | 3 | 6 |") == true)
     }
 
+    /// What a Chinese input method types: ＝, full-width parentheses and commas.
+    @Test
+    func fullWidthForms() {
+        let db = database([
+            ["a", "2", "3", "＝SUM （B2：C2）"],
+            ["b", "=ROUND（B2／3，2）", "", ""],
+        ])
+        #expect(shown(db, 1, 3) == "5")
+        #expect(shown(db, 2, 1) == "0.67")
+    }
+
     @Test
     func columnNames() {
         #expect(DatabaseFormula.columnName(0) == "A")

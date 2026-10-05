@@ -644,7 +644,7 @@ final class DocEditTests {
             let before = try database()
             let actions: [DocTableAction] = [.insertRowAbove, .insertRowBelow, .insertColumnLeft, .insertColumnRight,
                                              .moveRowUp, .moveRowDown, .moveColumnLeft, .moveColumnRight,
-                                             .sortAscending, .sortDescending, .deleteRow, .deleteColumn, .clearCell]
+                                             .sortAscending, .sortDescending, .insertFormula, .deleteRow, .deleteColumn, .clearCell]
             for action in actions {
                 _ = try await click(2, 1)
                 let key = try editedKey()
@@ -671,6 +671,32 @@ final class DocEditTests {
             try self.expect(self.demo.doc.block(t.block) == nil && self.demo.doc.databases[t.database.id] == nil, "still there")
             try await self.undo()
             try self.expect(self.demo.doc.block(t.block) != nil && self.demo.doc.databases[t.database.id] == t.database, "not back")
+        }
+        await test("Table: a formula shows its result in the table, its text in the editor; 插入公式 starts one") {
+            let view = try await click(4, 2)
+            self.editor.tables.perform(.insertFormula, at: try editedKey())
+            try? await Task.sleep(for: .milliseconds(200))
+            try self.expect(try cellText(4, 2) == "=SUM(ABOVE)", "cell \(String(describing: try? cellText(4, 2)))")
+            let shown = self.editor.tables.view(for: try table().key(4, 2)) ?? view
+            try self.expect(shown.text == "=SUM(ABOVE)", "editor shows \(shown.text.debugDescription)")
+            // 21% + 16% + 17% above it.
+            let result = self.editor.tables.result(try table().key(4, 2))
+            try self.expect(result == "0.54", "result \(String(describing: result))")
+            let markdown = self.demo.doc.markdown(of: try table().block) ?? ""
+            try self.expect(markdown.replacing("\\", with: "").contains("| 0.54 |"), "markdown \(markdown)")
+        }
+        await test("Table: pasting a spreadsheet range fills cells right and down, adding rows and columns; one undo") {
+            let before = try database()
+            let view = try await click(4, 3)
+            UIPasteboard.general.string = "a\tb\nc\td\n"
+            view.paste(nil)
+            try? await Task.sleep(for: .milliseconds(150))
+            let after = try database()
+            try self.expect(after.columns.count == before.columns.count + 1 && after.rows.count == before.rows.count + 1, "size \(after.rows.count)×\(after.columns.count)")
+            let cells = [try cellText(4, 3), try cellText(4, 4), try cellText(5, 3), try cellText(5, 4)]
+            try self.expect(cells == ["a", "b", "c", "d"], "cells \(cells)")
+            try await self.undo()
+            try self.expect(try database() == before, "undo left changes")
         }
         await test("Table: Esc leaves it; it renders as MarkdownView's table again") {
             _ = try await click(1, 1)
