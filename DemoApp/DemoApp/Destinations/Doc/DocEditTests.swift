@@ -551,6 +551,30 @@ final class DocEditTests {
             try self.expect(self.demo.doc.block(line.id)?.kind == .quote && self.text(line.id) == "abc ", "\(String(describing: self.demo.doc.block(line.id)?.kind)) \(self.text(line.id).debugDescription)")
             try self.expectCursor(line.id, 4)
         }
+        // MARK: Links
+
+        await test("Links: a link on the selection exports as markdown; one undo removes it; nil removes it too") {
+            let block = try self.block("Loading older")
+            self.editor.setLink("https://example.com", over: 0..<7, in: block.id)
+            try self.expect((self.demo.doc.markdown(of: block.id) ?? "").hasPrefix("[Loading](https://example.com) older"), "markdown \(String(describing: self.demo.doc.markdown(of: block.id)?.prefix(40)))")
+            try self.expect(self.editor.link(over: 0..<7, in: self.demo.doc.block(block.id)!) == "https://example.com", "link")
+            try await self.undo()
+            try self.expect(self.demo.doc.block(block.id)?.text == block.text, "undo left \(String(describing: self.demo.doc.block(block.id)?.text.marks)) (had \(block.text.marks))")
+            self.editor.setLink("https://example.com", over: 0..<7, in: block.id)
+            self.editor.setLink(nil, over: 0..<7, in: block.id)
+            try self.expect(self.demo.doc.block(block.id)?.text == block.text, "removing left \(String(describing: self.demo.doc.block(block.id)?.text.marks))")
+        }
+        await test("Links: pasting a web address over selected text links it; elsewhere it's text") {
+            let block = try self.block("Loading older")
+            try await self.focus(block.id, at: 0)
+            let view = try self.view()
+            let start = try self.expectValue(self.editor.textStart(in: view, block: block), "not in sync")
+            self.editor.replace(NSRange(location: start, length: 7), with: "https://floo.app/x", in: view, block: block.id)
+            try self.expect(self.text(block.id) == block.text.string, "text changed: \(self.text(block.id).prefix(20).debugDescription)")
+            try self.expect(self.editor.link(over: 0..<7, in: self.demo.doc.block(block.id)!) == "https://floo.app/x", "not linked")
+            try self.expect(DocEditor.webAddress("not a url") == nil && DocEditor.webAddress("ftp://x") == nil && DocEditor.webAddress(" https://a.b/c ") == "https://a.b/c", "webAddress")
+        }
+
         // MARK: Code and math
 
         func firstBlock(_ match: (BlockKind) -> Bool) throws -> DocBlock {

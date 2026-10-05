@@ -328,7 +328,76 @@ final class DocEditor {
             if modelRange.lowerBound == 0 { _ = deleteBackward(atStartOf: block) }
             return
         }
+        // A web address pasted over selected text links it (the text stays).
+        if !modelRange.isEmpty, block.kind.allowsMarks, let url = Self.webAddress(replacement) {
+            setLink(url, over: modelRange, in: id)
+            return
+        }
         insert(replacement, replacing: modelRange, in: block)
+    }
+
+    /// `text` as a web address (http, https or mailto, nothing around it).
+    static func webAddress(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.contains(where: \.isWhitespace), let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme),
+              scheme == "mailto" || url.host != nil
+        else { return nil }
+        return trimmed
+    }
+
+    // MARK: Links
+
+    /// Links the range to `url`; nil removes the links in it.
+    func setLink(_ url: String?, over range: Range<Int>, in id: DocBlockID) {
+        guard let block = demo.doc.block(id), block.kind.allowsMarks, !range.isEmpty else { return }
+        let selected = DocSelection(anchor: .init(block: id, offset: range.lowerBound), head: .init(block: id, offset: range.upperBound))
+        commit([.setMarks(block: id, range: range, kind: .link, spans: url.map { [MarkSpan(range: range, mark: .link(url: $0))] } ?? [], previous: [])],
+               from: selected, to: selected)
+        session &+= 1
+    }
+
+    /// The link the whole range has (one address throughout), if any.
+    func link(over range: Range<Int>, in block: DocBlock) -> String? {
+        let links = block.text.marks.compactMap { span -> (Range<Int>, String)? in
+            if case .link(let url) = span.mark { (span.range, url) } else { nil }
+        }
+        guard let first = links.first(where: { $0.0.contains(range.lowerBound) }),
+              range.allSatisfy({ offset in links.contains { $0.0.contains(offset) && $0.1 == first.1 } })
+        else { return nil }
+        return first.1
+    }
+
+    /// Asks for the address of a link on the range (⌘K, 格式 ▸ 链接…), prefilled with the
+    /// range's link or a web address on the pasteboard.
+    func promptLink(over range: Range<Int>, in id: DocBlockID, from view: UIView) {
+        guard let block = demo.doc.block(id), block.kind.allowsMarks, !range.isEmpty,
+              var presenter = view.window?.rootViewController
+        else { return }
+        while let presented = presenter.presentedViewController { presenter = presented }
+        let current = link(over: range, in: block)
+        let alert = UIAlertController(title: current == nil ? "添加链接" : "编辑链接", message: nil, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.placeholder = "https://"
+            field.text = current ?? UIPasteboard.general.string.flatMap(Self.webAddress)
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+            field.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        if current != nil {
+            alert.addAction(UIAlertAction(title: "移除链接", style: .destructive) { [weak self] _ in
+                self?.setLink(nil, over: range, in: id)
+            })
+        }
+        alert.addAction(UIAlertAction(title: "完成", style: .default) { [weak self, weak alert] _ in
+            guard let text = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return }
+            // A bare address gets https.
+            let url = text.contains("://") || text.hasPrefix("mailto:") ? text : "https://" + text
+            self?.setLink(url, over: range, in: id)
+        })
+        presenter.present(alert, animated: true)
     }
 
     /// Shift-Tab, Shift-Return, ⌘B, ⌘I from the text view's key commands.
@@ -351,6 +420,10 @@ final class DocEditor {
             let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
             guard !range.isEmpty else { return }
             toggle(command == .bold ? .bold : .italic, over: range, in: block.id)
+        case .link:
+            guard let selection, selection.head.block == block.id, let view = textView(for: block.id) else { return }
+            let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
+            promptLink(over: range, in: block.id, from: view)
         }
     }
 
@@ -651,7 +724,12 @@ final class DocEditor {
                 self?.toggle(mark, over: modelRange, in: id)
             }
         }
-        let format = UIMenu(title: "格式", image: UIImage(systemName: "textformat"), children: actions)
+        let link = UIAction(title: Self.covers(block.text, modelRange, with: .link) ? "编辑链接…" : "链接…",
+                            image: UIImage(systemName: "link")) { [weak self, weak textView] _ in
+            guard let self, let textView else { return }
+            self.promptLink(over: modelRange, in: id, from: textView)
+        }
+        let format = UIMenu(title: "格式", image: UIImage(systemName: "textformat"), children: actions + [link])
         return UIMenu(children: [format] + suggested)
     }
 
@@ -783,7 +861,7 @@ final class DocUndoManager: UndoManager {
 }
 
 enum DocKeyCommand {
-    case outdent, bold, italic, lineBreak, slashUp, slashDown, slashClose
+    case outdent, bold, italic, link, lineBreak, slashUp, slashDown, slashClose
 }
 
 struct WeakTextView {
@@ -873,7 +951,7 @@ private enum TextViewHooks {
     }
 
     /// Shift-Tab steps a list item out, Shift-Return breaks the line inside the block,
-    /// ⌘B and ⌘I toggle bold and italic (Composer had
+    /// ⌘B and ⌘I toggle bold and italic, ⌘K links (Composer had
     /// them; UIKit's own versions would edit the storage, not the model).
     /// ↑, ↓ and Esc are the slash menu's only while it is open.
     private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String, slashMenu: Bool)] = [
@@ -881,6 +959,7 @@ private enum TextViewHooks {
         ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, "换行", false),
         ("b", .command, Selector(("docBold:")), .bold, "加粗", false),
         ("i", .command, Selector(("docItalic:")), .italic, "斜体", false),
+        ("k", .command, Selector(("docLink:")), .link, "链接", false),
         (UIKeyCommand.inputUpArrow, [], Selector(("docSlashUp:")), .slashUp, "上一项", true),
         (UIKeyCommand.inputDownArrow, [], Selector(("docSlashDown:")), .slashDown, "下一项", true),
         (UIKeyCommand.inputEscape, [], Selector(("docSlashClose:")), .slashClose, "关闭菜单", true),
