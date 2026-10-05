@@ -128,7 +128,7 @@ final class DocDemo {
                 emitLayer()
                 continue
             }
-            let markdown = doc.markdown(of: block.id) ?? ""
+            let markdown = doc.markdown(of: block.id, style: .editing) ?? ""
             result.append(DocRow(id: block.id.description, block: block.id, blocks: split(markdown)))
             if let live, live.after == block.id { emitLayer() }
         }
@@ -140,10 +140,10 @@ final class DocDemo {
     /// A run of list items is split as one list, so each item gets MarkdownView's
     /// marker, numbering and depth indentation; one descriptor per item.
     private func listRows(_ run: [DocBlock]) -> [DocRow] {
-        let markdown = Doc(id: doc.id, blocks: run).markdown
+        let markdown = Doc(id: doc.id, blocks: run).markdown(style: .editing)
         let blocks = split(markdown)
         guard blocks.count == run.count else {
-            return run.map { DocRow(id: $0.id.description, block: $0.id, blocks: split(doc.markdown(of: $0.id) ?? "")) }
+            return run.map { DocRow(id: $0.id.description, block: $0.id, blocks: split(doc.markdown(of: $0.id, style: .editing) ?? "")) }
         }
         return zip(run, blocks).map { DocRow(id: $0.id.description, block: $0.id, blocks: [$1]) }
     }

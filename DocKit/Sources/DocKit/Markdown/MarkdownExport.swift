@@ -4,17 +4,29 @@
     import Foundation
 #endif
 
+/// What the markdown is for. `exchange` is the canonical form agents read and
+/// export writes. `editing` is what an editor renders a block from: it must
+/// show exactly the model's text, so whitespace markdown would drop (at a
+/// line's edges) is written as entities and an empty block gets a zero-width
+/// space to keep its line.
+public enum DocMarkdownStyle: Sendable {
+    case exchange
+    case editing
+}
+
 extension Doc {
     /// The whole document as markdown — what agents read, export writes and
     /// search indexes. Consecutive list items stay one tight list; every
     /// other boundary is a blank line.
-    public var markdown: String {
+    public var markdown: String { markdown(style: .exchange) }
+
+    public func markdown(style: DocMarkdownStyle) -> String {
         var layout = ListLayout()
         var output = ""
         var previousWasListItem = false
         for block in blocks {
             let placement = layout.place(block)
-            let text = markdown(of: block, placement: placement)
+            let text = markdown(of: block, placement: placement, style: style)
             guard !text.isEmpty else { continue }
             let isListItem = placement != nil
             if !output.isEmpty { output += previousWasListItem && isListItem ? "\n" : "\n\n" }
@@ -27,34 +39,39 @@ extension Doc {
     /// One block's markdown on its own, as the renderer and `doc_read` see
     /// it: a list item without its nesting indentation, but with its number
     /// in the list. Nil when the block doesn't exist.
-    public func markdown(of id: DocBlockID) -> String? {
+    public func markdown(of id: DocBlockID, style: DocMarkdownStyle = .exchange) -> String? {
         var layout = ListLayout()
         for block in blocks {
             let placement = layout.place(block)
             guard block.id == id else { continue }
-            return markdown(of: block, placement: placement.map { ListPlacement(leading: 0, marker: $0.marker) })
+            return markdown(of: block, placement: placement.map { ListPlacement(leading: 0, marker: $0.marker) }, style: style)
         }
         return nil
     }
 
-    private func markdown(of block: DocBlock, placement: ListPlacement?) -> String {
+    private func markdown(of block: DocBlock, placement: ListPlacement?, style: DocMarkdownStyle) -> String {
+        let editing = style == .editing
+        func inline(singleLine: Bool = false) -> String {
+            if editing, block.text.isEmpty { return "&#8203;" }
+            return block.text.markdown(singleLine: singleLine, preservingWhitespace: editing)
+        }
         switch block.kind {
         case .paragraph:
-            return block.text.markdown()
+            return inline()
         case .heading(let level):
-            return String(repeating: "#", count: level) + " " + block.text.markdown(singleLine: true)
+            return String(repeating: "#", count: level) + " " + inline(singleLine: true)
         case .listItem(let style):
             guard let placement else { return "" }
             var marker = placement.marker
             if case .task(let done) = style { marker += done ? "[x] " : "[ ] " }
             let continuation = String(repeating: " ", count: placement.leading + placement.marker.count)
             return prefixed(
-                block.text.markdown(),
+                inline(),
                 first: String(repeating: " ", count: placement.leading) + marker,
                 rest: continuation
             )
         case .quote:
-            return prefixed(block.text.markdown(), first: "> ", rest: "> ")
+            return prefixed(inline(), first: "> ", rest: "> ")
         case .code(let language):
             let fence = Self.fence(for: block.text.string)
             return "\(fence)\(language ?? "")\n\(block.text.string)\(block.text.isEmpty ? "" : "\n")\(fence)"

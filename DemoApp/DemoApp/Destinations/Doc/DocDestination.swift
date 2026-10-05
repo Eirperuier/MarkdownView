@@ -51,6 +51,9 @@ struct DocDestination: View {
             // first row under the bar's edge).
             try? await Task.sleep(for: .milliseconds(150))
             if let first = demo.rows.first?.id { reader.scrollTo(id: first, anchor: .top, animated: false) }
+            if UserDefaults.standard.bool(forKey: "docEditTest") {
+                await DocEditTests(demo: demo, editor: editor).run()
+            }
             if Self.autoruns {
                 try? await Task.sleep(for: .seconds(1))
                 demo.runScript()
@@ -80,7 +83,10 @@ struct DocDestination: View {
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                     .disabled(!demo.canRedo)
                 Spacer()
-                Button("重置") { demo.reset() }
+                Button("重置") {
+                    demo.reset()
+                    editor.resetHistory()
+                }
                 Button("Agent 演示") { demo.runScript() }
                     .buttonStyle(.borderedProminent)
             }

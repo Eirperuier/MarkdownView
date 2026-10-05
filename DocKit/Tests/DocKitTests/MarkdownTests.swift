@@ -253,3 +253,31 @@ struct MarkdownImportTests {
         "a == b and c === d",
     ]
 }
+
+@Suite
+struct MarkdownEditingStyleTests {
+    /// What an editor renders must read back as exactly the model's text,
+    /// spaces at line edges included; an empty block keeps a line.
+    @Test
+    func whitespaceSurvives() {
+        let texts = ["a ", "  b", "c  \n d", "x\t", "  ", "# not heading  ", "**", "a  b   c"]
+        for string in texts {
+            let doc = Doc(id: fixedID(0), blocks: [block(1, .paragraph, string)])
+            let markdown = doc.markdown(of: fixedID(1), style: .editing) ?? ""
+            let back = parse(markdown).blocks.first?.text.string
+            #expect(back == string, "\(string.debugDescription) → \(markdown.debugDescription) → \(String(describing: back?.debugDescription))")
+        }
+    }
+
+    @Test
+    func emptyBlocksKeepALine() {
+        let doc = Doc(id: fixedID(0), blocks: [
+            block(1, .paragraph), block(2, .heading(level: 2)), block(3, .listItem(style: .bullet)), block(4, .quote),
+        ])
+        #expect(doc.markdown(of: fixedID(1), style: .editing) == "&#8203;")
+        #expect(doc.markdown(of: fixedID(2), style: .editing) == "## &#8203;")
+        #expect(doc.markdown(of: fixedID(3), style: .editing) == "- &#8203;")
+        #expect(doc.markdown(of: fixedID(4), style: .editing) == "> &#8203;")
+        #expect(parse("- &#8203;").blocks.first?.text.string == "\u{200B}")
+    }
+}

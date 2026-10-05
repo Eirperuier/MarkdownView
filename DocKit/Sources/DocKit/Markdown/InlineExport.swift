@@ -7,9 +7,25 @@ extension DocText {
     /// edge moves outside it, leading spaces of a line go, a mention becomes
     /// its label, a highlight colour is dropped.
     /// `singleLine` (headings, table cells) turns line breaks into spaces.
-    func markdown(singleLine: Bool = false, escapingPipes: Bool = false) -> String {
-        var writer = InlineWriter(text: self, singleLine: singleLine, escapingPipes: escapingPipes)
-        return writer.write()
+    /// `preservingWhitespace` (the editing style) writes spaces and tabs at a
+    /// line's edges as entities, which markdown would otherwise drop.
+    func markdown(singleLine: Bool = false, escapingPipes: Bool = false, preservingWhitespace: Bool = false) -> String {
+        var writer = InlineWriter(text: self, singleLine: singleLine, escapingPipes: escapingPipes, preservesWhitespace: preservingWhitespace)
+        let output = writer.write()
+        return preservingWhitespace ? Self.entitizingLineEdges(output) : output
+    }
+
+    /// Leading and trailing spaces/tabs of every line as `&#32;`/`&#9;`.
+    private static func entitizingLineEdges(_ markdown: String) -> String {
+        func entity(_ character: Character) -> String { character == "\t" ? "&#9;" : "&#32;" }
+        func isBlank(_ character: Character) -> Bool { character == " " || character == "\t" }
+        return markdown.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            let leading = line.prefix(while: isBlank)
+            let rest = line.dropFirst(leading.count)
+            let trailing = rest.reversed().prefix(while: isBlank)
+            let middle = rest.dropLast(trailing.count)
+            return leading.map(entity).joined() + middle + trailing.reversed().map(entity).joined()
+        }.joined(separator: "\n")
     }
 }
 
@@ -17,6 +33,7 @@ private struct InlineWriter {
     let units: [UInt16]
     let singleLine: Bool
     let escapingPipes: Bool
+    let preservesWhitespace: Bool
     /// Non-atom spans as emitted: no boundary falls inside a code span.
     let spans: [MarkSpan]
     let atoms: [Int: Mark]
@@ -24,10 +41,11 @@ private struct InlineWriter {
     var stack: [MarkSpan] = []
     var atLineStart = true
 
-    init(text: DocText, singleLine: Bool, escapingPipes: Bool) {
+    init(text: DocText, singleLine: Bool, escapingPipes: Bool, preservesWhitespace: Bool = false) {
         units = Array(text.string.utf16)
         self.singleLine = singleLine
         self.escapingPipes = escapingPipes
+        self.preservesWhitespace = preservesWhitespace
         var atoms: [Int: Mark] = [:]
         for span in text.marks where span.mark.kind.isAtom {
             atoms[span.range.lowerBound] = span.mark
@@ -172,7 +190,10 @@ private struct InlineWriter {
     private mutating func writeText(_ range: Range<Int>, opening: [MarkSpan]) {
         let text = String(decoding: units[range], as: UTF16.self)
         let leading = text.prefix { $0 == " " || $0 == "\t" }
-        if !atLineStart { output += leading }
+        // At a line start the spaces are kept only in the editing style, where
+        // the line-edge pass turns them into entities.
+        if !atLineStart || preservesWhitespace { output += leading }
+        if preservesWhitespace, !leading.isEmpty { atLineStart = false }
         open(opening)
         var line = Substring(text.dropFirst(leading.count))
         while !line.isEmpty {
@@ -187,6 +208,12 @@ private struct InlineWriter {
 
     private mutating func writeLine(_ line: Substring) {
         var line = line
+        if atLineStart, preservesWhitespace, let first = line.first, first == " " || first == "\t" {
+            let blanks = line.prefix { $0 == " " || $0 == "\t" }
+            output += blanks
+            line = line.dropFirst(blanks.count)
+            atLineStart = false
+        }
         if atLineStart {
             line = line.drop { $0 == " " || $0 == "\t" }
             guard let first = line.first else { return }
