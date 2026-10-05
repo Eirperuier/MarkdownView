@@ -46,6 +46,8 @@ final class DocEditor {
     let slash = DocSlashMenu()
     /// The tables' cells (database blocks).
     lazy var tables = DocTableController(demo: demo, editor: self)
+    /// Code and math blocks, edited as their source.
+    lazy var sources = DocSourceController(demo: demo, editor: self)
     var slashOrigin: DocPosition?
     /// The next render of the selection's block should also take keyboard focus.
     private var wantsFocus = false
@@ -204,6 +206,12 @@ final class DocEditor {
     /// Moves the selection (and focus) to a model position, now if its block is shown
     /// in sync, else at its next render.
     func place(_ next: DocSelection) {
+        // Code and math blocks have their own editor.
+        if let block = demo.doc.block(next.head.block), DocSourceKind(block.kind) != nil {
+            selection = nil
+            sources.focus(block.id, at: next.head.offset)
+            return
+        }
         selection = next
         wantsFocus = true
         if let textView = textView(for: next.head.block) {
@@ -837,6 +845,7 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
     func textViewDidBeginEditing(_ textView: UITextView) {
         original?.textViewDidBeginEditing?(textView)
         editor?.tables.endEditing()
+        editor?.sources.endEditing()
     }
 
     /// Letters typed with a Chinese, Japanese or Korean keyboard start marked text.

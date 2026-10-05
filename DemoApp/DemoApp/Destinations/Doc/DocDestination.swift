@@ -53,6 +53,16 @@ struct DocDestination: View {
             try? await Task.sleep(for: .milliseconds(150))
             if let first = demo.rows.first?.id { reader.scrollTo(id: first, anchor: .top, animated: false) }
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
+            // -docShow code|math: open at the first code or math block; -docEdit YES edits it.
+            if let kind = UserDefaults.standard.string(forKey: "docShow"),
+               let row = demo.rows.first(where: { kind == "code" ? { if case .code = $0.sourceKind { true } else { false } }($0) : $0.sourceKind == .math }),
+               let block = row.block {
+                reader.scrollTo(id: row.id, anchor: .center, animated: false)
+                if UserDefaults.standard.bool(forKey: "docEdit") {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    editor.sources.focus(block)
+                }
+            }
             // -docShowTable YES: open at the first table (screenshots, trying tables out).
             if UserDefaults.standard.bool(forKey: "docShowTable"), let table = demo.rows.first(where: { $0.table != nil }) {
                 reader.scrollTo(id: table.id, anchor: .center, animated: false)
@@ -113,8 +123,8 @@ struct DocRowCell: TiledCellContent {
 
     func body(context: CellContext<Void>) -> some View {
         let hooks = MainActor.assumeIsolated { [item, editor] in item.block.map { editor.hooks(for: $0) } }
-        let tables = MainActor.assumeIsolated { editor.tables }
-        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks, tables: tables) { [item, editor] point in
+        let (tables, sources) = MainActor.assumeIsolated { (editor.tables, editor.sources) }
+        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks, tables: tables, sources: sources) { [item, editor] point in
             MainActor.assumeIsolated {
                 if let block = item.block { editor.click(block, at: point) }
             }
@@ -127,6 +137,7 @@ private struct DocRowView: View {
     let coordinator: StreamingRevealCoordinator<UUID>
     let hooks: MarkdownSelectableTextHooks?
     let tables: DocTableController
+    let sources: DocSourceController
     /// A click in the row, in window coordinates.
     let onClick: (CGPoint) -> Void
 
@@ -136,6 +147,10 @@ private struct DocRowView: View {
             // with a new id, and the text view being typed in must stay the same view.
             if let table = row.table, !row.isStreaming {
                 DocTableRowView(table: table, blocks: row.blocks, controller: tables)
+            } else if let block = row.block, case .code(let language) = row.sourceKind, !row.isStreaming {
+                DocCodeRowView(block: block, language: language, blocks: row.blocks, controller: sources)
+            } else if let block = row.block, row.sourceKind == .math, !row.isStreaming {
+                DocMathRowView(block: block, blocks: row.blocks, isEmpty: row.sourceIsEmpty, controller: sources)
             } else {
                 ForEach(Array(row.blocks.enumerated()), id: \.offset) { _, block in
                     blockView(block)
@@ -146,6 +161,8 @@ private struct DocRowView: View {
         .frame(maxWidth: 720, alignment: .leading)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
+        // Tables, code and math change height when an editor comes or goes.
+        .modifier(DocRowHeightReporter(isOn: row.table != nil || row.sourceKind != nil))
         // The whole row takes the caret, not only its text: beside a short line, the
         // space around a list item, the row's padding. Behind the text view, so only
         // clicks that miss it land here.

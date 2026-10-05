@@ -79,6 +79,7 @@ struct DefaultMarkdownCodeBlock: View {
     @Environment(\.codeHighlighter) private var injectedHighlighter
     @Environment(\.codeBlockContentRenderers) private var customRenderers
     @Environment(\.codeBlockRendererDisabledLanguages) private var disabledLanguages
+    @Environment(\.markdownCodeBlockReplacement) private var replacement
 
     @State private var attributedCode: AttributedString?
     @State private var attributedCodeStyleTrigger: Int?
@@ -377,7 +378,11 @@ struct DefaultMarkdownCodeBlock: View {
 
     @ViewBuilder
     private var bodyContent: some View {
-        if let renderer = customRenderer, displayMode == .rendered {
+        if let editor = replacement?() {
+            editor
+                .font(fontGroup.codeBlock)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if let renderer = customRenderer, displayMode == .rendered {
             renderer.makeBody(
                 code: codeBlockConfiguration.code,
                 language: codeBlockConfiguration.language

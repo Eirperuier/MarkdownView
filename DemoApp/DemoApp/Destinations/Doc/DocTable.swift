@@ -178,6 +178,7 @@ final class DocTableController {
         if active != key { session &+= 1 }
         active = key
         editing = key
+        editor.sources.endEditing()
     }
 
     func ended(_ key: DocCellKey) {

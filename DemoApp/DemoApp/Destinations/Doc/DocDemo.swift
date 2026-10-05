@@ -23,21 +23,28 @@ struct DocRow: Identifiable, Equatable {
     let isStreaming: Bool
     /// A database block shown as an editable table (instead of `blocks`).
     let table: DocTableSnapshot?
+    /// A code or math block, edited as its source (and whether it's empty).
+    let sourceKind: DocSourceKind?
+    let sourceIsEmpty: Bool
     private let source: String
     private let depth: Int?
 
-    init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock], isStreaming: Bool = false, table: DocTableSnapshot? = nil) {
+    init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock], isStreaming: Bool = false, table: DocTableSnapshot? = nil,
+         sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
         self.id = id
         self.block = block
         self.blocks = blocks
         self.isStreaming = isStreaming
         self.table = table
+        self.sourceKind = sourceKind
+        self.sourceIsEmpty = sourceIsEmpty
         source = blocks.map(\.source).joined(separator: "\n\n")
         depth = blocks.first?.descriptor.listItemContext?.depth
     }
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
         lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.table == rhs.table
+            && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
             && lhs.blocks.map(\.revealPlainTextCount) == rhs.blocks.map(\.revealPlainTextCount)
     }
@@ -140,7 +147,8 @@ final class DocDemo {
                 continue
             }
             let markdown = doc.markdown(of: block.id, style: .editing) ?? ""
-            result.append(DocRow(id: block.id.description, block: block.id, blocks: split(markdown)))
+            result.append(DocRow(id: block.id.description, block: block.id, blocks: split(markdown),
+                                 sourceKind: DocSourceKind(block.kind), sourceIsEmpty: block.text.isEmpty))
             if let live, live.after == block.id { emitLayer() }
         }
         rows = result

@@ -551,6 +551,117 @@ final class DocEditTests {
             try self.expect(self.demo.doc.block(line.id)?.kind == .quote && self.text(line.id) == "abc ", "\(String(describing: self.demo.doc.block(line.id)?.kind)) \(self.text(line.id).debugDescription)")
             try self.expectCursor(line.id, 4)
         }
+        // MARK: Code and math
+
+        func firstBlock(_ match: (BlockKind) -> Bool) throws -> DocBlock {
+            try self.expectValue(self.demo.doc.blocks.first { match($0.kind) }, "no such block")
+        }
+        func codeBlock() throws -> DocBlock { try firstBlock { if case .code = $0 { true } else { false } } }
+        func sourceEditor(_ block: DocBlockID, step: String = "") async throws -> DocSourceTextView {
+            for _ in 0..<60 {
+                if let view = self.editor.sources.view(for: block), view.isFirstResponder { return view }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            throw Failure(description: "\(step): the block never got an editor with the focus (editing \(String(describing: self.editor.sources.editing)))")
+        }
+        func edit(_ block: DocBlock) async throws -> DocSourceTextView {
+            self.demo.bringIntoView(block.id)
+            try? await Task.sleep(for: .milliseconds(300))
+            self.editor.sources.focus(block.id)
+            return try await sourceEditor(block.id, step: "edit")
+        }
+        func press(_ view: DocSourceTextView, _ key: String) {
+            if view.textView(view, shouldChangeTextIn: view.selectedRange, replacementText: key) { view.insertText(key) }
+        }
+        func caret(_ view: DocSourceTextView, afterLine prefix: String) throws {
+            let text = view.text as NSString
+            let start = text.range(of: prefix)
+            try self.expect(start.location != NSNotFound, "no line \(prefix)")
+            let line = text.lineRange(for: start)
+            view.selectedRange = NSRange(location: line.location + line.length - 1, length: 0)
+        }
+
+        await test("Code block: clicking edits its source in place; typing is one undo step") {
+            let block = try codeBlock()
+            let view = try await edit(block)
+            try self.expect(view.text == block.text.string, "editor shows \(view.text.prefix(20).debugDescription)")
+            view.selectedRange = NSRange(location: 0, length: 0)
+            view.insertText("// ")
+            try? await Task.sleep(for: .milliseconds(150))
+            let current = self.editor.sources.view(for: block.id)
+            try self.expect(current === view && view.isFirstResponder, "the editor was replaced while typing (same \(current === view), focused \(view.isFirstResponder), now \(String(describing: current?.isFirstResponder)))")
+            view.insertText("x")
+            try self.expect(self.text(block.id).hasPrefix("// xstruct"), "model \(self.text(block.id).prefix(16).debugDescription)")
+            try await self.undo()
+            try self.expect(self.text(block.id) == block.text.string, "undo left \(self.text(block.id).prefix(16).debugDescription)")
+            try? await Task.sleep(for: .milliseconds(150))
+            let shown = self.editor.sources.view(for: block.id)
+            try self.expect(shown?.text == block.text.string, "editor after undo: \(String(describing: shown?.text.prefix(12))) same view \(shown === view)")
+        }
+        await test("Code block: Return keeps the indentation; Tab and Shift-Tab indent and outdent by four") {
+            let block = try codeBlock()
+            let view = try await edit(block)
+            try caret(view, afterLine: "    private var ids")
+            press(view, "\n")
+            press(view, "x")
+            try self.expect(self.text(block.id).contains("= [:]\n    x\n"), "model \(self.text(block.id).prefix(80).debugDescription)")
+            press(view, "\t")
+            try self.expect(self.text(block.id).contains("\n    x    \n"), "tab: \(self.text(block.id).prefix(80).debugDescription)")
+            try caret(view, afterLine: "    private var ids")
+            view.outdent()
+            try self.expect(self.text(block.id).contains("\nprivate var ids"), "outdent: \(self.text(block.id).prefix(60).debugDescription)")
+        }
+        await test("Code block: ⌘Return leaves to the block below; ↑ on the first line to the one above") {
+            let block = try codeBlock()
+            let index = try self.expectValue(self.demo.doc.blocks.firstIndex { $0.id == block.id }, "index")
+            _ = try await edit(block)
+            self.editor.sources.leave(block.id, .below)
+            try await self.settle()
+            try self.expectCursor(self.demo.doc.blocks[index + 1].id, 0)
+            try self.expect(self.editor.sources.editing == nil, "still editing")
+            _ = try await edit(block)
+            self.editor.sources.leave(block.id, .up)
+            try await self.settle()
+            let above = self.demo.doc.blocks[index - 1]
+            try self.expectCursor(above.id, above.text.length)
+        }
+        await test("Code block: ``` makes one and edits it; Backspace in the empty block turns it into a paragraph") {
+            let line = try await emptyLine()
+            try await self.type("```")
+            try self.expect(self.demo.doc.block(line.id)?.kind == .code(language: nil), "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
+            let view = try await sourceEditor(line.id, step: "after ```")
+            press(view, "let a = 1")
+            try self.expect(self.text(line.id) == "let a = 1", "model \(self.text(line.id).debugDescription)")
+            view.selectAll(nil)
+            press(view, "")
+            press(view, "")
+            try self.expect(self.demo.doc.block(line.id)?.kind == .paragraph, "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
+            try await self.settle()
+            try self.expectCursor(line.id, 0)
+        }
+        await test("Code block: the language menu sets it") {
+            let block = try codeBlock()
+            _ = try await edit(block)
+            self.editor.sources.setLanguage("python", of: block.id)
+            try self.expect(self.demo.doc.block(block.id)?.kind == .code(language: "python"), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
+        }
+        await test("Math block: “/公式” makes one; its LaTeX is edited above the rendered formula") {
+            let line = try await emptyLine()
+            try await self.type("/公式")
+            try self.expect(self.editor.slash.highlightedItem?.id == "math", "highlighted \(String(describing: self.editor.slash.highlightedItem?.id))")
+            try await self.enter()
+            try self.expect(self.demo.doc.block(line.id)?.kind == .math, "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
+            let view = try await sourceEditor(line.id, step: "math")
+            view.insertText("E = mc^2")
+            try self.expect(self.text(line.id) == "E = mc^2", "model \(self.text(line.id).debugDescription)")
+            try self.expect((self.demo.doc.markdown(of: line.id) ?? "").contains("$$\nE = mc^2\n$$"), "markdown")
+            let existing = try firstBlock { $0 == .math }
+            if existing.id != line.id {
+                let other = try await edit(existing)
+                try self.expect(other.text == existing.text.string, "existing formula shows \(other.text.debugDescription)")
+            }
+        }
+
         // MARK: Tables
 
         /// The first table: its block, database, and a key maker (row 0 = header).
