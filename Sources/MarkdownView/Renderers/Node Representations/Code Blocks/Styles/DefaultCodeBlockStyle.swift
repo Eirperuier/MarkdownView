@@ -959,7 +959,9 @@ private struct CodeBlockLineView: View {
 
     private var lineBody: some View {
         ZStack(alignment: .topLeading) {
-            lineText(Text(verbatim: content.plainLine))
+            // An empty line is a line's height too (an empty Text is shorter than one
+            // with text, so blank lines in code came out thinner than the rest).
+            lineText(Text(verbatim: content.plainLine.isEmpty ? " " : content.plainLine))
                 .opacity(0)
                 .accessibilityHidden(true)
 

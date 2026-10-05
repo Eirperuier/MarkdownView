@@ -221,6 +221,22 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
         return view
     }()
 
+    /// The caret is a line of text tall: TextKit's own reaches over the paragraph
+    /// spacing below the line, into the gap before the next one.
+    override func caretRect(for position: UITextPosition) -> CGRect {
+        var rect = super.caretRect(for: position)
+        if stripeGap != nil, let font, rect.height > font.lineHeight + 1 {
+            rect.size.height = ceil(font.lineHeight)
+        }
+        return rect
+    }
+
+    override func selectionRects(for range: UITextRange) -> [UITextSelectionRect] {
+        let rects = super.selectionRects(for: range)
+        guard stripeGap != nil, let font else { return rects }
+        return rects.map { DocLineSelectionRect($0, lineHeight: ceil(font.lineHeight)) }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let gap = stripeGap else { return }
@@ -521,6 +537,27 @@ struct DocCodeEditor: View {
         DocSourceField(block: block, text: text, controller: controller, font: codeFont,
                        insets: UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 18), language: language, lineGap: 5)
     }
+}
+
+/// A selection rect a line of text tall (TextKit's covers the paragraph spacing too).
+final class DocLineSelectionRect: UITextSelectionRect {
+    private let base: UITextSelectionRect
+    private let lineHeight: CGFloat
+
+    init(_ base: UITextSelectionRect, lineHeight: CGFloat) {
+        self.base = base
+        self.lineHeight = lineHeight
+    }
+
+    override var rect: CGRect {
+        var rect = base.rect
+        if rect.height > lineHeight + 1 { rect.size.height = lineHeight }
+        return rect
+    }
+    override var writingDirection: NSWritingDirection { base.writingDirection }
+    override var containsStart: Bool { base.containsStart }
+    override var containsEnd: Bool { base.containsEnd }
+    override var isVertical: Bool { base.isVertical }
 }
 
 /// Alternate code lines' stripes: MarkdownView's (tertiary at a tenth).

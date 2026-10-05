@@ -674,6 +674,18 @@ final class DocEditTests {
             }
             try self.expect(shown.text == block.text.string && colors(shown) >= 3, "after undo: \(colors(shown)) colours, view \(shown.text.prefix(12).debugDescription), model \(self.text(block.id).prefix(12).debugDescription)")
         }
+        await test("Code block: the caret is a line of text tall, on a code line and on a blank one") {
+            let block = try codeBlock()
+            let view = try await edit(block)
+            let font = try self.expectValue(view.font, "no font")
+            let text = view.text as NSString
+            let blank = text.range(of: "\n\n").location + 1
+            for offset in [3, blank] {
+                guard let position = view.position(from: view.beginningOfDocument, offset: offset) else { continue }
+                let caret = view.caretRect(for: position)
+                try self.expect(caret.height <= ceil(font.lineHeight) + 1, "caret at \(offset) is \(caret.height) tall (line \(font.lineHeight))")
+            }
+        }
         await test("Code block: Return keeps the indentation; Tab and Shift-Tab indent and outdent by four") {
             let block = try codeBlock()
             let view = try await edit(block)
