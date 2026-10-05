@@ -433,10 +433,13 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         return RichText.Space(1).textContent
     }
 
+    /// A hard break inside a paragraph is a line separator (U+2028), not a newline: a
+    /// newline would start a new paragraph and add the paragraph spacing, where the
+    /// break only ends a line.
     mutating func visitLineBreak(_ lineBreak: Markdown.LineBreak) -> TextContent {
         appendMap(storageCount: 1, plainSpan: 1)
         revealCursor += 1
-        return RichText.LineBreak(1).textContent
+        return TextContent(.attributedString(AttributedString("\u{2028}")))
     }
 
     mutating func visitInlineCode(_ inlineCode: InlineCode) -> TextContent {

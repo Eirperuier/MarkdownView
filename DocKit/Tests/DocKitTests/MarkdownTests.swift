@@ -280,4 +280,22 @@ struct MarkdownEditingStyleTests {
         #expect(doc.markdown(of: fixedID(4), style: .editing) == "> &#8203;")
         #expect(parse("- &#8203;").blocks.first?.text.string == "\u{200B}")
     }
+
+    /// A line break inside a block shows as one (a soft break could render as a
+    /// space); an empty last line keeps its line like an empty block.
+    @Test
+    func lineBreaksShow() {
+        let doc = Doc(id: fixedID(0), blocks: [
+            block(1, .paragraph, "a\nb"), block(2, .quote, "a\nb"), block(3, .quote, "a\n"), block(4, .paragraph, "a\n\nb"),
+        ])
+        #expect(doc.markdown(of: fixedID(1), style: .editing) == "a\\\nb")
+        #expect(doc.markdown(of: fixedID(2), style: .editing) == "> a\\\n> b")
+        #expect(doc.markdown(of: fixedID(3), style: .editing) == "> a\\\n> &#8203;")
+        #expect(doc.markdown(of: fixedID(1), style: .exchange) == "a\nb")
+        for id: UInt64 in [1, 2, 4] {
+            let markdown = doc.markdown(of: fixedID(id), style: .editing) ?? ""
+            let back = parse(markdown).blocks.first?.text.string
+            #expect(back == doc.block(fixedID(id))?.text.string, "\(markdown.debugDescription) → \(String(describing: back?.debugDescription))")
+        }
+    }
 }

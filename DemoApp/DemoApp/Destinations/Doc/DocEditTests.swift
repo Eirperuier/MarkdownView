@@ -45,8 +45,10 @@ final class DocEditTests {
             do {
                 try await focus(block.id, at: block.text.length)
                 try await enter()
-                let next = try blockAfter(block.id)
-                try expect(text(block.id) == block.text.string, "block changed to \(text(block.id).prefix(20).debugDescription)")
+                // A quote takes Return as a line break of its own (tested below).
+                let isQuote = if case .quote = block.kind { true } else { false }
+                let next = isQuote ? block : try blockAfter(block.id)
+                try expect(text(block.id) == block.text.string + (isQuote ? "\n" : ""), "block changed to \(text(block.id).prefix(20).debugDescription)")
                 try await showsModelSoon(block.id)
                 try await showsModelSoon(next.id)
                 try await rowsAround(index)
@@ -62,7 +64,7 @@ final class DocEditTests {
                 try await enter()
                 try? await Task.sleep(for: .milliseconds(700))
                 try showsModel(block.id)
-                try showsModel(try blockAfter(block.id).id)
+                if !isQuote { try showsModel(try blockAfter(block.id).id) }
                 passed += 1
                 print("DOCTEST PASS \(name)")
             } catch {
@@ -406,6 +408,54 @@ final class DocEditTests {
                 try self.expect(self.text(block.id) == block.text.string + "x", "typed into \(self.text(block.id).suffix(8).debugDescription)")
             }
         }
+        await test("Return in a quote breaks the line inside the same quote") {
+            let quote = try self.block("Never set the offset")
+            try await self.focus(quote.id, at: 9)
+            try await self.enter()
+            try self.expect(self.demo.doc.blocks.count == self.blockCountAtStart, "blocks \(self.demo.doc.blocks.count)")
+            try self.expect(self.text(quote.id) == "Never set\n the offset" + quote.text.string.dropFirst(20), "text \(self.text(quote.id).prefix(24).debugDescription)")
+            try self.expectCursor(quote.id, 10)
+            try await self.type("x")
+            try self.expect(self.text(quote.id).hasPrefix("Never set\nx the"), "typed \(self.text(quote.id).prefix(20).debugDescription)")
+            try await self.showsModelSoon(quote.id)
+        }
+        await test("Return at a quote's end opens an empty line in it; Backspace takes it back, no blank line left") {
+            let quote = try self.block("Never set the offset")
+            try await self.focus(quote.id, at: quote.text.length)
+            try await self.enter()
+            try self.expect(self.text(quote.id) == quote.text.string + "\n", "text ends \(self.text(quote.id).suffix(6).debugDescription)")
+            try self.expectCursor(quote.id, quote.text.length + 1)
+            try await self.showsModelSoon(quote.id)
+            try await self.type("y")
+            try self.expect(self.text(quote.id) == quote.text.string + "\ny", "typed \(self.text(quote.id).suffix(6).debugDescription)")
+            try await self.backspace()
+            try await self.backspace()
+            try self.expect(self.text(quote.id) == quote.text.string, "after backspaces \(self.text(quote.id).suffix(6).debugDescription)")
+            try self.expect(self.demo.doc.blocks.count == self.blockCountAtStart, "blocks \(self.demo.doc.blocks.count)")
+            try self.expectCursor(quote.id, quote.text.length)
+        }
+        await test("Return on a quote's empty last line leaves the quote") {
+            let quote = try self.block("Never set the offset")
+            try await self.focus(quote.id, at: quote.text.length)
+            try await self.enter()
+            try await self.enter()
+            try self.expect(self.text(quote.id) == quote.text.string, "quote \(self.text(quote.id).suffix(6).debugDescription)")
+            let next = try self.blockAfter(quote.id)
+            try self.expect(next.kind == .paragraph && next.text.isEmpty, "after the quote: \(next.kind) \(next.text.string.debugDescription)")
+            try self.expectCursor(next.id, 0)
+            try await self.undo()
+            try self.expect(self.text(quote.id) == quote.text.string + "\n", "undo \(self.text(quote.id).suffix(6).debugDescription)")
+        }
+        await test("Shift-Return (the key command) breaks a paragraph's line in place") {
+            let block = try self.block("Loading older")
+            try await self.focus(block.id, at: 7)
+            UIApplication.shared.sendAction(Selector(("docLineBreak:")), to: nil, from: nil, for: nil)
+            try await self.settle()
+            try self.expect(self.text(block.id).hasPrefix("Loading\n older"), "text \(self.text(block.id).prefix(16).debugDescription)")
+            try self.expect(self.demo.doc.blocks.count == self.blockCountAtStart, "blocks \(self.demo.doc.blocks.count)")
+            try self.expectCursor(block.id, 8)
+            try await self.showsModelSoon(block.id)
+        }
         await test("Return in a heading continues with a paragraph") {
             let heading = try self.block("第 1 节")
             try await self.focus(heading.id, at: heading.text.length)
@@ -480,6 +530,9 @@ final class DocEditTests {
 
     /// Waits until the screen shows the model with the cursor where the model says.
     private func settle() async throws {
+        // Let the run loop go idle once, as it does between two real key presses (an
+        // undo group is one run loop pass: two keys in one pass would undo together).
+        try? await Task.sleep(for: .milliseconds(5))
         for _ in 0..<80 {
             if editor.mismatch() == nil { return }
             try? await Task.sleep(for: .milliseconds(25))

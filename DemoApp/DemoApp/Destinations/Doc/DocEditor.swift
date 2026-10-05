@@ -28,8 +28,8 @@ import MarkdownView
 final class DocEditor {
     let demo: DocDemo
     /// One undo manager for the whole document: every text view answers ⌘Z, shake
-    /// and the three-finger swipe with it, and its actions run the DocKit history (§7).
-    let undoManager = UndoManager()
+    /// and the three-finger swipe with it, and it is the DocKit history (§7).
+    let undoManager = DocUndoManager()
 
     private var hooks: [DocBlockID: MarkdownSelectableTextHooks] = [:]
     /// Text views per block: the one on screen, and any TiledView renders off screen to
@@ -42,6 +42,9 @@ final class DocEditor {
     private(set) var selection: DocSelection?
     /// The next render of the selection's block should also take keyboard focus.
     private var wantsFocus = false
+    /// The text view last focused for typing. If it leaves the window while focused
+    /// (its row reloaded into a new cell), the block's new view takes the focus.
+    private weak var focusedView: UITextView?
     private var placingSelection = false
     /// Typing session for undo merging: moving the cursor starts a new one.
     private var session: UInt64 = 0
@@ -57,7 +60,7 @@ final class DocEditor {
 
     init(demo: DocDemo) {
         self.demo = demo
-        undoManager.groupsByEvent = true
+        undoManager.editor = self
     }
 
     private var allViews: [UITextView] { views.values.flatMap { $0 }.compactMap(\.view) }
@@ -104,14 +107,17 @@ final class DocEditor {
     }
 
     /// The storage offset where the block's text starts, when the storage shows the
-    /// model (marker + text); nil otherwise. An empty block shows a zero-width space
-    /// there, so its line keeps its height; the cursor sits before it.
+    /// model (marker + text); nil otherwise. An empty block, or an empty last line,
+    /// shows a zero-width space so the line keeps its height.
     func textStart(in textView: UITextView, block: DocBlock) -> Int? {
-        let storage = textView.text ?? ""
-        let shown = block.text.isEmpty ? "\u{200B}" : block.text.string
-        guard storage.hasSuffix(shown) else { return nil }
-        let prefix = storage.utf16.count - shown.utf16.count
-        return prefix <= 8 ? prefix : nil
+        guard let start = Self.textStart(of: textView.text ?? "", block: block) else { return nil }
+        return start <= 8 ? start : nil
+    }
+
+    /// What the storage shows of a block's text, after its marker.
+    static func shown(_ block: DocBlock) -> String {
+        let text = block.text.string
+        return text.isEmpty || text.hasSuffix("\n") ? text + "\u{200B}" : text
     }
 
     private func modelOffset(_ storage: Int, start: Int, block: DocBlock) -> Int {
@@ -121,6 +127,7 @@ final class DocEditor {
     private func contentChanged(_ textView: UITextView, in id: DocBlockID) {
         rendered[ObjectIdentifier(textView)] = textView.text ?? ""
         guard let selection, selection.head.block == id, textView.window?.isKeyWindow == true else { return }
+        if let focusedView, focusedView !== textView, focusedView.window == nil { wantsFocus = true }
         apply(selection, to: textView)
     }
 
@@ -164,6 +171,7 @@ final class DocEditor {
         if wantsFocus, !textView.isFirstResponder {
             textView.becomeFirstResponder()
         }
+        if textView.isFirstResponder { focusedView = textView }
         wantsFocus = false
         if textView.selectedRange != target { textView.selectedRange = target }
     }
@@ -222,7 +230,9 @@ final class DocEditor {
             for _ in 0..<40 {
                 try? await Task.sleep(for: .milliseconds(16))
                 guard let self, !Task.isCancelled, let selection = self.selection else { return }
-                if self.mismatch() == nil { return }
+                guard let problem = self.mismatch() else { return }
+                // The placement wants the focus: a row reloaded under it can take it away.
+                if problem == "not focused" { self.wantsFocus = true }
                 if let textView = self.textView(for: selection.head.block) { self.apply(selection, to: textView) }
             }
         }
@@ -303,12 +313,17 @@ final class DocEditor {
         insert(replacement, replacing: modelRange, in: block)
     }
 
-    /// Shift-Tab, ⌘B, ⌘I from the text view's key commands.
+    /// Shift-Tab, Shift-Return, ⌘B, ⌘I from the text view's key commands.
     func keyCommand(_ command: DocKeyCommand, in id: DocBlockID) {
         guard isEditable, let block = movedSelection(from: id) ?? demo.doc.block(id) else { return }
         switch command {
         case .outdent:
             indent(block, by: -1)
+        case .lineBreak:
+            guard let selection, selection.head.block == block.id, block.kind.allowsMarks else { return }
+            if case .heading = block.kind { return }
+            let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
+            lineBreak(replacing: range, in: block)
         case .bold, .italic:
             guard let selection, selection.head.block == block.id else { return }
             let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
@@ -371,11 +386,13 @@ final class DocEditor {
         let lower = modelOffset(prefix, start: start, block: block)
         let upper = modelOffset(before.count - suffix, start: start, block: block)
         // The storage now differs from the model until the commit renders.
-        insert(inserted.replacing("\u{200B}", with: ""), replacing: lower..<max(lower, upper), in: block)
+        insert(inserted.replacing("\u{200B}", with: "").replacing("\u{2028}", with: "\n"), replacing: lower..<max(lower, upper), in: block)
     }
 
     private static func textStart(of storage: String, block: DocBlock) -> Int? {
-        let shown = block.text.isEmpty ? "\u{200B}" : block.text.string
+        let shown = shown(block)
+        // A line break inside the block renders as a line separator (same length).
+        let storage = storage.replacing("\u{2028}", with: "\n")
         guard storage.hasSuffix(shown) else { return nil }
         return storage.utf16.count - shown.utf16.count
     }
@@ -388,6 +405,10 @@ final class DocEditor {
     /// Text typed or pasted over `range`. Line breaks split the block; markdown
     /// shortcuts at the start of a block or around a word become their formatting.
     private func insert(_ string: String, replacing range: Range<Int>, in block: DocBlock) {
+        if string == "\n", case .quote = block.kind, !block.text.isEmpty {
+            quoteReturn(replacing: range, in: block)
+            return
+        }
         let lines = string.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         if string == "\n", block.text.isEmpty, leaveEmptyBlock(block) { return }
         var steps: [DocStep] = []
@@ -418,6 +439,35 @@ final class DocEditor {
         commit(steps, from: DocSelection(anchor: .init(block: block.id, offset: range.lowerBound), head: .init(block: block.id, offset: range.upperBound)),
                to: DocSelection(anchor: caret, head: caret), merge: typing ? .init(block: block.id, session: session) : nil)
         if !typing { session &+= 1 }
+    }
+
+    /// Return in a quote is a line break inside it; on its empty last line, it leaves
+    /// the quote (the empty line goes, a paragraph follows).
+    private func quoteReturn(replacing range: Range<Int>, in block: DocBlock) {
+        let end = block.text.length
+        guard range == end..<end, block.text.string.hasSuffix("\n") else {
+            lineBreak(replacing: range, in: block)
+            return
+        }
+        let next = demo.newBlockID()
+        let here = DocPosition(block: block.id, offset: end)
+        let there = DocPosition(block: next, offset: 0)
+        commit([
+            .deleteText(block: block.id, range: (end - 1)..<end, removed: DocText()),
+            .splitBlock(block: block.id, at: end - 1, newID: next, newKind: .paragraph, newIndent: block.indent),
+        ], from: DocSelection(anchor: here, head: here), to: DocSelection(anchor: there, head: there))
+        session &+= 1
+    }
+
+    /// A line break inside the block (Shift-Return; Return in a quote).
+    private func lineBreak(replacing range: Range<Int>, in block: DocBlock) {
+        var steps: [DocStep] = []
+        if !range.isEmpty { steps.append(.deleteText(block: block.id, range: range, removed: DocText())) }
+        steps.append(.insertText(block: block.id, at: range.lowerBound, text: DocText(string: "\n")))
+        let caret = DocPosition(block: block.id, offset: range.lowerBound + 1)
+        commit(steps, from: DocSelection(anchor: .init(block: block.id, offset: range.lowerBound), head: .init(block: block.id, offset: range.upperBound)),
+               to: DocSelection(anchor: caret, head: caret))
+        session &+= 1
     }
 
     /// Return in an empty list item or quote leaves it: out one level, then to a paragraph.
@@ -486,12 +536,7 @@ final class DocEditor {
     }
 
     private func commit(_ steps: [DocStep], from before: DocSelection, to after: DocSelection, merge: DocHistory.MergeKey? = nil) {
-        let depth = demo.undoDepth
         guard demo.edit(steps, before: before, after: after, merge: merge) != nil else { return }
-        // One undo action per history entry; typing merged into the last entry adds none.
-        if demo.undoDepth > depth {
-            undoManager.registerUndo(withTarget: self) { $0.undoAction() }
-        }
         place(after)
         if UserDefaults.standard.bool(forKey: "docTrace") {
             Task { [weak self] in
@@ -640,33 +685,51 @@ final class DocEditor {
 
     // MARK: Undo
 
+    /// One history entry back (⌘Z, the Edit menu, the toolbar).
     func requestUndo() {
-        if undoManager.canUndo { undoManager.undo() }
+        if let selection = demo.undo() { place(selection) }
     }
 
     func requestRedo() {
-        if undoManager.canRedo { undoManager.redo() }
+        if let selection = demo.redo() { place(selection) }
     }
 
     func resetHistory() {
         undoManager.removeAllActions()
         selection = nil
     }
+}
 
-    /// Registering the opposite action while undoing is what puts it on the redo stack.
-    private func undoAction() {
-        undoManager.registerUndo(withTarget: self) { $0.redoAction() }
-        if let selection = demo.undo() { place(selection) }
+/// The document's history as UIKit sees it: ⌘Z, the Edit menu and the text views'
+/// undo land here, one history entry per undo. UIKit's own registrations and groups
+/// (a text view keeps a typing group open until the caret moves) go to the base
+/// class's stack, which nothing undoes: with them, two edits could undo as one.
+final class DocUndoManager: UndoManager {
+    nonisolated(unsafe) weak var editor: DocEditor?
+
+    override var canUndo: Bool {
+        MainActor.assumeIsolated { editor?.demo.canUndo ?? false }
     }
 
-    private func redoAction() {
-        undoManager.registerUndo(withTarget: self) { $0.undoAction() }
-        if let selection = demo.redo() { place(selection) }
+    override var canRedo: Bool {
+        MainActor.assumeIsolated { editor?.demo.canRedo ?? false }
+    }
+
+    override func undo() {
+        MainActor.assumeIsolated { editor?.requestUndo() }
+    }
+
+    override func undoNestedGroup() {
+        undo()
+    }
+
+    override func redo() {
+        MainActor.assumeIsolated { editor?.requestRedo() }
     }
 }
 
 enum DocKeyCommand {
-    case outdent, bold, italic
+    case outdent, bold, italic, lineBreak
 }
 
 struct WeakTextView {
@@ -741,10 +804,12 @@ private enum TextViewHooks {
         installKeyCommands(on: type)
     }
 
-    /// Shift-Tab steps a list item out, ⌘B and ⌘I toggle bold and italic (Composer had
+    /// Shift-Tab steps a list item out, Shift-Return breaks the line inside the block,
+    /// ⌘B and ⌘I toggle bold and italic (Composer had
     /// them; UIKit's own versions would edit the storage, not the model).
     private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String)] = [
         ("\t", .shift, Selector(("docOutdent:")), .outdent, "减少缩进"),
+        ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, "换行"),
         ("b", .command, Selector(("docBold:")), .bold, "加粗"),
         ("i", .command, Selector(("docItalic:")), .italic, "斜体"),
     ]

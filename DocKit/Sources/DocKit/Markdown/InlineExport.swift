@@ -200,7 +200,9 @@ private struct InlineWriter {
             let end = line.firstIndex(of: "\n") ?? line.endIndex
             writeLine(line[..<end])
             guard end < line.endIndex else { break }
-            output += singleLine ? " " : "\n"
+            // The editing style shows every line break: a soft break could render as
+            // a space, so it is written hard.
+            output += singleLine ? " " : (preservesWhitespace ? "\\\n" : "\n")
             atLineStart = !singleLine
             line = line[line.index(after: end)...]
         }

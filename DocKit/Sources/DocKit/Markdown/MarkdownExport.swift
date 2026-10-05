@@ -7,8 +7,8 @@
 /// What the markdown is for. `exchange` is the canonical form agents read and
 /// export writes. `editing` is what an editor renders a block from: it must
 /// show exactly the model's text, so whitespace markdown would drop (at a
-/// line's edges) is written as entities and an empty block gets a zero-width
-/// space to keep its line.
+/// line's edges) is written as entities, line breaks are hard breaks, and an
+/// empty block or empty last line gets a zero-width space to keep its line.
 public enum DocMarkdownStyle: Sendable {
     case exchange
     case editing
@@ -53,7 +53,9 @@ extension Doc {
         let editing = style == .editing
         func inline(singleLine: Bool = false) -> String {
             if editing, block.text.isEmpty { return "&#8203;" }
-            return block.text.markdown(singleLine: singleLine, preservingWhitespace: editing)
+            let markdown = block.text.markdown(singleLine: singleLine, preservingWhitespace: editing)
+            // An empty last line (text ending in a line break) keeps its line the same way.
+            return editing && !singleLine && block.text.string.hasSuffix("\n") ? markdown + "&#8203;" : markdown
         }
         switch block.kind {
         case .paragraph:
