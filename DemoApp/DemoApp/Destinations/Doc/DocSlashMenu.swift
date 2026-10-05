@@ -16,6 +16,8 @@ struct DocSlashItem: Identifiable, Equatable {
     enum Action: Equatable {
         case kind(BlockKind)
         case divider
+        /// `rows` counts the header row.
+        case table(rows: Int, columns: Int)
 
         var kind: BlockKind? { if case .kind(let kind) = self { kind } else { nil } }
     }
@@ -38,10 +40,18 @@ struct DocSlashItem: Identifiable, Equatable {
         .init(id: "toggle", title: "折叠列表", subtitle: "可以收起的内容", symbol: "chevron.right", keywords: ["toggle", "collapse", "zhedie"], action: .kind(.listItem(style: .toggle(open: true)))),
         .init(id: "quote", title: "引用", subtitle: "引用一段话", symbol: "text.quote", keywords: ["quote", "blockquote", "yinyong"], action: .kind(.quote)),
         .init(id: "divider", title: "分割线", subtitle: "分开上下内容", symbol: "minus", keywords: ["divider", "line", "hr", "fengexian"], action: .divider),
+        .init(id: "table", title: "表格", subtitle: "3 行 3 列，也可以输入 /3x4", symbol: "tablecells", keywords: ["table", "grid", "biaoge"], action: .table(rows: 3, columns: 3)),
     ]
+
+    /// "/3x4" (or 3*4, 3×4): a table that size, rows first, up to 9 by 9.
+    static func sized(_ query: String) -> DocSlashItem? {
+        guard let match = query.wholeMatch(of: /([1-9])\s*[xX×*]\s*([1-9])/), let rows = Int(match.1), let columns = Int(match.2) else { return nil }
+        return .init(id: "table-\(rows)x\(columns)", title: "\(rows) × \(columns) 表格", subtitle: "\(rows) 行 \(columns) 列", symbol: "tablecells", keywords: [], action: .table(rows: rows, columns: columns))
+    }
 
     /// Items whose title or a keyword contains the query (case-insensitive), in order.
     static func matching(_ query: String) -> [DocSlashItem] {
+        if let sized = sized(query) { return [sized] }
         let query = query.lowercased()
         guard !query.isEmpty else { return all }
         return all.filter { item in
@@ -156,6 +166,10 @@ extension DocEditor {
                 steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph), after: divider))
             }
             caret = DocPosition(block: next, offset: 0)
+        case .table(let rows, let columns):
+            let keep = block.text.length > typed.count
+            steps += tables.insertTable(rows: rows, columns: columns, replacing: block, keep: keep)
+            return commitLeavingText(steps, from: DocSelection(anchor: selection.head, head: selection.head))
         }
         commitSlash(steps, from: DocSelection(anchor: selection.head, head: selection.head), to: DocSelection(anchor: caret, head: caret))
     }

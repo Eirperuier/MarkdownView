@@ -53,6 +53,10 @@ struct DocDestination: View {
             try? await Task.sleep(for: .milliseconds(150))
             if let first = demo.rows.first?.id { reader.scrollTo(id: first, anchor: .top, animated: false) }
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
+            // -docShowTable YES: open at the first table (screenshots, trying tables out).
+            if UserDefaults.standard.bool(forKey: "docShowTable"), let table = demo.rows.first(where: { $0.table != nil }) {
+                reader.scrollTo(id: table.id, anchor: .center, animated: false)
+            }
             if UserDefaults.standard.bool(forKey: "docEditTest") {
                 await DocEditTests(demo: demo, editor: editor).run()
             }
@@ -104,7 +108,8 @@ struct DocRowCell: TiledCellContent {
 
     func body(context: CellContext<Void>) -> some View {
         let hooks = MainActor.assumeIsolated { [item, editor] in item.block.map { editor.hooks(for: $0) } }
-        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks) { [item, editor] point in
+        let tables = MainActor.assumeIsolated { editor.tables }
+        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks, tables: tables) { [item, editor] point in
             MainActor.assumeIsolated {
                 if let block = item.block { editor.click(block, at: point) }
             }
@@ -116,6 +121,7 @@ private struct DocRowView: View {
     let row: DocRow
     let coordinator: StreamingRevealCoordinator<UUID>
     let hooks: MarkdownSelectableTextHooks?
+    let tables: DocTableController
     /// A click in the row, in window coordinates.
     let onClick: (CGPoint) -> Void
 
@@ -123,8 +129,12 @@ private struct DocRowView: View {
         VStack(alignment: .leading, spacing: 0) {
             // By position, not by the rendered block's id: an edit re-renders the block
             // with a new id, and the text view being typed in must stay the same view.
-            ForEach(Array(row.blocks.enumerated()), id: \.offset) { _, block in
-                blockView(block)
+            if let table = row.table, !row.isStreaming {
+                DocTableRowView(table: table, blocks: row.blocks, controller: tables)
+            } else {
+                ForEach(Array(row.blocks.enumerated()), id: \.offset) { _, block in
+                    blockView(block)
+                }
             }
         }
         .padding(.vertical, 5)

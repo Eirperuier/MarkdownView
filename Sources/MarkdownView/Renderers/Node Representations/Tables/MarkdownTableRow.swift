@@ -15,6 +15,7 @@ struct MarkdownTableRow: View {
     @Environment(\.markdownTableCellPadding) private var padding
     @Environment(\.markdownTableCellOffsetsByRow) private var cellOffsetsByRow
     @Environment(\.markdownTableCellPhasesByRow) private var cellPhasesByRow
+    @Environment(\.markdownTableCellHooks) private var hooks
 
     private var tableConfiguration: MarkdownRendererConfiguration.Table {
         configuration.table
@@ -30,7 +31,7 @@ struct MarkdownTableRow: View {
         if #available(macOS 13.0, iOS 16.0, tvOS 16.0, watchOS 9.0, *) {
             GridRow {
                 ForEach(Array(cells.enumerated()), id: \.offset) { (index, cell) in
-                    cellContent(for: cell, at: index)
+                    tappable(cellContent(for: cell, at: index), at: index)
                 }
             }
         }
@@ -52,11 +53,32 @@ struct MarkdownTableRow: View {
         return cellPhasesByRow[rowIndex][column]
     }
 
+    @ViewBuilder
+    private func tappable(_ content: some View, at column: Int) -> some View {
+        if let onTap = hooks.onTap {
+            let position = MarkdownTableCellPosition(row: rowIndex, column: column)
+            content
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded { onTap(position) })
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder
+    private func renderedCell(_ cell: Markdown.Table.Cell, at index: Int) -> some View {
+        if let replacement = hooks.replacement?(MarkdownTableCellPosition(row: rowIndex, column: index)) {
+            replacement
+        } else {
+            CmarkNodeVisitor(configuration: configuration)
+                .makeBody(for: cell)
+        }
+    }
+
     @available(macOS 13.0, iOS 16.0, tvOS 16.0, watchOS 9.0, *)
     @ViewBuilder
     private func cellContent(for cell: Markdown.Table.Cell, at index: Int) -> some View {
-        let baseContent = CmarkNodeVisitor(configuration: configuration)
-            .makeBody(for: cell)
+        let baseContent = renderedCell(cell, at: index)
             .markdownTablePhase(cellPhase(at: index), offsetBase: cellOffset(at: index))
             .multilineTextAlignment(cell.textAlignment)
             .gridColumnAlignment(cell.horizontalAlignment)

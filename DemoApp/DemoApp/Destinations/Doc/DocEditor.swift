@@ -44,6 +44,8 @@ final class DocEditor {
     }
     /// The slash menu, and where its "/" is while it's open.
     let slash = DocSlashMenu()
+    /// The tables' cells (database blocks).
+    lazy var tables = DocTableController(demo: demo, editor: self)
     var slashOrigin: DocPosition?
     /// The next render of the selection's block should also take keyboard focus.
     private var wantsFocus = false
@@ -471,6 +473,13 @@ final class DocEditor {
         if Self.slashes.contains(string), block.kind.allowsMarks { slashTyped(in: block, at: range.lowerBound) }
     }
 
+    /// An edit that leaves the text (a table took its place): the focus goes to the table.
+    func commitLeavingText(_ steps: [DocStep], from before: DocSelection) {
+        guard demo.edit(steps, before: before, after: nil) != nil else { return }
+        selection = nil
+        session &+= 1
+    }
+
     /// The slash menu's edit: one undo step.
     func commitSlash(_ steps: [DocStep], from before: DocSelection, to after: DocSelection) {
         commit(steps, from: before, to: after)
@@ -821,6 +830,12 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
 
     func textViewDidChangeSelection(_ textView: UITextView) {
         original?.textViewDidChangeSelection?(textView)
+    }
+
+    /// Typing in the document's text again: no table cell is edited any more.
+    func textViewDidBeginEditing(_ textView: UITextView) {
+        original?.textViewDidBeginEditing?(textView)
+        editor?.tables.endEditing()
     }
 
     /// Letters typed with a Chinese, Japanese or Korean keyboard start marked text.

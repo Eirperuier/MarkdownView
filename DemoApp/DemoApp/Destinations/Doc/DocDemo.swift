@@ -21,20 +21,23 @@ struct DocRow: Identifiable, Equatable {
     let blocks: [MarkdownStreamBlock]
     /// Part of the agent's temporary layer: fades in through the reveal.
     let isStreaming: Bool
+    /// A database block shown as an editable table (instead of `blocks`).
+    let table: DocTableSnapshot?
     private let source: String
     private let depth: Int?
 
-    init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock], isStreaming: Bool = false) {
+    init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock], isStreaming: Bool = false, table: DocTableSnapshot? = nil) {
         self.id = id
         self.block = block
         self.blocks = blocks
         self.isStreaming = isStreaming
+        self.table = table
         source = blocks.map(\.source).joined(separator: "\n\n")
         depth = blocks.first?.descriptor.listItemContext?.depth
     }
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
-        lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source
+        lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.table == rhs.table
             && lhs.depth == rhs.depth
             && lhs.blocks.map(\.revealPlainTextCount) == rhs.blocks.map(\.revealPlainTextCount)
     }
@@ -128,6 +131,12 @@ final class DocDemo {
             }
             if let live, live.replacing == block.id {
                 emitLayer()
+                continue
+            }
+            if case .database(let id, _) = block.kind, let database = doc.databases[id] {
+                let markdown = doc.markdown(of: block.id, style: .editing) ?? ""
+                result.append(DocRow(id: block.id.description, block: block.id, blocks: split(markdown), table: DocTableSnapshot(block: block.id, database: database)))
+                if let live, live.after == block.id { emitLayer() }
                 continue
             }
             let markdown = doc.markdown(of: block.id, style: .editing) ?? ""
@@ -362,6 +371,11 @@ final class DocDemo {
     }
 
     func newBlockID() -> DocBlockID {
+        Identifier.generate(at: .now, using: &rng)
+    }
+
+    /// A fresh row, column or database id.
+    func newID<Tag>() -> Identifier<Tag> {
         Identifier.generate(at: .now, using: &rng)
     }
 

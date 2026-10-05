@@ -10,6 +10,7 @@
 
 import UIKit
 import DocKit
+import MarkdownView
 
 @MainActor
 final class DocEditTests {
@@ -549,6 +550,146 @@ final class DocEditTests {
             try await self.enter()
             try self.expect(self.demo.doc.block(line.id)?.kind == .quote && self.text(line.id) == "abc ", "\(String(describing: self.demo.doc.block(line.id)?.kind)) \(self.text(line.id).debugDescription)")
             try self.expectCursor(line.id, 4)
+        }
+        // MARK: Tables
+
+        /// The first table: its block, database, and a key maker (row 0 = header).
+        func table() throws -> (block: DocBlockID, database: Database, key: (Int, Int) -> DocCellKey) {
+            guard let block = self.demo.doc.blocks.first(where: { $0.kind.databaseID != nil }),
+                  let id = block.kind.databaseID, let database = self.demo.doc.databases[id]
+            else { throw Failure(description: "no table") }
+            return (block.id, database, { row, column in
+                DocCellKey(block: block.id, row: row == 0 ? nil : database.rows[row - 1].id, column: database.columns[column].id)
+            })
+        }
+        func database() throws -> Database { try table().database }
+        /// Clicks a cell (what MarkdownView's cell tap does) and waits for its editor.
+        func click(_ row: Int, _ column: Int) async throws -> DocCellTextView {
+            let t = try table()
+            let snapshot = DocTableSnapshot(block: t.block, database: t.database)
+            self.demo.bringIntoView(t.block)
+            try? await Task.sleep(for: .milliseconds(300))
+            self.editor.tables.tapped(snapshot, at: MarkdownTableCellPosition(row: row, column: column))
+            return try await cellEditor(t.key(row, column))
+        }
+        func cellEditor(_ key: DocCellKey, step: String = "") async throws -> DocCellTextView {
+            for _ in 0..<60 {
+                if let view = self.editor.tables.view(for: key), view.isFirstResponder { return view }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            let t = try table()
+            let position = { (key: DocCellKey?) -> String in
+                guard let key else { return "nil" }
+                let r = key.row.flatMap { id in t.database.rows.firstIndex { $0.id == id }.map { $0 + 1 } } ?? 0
+                let c = t.database.columns.firstIndex { $0.id == key.column } ?? -1
+                return "(\(r), \(c))"
+            }
+            throw Failure(description: "\(step): cell \(position(key)) never got an editor with the focus; editing \(position(self.editor.tables.editing)), active \(position(self.editor.tables.active)), table \(t.database.rows.count + 1)×\(t.database.columns.count)")
+        }
+        /// A key as UIKit sends it: the delegate first (Tab and Return move between cells).
+        func press(_ view: DocCellTextView, _ key: String) {
+            if view.textView(view, shouldChangeTextIn: view.selectedRange, replacementText: key) { view.insertText(key) }
+        }
+        func cellText(_ row: Int, _ column: Int) throws -> String {
+            try self.editor.tables.text(table().key(row, column))
+        }
+        func editedKey() throws -> DocCellKey {
+            try self.expectValue(self.editor.tables.active, "no active cell")
+        }
+
+        await test("Table: clicking a cell edits it in place; typing changes the cell; one undo takes the typing back") {
+            let view = try await click(2, 1)
+            try self.expect(view.text == "6:10", "editor shows \(view.text.debugDescription)")
+            view.insertText("!")
+            try? await Task.sleep(for: .milliseconds(100))
+            try self.expect(self.editor.tables.view(for: try editedKey()) === view && view.isFirstResponder, "the editor was replaced while typing (focused \(view.isFirstResponder))")
+            view.insertText("?")
+            try self.expect(try cellText(2, 1) == "6:10!?", "cell \(String(describing: try? cellText(2, 1)))")
+            try await self.undo()
+            try self.expect(try cellText(2, 1) == "6:10", "undo: \(String(describing: try? cellText(2, 1)))")
+            try? await Task.sleep(for: .milliseconds(100))
+            let shown = self.editor.tables.view(for: try table().key(2, 1))
+            try self.expect(shown?.text == "6:10", "editor after undo \(String(describing: shown?.text)) same view \(shown === view)")
+        }
+        await test("Table: the header row renames columns") {
+            let view = try await click(0, 2)
+            view.insertText("%")
+            try self.expect(try database().columns[2].name == "深睡%", "column \(String(describing: try? database().columns[2].name))")
+        }
+        await test("Table: Tab, Shift-Tab and Return move between cells; Tab past the last column adds one, Return past the last row adds one") {
+            _ = try await click(1, 0)
+            var view = try await cellEditor(try editedKey(), step: "step 1")
+            press(view, "\t")
+            view = try await cellEditor(try table().key(1, 1), step: "step 2")
+            self.editor.tables.move(.previous, from: try editedKey())
+            view = try await cellEditor(try table().key(1, 0), step: "step 3")
+            press(view, "\n")
+            view = try await cellEditor(try table().key(2, 0), step: "step 4")
+            let columns = try database().columns.count
+            self.editor.tables.move(.last, from: try editedKey())
+            view = try await cellEditor(try table().key(2, columns - 1), step: "step 5")
+            press(view, "\t")
+            try self.expect(try database().columns.count == columns + 1, "columns \(String(describing: try? database().columns.count))")
+            view = try await cellEditor(try table().key(2, columns), step: "step 6")
+            let rows = try database().rows.count
+            self.editor.tables.move(.bottom, from: try editedKey())
+            view = try await cellEditor(try table().key(rows, columns), step: "step 7")
+            press(view, "\n")
+            try self.expect(try database().rows.count == rows + 1, "rows \(String(describing: try? database().rows.count))")
+            view = try await cellEditor(try table().key(rows + 1, columns), step: "step 8")
+            view.insertText("n")
+            try self.expect(try cellText(rows + 1, columns) == "n", "new cell \(String(describing: try? cellText(rows + 1, columns)))")
+        }
+        await test("Table: every menu action changes the table, and one undo puts it back exactly") {
+            let before = try database()
+            let actions: [DocTableAction] = [.insertRowAbove, .insertRowBelow, .insertColumnLeft, .insertColumnRight,
+                                             .moveRowUp, .moveRowDown, .moveColumnLeft, .moveColumnRight,
+                                             .sortAscending, .sortDescending, .deleteRow, .deleteColumn, .clearCell]
+            for action in actions {
+                _ = try await click(2, 1)
+                let key = try editedKey()
+                try self.expect(self.editor.tables.isAvailable(action, at: key), "\(action) not available")
+                self.editor.tables.perform(action, at: key)
+                try? await Task.sleep(for: .milliseconds(100))
+                try self.expect(try database() != before, "\(action) changed nothing")
+                try await self.undo()
+                try self.expect(try database() == before, "undo after \(action) left the table changed")
+            }
+        }
+        await test("Table: sorting orders the rows by the column, numbers as numbers, the header stays") {
+            _ = try await click(1, 2)
+            self.editor.tables.perform(.sortAscending, at: try editedKey())
+            let column = try database().columns[2].id
+            let values = try database().rows.map { DocTableController.text(of: $0.cells[column]) }
+            try self.expect(values == values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }, "order \(values)")
+            try self.expect(try database().columns[0].name == "日期", "header \(String(describing: try? database().columns[0].name))")
+        }
+        await test("Table: deleting it removes the block and its database; undo brings both back") {
+            let t = try table()
+            _ = try await click(1, 1)
+            self.editor.tables.perform(.deleteTable, at: try editedKey())
+            try self.expect(self.demo.doc.block(t.block) == nil && self.demo.doc.databases[t.database.id] == nil, "still there")
+            try await self.undo()
+            try self.expect(self.demo.doc.block(t.block) != nil && self.demo.doc.databases[t.database.id] == t.database, "not back")
+        }
+        await test("Table: Esc leaves it; it renders as MarkdownView's table again") {
+            _ = try await click(1, 1)
+            try self.expect(self.editor.tables.editing != nil, "not editing")
+            UIApplication.shared.sendAction(Selector(("leaveTable")), to: nil, from: nil, for: nil)
+            try? await Task.sleep(for: .milliseconds(100))
+            try self.expect(self.editor.tables.editing == nil, "still editing")
+        }
+        await test("Table: “/2x3” makes a 2 × 3 table and edits its first header cell") {
+            let line = try await emptyLine()
+            try await self.type("/2x3")
+            try self.expect(self.editor.slash.highlightedItem?.id == "table-2x3", "highlighted \(String(describing: self.editor.slash.highlightedItem?.id))")
+            try await self.enter()
+            let block = try self.expectValue(self.demo.doc.block(line.id), "block gone")
+            let database = try self.expectValue(block.kind.databaseID.flatMap { self.demo.doc.databases[$0] }, "not a table: \(block.kind)")
+            try self.expect(database.columns.count == 3 && database.rows.count == 1, "size \(database.rows.count + 1)×\(database.columns.count)")
+            let view = try await cellEditor(DocCellKey(block: line.id, row: nil, column: database.columns[0].id))
+            view.insertText("名称")
+            try self.expect(self.demo.doc.databases[database.id]?.columns[0].name == "名称", "header \(String(describing: self.demo.doc.databases[database.id]?.columns[0].name))")
         }
         await test("Return in a heading continues with a paragraph") {
             let heading = try self.block("第 1 节")
