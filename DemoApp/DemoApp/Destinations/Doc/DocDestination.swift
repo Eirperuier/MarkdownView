@@ -103,7 +103,11 @@ struct DocRowCell: TiledCellContent {
 
     func body(context: CellContext<Void>) -> some View {
         let hooks = MainActor.assumeIsolated { [item, editor] in item.block.map { editor.hooks(for: $0) } }
-        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks)
+        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks) { [item, editor] point in
+            MainActor.assumeIsolated {
+                if let block = item.block { editor.click(block, at: point) }
+            }
+        }
     }
 }
 
@@ -111,6 +115,8 @@ private struct DocRowView: View {
     let row: DocRow
     let coordinator: StreamingRevealCoordinator<UUID>
     let hooks: MarkdownSelectableTextHooks?
+    /// A click in the row, in window coordinates.
+    let onClick: (CGPoint) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -124,6 +130,12 @@ private struct DocRowView: View {
         .frame(maxWidth: 720, alignment: .leading)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
+        // The whole row takes the caret, not only its text: beside a short line, the
+        // space around a list item, the row's padding. Behind the text view, so only
+        // clicks that miss it land here.
+        .background {
+            if hooks != nil { RowClickArea(onClick: onClick) }
+        }
     }
 
     @ViewBuilder
@@ -143,6 +155,32 @@ private struct DocRowView: View {
                 )
         } else {
             view
+        }
+    }
+}
+
+/// A click in a row, in window coordinates (SwiftUI's global space is the cell's host).
+private struct RowClickArea: UIViewRepresentable {
+    let onClick: (CGPoint) -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.click(_:))))
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        context.coordinator.onClick = onClick
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onClick: onClick) }
+
+    final class Coordinator: NSObject {
+        var onClick: (CGPoint) -> Void
+        init(onClick: @escaping (CGPoint) -> Void) { self.onClick = onClick }
+        @objc func click(_ recognizer: UITapGestureRecognizer) {
+            onClick(recognizer.location(in: nil))
         }
     }
 }

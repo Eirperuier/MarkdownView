@@ -168,6 +168,21 @@ final class DocEditor {
         if textView.selectedRange != target { textView.selectedRange = target }
     }
 
+    /// A click in a block's row outside its text view: the caret goes to the nearest
+    /// place in the text, as a click beside a line does in a text editor. Clicks on the
+    /// text view itself are the text view's.
+    func click(_ id: DocBlockID, at point: CGPoint) {
+        guard isEditable, let block = demo.doc.block(id), block.kind.carriesText,
+            let textView = textView(for: id), let start = textStart(in: textView, block: block)
+        else { return }
+        let local = textView.convert(point, from: nil)
+        guard !textView.bounds.contains(local), let position = textView.closestPosition(to: local) else { return }
+        let offset = modelOffset(textView.offset(from: textView.beginningOfDocument, to: position), start: start, block: block)
+        let caret = DocPosition(block: id, offset: offset)
+        session &+= 1
+        place(DocSelection(anchor: caret, head: caret))
+    }
+
     /// Moves the selection (and focus) to a model position, now if its block is shown
     /// in sync, else at its next render.
     func place(_ next: DocSelection) {

@@ -378,6 +378,34 @@ final class DocEditTests {
             try await self.type("x")
             try self.expect(self.text(next.id) == "x", "typed \(self.text(next.id).debugDescription)")
         }
+        for prefix in ["编号也一样", "行首输入", "嵌套列表", "Loading older"] {
+            await test("A click right of “\(prefix)” (outside its text) puts the caret at the end of the line") {
+                let block = try self.block(prefix)
+                self.demo.bringIntoView(block.id)
+                try? await Task.sleep(for: .milliseconds(400))
+                let view = try self.expectValue(self.editor.textView(for: block.id), "no text view")
+                view.resignFirstResponder()
+                let lastLine = view.caretRect(for: view.endOfDocument)
+                let inView = CGPoint(x: max(lastLine.maxX + 40, view.bounds.maxX + 20), y: lastLine.midY)
+                var point = view.convert(inView, to: nil)
+                // On a narrow screen the line can reach the edge: stay inside the window.
+                point.x = min(point.x, (view.window?.bounds.maxX ?? point.x) - 8)
+                var hit = view.window?.hitTest(point, with: nil)
+                var chain: [String] = []
+                while let current = hit, chain.count < 3 { chain.append("\(Swift.type(of: current))"); hit = current.superview }
+                let catcher = chain.contains { $0.contains("RowClickArea") }
+                let textViewHit = chain.contains { $0.contains("TextView") }
+                try self.expect(catcher || textViewHit, "click lands on \(chain)")
+                // What the row's click area does (a text view hit is the text view's own click).
+                if catcher { self.editor.click(block.id, at: point) } else {
+                    try await self.focus(block.id, at: block.text.length)
+                }
+                try await self.settle()
+                try self.expectCursor(block.id, block.text.length)
+                try await self.type("x")
+                try self.expect(self.text(block.id) == block.text.string + "x", "typed into \(self.text(block.id).suffix(8).debugDescription)")
+            }
+        }
         await test("Return in a heading continues with a paragraph") {
             let heading = try self.block("第 1 节")
             try await self.focus(heading.id, at: heading.text.length)
