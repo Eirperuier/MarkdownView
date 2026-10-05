@@ -128,7 +128,7 @@ struct DefaultMarkdownCodeBlock: View {
 
     private let codeLineRowHeight: CGFloat = 28
     private let sheetCodeLineRowHeight: CGFloat = 24
-    private let codeBlockBottomPadding: CGFloat = 10
+    private let codeBlockBottomPadding: CGFloat = 0
 
     private var lineRevealMetrics: CodeBlockLineRevealMetrics {
         CodeBlockLineRevealMetrics(code: codeBlockConfiguration.code)

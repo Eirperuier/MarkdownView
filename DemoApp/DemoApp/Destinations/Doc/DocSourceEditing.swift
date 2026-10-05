@@ -208,6 +208,52 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     var language: String?
     /// The text's font and line attributes (the field's).
     var baseAttributes: [NSAttributedString.Key: Any] = [:]
+    /// The space above and below each code line; set, alternate lines are striped as in
+    /// MarkdownView's code block, from where the lines actually are.
+    var stripeGap: CGFloat? {
+        didSet { if stripeGap != oldValue { setNeedsLayout() } }
+    }
+    private lazy var stripes: DocStripeView = {
+        let view = DocStripeView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        insertSubview(view, at: 0)
+        return view
+    }()
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let gap = stripeGap else { return }
+        stripes.frame = CGRect(origin: .zero, size: CGSize(width: bounds.width, height: max(contentSize.height, bounds.height)))
+        sendSubviewToBack(stripes)
+        var rects: [CGRect] = []
+        let text = self.text as NSString
+        let manager = layoutManager
+        manager.ensureLayout(for: textContainer)
+        var location = 0
+        var index = 0
+        while location <= text.length {
+            let paragraph = text.paragraphRange(for: NSRange(location: location, length: 0))
+            if index % 2 == 1 {
+                let glyphs = manager.glyphRange(forCharacterRange: NSRange(location: paragraph.location, length: max(0, paragraph.length - (text.substring(with: paragraph).hasSuffix("\n") ? 1 : 0))), actualCharacterRange: nil)
+                let first = glyphs.length > 0 ? manager.lineFragmentUsedRect(forGlyphAt: glyphs.location, effectiveRange: nil)
+                    : (paragraph.location < text.length ? manager.lineFragmentUsedRect(forGlyphAt: manager.glyphIndexForCharacter(at: paragraph.location), effectiveRange: nil) : manager.extraLineFragmentUsedRect)
+                let last = glyphs.length > 0 ? manager.lineFragmentUsedRect(forGlyphAt: NSMaxRange(glyphs) - 1, effectiveRange: nil) : first
+                rects.append(CGRect(x: 0, y: textContainerInset.top + first.minY - gap, width: bounds.width, height: last.maxY - first.minY + gap * 2))
+            }
+            index += 1
+            if NSMaxRange(paragraph) >= text.length {
+                // A final empty line after a line break is a line too.
+                if text.length > 0, text.hasSuffix("\n"), index % 2 == 1 {
+                    let extra = manager.extraLineFragmentUsedRect
+                    rects.append(CGRect(x: 0, y: textContainerInset.top + extra.minY - gap, width: bounds.width, height: extra.height + gap * 2))
+                }
+                break
+            }
+            location = NSMaxRange(paragraph)
+        }
+        if stripes.rects != rects { stripes.rects = rects }
+    }
 
     /// Shows `text` (coloured at once), the caret where it was or at the end.
     func show(_ text: String) {
@@ -359,24 +405,27 @@ struct DocSourceField: UIViewRepresentable {
     var insets = UIEdgeInsets(top: 5, left: 10, bottom: 10, right: 10)
     /// Highlights the code in this language (nil: plain text).
     var language: String?
-    /// Each line this tall, its text in the middle (MarkdownView's code lines: the
-    /// font's line and 5 above and below).
-    var lineHeight: CGFloat?
+    /// Code lines as MarkdownView lays them out: each line (a paragraph, wrapping inside
+    /// it) with this much above and below, alternate lines striped behind. The space
+    /// is the paragraph spacing between lines, and half of it the insets at the ends.
+    var lineGap: CGFloat?
 
     private var attributes: [NSAttributedString.Key: Any] {
         var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.label]
-        if let lineHeight {
+        if let lineGap {
             let style = NSMutableParagraphStyle()
-            style.minimumLineHeight = lineHeight
-            style.maximumLineHeight = lineHeight
+            style.paragraphSpacing = lineGap * 2
+            // SwiftUI's Text wraps with the standard strategy (it pushes a word down
+            // rather than leave one short word alone on a line): the same breaks.
+            style.lineBreakStrategy = .standard
             attributes[.paragraphStyle] = style
-            attributes[.baselineOffset] = (lineHeight - font.lineHeight) / 2
         }
         return attributes
     }
 
     func makeUIView(context: Context) -> DocSourceTextView {
-        let view = DocSourceTextView()
+        // TextKit 1: the stripes are drawn from its line fragments.
+        let view = DocSourceTextView(usingTextLayoutManager: false)
         view.delegate = view
         view.isScrollEnabled = false
         view.backgroundColor = .clear
@@ -396,6 +445,7 @@ struct DocSourceField: UIViewRepresentable {
         view.controller = controller
         view.isEditable = controller.isEditable
         view.textContainerInset = insets
+        view.stripeGap = lineGap
         // Typed text takes the colour of the token it's typed into until the next
         // highlight, not plain.
         var typing = attributes
@@ -414,13 +464,23 @@ struct DocSourceField: UIViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: DocSourceTextView, context: Context) -> CGSize? {
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 300
-        let height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-        return CGSize(width: width, height: max(ceil(height), ceil((lineHeight ?? font.lineHeight) + insets.top + insets.bottom)))
+        var height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        if lineGap != nil {
+            // To the last line's text, not past the spacing after it (a code block's last
+            // line has only its own gap below, the bottom inset).
+            let container = uiView.textContainer
+            container.size = CGSize(width: width - insets.left - insets.right, height: .greatestFiniteMagnitude)
+            uiView.layoutManager.ensureLayout(for: container)
+            height = uiView.layoutManager.usedRect(for: container).maxY + insets.top + insets.bottom
+        }
+        return CGSize(width: width, height: max(ceil(height), ceil(font.lineHeight + insets.top + insets.bottom)))
     }
 }
 
-/// MarkdownView's code block font: caption, monospaced.
-private let codeFont = UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .regular)
+/// The document's code block font: body size, monospaced (the rows set MarkdownView's
+/// code block font to the same).
+let docCodeFont = UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
+private var codeFont: UIFont { docCodeFont }
 
 /// A code block: MarkdownView's, its lines replaced by the editor while it's edited.
 struct DocCodeRowView: View {
@@ -448,31 +508,33 @@ struct DocCodeRowView: View {
     }
 }
 
-/// The code lines as an editor: MarkdownView's line height, padding and stripes.
+/// The code lines as an editor, laid out as MarkdownView's: 10 across (and the 8 its
+/// line's stack keeps before the spacer on the right, where the text wraps), 5 above
+/// and below each line, stripes on alternate lines (drawn by the text view from its lines).
 struct DocCodeEditor: View {
     let block: DocBlockID
     let text: String
     let language: String?
     let controller: DocSourceController
 
-    /// A code line as MarkdownView lays it out: the line's text and 5 above and below
-    /// come to its 28-point row (SwiftUI's line of the caption font is taller than
-    /// UIKit's).
-    private var lineHeight: CGFloat { 28 }
-
     var body: some View {
         DocSourceField(block: block, text: text, controller: controller, font: codeFont,
-                       insets: UIEdgeInsets(top: 0, left: 10, bottom: 10, right: 10), language: language, lineHeight: lineHeight)
-            .background(alignment: .topLeading) {
-                VStack(spacing: 0) {
-                    ForEach(0..<max(1, text.split(separator: "\n", omittingEmptySubsequences: false).count), id: \.self) { index in
-                        Rectangle()
-                            .foregroundStyle(.tertiary.opacity(index % 2 != 0 ? 0.1 : 0))
-                            .frame(height: lineHeight)
-                    }
-                }
-                .allowsHitTesting(false)
-            }
+                       insets: UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 18), language: language, lineGap: 5)
+    }
+}
+
+/// Alternate code lines' stripes: MarkdownView's (tertiary at a tenth).
+final class DocStripeView: UIView {
+    var rects: [CGRect] = [] {
+        didSet { setNeedsDisplay() }
+    }
+
+    override func draw(_ rect: CGRect) {
+        let tertiary = UIColor.tertiaryLabel.resolvedColor(with: traitCollection)
+        var alpha: CGFloat = 0
+        tertiary.getRed(nil, green: nil, blue: nil, alpha: &alpha)
+        tertiary.withAlphaComponent(alpha * 0.1).setFill()
+        for stripe in rects where stripe.intersects(rect) { UIRectFill(stripe) }
     }
 }
 
