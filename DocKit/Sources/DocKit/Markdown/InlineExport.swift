@@ -236,7 +236,7 @@ private struct InlineWriter {
             }
         }
         let inLink = stack.contains { $0.mark.kind == .link }
-        output += InlineEscaping.escaped(line, escapingPipes: escapingPipes, inLink: inLink)
+        output += InlineEscaping.escaped(line, escapingPipes: escapingPipes, inLink: inLink, literalPunctuation: preservesWhitespace)
         atLineStart = false
     }
 }
@@ -255,11 +255,19 @@ enum InlineEscaping {
     /// into a formula. A lone `[` can't start a link while every `]` is
     /// escaped; inside link text, where it could pair with the link's own
     /// `]`, it becomes `&#91;`.
-    static func escaped(_ text: some StringProtocol, escapingPipes: Bool = false, inLink: Bool = false) -> String {
+    /// `literalPunctuation` (the editing style) also escapes what the renderer's smart
+    /// punctuation would turn typographic: quotes, and `--` / `...` runs.
+    static func escaped(_ text: some StringProtocol, escapingPipes: Bool = false, inLink: Bool = false, literalPunctuation: Bool = false) -> String {
         var result = ""
         var index = text.startIndex
         while index < text.endIndex {
             let character = text[index]
+            if literalPunctuation, character == "'" || character == "\"" || ((character == "-" || character == ".") && isRun(of: character, at: index, in: text)) {
+                result += "\\"
+                result.append(character)
+                index = text.index(after: index)
+                continue
+            }
             if character == "[" {
                 result += inLink ? "&#91;" : "["
                 index = text.index(after: index)
@@ -274,6 +282,13 @@ enum InlineEscaping {
             index = text.index(after: index)
         }
         return result
+    }
+
+    /// The character next to `index` (either side) is the same one.
+    private static func isRun<S: StringProtocol>(of character: Character, at index: S.Index, in text: S) -> Bool {
+        let next = text.index(after: index)
+        if next < text.endIndex, text[next] == character { return true }
+        return index > text.startIndex && text[text.index(before: index)] == character
     }
 
     /// `&` followed by `name;` or `#123;` would be read as an entity.

@@ -39,7 +39,12 @@ final class DocEditor {
     /// The storage each text view showed after its last render.
     private var rendered: [ObjectIdentifier: String] = [:]
     /// Where the cursor is, in the model.
-    private(set) var selection: DocSelection?
+    private(set) var selection: DocSelection? {
+        didSet { if selection != oldValue { updateSlash() } }
+    }
+    /// The slash menu, and where its "/" is while it's open.
+    let slash = DocSlashMenu()
+    var slashOrigin: DocPosition?
     /// The next render of the selection's block should also take keyboard focus.
     private var wantsFocus = false
     /// The text view last focused for typing. If it leaves the window while focused
@@ -61,6 +66,7 @@ final class DocEditor {
     init(demo: DocDemo) {
         self.demo = demo
         undoManager.editor = self
+        slash.choose = { [weak self] item in self?.chooseSlash(item) }
     }
 
     private var allViews: [UITextView] { views.values.flatMap { $0 }.compactMap(\.view) }
@@ -129,6 +135,7 @@ final class DocEditor {
         guard let selection, selection.head.block == id, textView.window?.isKeyWindow == true else { return }
         if let focusedView, focusedView !== textView, focusedView.window == nil { wantsFocus = true }
         apply(selection, to: textView)
+        if slashOrigin?.block == id { updateSlash() }
     }
 
     /// The person moved the cursor or selected: that's the new selection. Changes UIKit
@@ -317,6 +324,10 @@ final class DocEditor {
     func keyCommand(_ command: DocKeyCommand, in id: DocBlockID) {
         guard isEditable, let block = movedSelection(from: id) ?? demo.doc.block(id) else { return }
         switch command {
+        case .slashUp, .slashDown:
+            slash.move(by: command == .slashUp ? -1 : 1)
+        case .slashClose:
+            dismissSlash()
         case .outdent:
             indent(block, by: -1)
         case .lineBreak:
@@ -370,6 +381,18 @@ final class DocEditor {
         return deleteBackward(atStartOf: block)
     }
 
+    /// The marked text changed: a slash query being composed filters the menu as it goes.
+    func compositionChanged(in textView: UITextView, block id: DocBlockID) {
+        guard let origin = slashOrigin, origin.block == id, let block = demo.doc.block(id),
+            let old = rendered[ObjectIdentifier(textView)], let start = Self.textStart(of: old, block: block)
+        else { return }
+        let storage = Array((textView.text ?? "").utf16)
+        let from = start + origin.offset + 1
+        let caret = textView.selectedRange.location
+        guard from <= caret, caret <= storage.count else { return }
+        slashComposing(String(decoding: storage[from..<caret], as: UTF16.self))
+    }
+
     /// The marked text is gone: whatever the IME left in the storage is one insertion.
     func commitComposition(in textView: UITextView, block id: DocBlockID) {
         undoManager.enableUndoRegistration()
@@ -405,6 +428,12 @@ final class DocEditor {
     /// Text typed or pasted over `range`. Line breaks split the block; markdown
     /// shortcuts at the start of a block or around a word become their formatting.
     private func insert(_ string: String, replacing range: Range<Int>, in block: DocBlock) {
+        // Return chooses from the menu; with nothing matching it is a Return again.
+        if string == "\n", slash.isOpen, slash.highlightedItem != nil {
+            chooseSlash()
+            return
+        }
+        if string == "\n", slash.isOpen { dismissSlash() }
         if string == "\n", case .quote = block.kind, !block.text.isEmpty {
             quoteReturn(replacing: range, in: block)
             return
@@ -439,6 +468,13 @@ final class DocEditor {
         commit(steps, from: DocSelection(anchor: .init(block: block.id, offset: range.lowerBound), head: .init(block: block.id, offset: range.upperBound)),
                to: DocSelection(anchor: caret, head: caret), merge: typing ? .init(block: block.id, session: session) : nil)
         if !typing { session &+= 1 }
+        if Self.slashes.contains(string), block.kind.allowsMarks { slashTyped(in: block, at: range.lowerBound) }
+    }
+
+    /// The slash menu's edit: one undo step.
+    func commitSlash(_ steps: [DocStep], from before: DocSelection, to after: DocSelection) {
+        commit(steps, from: before, to: after)
+        session &+= 1
     }
 
     /// Return in a quote is a line break inside it; on its empty last line, it leaves
@@ -729,7 +765,7 @@ final class DocUndoManager: UndoManager {
 }
 
 enum DocKeyCommand {
-    case outdent, bold, italic, lineBreak
+    case outdent, bold, italic, lineBreak, slashUp, slashDown, slashClose
 }
 
 struct WeakTextView {
@@ -771,6 +807,13 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
     }
 
     func textViewDidChange(_ textView: UITextView) {
+        // Marked text can start without asking the delegate (setMarkedText): it's a
+        // composition all the same, committed when the marked text goes.
+        if textView.markedTextRange != nil {
+            if !composing { editor?.compositionBegan() }
+            composing = true
+            editor?.compositionChanged(in: textView, block: block)
+        }
         guard composing, textView.markedTextRange == nil else { return }
         composing = false
         editor?.commitComposition(in: textView, block: block)
@@ -807,11 +850,15 @@ private enum TextViewHooks {
     /// Shift-Tab steps a list item out, Shift-Return breaks the line inside the block,
     /// ⌘B and ⌘I toggle bold and italic (Composer had
     /// them; UIKit's own versions would edit the storage, not the model).
-    private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String)] = [
-        ("\t", .shift, Selector(("docOutdent:")), .outdent, "减少缩进"),
-        ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, "换行"),
-        ("b", .command, Selector(("docBold:")), .bold, "加粗"),
-        ("i", .command, Selector(("docItalic:")), .italic, "斜体"),
+    /// ↑, ↓ and Esc are the slash menu's only while it is open.
+    private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String, slashMenu: Bool)] = [
+        ("\t", .shift, Selector(("docOutdent:")), .outdent, "减少缩进", false),
+        ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, "换行", false),
+        ("b", .command, Selector(("docBold:")), .bold, "加粗", false),
+        ("i", .command, Selector(("docItalic:")), .italic, "斜体", false),
+        (UIKeyCommand.inputUpArrow, [], Selector(("docSlashUp:")), .slashUp, "上一项", true),
+        (UIKeyCommand.inputDownArrow, [], Selector(("docSlashDown:")), .slashDown, "下一项", true),
+        (UIKeyCommand.inputEscape, [], Selector(("docSlashClose:")), .slashClose, "关闭菜单", true),
     ]
 
     private static func installKeyCommands(on type: AnyClass) {
@@ -830,8 +877,8 @@ private enum TextViewHooks {
         let original = unsafeBitCast(method_getImplementation(method), to: Implementation.self)
         let replacement: @convention(block) (AnyObject) -> [UIKeyCommand]? = { object in
             let ours = MainActor.assumeIsolated { () -> [UIKeyCommand] in
-                guard editor(of: object) != nil else { return [] }
-                return commands.map { entry in
+                guard let (_, _, editor) = editor(of: object) else { return [] }
+                return commands.filter { !$0.slashMenu || editor.slash.isOpen }.map { entry in
                     let command = UIKeyCommand(title: entry.title, action: entry.selector, input: entry.input, modifierFlags: entry.flags)
                     command.wantsPriorityOverSystemBehavior = true
                     return command

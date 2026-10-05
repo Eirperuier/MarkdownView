@@ -260,7 +260,7 @@ struct MarkdownEditingStyleTests {
     /// spaces at line edges included; an empty block keeps a line.
     @Test
     func whitespaceSurvives() {
-        let texts = ["a ", "  b", "c  \n d", "x\t", "  ", "# not heading  ", "**", "a  b   c"]
+        let texts = ["a ", "  b", "c  \n d", "x\t", "  ", "# not heading  ", "**", "a  b   c", "don't", "\"q\" 'r'", "a--b", "x...", "a-b. c."]
         for string in texts {
             let doc = Doc(id: fixedID(0), blocks: [block(1, .paragraph, string)])
             let markdown = doc.markdown(of: fixedID(1), style: .editing) ?? ""

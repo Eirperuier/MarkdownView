@@ -456,6 +456,100 @@ final class DocEditTests {
             try self.expectCursor(block.id, 8)
             try await self.showsModelSoon(block.id)
         }
+        /// A new empty paragraph after "Loading older…", focused.
+        func emptyLine() async throws -> DocBlock {
+            let block = try self.block("Loading older")
+            try await self.focus(block.id, at: block.text.length)
+            try await self.enter()
+            return try self.blockAfter(block.id)
+        }
+        await test("Quotes, dashes and dots stay as typed (no smart punctuation)") {
+            let line = try await emptyLine()
+            try await self.type("don't say \"no\" -- wait...")
+            try self.expect(self.text(line.id) == "don't say \"no\" -- wait...", "text \(self.text(line.id).debugDescription)")
+            try await self.showsModelSoon(line.id)
+        }
+        await test("Slash menu: “/h2” and Return makes a heading 2") {
+            let line = try await emptyLine()
+            try await self.type("/")
+            try self.expect(self.editor.slash.isOpen && self.editor.slash.items.count == DocSlashItem.all.count, "menu open \(self.editor.slash.isOpen) items \(self.editor.slash.items.count)")
+            try await self.type("h2")
+            try self.expect(self.editor.slash.highlightedItem?.id == "h2", "highlighted \(String(describing: self.editor.slash.highlightedItem?.id))")
+            try self.expect(self.editor.slash.anchor.height > 0, "no anchor")
+            try await self.enter()
+            try self.expect(!self.editor.slash.isOpen, "menu still open")
+            let block = try self.expectValue(self.demo.doc.block(line.id), "block gone")
+            try self.expect(block.kind == .heading(level: 2) && block.text.isEmpty, "became \(block.kind) \(block.text.string.debugDescription)")
+            try self.expectCursor(line.id, 0)
+            try await self.type("T")
+            try self.expect(self.text(line.id) == "T", "typed \(self.text(line.id).debugDescription)")
+        }
+        await test("Slash menu: ↓↓ then Return picks the third item; one undo takes it back") {
+            let line = try await emptyLine()
+            try await self.type("/")
+            for _ in 0..<2 { UIApplication.shared.sendAction(Selector(("docSlashDown:")), to: nil, from: nil, for: nil) }
+            try self.expect(self.editor.slash.highlighted == 2, "highlighted \(self.editor.slash.highlighted)")
+            try await self.enter()
+            try self.expect(self.demo.doc.block(line.id)?.kind == DocSlashItem.all[2].action.kind, "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
+            try await self.undo()
+            try self.expect(self.demo.doc.block(line.id)?.kind == .paragraph && self.text(line.id) == "/", "undo: \(String(describing: self.demo.doc.block(line.id)?.kind)) \(self.text(line.id).debugDescription)")
+        }
+        await test("Slash menu: Esc closes it, the “/” stays, Return is Return again") {
+            let line = try await emptyLine()
+            try await self.type("/")
+            UIApplication.shared.sendAction(Selector(("docSlashClose:")), to: nil, from: nil, for: nil)
+            try self.expect(!self.editor.slash.isOpen, "still open")
+            try self.expect(self.text(line.id) == "/", "text \(self.text(line.id).debugDescription)")
+            try await self.enter()
+            try self.expect(self.text(line.id) == "/", "Return changed the line to \(self.text(line.id).debugDescription)")
+            _ = try self.blockAfter(line.id)
+        }
+        await test("Slash menu: “、” (the slash key with a Chinese input method) opens it too") {
+            let line = try await emptyLine()
+            try await self.type("、yin")
+            try self.expect(self.editor.slash.highlightedItem?.id == "quote", "highlighted \(String(describing: self.editor.slash.highlightedItem?.id))")
+            try await self.enter()
+            try self.expect(self.demo.doc.block(line.id)?.kind == .quote && self.text(line.id).isEmpty, "\(String(describing: self.demo.doc.block(line.id)?.kind)) \(self.text(line.id).debugDescription)")
+        }
+        await test("Slash menu: a pinyin query filters while it's composed, and survives the menu's updates") {
+            let line = try await emptyLine()
+            try await self.type("/")
+            let view = try self.view()
+            view.setMarkedText("bi'ao", selectedRange: NSRange(location: 5, length: 0))
+            try? await Task.sleep(for: .milliseconds(300))
+            try self.expect(view.markedTextRange != nil, "the marked text is gone: \((view.text ?? "").debugDescription)")
+            try self.expect(self.editor.slash.highlightedItem?.id == "h1", "highlighted \(String(describing: self.editor.slash.highlightedItem?.id)) items \(self.editor.slash.items.map(\.id))")
+            view.unmarkText()
+            try await self.settle()
+            try self.expect(self.text(line.id) == "/bi'ao", "committed \(self.text(line.id).debugDescription)")
+        }
+        await test("Slash menu: a space closes it; a slash inside a word doesn't open it") {
+            let line = try await emptyLine()
+            try await self.type("/x ")
+            try self.expect(!self.editor.slash.isOpen, "open after a space")
+            try await self.type("a/")
+            try self.expect(!self.editor.slash.isOpen, "open after a letter")
+            try self.expect(self.text(line.id) == "/x a/", "text \(self.text(line.id).debugDescription)")
+        }
+        await test("Slash menu: “/分割” or a click on 分割线 puts a divider in, the caret below it") {
+            let line = try await emptyLine()
+            try await self.type("/分割")
+            try self.expect(self.editor.slash.items.map(\.id) == ["divider"], "items \(self.editor.slash.items.map(\.id))")
+            self.editor.slash.choose(self.editor.slash.items[0])
+            try await self.settle()
+            try self.expect(self.demo.doc.block(line.id)?.kind == .divider, "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
+            let next = try self.blockAfter(line.id)
+            try self.expect(next.kind == .paragraph && next.text.isEmpty, "after: \(next.kind)")
+            try self.expectCursor(next.id, 0)
+        }
+        await test("Slash menu after text keeps the text: “abc /quote” makes a quote of “abc ”") {
+            let line = try await emptyLine()
+            try await self.type("abc /quote")
+            try self.expect(self.editor.slash.highlightedItem?.id == "quote", "highlighted \(String(describing: self.editor.slash.highlightedItem?.id))")
+            try await self.enter()
+            try self.expect(self.demo.doc.block(line.id)?.kind == .quote && self.text(line.id) == "abc ", "\(String(describing: self.demo.doc.block(line.id)?.kind)) \(self.text(line.id).debugDescription)")
+            try self.expectCursor(line.id, 4)
+        }
         await test("Return in a heading continues with a paragraph") {
             let heading = try self.block("第 1 节")
             try await self.focus(heading.id, at: heading.text.length)

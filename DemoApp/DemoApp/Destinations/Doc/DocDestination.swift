@@ -38,6 +38,7 @@ struct DocDestination: View {
             .heightEstimate { row, width in
                 row.estimatedHeight(width: width)
             }
+            .overlay { DocSlashMenuView(menu: editor.slash) }
         }
         .onChange(of: demo.focus?.serial) {
             if let id = demo.focus?.id { reader.scrollTo(id: id, anchor: .center) }
