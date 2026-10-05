@@ -218,6 +218,17 @@ final class DocTableController {
         view.becomeFirstResponder()
         let offset = atEnd ? view.text.utf16.count : 0
         view.selectedRange = NSRange(location: offset, length: 0)
+        reveal(view)
+    }
+
+    /// Scrolls the document so the edited cell shows, above the keyboard too (which
+    /// comes up a moment after the focus).
+    func reveal(_ view: DocCellTextView) {
+        DocScrolling.reveal(view)
+        Task { @MainActor [weak view] in
+            try? await Task.sleep(for: .milliseconds(450))
+            if let view, view.isFirstResponder { DocScrolling.reveal(view) }
+        }
     }
 
     /// After a structural change the new cell renders on the next pass.
@@ -691,5 +702,53 @@ struct DocTableAdder: View {
         .accessibilityLabel(label)
         .opacity(isVisible ? 1 : 0)
         .allowsHitTesting(isVisible)
+    }
+}
+
+/// Scrolling the document's list to show a view. TiledView's list keeps a huge virtual
+/// content area (its content insets are hugely negative), so what shows is its bounds
+/// less the bars and the keyboard.
+@MainActor
+enum DocScrolling {
+    private static var keyboard: CGRect = .null
+    private static var observer: NSObjectProtocol?
+
+    /// Starts following the keyboard's frame (screen coordinates).
+    static func trackKeyboard() {
+        guard observer == nil else { return }
+        observer = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { note in
+            let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .null
+            MainActor.assumeIsolated { keyboard = frame }
+        }
+        NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { keyboard = .null }
+        }
+    }
+
+    static func list(of view: UIView) -> UIScrollView? {
+        var ancestor = view.superview
+        while let next = ancestor, !(next is UICollectionView) { ancestor = next.superview }
+        return ancestor as? UIScrollView
+    }
+
+    /// The part of the list on screen, in its coordinates.
+    static func visible(in list: UIScrollView) -> CGRect {
+        var visible = list.bounds.inset(by: UIEdgeInsets(top: list.safeAreaInsets.top, left: 0, bottom: list.safeAreaInsets.bottom, right: 0))
+        if !keyboard.isNull, let window = list.window {
+            let overlap = list.convert(window.convert(keyboard, from: nil), from: window)
+            if overlap.minY < visible.maxY { visible.size.height = max(0, overlap.minY - visible.minY) }
+        }
+        return visible
+    }
+
+    /// Scrolls the least that shows `rect` of `view` (with a margin).
+    static func reveal(_ view: UIView, rect: CGRect? = nil) {
+        guard let list = list(of: view), view.window != nil else { return }
+        let frame = view.convert(rect ?? view.bounds, to: list).insetBy(dx: 0, dy: -24)
+        let visible = visible(in: list)
+        let delta: CGFloat = frame.height > visible.height || frame.minY < visible.minY ? frame.minY - visible.minY
+            : frame.maxY > visible.maxY ? frame.maxY - visible.maxY : 0
+        guard delta != 0 else { return }
+        list.setContentOffset(CGPoint(x: list.contentOffset.x, y: list.contentOffset.y + delta), animated: true)
     }
 }

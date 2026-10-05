@@ -56,6 +56,11 @@ struct DocDestination: View {
             // -docShowTable YES: open at the first table (screenshots, trying tables out).
             if UserDefaults.standard.bool(forKey: "docShowTable"), let table = demo.rows.first(where: { $0.table != nil }) {
                 reader.scrollTo(id: table.id, anchor: .center, animated: false)
+                // -docEditCell YES: and edit a cell of it.
+                if UserDefaults.standard.bool(forKey: "docEditCell"), let snapshot = table.table {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    editor.tables.tapped(snapshot, at: MarkdownTableCellPosition(row: 2, column: 1))
+                }
             }
             if UserDefaults.standard.bool(forKey: "docEditTest") {
                 await DocEditTests(demo: demo, editor: editor).run()

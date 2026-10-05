@@ -68,6 +68,7 @@ final class DocEditor {
     init(demo: DocDemo) {
         self.demo = demo
         undoManager.editor = self
+        DocScrolling.trackKeyboard()
         slash.choose = { [weak self] item in self?.chooseSlash(item) }
     }
 
@@ -217,15 +218,15 @@ final class DocEditor {
     }
 
     /// Scrolls when the cursor's line is outside the visible part of the page.
+    /// Shows the caret's line: on screen, above the keyboard.
     private func reveal(_ textView: UITextView, block: DocBlockID) {
-        // The list's own scroll view: it is what the keyboard shrinks, not the window.
-        var ancestor = textView.superview
-        while let view = ancestor, !(view is UIScrollView) { ancestor = view.superview }
-        guard let list = ancestor as? UIScrollView else { return }
         let caret = textView.selectedTextRange.map { textView.caretRect(for: $0.end) } ?? textView.bounds
-        let frame = textView.convert(caret, to: list)
-        let visible = list.bounds.inset(by: list.adjustedContentInset).insetBy(dx: 0, dy: 24)
-        if frame.minY < visible.minY || frame.maxY > visible.maxY { demo.bringIntoView(block) }
+        DocScrolling.reveal(textView, rect: caret)
+        Task { @MainActor [weak textView] in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard let textView, textView.isFirstResponder else { return }
+            DocScrolling.reveal(textView, rect: textView.selectedTextRange.map { textView.caretRect(for: $0.end) } ?? textView.bounds)
+        }
     }
 
     private var placementTask: Task<Void, Never>?
