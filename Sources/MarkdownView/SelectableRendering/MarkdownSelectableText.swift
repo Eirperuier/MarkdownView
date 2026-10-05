@@ -169,12 +169,14 @@ public struct MarkdownSelectableText: View, Equatable {
         let isStreaming = streamingManager != nil && fadeConfig != nil
         let coordinator = revealCoordinator
         let penRevealed = penMarkRevealedCheck(map: map)
+        let external = externalHooks?.onContentChanged
         return { textView in
             MarkdownSelectableTextPlainMap.register(map, for: textView)
             if isStreaming {
                 coordinator.contentDidChange(storageToPlain: map)
             }
             SelectablePenMarkOverlayView.sync(on: textView, isRevealed: penRevealed)
+            external?(textView)
         }
     }
     #endif
@@ -501,6 +503,13 @@ public enum MarkdownSelectableTextPlainMap {
         objc_setAssociatedObject(textView, &associatedKey, map, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
+    /// 每个 storage 字符(Character,不是 UTF-16)对应的 plain 偏移。编辑场景用它在 storage 光标
+    /// 与模型偏移之间换算。
+    @MainActor
+    public static func storageToPlain(for textView: PlatformTextView) -> [Int]? {
+        objc_getAssociatedObject(textView, &associatedKey) as? [Int]
+    }
+
     /// 选区(UTF-16 NSRange)→ 块内 plain 区间。无映射/越界返回 nil。
     @MainActor
     public static func plainRange(for range: NSRange, in textView: PlatformTextView) -> Range<Int>? {
@@ -544,6 +553,8 @@ public final class MarkdownSelectableTextHooks: Equatable, Sendable {
     public let linkTap: (@MainActor (PlatformTextView, URL, CGRect) -> Bool)?
     /// 可选:话题气泡长按预览(id = rootMessageId → 预览视图;nil = 无预览)。
     public let topicPreview: (@MainActor (String) -> AnyView?)?
+    /// 可选:内容落进 textStorage 之后(updateUIView 末尾)回调。编辑场景在这里按新映射还原光标。
+    public let onContentChanged: (@MainActor (PlatformTextView) -> Void)?
     #endif
 
     #if canImport(UIKit)
@@ -553,7 +564,8 @@ public final class MarkdownSelectableTextHooks: Equatable, Sendable {
         editMenu: (@MainActor (PlatformTextView, NSRange, [UIMenuElement]) -> UIMenu?)? = nil,
         linkMenu: (@MainActor (URL) -> [UIMenuElement]?)? = nil,
         linkTap: (@MainActor (PlatformTextView, URL, CGRect) -> Bool)? = nil,
-        topicPreview: (@MainActor (String) -> AnyView?)? = nil
+        topicPreview: (@MainActor (String) -> AnyView?)? = nil,
+        onContentChanged: (@MainActor (PlatformTextView) -> Void)? = nil
     ) {
         self.onTextViewReady = onTextViewReady
         self.onSelectionChanged = onSelectionChanged
@@ -561,6 +573,7 @@ public final class MarkdownSelectableTextHooks: Equatable, Sendable {
         self.linkMenu = linkMenu
         self.linkTap = linkTap
         self.topicPreview = topicPreview
+        self.onContentChanged = onContentChanged
     }
     #else
     public init(
