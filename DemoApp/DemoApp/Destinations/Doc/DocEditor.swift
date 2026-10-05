@@ -542,17 +542,50 @@ final class DocEditor {
             offset += length
         }
         var caret = DocPosition(block: current, offset: offset)
+        var shortcutTaken = false
         if lines.count == 1, let shortcut = shortcut(after: steps, in: block, caret: offset) {
             steps += shortcut.steps
             caret = shortcut.caret
+            shortcutTaken = true
         }
+        // Plain typing (or deleting) inside the line goes into the text view's storage at
+        // once (§6.2): the block's re-render, a moment later, then finds it as it is.
+        let patch = lines.count == 1 && !shortcutTaken ? storagePatch(for: block, replacing: range, with: string, marks: marks) : nil
         // Typing merges into one undo step until the cursor moves; a space or a line
         // break ends the step.
         let typing = lines.count == 1 && !string.isEmpty && !string.contains(" ")
         commit(steps, from: DocSelection(anchor: .init(block: block.id, offset: range.lowerBound), head: .init(block: block.id, offset: range.upperBound)),
-               to: DocSelection(anchor: caret, head: caret), merge: typing ? .init(block: block.id, session: session) : nil)
+               to: DocSelection(anchor: caret, head: caret), merge: typing ? .init(block: block.id, session: session) : nil, beforePlacing: patch)
         if !typing { session &+= 1 }
         if Self.slashes.contains(string), block.kind.allowsMarks { slashTyped(in: block, at: range.lowerBound) }
+    }
+
+    /// The same edit made straight in the block's text view, when it can be: the view in
+    /// sync, plain text in one line (no line break, atom or placeholder involved), and
+    /// the inserted text carrying the marks of the character before it, whose
+    /// attributes it takes. Nil otherwise (the re-render does it, as for everything else).
+    private func storagePatch(for block: DocBlock, replacing range: Range<Int>, with string: String, marks: [Mark]) -> (() -> Void)? {
+        guard let textView = textView(for: block.id), textView.markedTextRange == nil,
+              let start = textStart(in: textView, block: block),
+              !block.text.isEmpty, range.lowerBound > 0,
+              block.text.length - range.count + string.utf16.count > 0,
+              !string.contains(where: { $0.isNewline || $0 == "\u{FFFC}" || $0 == "\u{200B}" }),
+              !block.text.string.contains("\n")
+        else { return nil }
+        let units = Array(block.text.string.utf16)
+        guard !units[range].contains(0xFFFC) else { return nil }
+        let before = Set(block.text.marks.filter { $0.range.contains(range.lowerBound - 1) && !$0.mark.kind.isAtom }.map(\.mark))
+        guard before == Set(marks) else { return nil }
+        let location = start + range.lowerBound
+        return { [weak textView] in
+            guard let textView, location + range.count <= textView.textStorage.length else { return }
+            let storage = textView.textStorage
+            var attributes = storage.attributes(at: location - 1, effectiveRange: nil)
+            attributes[.attachment] = nil
+            storage.beginEditing()
+            storage.replaceCharacters(in: NSRange(location: location, length: range.count), with: NSAttributedString(string: string, attributes: attributes))
+            storage.endEditing()
+        }
     }
 
     /// An edit that leaves the text (a table took its place): the focus goes to the table.
@@ -662,8 +695,10 @@ final class DocEditor {
                from: here, to: here)
     }
 
-    private func commit(_ steps: [DocStep], from before: DocSelection, to after: DocSelection, merge: DocHistory.MergeKey? = nil) {
+    private func commit(_ steps: [DocStep], from before: DocSelection, to after: DocSelection, merge: DocHistory.MergeKey? = nil,
+                        beforePlacing: (() -> Void)? = nil) {
         guard demo.edit(steps, before: before, after: after, merge: merge) != nil else { return }
+        beforePlacing?()
         place(after)
         if UserDefaults.standard.bool(forKey: "docTrace") {
             Task { [weak self] in

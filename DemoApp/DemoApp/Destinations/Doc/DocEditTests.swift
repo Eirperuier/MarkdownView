@@ -551,6 +551,35 @@ final class DocEditTests {
             try self.expect(self.demo.doc.block(line.id)?.kind == .quote && self.text(line.id) == "abc ", "\(String(describing: self.demo.doc.block(line.id)?.kind)) \(self.text(line.id).debugDescription)")
             try self.expectCursor(line.id, 4)
         }
+        // MARK: Typing speed
+
+        await test("Typing speed: keystrokes in a long paragraph render within a frame or two") {
+            let block = try self.block("The trap is timing")
+            // A long paragraph: the block's text four times.
+            let long = String(repeating: block.text.string + " ", count: 4)
+            try await self.focus(block.id, at: block.text.length)
+            try await self.type(" " + long)
+            try await self.settle()
+            var publish: [Double] = []
+            var rows: [Double] = []
+            var total: [Double] = []
+            for character in "abcdefghijklmnopqrstuvwxyz" {
+                let start = CFAbsoluteTimeGetCurrent()
+                try self.key(String(character))
+                publish.append((CFAbsoluteTimeGetCurrent() - start) * 1000)
+                rows.append(self.demo.lastPublishMs)
+                for _ in 0..<60 {
+                    if self.editor.mismatch() == nil { break }
+                    await Task.yield()
+                    try? await Task.sleep(for: .milliseconds(1))
+                }
+                total.append((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            }
+            func median(_ values: [Double]) -> Double { values.sorted()[values.count / 2] }
+            print("DOCPERF keystroke (ms): rows \(String(format: "%.1f", median(rows))); handling median \(String(format: "%.1f", median(publish))) max \(String(format: "%.1f", publish.max() ?? 0)); on screen median \(String(format: "%.1f", median(total))) max \(String(format: "%.1f", total.max() ?? 0)); text \(self.text(block.id).count) chars, \(self.demo.doc.blocks.count) blocks")
+            try self.expect(median(total) < 50, "median \(median(total)) ms")
+        }
+
         // MARK: Links
 
         await test("Links: a link on the selection exports as markdown; one undo removes it; nil removes it too") {

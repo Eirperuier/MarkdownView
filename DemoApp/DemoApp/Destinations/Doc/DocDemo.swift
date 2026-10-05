@@ -107,7 +107,20 @@ final class DocDemo {
 
     // MARK: Rows
 
+    /// Time the last publish took (ms), for the typing-speed test.
+    private(set) var lastPublishMs: Double = 0
+    /// Rows of blocks (and list runs) that haven't changed since the last publish: a
+    /// keystroke re-renders its own block's row, not the document's.
+    @ObservationIgnored private var rowCache: [DocBlockID: (block: DocBlock, database: Database?, row: DocRow)] = [:]
+    @ObservationIgnored private var runCache: [DocBlockID: (run: [DocBlock], rows: [DocRow])] = [:]
+
+    private static func markdown(of block: DocBlock, in database: Database) -> String {
+        Doc(id: Identifier(rawValue: UUID()), blocks: [block], databases: [database.id: database]).markdown(of: block.id, style: .editing) ?? ""
+    }
+
     private func publish() {
+        let started = CFAbsoluteTimeGetCurrent()
+        defer { lastPublishMs = (CFAbsoluteTimeGetCurrent() - started) * 1000 }
         var result: [DocRow] = []
         var emitted = false
         func emitLayer() {
@@ -126,7 +139,13 @@ final class DocDemo {
                 index += run.count
                 let shown = run.filter { !(layer?.ids.contains($0.id) ?? false) }
                 if shown.count < run.count { emitLayer() }
-                result += listRows(shown)
+                if let first = shown.first, let cached = runCache[first.id], cached.run == shown {
+                    result += cached.rows
+                } else {
+                    let rows = listRows(shown)
+                    if let first = shown.first { runCache[first.id] = (shown, rows) }
+                    result += rows
+                }
                 if let live, run.contains(where: { $0.id == live.after }) { emitLayer() }
                 continue
             }
@@ -141,14 +160,27 @@ final class DocDemo {
                 continue
             }
             if case .database(let id, _) = block.kind, let database = doc.databases[id] {
-                let markdown = doc.markdown(of: block.id, style: .editing) ?? ""
-                result.append(DocRow(id: block.id.description, block: block.id, blocks: split(markdown), table: DocTableSnapshot(block: block.id, database: database)))
+                if let cached = rowCache[block.id], cached.block == block, cached.database == database {
+                    result.append(cached.row)
+                } else {
+                    let markdown = Self.markdown(of: block, in: database)
+                    let row = DocRow(id: block.id.description, block: block.id, blocks: split(markdown), table: DocTableSnapshot(block: block.id, database: database))
+                    rowCache[block.id] = (block, database, row)
+                    result.append(row)
+                }
                 if let live, live.after == block.id { emitLayer() }
                 continue
             }
-            let markdown = doc.markdown(of: block.id, style: .editing) ?? ""
-            result.append(DocRow(id: block.id.description, block: block.id, blocks: split(markdown),
-                                 sourceKind: DocSourceKind(block.kind), sourceIsEmpty: block.text.isEmpty))
+            if let cached = rowCache[block.id], cached.block == block, cached.database == nil {
+                result.append(cached.row)
+            } else {
+                // Outside a list a block's markdown is its own: no neighbour changes it.
+                let markdown = Doc(id: doc.id, blocks: [block]).markdown(of: block.id, style: .editing) ?? ""
+                let row = DocRow(id: block.id.description, block: block.id, blocks: split(markdown),
+                                 sourceKind: DocSourceKind(block.kind), sourceIsEmpty: block.text.isEmpty)
+                rowCache[block.id] = (block, nil, row)
+                result.append(row)
+            }
             if let live, live.after == block.id { emitLayer() }
         }
         rows = result
@@ -169,6 +201,8 @@ final class DocDemo {
 
     private func split(_ markdown: String) -> [MarkdownStreamBlock] {
         if let cached = rendered[markdown] { return cached }
+        // Every keystroke makes a new markdown: keep the cache from growing for ever.
+        if rendered.count > 4000 { rendered.removeAll(keepingCapacity: true) }
         var splitter = MarkdownBlockSplitter()
         let blocks = splitter.split(markdown)
         rendered[markdown] = blocks
