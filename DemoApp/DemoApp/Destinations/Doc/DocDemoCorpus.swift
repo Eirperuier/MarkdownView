@@ -12,7 +12,13 @@ enum DocDemoCorpus {
     static let sections = 24
 
     static let document: String = {
-        var parts = ["# 文档示例\n\n这篇文档由 DocKit 载入：每一块是列表里的一行，块 id 终身不变。点「Agent 演示」，看 agent 在文档里插入、改一句、改写、删除和移动。"]
+        var parts = ["# 文档示例\n\n这篇文档由 DocKit 载入：每一块是列表里的一行，块 id 终身不变。点「Agent 演示」，看 agent 在文档里插入、改一句、改写、删除和移动。", """
+        - 每一块都能直接编辑：回车拆块，块首退格合并或退出列表
+          - 嵌套列表的缩进和符号是 MarkdownView 自己的
+            1. 编号也一样
+            2. Tab 缩进，空项回车退一层
+        - 行首输入 `# `、`- `、`1. `、`> ` 改块的类型
+        """]
         for index in 0..<sections {
             parts.append("## 第 \(index + 1) 节 · \(ChatCorpus.prompt(index))")
             parts.append(ChatCorpus.reply(index))

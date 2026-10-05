@@ -36,6 +36,9 @@ public struct DocHistory: Sendable {
     }
 
     public var canUndo: Bool { !undoStack.isEmpty }
+    /// Entries on the undo stack: a record that merged into the last one leaves it
+    /// unchanged, so callers mirroring the stack (a system UndoManager) can tell.
+    public var undoDepth: Int { undoStack.count }
     public var canRedo: Bool { !redoStack.isEmpty }
 
     /// Records a resolved transaction. Any local record clears the redo

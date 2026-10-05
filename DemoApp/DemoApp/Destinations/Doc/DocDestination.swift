@@ -2,8 +2,8 @@
 //  DocDestination.swift
 //  DemoApp
 //
-//  The document page: top-anchored, one TiledView row per block. Reading only for now
-//  (editing is D3); while the agent writes, the page is a preview and the bar says so.
+//  The document page: top-anchored, one TiledView row per block, edited in place.
+//  While the agent writes, the page is a read-only preview and the bar says so.
 //
 
 import SwiftUI
@@ -11,11 +11,18 @@ import MarkdownView
 import MessagingUI
 
 struct DocDestination: View {
-    @State private var demo = DocDemo()
+    @State private var demo: DocDemo
+    @State private var editor: DocEditor
     @State private var scrollPosition = TiledScrollPosition()
     @State private var reader = TiledViewReader<String>()
 
     static var autoruns: Bool { UserDefaults.standard.bool(forKey: "docAgent") }
+
+    init() {
+        let demo = DocDemo()
+        _demo = State(initialValue: demo)
+        _editor = State(initialValue: DocEditor(demo: demo))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,7 +32,7 @@ struct DocDestination: View {
                 .padding(.vertical, 8)
             Divider()
             TiledView(items: demo.rows, scrollPosition: $scrollPosition) { row in
-                DocRowCell(item: row, demo: demo)
+                DocRowCell(item: row, demo: demo, editor: editor)
             }
             .reader(reader)
             .heightEstimate { row, width in
@@ -34,6 +41,10 @@ struct DocDestination: View {
         }
         .onChange(of: demo.focus?.serial) {
             if let id = demo.focus?.id { reader.scrollTo(id: id, anchor: .center) }
+        }
+        // The agent writing makes the whole page a preview (§6.3).
+        .onChange(of: demo.isAgentWriting) {
+            editor.isEditable = !demo.isAgentWriting
         }
         .task {
             // Opening a document starts at its top (TiledView's first offset tucks the
@@ -62,42 +73,46 @@ struct DocDestination: View {
                 Button("停止") { demo.stop() }
                     .buttonStyle(.bordered)
             } else {
-                Picker("改写过渡", selection: $demo.replaceStyle) {
-                    ForEach(DocReplaceStyle.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
+                Button("撤销", systemImage: "arrow.uturn.backward") { editor.requestUndo() }
+                    .keyboardShortcut("z", modifiers: .command)
+                    .disabled(!demo.canUndo)
+                Button("重做", systemImage: "arrow.uturn.forward") { editor.requestRedo() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(!demo.canRedo)
                 Spacer()
                 Button("重置") { demo.reset() }
                 Button("Agent 演示") { demo.runScript() }
                     .buttonStyle(.borderedProminent)
             }
         }
+        .labelStyle(.iconOnly)
     }
 }
 
 struct DocRowCell: TiledCellContent {
     let item: DocRow
     let demo: DocDemo
+    let editor: DocEditor
 
     func body(context: CellContext<Void>) -> some View {
-        DocRowView(row: item, coordinator: demo.coordinator)
+        let hooks = MainActor.assumeIsolated { [item, editor] in item.block.map { editor.hooks(for: $0) } }
+        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks)
     }
 }
 
 private struct DocRowView: View {
     let row: DocRow
     let coordinator: StreamingRevealCoordinator<UUID>
+    let hooks: MarkdownSelectableTextHooks?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(row.blocks) { block in
+            // By position, not by the rendered block's id: an edit re-renders the block
+            // with a new id, and the text view being typed in must stay the same view.
+            ForEach(Array(row.blocks.enumerated()), id: \.offset) { _, block in
                 blockView(block)
             }
         }
-        .padding(.leading, CGFloat(row.indent) * 22)
-        .opacity(row.isFading ? 0.35 : 1)
-        .animation(.easeInOut(duration: 0.3), value: row.isFading)
         .padding(.vertical, 5)
         .frame(maxWidth: 720, alignment: .leading)
         .padding(.horizontal, 16)
@@ -109,6 +124,7 @@ private struct DocRowView: View {
         let view = MarkdownStreamBlockView(block)
             // Rows are measured off screen before they show; math needs its real height then.
             .markdownDisplayMathRendersSynchronously()
+            .environment(\.markdownSelectableTextHooks, hooks)
             .frame(maxWidth: .infinity, alignment: .leading)
         if row.isStreaming {
             view

@@ -2,10 +2,11 @@
 //  DocDemo.swift
 //  DemoApp
 //
-//  D2 (Docs/doc.md §11): a DocKit document shown one row per block, and a scripted
-//  agent that inserts, edits a phrase, rewrites, deletes and moves blocks. While it
-//  writes the document is a read-only preview; what it is writing is a temporary layer
-//  rendered and revealed like a streamed chat reply, committed as steps when done.
+//  D2/D3 (Docs/doc.md §11): a DocKit document shown one row per block, edited in the
+//  same text views it is read in, and a scripted agent that inserts, edits a phrase,
+//  rewrites, deletes and moves blocks. While the agent writes the document is a
+//  read-only preview; what it is writing is a temporary layer rendered and revealed
+//  like a streamed chat reply, committed as steps when done.
 //
 
 import SwiftUI
@@ -15,41 +16,28 @@ import MarkdownView
 /// One list row: a committed block, or a block of what the agent is writing.
 struct DocRow: Identifiable, Equatable {
     let id: String
+    /// The committed block the row shows; nil for the agent's temporary layer.
+    let block: DocBlockID?
     let blocks: [MarkdownStreamBlock]
-    /// List nesting; the block's own markdown carries no indentation.
-    let indent: Int
     /// Part of the agent's temporary layer: fades in through the reveal.
     let isStreaming: Bool
-    /// The block an agent rewrite is replacing, while the new text streams in below it.
-    let isFading: Bool
     private let source: String
+    private let depth: Int?
 
-    init(id: String, blocks: [MarkdownStreamBlock], indent: Int, isStreaming: Bool = false, isFading: Bool = false) {
+    init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock], isStreaming: Bool = false) {
         self.id = id
+        self.block = block
         self.blocks = blocks
-        self.indent = indent
         self.isStreaming = isStreaming
-        self.isFading = isFading
         source = blocks.map(\.source).joined(separator: "\n\n")
+        depth = blocks.first?.descriptor.listItemContext?.depth
     }
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
-        lhs.id == rhs.id && lhs.indent == rhs.indent && lhs.isStreaming == rhs.isStreaming
-            && lhs.isFading == rhs.isFading && lhs.source == rhs.source
+        lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source
+            && lhs.depth == rhs.depth
             && lhs.blocks.map(\.revealPlainTextCount) == rhs.blocks.map(\.revealPlainTextCount)
     }
-}
-
-/// How an agent's rewrite of a whole block replaces the old text (doc.md §9.3, 待定).
-enum DocReplaceStyle: String, CaseIterable, Identifiable {
-    /// The old block goes; the new text writes itself in its place.
-    case inPlace = "原处重写"
-    /// The old block dims and stays until the new text, written below it, is done.
-    case fadeOld = "旧文变淡"
-    /// The new text writes below the untouched old block, which then collapses.
-    case thenCollapse = "写完收起"
-
-    var id: String { rawValue }
 }
 
 @MainActor
@@ -59,29 +47,34 @@ final class DocDemo {
     private(set) var rows: [DocRow] = []
     /// What the agent is doing, shown in the bar; nil when idle.
     private(set) var agentStatus: String?
-    var replaceStyle: DocReplaceStyle = .fadeOld
     /// A row the view should bring on screen (the agent's next change).
     private(set) var focus: (id: String, serial: Int)?
+    var undoDepth: Int { history.undoDepth }
+    private(set) var canUndo = false
+    private(set) var canRedo = false
 
     @ObservationIgnored let coordinator = StreamingRevealCoordinator<UUID>()
+    /// Rendering per markdown source: a block's own markdown, or a whole run of list
+    /// items (split together so nesting and numbering are MarkdownView's own).
     @ObservationIgnored private var rendered: [String: [MarkdownStreamBlock]] = [:]
     @ObservationIgnored private var layer: Layer?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var rng = DocDemoRNG(seed: 0xD0C)
     @ObservationIgnored private var focusSerial = 0
+    /// The person's own undo history; the agent's steps only map through it (§7).
+    @ObservationIgnored private var history = DocHistory()
+    let person = DocAuthor.person(client: Identifier(rawValue: UUID(uuidString: "00000000-0000-7000-8000-0000000000E1")!))
     private let agent = DocAuthor.agent(client: Identifier(rawValue: UUID(uuidString: "00000000-0000-7000-8000-00000000A6E7")!))
 
     /// The agent's writing in progress: shown in the list, not in the doc.
     private struct Layer {
-        /// The temporary blocks go after this one (nil: at the top).
+        /// The temporary blocks go after this one, or in place of `replacing`.
         var after: DocBlockID?
         /// Ids the new blocks get on commit, decided before writing starts (§9.3).
         var ids: [DocBlockID]
         var blocks: [MarkdownStreamBlock] = []
-        /// A block being rewritten: hidden, or dimmed, until the rewrite commits.
+        /// A block being rewritten in place: hidden until the rewrite commits.
         var replacing: DocBlockID?
-        var hidesReplaced: Bool
-        var dimsReplaced: Bool
         /// Already in the doc; the layer only stays while its reveal finishes.
         var committed = false
     }
@@ -96,6 +89,7 @@ final class DocDemo {
     func reset() {
         stop()
         doc = Doc(id: doc.id, markdown: DocDemoCorpus.document)
+        history = DocHistory()
         publish()
     }
 
@@ -103,49 +97,101 @@ final class DocDemo {
 
     private func publish() {
         var result: [DocRow] = []
-        var layout = DocRowLayout()
         var emitted = false
         func emitLayer() {
             guard let layer, !emitted else { return }
-            result += layerRows(layer)
+            result += zip(layer.ids, layer.blocks).map { id, block in
+                DocRow(id: id.description, block: nil, blocks: [block], isStreaming: true)
+            }
             emitted = true
         }
         let live = layer.flatMap { $0.committed ? nil : $0 }
-        if let live, live.after == nil { emitLayer() }
-        for block in doc.blocks {
-            let indent = layout.indent(of: block)
+        var index = 0
+        while index < doc.blocks.count {
+            let block = doc.blocks[index]
+            if case .listItem = block.kind {
+                let run = doc.blocks[index...].prefix { if case .listItem = $0.kind { true } else { false } }
+                index += run.count
+                let shown = run.filter { !(layer?.ids.contains($0.id) ?? false) }
+                if shown.count < run.count { emitLayer() }
+                result += listRows(shown)
+                if let live, run.contains(where: { $0.id == live.after }) { emitLayer() }
+                continue
+            }
+            index += 1
             // Committed but still revealing: the layer stands in for its blocks.
             if let layer, layer.ids.contains(block.id) {
                 emitLayer()
                 continue
             }
-            if let live, live.replacing == block.id, live.hidesReplaced {
+            if let live, live.replacing == block.id {
                 emitLayer()
                 continue
             }
             let markdown = doc.markdown(of: block.id) ?? ""
-            let blocks = rendered[markdown] ?? {
-                var splitter = MarkdownBlockSplitter()
-                return splitter.split(markdown)
-            }()
-            rendered[markdown] = blocks
-            let fading = live?.replacing == block.id && live?.dimsReplaced == true
-            result.append(DocRow(id: block.id.description, blocks: blocks, indent: indent, isFading: fading))
+            result.append(DocRow(id: block.id.description, block: block.id, blocks: split(markdown)))
             if let live, live.after == block.id { emitLayer() }
         }
         rows = result
+        canUndo = history.canUndo
+        canRedo = history.canRedo
     }
 
-    private func layerRows(_ layer: Layer) -> [DocRow] {
-        zip(layer.ids, layer.blocks).map { id, block in
-            DocRow(id: id.description, blocks: [block], indent: 0, isStreaming: true)
+    /// A run of list items is split as one list, so each item gets MarkdownView's
+    /// marker, numbering and depth indentation; one descriptor per item.
+    private func listRows(_ run: [DocBlock]) -> [DocRow] {
+        let markdown = Doc(id: doc.id, blocks: run).markdown
+        let blocks = split(markdown)
+        guard blocks.count == run.count else {
+            return run.map { DocRow(id: $0.id.description, block: $0.id, blocks: split(doc.markdown(of: $0.id) ?? "")) }
         }
+        return zip(run, blocks).map { DocRow(id: $0.id.description, block: $0.id, blocks: [$1]) }
+    }
+
+    private func split(_ markdown: String) -> [MarkdownStreamBlock] {
+        if let cached = rendered[markdown] { return cached }
+        var splitter = MarkdownBlockSplitter()
+        let blocks = splitter.split(markdown)
+        rendered[markdown] = blocks
+        return blocks
     }
 
     private func bringIntoView(_ id: DocBlockID?) {
         guard let id else { return }
         focusSerial += 1
         focus = (id.description, focusSerial)
+    }
+
+    // MARK: Editing
+
+    /// Applies one of the person's edits as a transaction, recorded for undo.
+    /// Nil when the steps don't apply.
+    @discardableResult
+    func edit(
+        _ steps: [DocStep],
+        before: DocSelection?,
+        after: DocSelection?,
+        merge: DocHistory.MergeKey? = nil
+    ) -> DocTransaction? {
+        guard !isAgentWriting, !steps.isEmpty else { return nil }
+        let transaction = DocTransaction(steps: steps, selectionBefore: before, selectionAfter: after, author: person, time: .now)
+        guard let resolved = try? doc.apply(transaction) else { return nil }
+        history.record(resolved, merge: merge)
+        publish()
+        return resolved
+    }
+
+    /// Undoes the person's last transaction; returns where the cursor goes.
+    func undo() -> DocSelection? {
+        guard !isAgentWriting, let transaction = history.undo(&doc) else { return nil }
+        publish()
+        return transaction.selectionBefore
+    }
+
+    func redo() -> DocSelection? {
+        guard !isAgentWriting, let transaction = history.redo(&doc) else { return nil }
+        publish()
+        return transaction.selectionBefore
     }
 
     // MARK: Agent
@@ -159,8 +205,8 @@ final class DocDemo {
         }
     }
 
-    /// Stops the agent: committed operations stay; a rewrite or edit in progress is
-    /// dropped, an insert keeps what it has written (doc.md §9.3).
+    /// Stops the agent: committed operations stay; a rewrite in progress is dropped, an
+    /// insert keeps what it has written (doc.md §9.3).
     func stop() {
         task?.cancel()
         task = nil
@@ -187,11 +233,11 @@ final class DocDemo {
         try? await Task.sleep(for: pause)
         if let target = block(containing: "self-sizing cells can change height"), !Task.isCancelled {
             agentStatus = "正在改一句话"
-            await edit(target.id, find: "self-sizing cells can change height *after* the insert".replacing("*", with: ""), replace: "a cell can still grow once it has been inserted")
+            await edit(target.id, find: "self-sizing cells can change height after the insert", replace: "a cell can still grow once it has been inserted")
         }
         try? await Task.sleep(for: pause)
         if let target = block(containing: "这周你的睡眠整体"), !Task.isCancelled {
-            agentStatus = "正在改写一块(\(replaceStyle.rawValue))"
+            agentStatus = "正在改写一块"
             await rewrite(target.id, with: DocDemoCorpus.rewritten)
         }
         try? await Task.sleep(for: pause)
@@ -216,24 +262,20 @@ final class DocDemo {
     private func insert(_ markdown: String, after anchor: DocBlockID) async {
         bringIntoView(anchor)
         try? await Task.sleep(for: .milliseconds(400))
-        let layer = Layer(after: anchor, ids: newIDs(), hidesReplaced: false, dimsReplaced: false)
+        let layer = Layer(after: anchor, ids: newIDs())
         guard let text = await stream(markdown, into: layer) else { return }
         commitInsert(layer, markdown: text)
         await settle()
     }
 
+    /// Rewrites a block in place: the old text goes and the new one writes itself
+    /// where it was.
     private func rewrite(_ target: DocBlockID, with markdown: String) async {
         bringIntoView(target)
         try? await Task.sleep(for: .milliseconds(400))
         let previous = doc.blocks.firstIndex { $0.id == target }.flatMap { $0 > 0 ? doc.blocks[$0 - 1].id : nil }
-        let style = replaceStyle
-        let layer = Layer(
-            after: target, ids: newIDs(), replacing: target,
-            hidesReplaced: style == .inPlace, dimsReplaced: style == .fadeOld
-        )
-        guard let text = await stream(markdown, into: layer) else { return }
-        if style == .thenCollapse { try? await Task.sleep(for: .milliseconds(600)) }
-        guard let old = doc.block(target) else { return }
+        let layer = Layer(after: target, ids: newIDs(), replacing: target)
+        guard let text = await stream(markdown, into: layer), let old = doc.block(target) else { return }
         var steps: [DocStep] = [.deleteBlock(block: old, after: nil)]
         steps += insertSteps(DocFragment(markdown: text, at: .now, using: &rng), ids: layer.ids, after: previous)
         self.layer?.committed = true
@@ -309,29 +351,20 @@ final class DocDemo {
         (0..<64).map { _ in Identifier.generate(at: .now, using: &rng) }
     }
 
-    /// One agent operation is one transaction (§9.2).
+    func newBlockID() -> DocBlockID {
+        Identifier.generate(at: .now, using: &rng)
+    }
+
+    /// One agent operation is one transaction (§9.2); the person's history maps
+    /// through it rather than recording it.
     private func apply(_ steps: [DocStep]) {
         do {
-            try doc.apply(DocTransaction(steps: steps, author: agent, time: .now))
+            let resolved = try doc.apply(DocTransaction(steps: steps, author: agent, time: .now))
+            for step in resolved.steps { history.map(through: step) }
         } catch {
             print("DocDemo: step failed: \(error)")
         }
         publish()
-    }
-}
-
-/// List nesting as the export lays it out: an item is at most one level below the one
-/// before it.
-private struct DocRowLayout {
-    private var depth = -1
-
-    mutating func indent(of block: DocBlock) -> Int {
-        guard case .listItem = block.kind else {
-            depth = -1
-            return 0
-        }
-        depth = min(block.indent, depth + 1)
-        return depth
     }
 }
 
@@ -355,7 +388,7 @@ struct DocDemoRNG: RandomNumberGenerator {
 extension DocRow {
     /// A rough height for the list to use until the row is measured.
     func estimatedHeight(width: CGFloat) -> CGFloat {
-        let textWidth = max(100, min(width, 752) - 32 - CGFloat(indent) * 22)
+        let textWidth = max(100, min(width, 752) - 32)
         let source = blocks.map(\.source).joined(separator: "\n")
         let lines = CGFloat(source.split(separator: "\n", omittingEmptySubsequences: false).count)
         if source.hasPrefix("```") { return lines * 18 + 56 }
