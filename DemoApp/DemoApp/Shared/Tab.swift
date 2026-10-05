@@ -9,7 +9,7 @@ import Foundation
 import SwiftUI
 
 enum Tab: String, CaseIterable {
-    case overview, image, table, text, list, customization, interact, blockDirective, math, streaming, chat, floo
+    case overview, image, table, text, list, customization, interact, blockDirective, math, streaming, chat, floo, doc
     
     var name: String {
         switch self {
@@ -25,6 +25,7 @@ enum Tab: String, CaseIterable {
         case .streaming: "Streaming"
         case .chat: "Chat"
         case .floo: "floo 对话"
+        case .doc: "floo 文档"
         }
     }
 }
@@ -56,6 +57,8 @@ extension Tab {
                 ChatDestination()
             } else if tab == .floo {
                 FlooDestination()
+            } else if tab == .doc {
+                DocDestination()
             } else {
                 scrolling
             }
@@ -74,7 +77,7 @@ extension Tab {
                     case .interact: InteractDestination()
                     case .blockDirective: BlockDirectiveDestination()
                     case .math: MathDestination()
-                    case .streaming, .chat, .floo: EmptyView()
+                    case .streaming, .chat, .floo, .doc: EmptyView()
                     }
                 }
                 .frame(maxWidth: .infinity)

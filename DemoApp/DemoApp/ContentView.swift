@@ -9,7 +9,7 @@ import SwiftUI
 import MarkdownView
 
 struct ContentView: View {
-    @State private var selection: Tab? = FlooDestination.launchScenario != nil ? .floo : ChatBenchmark.autorunExchanges == nil && !UserDefaults.standard.bool(forKey: "chatOpen") ? .overview : .chat
+    @State private var selection: Tab? = UserDefaults.standard.bool(forKey: "docDemo") ? .doc : FlooDestination.launchScenario != nil ? .floo : ChatBenchmark.autorunExchanges == nil && !UserDefaults.standard.bool(forKey: "chatOpen") ? .overview : .chat
     
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.doubleColumn)) {
