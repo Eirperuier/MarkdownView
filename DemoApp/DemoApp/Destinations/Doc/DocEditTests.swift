@@ -686,6 +686,27 @@ final class DocEditTests {
                 try self.expect(caret.height <= ceil(font.lineHeight) + 1, "caret at \(offset) is \(caret.height) tall (line \(font.lineHeight))")
             }
         }
+        await test("Code block: a selection over several lines covers every line, and stops at its last line's text") {
+            let block = try codeBlock()
+            let view = try await edit(block)
+            let text = view.text as NSString
+            let start = text.range(of: "struct").location
+            let end = text.range(of: "let id").location + 3
+            guard let from = view.position(from: view.beginningOfDocument, offset: start),
+                  let to = view.position(from: view.beginningOfDocument, offset: end),
+                  let range = view.textRange(from: from, to: to)
+            else { throw Failure(description: "no range") }
+            let rects = view.selectionRects(for: range).map(\.rect).filter { $0.width > 0 && $0.height > 0 }
+            // Every line from the first to the last is under some rect.
+            let first = view.caretRect(for: from), last = view.caretRect(for: to)
+            var y = first.midY
+            while y < last.midY {
+                try self.expect(rects.contains { $0.minY <= y && $0.maxY >= y }, "nothing selected at y \(y): \(rects)")
+                y += 4
+            }
+            let lowest = try self.expectValue(rects.map(\.maxY).max(), "no rects")
+            try self.expect(abs(lowest - last.maxY) <= 1, "selection ends at \(lowest), the last line's text at \(last.maxY)")
+        }
         await test("Code block: Return keeps the indentation; Tab and Shift-Tab indent and outdent by four") {
             let block = try codeBlock()
             let view = try await edit(block)

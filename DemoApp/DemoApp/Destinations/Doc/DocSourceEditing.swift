@@ -231,10 +231,19 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
         return rect
     }
 
+    /// A selection is TextKit's, contiguous across lines (the spacing between them
+    /// selected too), except that it stops at the bottom of its last line's text
+    /// instead of running into the spacing below it.
     override func selectionRects(for range: UITextRange) -> [UITextSelectionRect] {
         let rects = super.selectionRects(for: range)
-        guard stripeGap != nil, let font else { return rects }
-        return rects.map { DocLineSelectionRect($0, lineHeight: ceil(font.lineHeight)) }
+        guard stripeGap != nil else { return rects }
+        // The bottom of the last line's text: where the caret at the end reaches.
+        let bottom = caretRect(for: range.end).maxY
+        let lowest = rects.indices.filter { rects[$0].rect.width > 0 && rects[$0].rect.height > 0 }
+            .max { rects[$0].rect.maxY < rects[$1].rect.maxY }
+        return rects.enumerated().map { index, rect in
+            index == lowest && rect.rect.maxY > bottom + 0.5 ? DocLineSelectionRect(rect, bottom: bottom) : rect
+        }
     }
 
     override func layoutSubviews() {
@@ -539,19 +548,20 @@ struct DocCodeEditor: View {
     }
 }
 
-/// A selection rect a line of text tall (TextKit's covers the paragraph spacing too).
+/// A selection rect ending at the bottom of its last line's text (TextKit's covers the
+/// paragraph spacing below it too).
 final class DocLineSelectionRect: UITextSelectionRect {
     private let base: UITextSelectionRect
-    private let lineHeight: CGFloat
+    private let bottom: CGFloat
 
-    init(_ base: UITextSelectionRect, lineHeight: CGFloat) {
+    init(_ base: UITextSelectionRect, bottom: CGFloat) {
         self.base = base
-        self.lineHeight = lineHeight
+        self.bottom = bottom
     }
 
     override var rect: CGRect {
         var rect = base.rect
-        if rect.height > lineHeight + 1 { rect.size.height = lineHeight }
+        rect.size.height = max(0, bottom - rect.minY)
         return rect
     }
     override var writingDirection: NSWritingDirection { base.writingDirection }
