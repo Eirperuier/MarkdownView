@@ -11,6 +11,9 @@ import MarkdownView
 import MessagingUI
 
 struct DocDestination: View {
+    /// Code blocks are coloured by Highlightr, read and edited alike.
+    static let highlighter = HighlightrCodeHighlighter()
+
     @State private var demo: DocDemo
     @State private var editor: DocEditor
     @State private var scrollPosition = TiledScrollPosition()
@@ -161,8 +164,9 @@ private struct DocRowView: View {
         .frame(maxWidth: 720, alignment: .leading)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
-        // Tables, code and math change height when an editor comes or goes.
+        // Tables and code change height when an editor comes or goes.
         .modifier(DocRowHeightReporter(isOn: row.table != nil || row.sourceKind != nil))
+        .codeHighlighter(DocDestination.highlighter)
         // The whole row takes the caret, not only its text: beside a short line, the
         // space around a list item, the row's padding. Behind the text view, so only
         // clicks that miss it land here.

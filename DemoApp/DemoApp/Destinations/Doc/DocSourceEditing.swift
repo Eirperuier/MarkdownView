@@ -107,6 +107,12 @@ final class DocSourceController {
         }
     }
 
+    /// The panel's 完成, or a touch outside it: the source closes.
+    func dismiss(_ block: DocBlockID) {
+        view(for: block)?.resignFirstResponder()
+        if editing == block { endEditing() }
+    }
+
     /// The focus went elsewhere in the document.
     func endEditing() {
         pendingFocus = nil
@@ -190,6 +196,31 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     weak var controller: DocSourceController?
     /// Where typing left the caret: a selection change there is the typing's, not a move.
     private var typedCaret: NSRange?
+    /// Code is coloured like the read code block (Highlightr), a moment after each change.
+    var language: String?
+    private var highlightTask: Task<Void, Never>?
+    private static let highlighter = HighlightrCodeHighlighter()
+
+    func scheduleHighlight() {
+        highlightTask?.cancel()
+        guard let language else { return }
+        let code = text ?? ""
+        let scheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+        highlightTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled,
+                  let runs = await Self.highlighter.foregroundColors(code: code, language: language, colorScheme: scheme),
+                  let self, !Task.isCancelled, self.text == code, self.markedTextRange == nil
+            else { return }
+            let storage = self.textStorage
+            storage.beginEditing()
+            storage.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: storage.length))
+            for (range, color) in runs where NSMaxRange(range) <= storage.length {
+                storage.addAttribute(.foregroundColor, value: color, range: range)
+            }
+            storage.endEditing()
+        }
+    }
 
     override var undoManager: UndoManager? { controller?.editor.undoManager }
 
@@ -262,6 +293,7 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
         guard markedTextRange == nil, let block else { return }
         typedCaret = selectedRange
         controller?.changed(block, to: text)
+        scheduleHighlight()
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -292,6 +324,8 @@ struct DocSourceField: UIViewRepresentable {
     let controller: DocSourceController
     let font: UIFont
     var insets = UIEdgeInsets(top: 5, left: 10, bottom: 10, right: 10)
+    /// Highlights the code in this language (nil: plain text).
+    var language: String?
     /// Each line this tall, its text in the middle (MarkdownView's code lines: the
     /// font's line and 5 above and below).
     var lineHeight: CGFloat?
@@ -330,10 +364,15 @@ struct DocSourceField: UIViewRepresentable {
         view.isEditable = controller.isEditable
         view.textContainerInset = insets
         view.typingAttributes = attributes
+        let languageChanged = view.language != language
+        view.language = language
         if (view.text != text || view.attributedText.length == 0) && view.markedTextRange == nil {
             let caret = view.selectedRange
             view.attributedText = NSAttributedString(string: text, attributes: attributes)
             if view.isFirstResponder { view.selectedRange = NSRange(location: min(caret.location, text.utf16.count), length: 0) }
+            view.scheduleHighlight()
+        } else if languageChanged {
+            view.scheduleHighlight()
         }
         controller.register(view, for: block)
     }
@@ -361,7 +400,7 @@ struct DocCodeRowView: View {
             MarkdownStreamBlockView(rendered)
                 .markdownCodeBlockReplacement { [block, controller] in
                     guard controller.editing == block else { return nil }
-                    return AnyView(DocCodeEditor(block: block, text: controller.text(block), controller: controller))
+                    return AnyView(DocCodeEditor(block: block, text: controller.text(block), language: language, controller: controller))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .overlay(alignment: .topTrailing) {
@@ -378,6 +417,7 @@ struct DocCodeRowView: View {
 struct DocCodeEditor: View {
     let block: DocBlockID
     let text: String
+    let language: String?
     let controller: DocSourceController
 
     /// A code line as MarkdownView lays it out: the line's text and 5 above and below
@@ -387,7 +427,7 @@ struct DocCodeEditor: View {
 
     var body: some View {
         DocSourceField(block: block, text: text, controller: controller, font: codeFont,
-                       insets: UIEdgeInsets(top: 0, left: 10, bottom: 10, right: 10), lineHeight: lineHeight)
+                       insets: UIEdgeInsets(top: 0, left: 10, bottom: 10, right: 10), language: language, lineHeight: lineHeight)
             .background(alignment: .topLeading) {
                 VStack(spacing: 0) {
                     ForEach(0..<max(1, text.split(separator: "\n", omittingEmptySubsequences: false).count), id: \.self) { index in
@@ -449,12 +489,12 @@ struct DocCodeLanguageMenu: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .padding(.top, 6)
-        .padding(.trailing, 64)
+        .padding(.trailing, 84)
     }
 }
 
-/// A math block: its LaTeX in an editor while it's edited, the rendered formula (which
-/// follows the typing) below.
+/// A math block: MarkdownView's formula; while it's edited, its LaTeX in an anchored
+/// panel under it (Matrix's Composer panel), the formula following the typing.
 struct DocMathRowView: View {
     let block: DocBlockID
     let blocks: [MarkdownStreamBlock]
@@ -463,21 +503,9 @@ struct DocMathRowView: View {
 
     var body: some View {
         let editing = controller.editing == block
-        VStack(alignment: .leading, spacing: 6) {
-            if editing {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("LaTeX")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.top, 6)
-                    DocSourceField(block: block, text: controller.text(block), controller: controller, font: codeFont)
-                }
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 1.5))
-            }
+        Group {
             if isEmpty {
-                Text(editing ? "公式预览" : "空公式，点按输入 LaTeX")
+                Text("空公式，点按输入 LaTeX")
                     .font(.callout)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, minHeight: 36)
@@ -485,14 +513,59 @@ struct DocMathRowView: View {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { _, rendered in
                     MarkdownStreamBlockView(rendered)
                         .markdownDisplayMathRendersSynchronously()
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            }
+        }
+        .background {
+            // The formula being edited, marked where the panel comes from.
+            if editing {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.08))
+                    .padding(.horizontal, -6)
             }
         }
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded { [block, controller] in
             if controller.editing != block { controller.focus(block) }
         })
+        .docAnchoredPanel(isPresented: editing, onDismiss: { [block, controller] in controller.dismiss(block) }) {
+            DocMathPanel(block: block, text: controller.text(block), controller: controller)
+        }
+    }
+}
+
+/// The panel's content: the LaTeX, and done.
+struct DocMathPanel: View {
+    let block: DocBlockID
+    let text: String
+    let controller: DocSourceController
+
+    /// As wide as a formula line wants, within the window.
+    private var width: CGFloat {
+        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.bounds.width ?? 480
+        return min(460, window - 48)
+    }
+
+    var body: some View {
+        DocFloatingPanelSurface {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("LaTeX")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("完成") { controller.dismiss(block) }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 8)
+                DocSourceField(block: block, text: text, controller: controller, font: codeFont,
+                               insets: UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8))
+                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .frame(width: width)
+        }
     }
 }
 
