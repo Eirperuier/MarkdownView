@@ -935,6 +935,10 @@ private struct CodeBlockLineContent {
     }
 }
 
+/// Between the lines a long code line wraps into: text's spacing, not packed tight
+/// (lines of code themselves stay apart by their rows' padding).
+public let markdownCodeWrappedLineSpacing: CGFloat = 6
+
 private struct CodeBlockLineView: View {
     let content: CodeBlockLineContent
     let visibleCharacterCount: Int?
@@ -981,6 +985,7 @@ private struct CodeBlockLineView: View {
         HStack(alignment: .top) {
             if wraps {
                 text
+                    .lineSpacing(markdownCodeWrappedLineSpacing)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 text

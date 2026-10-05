@@ -264,7 +264,10 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
                 let first = glyphs.length > 0 ? manager.lineFragmentUsedRect(forGlyphAt: glyphs.location, effectiveRange: nil)
                     : (paragraph.location < text.length ? manager.lineFragmentUsedRect(forGlyphAt: manager.glyphIndexForCharacter(at: paragraph.location), effectiveRange: nil) : manager.extraLineFragmentUsedRect)
                 let last = glyphs.length > 0 ? manager.lineFragmentUsedRect(forGlyphAt: NSMaxRange(glyphs) - 1, effectiveRange: nil) : first
-                rects.append(CGRect(x: 0, y: textContainerInset.top + first.minY - gap, width: bounds.width, height: last.maxY - first.minY + gap * 2))
+                // A line's used rect carries the line spacing below it, but for the
+                // text's very last line.
+                let spacing = NSMaxRange(paragraph) < text.length ? ((baseAttributes[.paragraphStyle] as? NSParagraphStyle)?.lineSpacing ?? 0) : 0
+                rects.append(CGRect(x: 0, y: textContainerInset.top + first.minY - gap, width: bounds.width, height: last.maxY - spacing - first.minY + gap * 2))
             }
             index += 1
             if NSMaxRange(paragraph) >= text.length {
@@ -439,7 +442,11 @@ struct DocSourceField: UIViewRepresentable {
         var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.label]
         if let lineGap {
             let style = NSMutableParagraphStyle()
-            style.paragraphSpacing = lineGap * 2
+            // Between the lines a long line wraps into, as MarkdownView spaces them.
+            // TextKit adds it after a paragraph's last line too: the paragraph spacing
+            // makes up the rest of the gap to the next code line.
+            style.lineSpacing = markdownCodeWrappedLineSpacing
+            style.paragraphSpacing = lineGap * 2 - markdownCodeWrappedLineSpacing
             // SwiftUI's Text wraps with the standard strategy (it pushes a word down
             // rather than leave one short word alone on a line): the same breaks.
             style.lineBreakStrategy = .standard
