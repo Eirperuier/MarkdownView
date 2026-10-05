@@ -51,6 +51,7 @@ struct DocDestination: View {
             // first row under the bar's edge).
             try? await Task.sleep(for: .milliseconds(150))
             if let first = demo.rows.first?.id { reader.scrollTo(id: first, anchor: .top, animated: false) }
+            demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
             if UserDefaults.standard.bool(forKey: "docEditTest") {
                 await DocEditTests(demo: demo, editor: editor).run()
             }

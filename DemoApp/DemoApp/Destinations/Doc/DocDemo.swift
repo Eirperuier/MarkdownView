@@ -54,6 +54,8 @@ final class DocDemo {
     private(set) var canRedo = false
 
     @ObservationIgnored let coordinator = StreamingRevealCoordinator<UUID>()
+    /// The laid-out frame of a row, from the list (for the edit tests).
+    @ObservationIgnored var rowFrame: (String) -> CGRect? = { _ in nil }
     /// Rendering per markdown source: a block's own markdown, or a whole run of list
     /// items (split together so nesting and numbering are MarkdownView's own).
     @ObservationIgnored private var rendered: [String: [MarkdownStreamBlock]] = [:]
@@ -156,7 +158,7 @@ final class DocDemo {
         return blocks
     }
 
-    private func bringIntoView(_ id: DocBlockID?) {
+    func bringIntoView(_ id: DocBlockID?) {
         guard let id else { return }
         focusSerial += 1
         focus = (id.description, focusSerial)
@@ -176,6 +178,14 @@ final class DocDemo {
         guard !isAgentWriting, !steps.isEmpty else { return nil }
         let transaction = DocTransaction(steps: steps, selectionBefore: before, selectionAfter: after, author: person, time: .now)
         guard let resolved = try? doc.apply(transaction) else { return nil }
+        if UserDefaults.standard.bool(forKey: "docTrace") {
+            for step in resolved.steps { print("DOCTRACE step \(step)".prefix(300)) }
+            if let id = after?.head.block, let index = doc.blocks.firstIndex(where: { $0.id == id }) {
+                for block in doc.blocks[max(0, index - 2)...min(doc.blocks.count - 1, index + 2)] {
+                    print("DOCTRACE   \(block.id == id ? ">" : " ") \(block.kind) \(block.text.string.prefix(30).debugDescription) md=\((doc.markdown(of: block.id, style: .editing) ?? "").prefix(40).debugDescription)")
+                }
+            }
+        }
         history.record(resolved, merge: merge)
         publish()
         return resolved

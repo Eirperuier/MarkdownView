@@ -27,8 +27,66 @@ final class DocEditTests {
         let description: String
     }
 
+    /// Return at the end of every kind of block near the top, then undo: both lines
+    /// must stay on screen showing their text, and undo must bring back exactly the
+    /// document there was.
+    private func sweepReturn() async {
+        demo.reset()
+        editor.resetHistory()
+        try? await Task.sleep(for: .milliseconds(300))
+        let targets = demo.doc.blocks.prefix(40).enumerated().filter { $0.element.kind.allowsMarks }.map(\.offset)
+        for index in targets {
+            demo.reset()
+            editor.resetHistory()
+            try? await Task.sleep(for: .milliseconds(250))
+            let before = demo.doc.blocks.map { ($0.kind, $0.indent, $0.text.string) }
+            let block = demo.doc.blocks[index]
+            let name = "Return at the end of \(block.kind) “\(block.text.string.prefix(12))”"
+            do {
+                try await focus(block.id, at: block.text.length)
+                try await enter()
+                let next = try blockAfter(block.id)
+                try expect(text(block.id) == block.text.string, "block changed to \(text(block.id).prefix(20).debugDescription)")
+                try showsModel(block.id)
+                try showsModel(next.id)
+                try await rowsAround(index)
+                try await undo()
+                try await rowsAround(index)
+                let after = demo.doc.blocks.map { ($0.kind, $0.indent, $0.text.string) }
+                try expect(after.count == before.count && zip(after, before).allSatisfy { $0 == $1 }, "undo left \(after.count) blocks, had \(before.count)")
+                try showsModel(block.id)
+                passed += 1
+                print("DOCTEST PASS \(name)")
+            } catch {
+                failed += 1
+                print("DOCTEST FAIL \(name): \(error)")
+            }
+        }
+    }
+
+    /// Every row near the edit is laid out with a height (a row measured at zero is
+    /// a block that vanished from the page).
+    private func rowsAround(_ index: Int) async throws {
+        try? await Task.sleep(for: .milliseconds(150))
+        let rows = demo.rows
+        guard let position = rows.firstIndex(where: { $0.block == demo.doc.blocks[index].id }) else { return }
+        for row in rows[max(0, position - 2)..<min(rows.count, position + 4)] {
+            let frame = demo.rowFrame(row.id)
+            try expect((frame?.height ?? 0) > 1, "row \(row.blocks.first?.source.prefix(16) ?? "") has frame \(String(describing: frame))")
+        }
+    }
+
+    /// The block's row is on screen with a height and shows the model's text.
+    private func showsModel(_ id: DocBlockID) throws {
+        guard let block = demo.doc.block(id) else { throw Failure(description: "block gone") }
+        guard let view = editor.textView(for: id) else { throw Failure(description: "no text view for \(block.kind) \(block.text.string.prefix(12).debugDescription)") }
+        try expect(view.bounds.height > 1, "\(block.kind) row has no height")
+        try expect(editor.textStart(in: view, block: block) != nil, "\(block.kind) shows \((view.text ?? "").prefix(20).debugDescription), model \(block.text.string.prefix(20).debugDescription)")
+    }
+
     func run() async {
         setvbuf(stdout, nil, _IOLBF, 0)
+        await sweepReturn()
         await test("typing in the middle") {
             let block = try self.block("Loading older")
             try await self.focus(block.id, at: 1)

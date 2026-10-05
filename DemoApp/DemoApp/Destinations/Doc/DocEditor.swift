@@ -163,8 +163,27 @@ final class DocEditor {
     func place(_ next: DocSelection) {
         selection = next
         wantsFocus = true
-        if let textView = textView(for: next.head.block) { apply(next, to: textView) }
+        if let textView = textView(for: next.head.block) {
+            apply(next, to: textView)
+            reveal(textView, block: next.head.block)
+        } else {
+            // The row isn't on screen (Return on the last visible line, an undo far
+            // away): scroll to it; it renders, and the placement below catches it.
+            demo.bringIntoView(next.head.block)
+        }
         settlePlacement()
+    }
+
+    /// Scrolls when the cursor's line is outside the visible part of the page.
+    private func reveal(_ textView: UITextView, block: DocBlockID) {
+        // The list's own scroll view: it is what the keyboard shrinks, not the window.
+        var ancestor = textView.superview
+        while let view = ancestor, !(view is UIScrollView) { ancestor = view.superview }
+        guard let list = ancestor as? UIScrollView else { return }
+        let caret = textView.selectedTextRange.map { textView.caretRect(for: $0.end) } ?? textView.bounds
+        let frame = textView.convert(caret, to: list)
+        let visible = list.bounds.inset(by: list.adjustedContentInset).insetBy(dx: 0, dy: 24)
+        if frame.minY < visible.minY || frame.maxY > visible.maxY { demo.bringIntoView(block) }
     }
 
     private var placementTask: Task<Void, Never>?
