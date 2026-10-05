@@ -47,14 +47,22 @@ final class DocEditTests {
                 try await enter()
                 let next = try blockAfter(block.id)
                 try expect(text(block.id) == block.text.string, "block changed to \(text(block.id).prefix(20).debugDescription)")
-                try showsModel(block.id)
-                try showsModel(next.id)
+                try await showsModelSoon(block.id)
+                try await showsModelSoon(next.id)
                 try await rowsAround(index)
                 try await undo()
                 try await rowsAround(index)
                 let after = demo.doc.blocks.map { ($0.kind, $0.indent, $0.text.string) }
                 try expect(after.count == before.count && zip(after, before).allSatisfy { $0 == $1 }, "undo left \(after.count) blocks, had \(before.count)")
                 try showsModel(block.id)
+                // Return, Backspace, Return: the row after it goes and comes back.
+                try await focus(block.id, at: block.text.length)
+                try await enter()
+                try await backspace()
+                try await enter()
+                try? await Task.sleep(for: .milliseconds(700))
+                try showsModel(block.id)
+                try showsModel(try blockAfter(block.id).id)
                 passed += 1
                 print("DOCTEST PASS \(name)")
             } catch {
@@ -82,10 +90,57 @@ final class DocEditTests {
         guard let view = editor.textView(for: id) else { throw Failure(description: "no text view for \(block.kind) \(block.text.string.prefix(12).debugDescription)") }
         try expect(view.bounds.height > 1, "\(block.kind) row has no height")
         try expect(editor.textStart(in: view, block: block) != nil, "\(block.kind) shows \((view.text ?? "").prefix(20).debugDescription), model \(block.text.string.prefix(20).debugDescription)")
+        try drawn(view, block)
+    }
+
+    /// `showsModel`, allowing the list's fade-in of a row (under half a second).
+    private func showsModelSoon(_ id: DocBlockID) async throws {
+        for _ in 0..<12 {
+            if (try? showsModel(id)) != nil { return }
+            try? await Task.sleep(for: .milliseconds(60))
+        }
+        try showsModel(id)
+    }
+
+    /// The text is actually visible: no hidden or transparent view on the way up, and
+    /// the characters aren't drawn in a clear color (the reveal's hidden state).
+    private func drawn(_ view: UITextView, _ block: DocBlock) throws {
+        var ancestor: UIView? = view
+        while let current = ancestor {
+            try expect(!current.isHidden && current.alpha > 0.01 && current.layer.opacity > 0.01,
+                       "\(block.kind) hidden at \(Swift.type(of: current)) alpha=\(current.alpha) opacity=\(current.layer.opacity) hidden=\(current.isHidden)")
+            ancestor = current.superview
+        }
+        guard !block.text.isEmpty, let storage = view.attributedText, storage.length > 0 else { return }
+        let index = storage.length - 1
+        let color = storage.attribute(.foregroundColor, at: index, effectiveRange: nil) as? UIColor
+        var alpha: CGFloat = 1
+        color?.getRed(nil, green: nil, blue: nil, alpha: &alpha)
+        try expect(alpha > 0.01, "\(block.kind) text drawn with alpha \(alpha)")
+        // TextKit 2 lays out lazily: an empty layout means nothing gets drawn.
+        if let layout = view.textLayoutManager {
+            var fragments = 0
+            layout.enumerateTextLayoutFragments(from: layout.documentRange.location, options: [.ensuresLayout]) { _ in
+                fragments += 1
+                return true
+            }
+            try expect(fragments > 0, "\(block.kind) has no laid-out text")
+        }
     }
 
     func run() async {
         setvbuf(stdout, nil, _IOLBF, 0)
+        await test("Return, Backspace, Return at a person's pace keeps the line on screen") {
+            let block = try self.block("The trap is timing")
+            try await self.focus(block.id, at: block.text.length)
+            for step in 0..<3 {
+                try? await Task.sleep(for: .milliseconds(1500))
+                if step == 1 { try await self.backspace() } else { try await self.enter() }
+                try? await Task.sleep(for: .milliseconds(1500))
+                try self.showsModel(block.id)
+                if let next = try? self.blockAfter(block.id) { try self.showsModel(next.id) }
+            }
+        }
         await sweepReturn()
         await test("typing in the middle") {
             let block = try self.block("Loading older")

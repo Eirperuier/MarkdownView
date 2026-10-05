@@ -467,6 +467,44 @@ final class DocEditor {
             undoManager.registerUndo(withTarget: self) { $0.undoAction() }
         }
         place(after)
+        if UserDefaults.standard.bool(forKey: "docTrace") {
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(800))
+                self?.traceViews(around: after.head.block)
+            }
+        }
+    }
+
+    /// What the screen shows for the blocks around one: each attached text view, its
+    /// storage, whether it is visible.
+    private func traceViews(around id: DocBlockID) {
+        guard let index = demo.doc.blocks.firstIndex(where: { $0.id == id }) else { return }
+        for block in demo.doc.blocks[max(0, index - 3)...min(demo.doc.blocks.count - 1, index + 1)] {
+            let all = views[block.id]?.compactMap(\.view) ?? []
+            print("DOCTRACE view \(block.id == id ? ">" : " ") \(block.text.string.prefix(16).debugDescription) views=\(all.count)")
+            for view in all {
+                var hidden = ""
+                var ancestor: UIView? = view
+                while let current = ancestor {
+                    if current.isHidden || current.alpha < 0.99 { hidden += " \(Swift.type(of: current)):a=\(current.alpha),h=\(current.isHidden)" }
+                    ancestor = current.superview
+                }
+                let frame = view.window.map { view.convert(view.bounds, to: $0) }
+                print("DOCTRACE      key=\(view.window?.isKeyWindow == true) fr=\(view.isFirstResponder) frame=\(frame.map { "\(Int($0.minY))+\(Int($0.height))" } ?? "-") text=\((view.text ?? "").prefix(16).debugDescription) len=\(view.textStorage.length) sync=\(textStart(in: view, block: block) != nil)\(hidden)")
+            }
+        }
+        guard let anchor = textView(for: id) else { return }
+        var ancestor = anchor.superview
+        while let view = ancestor, !(view is UICollectionView) { ancestor = view.superview }
+        guard let list = ancestor as? UICollectionView else { return }
+        func texts(in view: UIView) -> [UITextView] {
+            view.subviews.flatMap { ($0 as? UITextView).map { [$0] } ?? texts(in: $0) }
+        }
+        for cell in list.visibleCells.sorted(by: { $0.frame.minY < $1.frame.minY }) {
+            let frame = cell.convert(cell.bounds, to: nil)
+            let shown = texts(in: cell.contentView).map { ($0.text ?? "").prefix(12).debugDescription }
+            print("DOCTRACE cell \(ObjectIdentifier(cell).hashValue % 10000) y=\(Int(frame.minY))+\(Int(frame.height)) subviews=\(cell.contentView.subviews.count) alpha=\(cell.contentView.alpha) texts=\(shown)")
+        }
     }
 
     // MARK: Formatting
