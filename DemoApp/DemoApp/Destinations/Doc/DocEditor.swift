@@ -133,6 +133,13 @@ final class DocEditor {
             let block = demo.doc.block(id), let start = textStart(in: textView, block: block)
         else { return }
         let range = textView.selectedRange
+        // A click in an empty block can land before its zero-width space, where the caret
+        // draws at the line start (before a list marker): it belongs after it.
+        if block.text.isEmpty, range.length == 0, range.location <= start {
+            placingSelection = true
+            textView.selectedRange = NSRange(location: start + 1, length: 0)
+            placingSelection = false
+        }
         let next = DocSelection(
             anchor: .init(block: id, offset: modelOffset(range.location, start: start, block: block)),
             head: .init(block: id, offset: modelOffset(NSMaxRange(range), start: start, block: block))
@@ -148,7 +155,10 @@ final class DocEditor {
         guard let block = demo.doc.block(selection.head.block), let start = textStart(in: textView, block: block) else { return }
         let lower = min(selection.anchor.offset, selection.head.offset)
         let upper = max(selection.anchor.offset, selection.head.offset)
-        let target = NSRange(location: start + min(lower, block.text.length), length: min(upper, block.text.length) - min(lower, block.text.length))
+        // An empty block shows a zero-width space; TextKit draws a caret before it at the
+        // start of the line (before a list marker), so the caret goes after it.
+        let shift = block.text.isEmpty ? 1 : 0
+        let target = NSRange(location: start + shift + min(lower, block.text.length), length: min(upper, block.text.length) - min(lower, block.text.length))
         placingSelection = true
         defer { placingSelection = false }
         if wantsFocus, !textView.isFirstResponder {
@@ -220,8 +230,9 @@ final class DocEditor {
         let upper = max(selection.anchor.offset, selection.head.offset)
         let expected = NSRange(location: start + lower, length: upper - lower)
         // In an empty block either side of the zero-width space is the same place.
-        let alsoFine = block.text.isEmpty && textView.selectedRange == NSRange(location: start + 1, length: 0)
-        if textView.selectedRange != expected, !alsoFine { return "cursor \(textView.selectedRange) expected \(expected)" }
+        // An empty block's caret goes after its zero-width space (see `apply`).
+        let shown = block.text.isEmpty ? NSRange(location: start + 1, length: 0) : expected
+        if textView.selectedRange != shown { return "cursor \(textView.selectedRange) expected \(shown)" }
         if !textView.isFirstResponder { return "not focused" }
         return nil
     }
@@ -490,7 +501,7 @@ final class DocEditor {
                     ancestor = current.superview
                 }
                 let frame = view.window.map { view.convert(view.bounds, to: $0) }
-                print("DOCTRACE      key=\(view.window?.isKeyWindow == true) fr=\(view.isFirstResponder) frame=\(frame.map { "\(Int($0.minY))+\(Int($0.height))" } ?? "-") text=\((view.text ?? "").prefix(16).debugDescription) len=\(view.textStorage.length) sync=\(textStart(in: view, block: block) != nil)\(hidden)")
+                print("DOCTRACE      key=\(view.window?.isKeyWindow == true) fr=\(view.isFirstResponder) sel=\(view.selectedRange) start=\(textStart(in: view, block: block).map(String.init) ?? "-") frame=\(frame.map { "\(Int($0.minY))+\(Int($0.height))" } ?? "-") text=\((view.text ?? "").prefix(16).debugDescription) len=\(view.textStorage.length) sync=\(textStart(in: view, block: block) != nil)\(hidden)")
             }
         }
         guard let anchor = textView(for: id) else { return }

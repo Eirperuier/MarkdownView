@@ -358,6 +358,26 @@ final class DocEditTests {
             let marks = self.demo.doc.block(block.id)?.text.marks ?? []
             try self.expect(marks.contains(MarkSpan(range: 0..<7, mark: .bold)), "marks \(marks)")
         }
+        await test("A click before an empty list item's text puts the caret after its marker") {
+            let item = try self.block("行首输入")
+            try await self.focus(item.id, at: item.text.length)
+            try await self.enter()
+            let next = try self.blockAfter(item.id)
+            let view = try self.view()
+            @MainActor func drawnAfterMarker(_ when: String) throws {
+                let caret = view.caretRect(for: view.selectedTextRange!.start)
+                let lineStart = view.caretRect(for: view.beginningOfDocument)
+                try self.expect(caret.minX > lineStart.minX + 4, "\(when): caret drawn at x=\(caret.minX), line starts at \(lineStart.minX)")
+            }
+            try drawnAfterMarker("after Return")
+            view.selectedRange = NSRange(location: 0, length: 0)
+            try await self.settle()
+            let start = try self.expectValue(self.editor.textStart(in: view, block: next), "not in sync")
+            try self.expect(view.selectedRange.location == start + 1, "caret at \(view.selectedRange.location), text starts at \(start)")
+            try drawnAfterMarker("after a click")
+            try await self.type("x")
+            try self.expect(self.text(next.id) == "x", "typed \(self.text(next.id).debugDescription)")
+        }
         await test("Return in a heading continues with a paragraph") {
             let heading = try self.block("第 1 节")
             try await self.focus(heading.id, at: heading.text.length)
@@ -399,6 +419,11 @@ final class DocEditTests {
 
     private func expect(_ condition: Bool, _ message: @autoclosure () -> String) throws {
         if !condition { throw Failure(description: message()) }
+    }
+
+    private func expectValue<T>(_ value: T?, _ message: String) throws -> T {
+        guard let value else { throw Failure(description: message) }
+        return value
     }
 
     private func expectCursor(_ id: DocBlockID, _ offset: Int) throws {
