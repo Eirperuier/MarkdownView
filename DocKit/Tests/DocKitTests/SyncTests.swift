@@ -20,7 +20,8 @@ struct SyncTests {
     /// Everyone must land on the same doc, equal to replaying the log.
     @Test
     func convergence() throws {
-        for iteration in 0..<300 {
+        let iterations = ProcessInfo.processInfo.environment["DOCKIT_CONVERGENCE_ITERATIONS"].flatMap(Int.init) ?? 300
+        for iteration in 0..<iterations {
             let seed = UInt64(iteration) &+ 0x51AC_0000
             var rng = SplitMix64(seed: seed)
             let initial = RandomDoc.doc(using: &rng)
@@ -314,7 +315,8 @@ struct SyncTests {
     /// exactly its owner's version, both docs equal.
     @Test
     func disjointBlocksIntent() throws {
-        for iteration in 0..<300 {
+        let iterations = ProcessInfo.processInfo.environment["DOCKIT_CONVERGENCE_ITERATIONS"].flatMap(Int.init) ?? 300
+        for iteration in 0..<iterations {
             let seed = UInt64(iteration) &+ 0xD150_0000
             var rng = SplitMix64(seed: seed)
             let initial = RandomDoc.doc(using: &rng)

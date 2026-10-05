@@ -69,6 +69,8 @@ extension DocStep {
             guard !other.removes(block), let into = other.stayingAnchor(into) else { return [] }
             return [.joinBlock(block: block, into: into, at: at, kind: kind, indent: indent)]
         case .insertBlock(let block, let after):
+            // A view of a database that is gone goes with it.
+            if let id = block.kind.databaseID, other.deletesDatabase(id) { return [] }
             return [.insertBlock(block: block, after: other.movingAnchor(after))]
         case .deleteBlock(let block, let after):
             guard !other.removes(block.id) else { return [] }
@@ -76,13 +78,16 @@ extension DocStep {
         case .moveBlock(let block, let after, let from):
             guard !other.removes(block) else { return [] }
             return [.moveBlock(block: block, after: other.movingAnchor(after), from: from)]
-        case .setBlock(let block, _, _, _, _):
+        case .setBlock(let block, let kind, _, _, _):
             guard !other.removes(block) else { return [] }
+            if let id = kind.databaseID, other.deletesDatabase(id) { return [] }
             return [self]
         case .createDatabase:
             return [self]
         case .deleteDatabase(let database):
-            if case .deleteDatabase(let otherDatabase) = other, otherDatabase.id == database.id { return [] }
+            if other.deletesDatabase(database.id) { return [] }
+            // A collaborator shows it again: it stays.
+            if other.showsDatabase(database.id) { return [] }
             return [self]
         case .database(let id, let step):
             switch other {
@@ -93,6 +98,20 @@ extension DocStep {
             default:
                 return [self]
             }
+        }
+    }
+
+    private func deletesDatabase(_ id: DatabaseID) -> Bool {
+        if case .deleteDatabase(let database) = self { return database.id == id }
+        return false
+    }
+
+    /// Whether this step makes a block a view of database `id`.
+    private func showsDatabase(_ id: DatabaseID) -> Bool {
+        switch self {
+        case .insertBlock(let block, _): block.kind.databaseID == id
+        case .setBlock(_, let kind, _, _, _): kind.databaseID == id
+        default: false
         }
     }
 

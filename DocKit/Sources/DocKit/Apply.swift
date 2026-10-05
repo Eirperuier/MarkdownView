@@ -16,12 +16,16 @@ extension Doc {
         case .joinBlock(let block, let into, _, _, _):
             return try applyJoin(block: block, into: into)
         case .insertBlock(let block, let after):
+            // A view block needs its database (an undo can bring one back after a
+            // collaborator deleted the database).
+            if let id = block.kind.databaseID, databases[id] == nil { throw .databaseNotFound(id) }
             return try applyInsertBlock(block: block, after: after)
         case .deleteBlock(let block, _):
             return try applyDeleteBlock(id: block.id)
         case .moveBlock(let block, let after, _):
             return try applyMoveBlock(id: block, after: after)
         case .setBlock(let block, let kind, let indent, _, _):
+            if let id = kind.databaseID, databases[id] == nil { throw .databaseNotFound(id) }
             return try applySetBlock(id: block, kind: kind, indent: indent)
         case .createDatabase(let database):
             guard databases[database.id] == nil else { throw .duplicateID }

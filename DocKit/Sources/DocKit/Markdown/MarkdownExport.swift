@@ -166,8 +166,17 @@ extension Database {
         func line(_ cells: [String]) -> String { "| " + cells.joined(separator: " | ") + " |" }
         var lines = [line(visible.map { Self.cellMarkdown($0.name) })]
         lines.append(line(visible.map { _ in "---" }))
+        // Formulas show what they compute, in the database's own order (their references).
+        let rowIndex = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0 + 1) })
+        let columnIndex = Dictionary(uniqueKeysWithValues: columns.enumerated().map { ($1.id, $0) })
         for row in ordered {
-            lines.append(line(visible.map { Self.cellMarkdown($0.display(row.cells[$0.id])) }))
+            lines.append(line(visible.map { column in
+                let text = column.display(row.cells[column.id])
+                let shown = DatabaseFormula.isFormula(text)
+                    ? DatabaseFormula.displayed(text, in: self, row: rowIndex[row.id] ?? 0, column: columnIndex[column.id] ?? 0)
+                    : text
+                return Self.cellMarkdown(shown)
+            }))
         }
         return lines.joined(separator: "\n")
     }

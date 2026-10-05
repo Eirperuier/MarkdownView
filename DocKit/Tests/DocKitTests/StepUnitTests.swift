@@ -172,4 +172,22 @@ struct StepUnitTests {
         text.marks.append(MarkSpan(range: 0..<3, mark: .bold))
         #expect(throws: DocError.self) { try text.validate() }
     }
+
+    /// A view of a database a collaborator deleted can't come back (an undo of the
+    /// view's deletion, say): it would point at nothing. And a database a collaborator
+    /// shows again isn't deleted.
+    @Test
+    func viewsOfDeletedDatabases() throws {
+        let database = Database(id: fixedID(70), columns: [Column(id: fixedID(71), name: "a", type: .text)])
+        let view = DocBlock(id: fixedID(72), kind: .database(id: database.id, view: .table(hidden: [], sort: [])))
+        let insert = DocStep.insertBlock(block: view, after: nil)
+        let delete = DocStep.deleteDatabase(database: database)
+        #expect(insert.mapped(through: delete).isEmpty)
+        #expect(delete.mapped(through: insert).isEmpty)
+        #expect(DocStep.setBlock(block: fixedID(73), kind: view.kind, indent: 0, previousKind: .paragraph, previousIndent: 0).mapped(through: delete).isEmpty)
+        var doc = Doc(id: fixedID(0))
+        #expect(throws: DocError.self) { try doc.apply(insert) }
+        try doc.apply(.createDatabase(database: database))
+        try doc.apply(insert)
+    }
 }

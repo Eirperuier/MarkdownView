@@ -189,7 +189,8 @@ enum RandomStep {
         case 8: return setBlock(in: doc, using: &rng)
         case 9: return .createDatabase(database: RandomDoc.database(using: &rng))
         case 10:
-            let deletable = doc.databases.values.filter { database in
+            // Sorted: a dictionary's order changes from run to run, and with it the steps.
+            let deletable = doc.databases.values.sorted { $0.id < $1.id }.filter { database in
                 !doc.blocks.contains { $0.kind.databaseID == database.id }
             }
             return deletable.randomElement(using: &rng).map { .deleteDatabase(database: $0) }
@@ -304,7 +305,7 @@ enum RandomStep {
     }
 
     private static func databaseStep(in doc: Doc, using rng: inout SplitMix64) -> DocStep? {
-        guard let database = doc.databases.values.randomElement(using: &rng) else { return nil }
+        guard let database = doc.databases.values.sorted(by: { $0.id < $1.id }).randomElement(using: &rng) else { return nil }
         switch rng.next() % 7 {
         case 0:
             guard let row = database.rows.randomElement(using: &rng),
