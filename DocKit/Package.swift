@@ -20,8 +20,15 @@ let package = Package(
     products: [
         .library(name: "DocKit", targets: ["DocKit"]),
     ],
+    dependencies: [
+        // The CJK-friendly fork MarkdownView parses with, at the same revision.
+        .package(url: "https://github.com/Eirperuier/swift-markdown.git", revision: "daac37a4170ddb163eb2db53f97d0cf1ee742c18"),
+    ],
     targets: [
-        .target(name: "DocKit"),
+        .target(
+            name: "DocKit",
+            dependencies: [.product(name: "Markdown", package: "swift-markdown")]
+        ),
         .testTarget(
             name: "DocKitTests",
             dependencies: ["DocKit"],

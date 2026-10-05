@@ -1,0 +1,269 @@
+extension DocText {
+    /// This text as inline markdown, in the dialect MarkdownView renders:
+    /// `**bold**`, `*italic*`, `~~strike~~`, `==highlight==`, `` `code` ``,
+    /// `[link](url)`, `$math$`, `[label](url "cite")`.
+    ///
+    /// Lossy on purpose where markdown can't say it: whitespace at a mark's
+    /// edge moves outside it, leading spaces of a line go, a mention becomes
+    /// its label, a highlight colour is dropped.
+    /// `singleLine` (headings, table cells) turns line breaks into spaces.
+    func markdown(singleLine: Bool = false, escapingPipes: Bool = false) -> String {
+        var writer = InlineWriter(text: self, singleLine: singleLine, escapingPipes: escapingPipes)
+        return writer.write()
+    }
+}
+
+private struct InlineWriter {
+    let units: [UInt16]
+    let singleLine: Bool
+    let escapingPipes: Bool
+    /// Non-atom spans as emitted: no boundary falls inside a code span.
+    let spans: [MarkSpan]
+    let atoms: [Int: Mark]
+    var output = ""
+    var stack: [MarkSpan] = []
+    var atLineStart = true
+
+    init(text: DocText, singleLine: Bool, escapingPipes: Bool) {
+        units = Array(text.string.utf16)
+        self.singleLine = singleLine
+        self.escapingPipes = escapingPipes
+        var atoms: [Int: Mark] = [:]
+        for span in text.marks where span.mark.kind.isAtom {
+            atoms[span.range.lowerBound] = span.mark
+        }
+        self.atoms = atoms
+        spans = Self.emittable(text.marks, units: units, atoms: Set(atoms.keys))
+    }
+
+    /// Code spans are cut at atoms; other marks' edges are pushed out of
+    /// code (a code span can't be interrupted); a highlight is cut at line
+    /// breaks (MarkdownView matches `==` within a line); marks over
+    /// whitespace alone are dropped.
+    private static func emittable(_ marks: [MarkSpan], units: [UInt16], atoms: Set<Int>) -> [MarkSpan] {
+        let newline: UInt16 = 0x0A
+        var code: [Range<Int>] = []
+        for span in marks where span.mark == .code {
+            code += span.range.split { atoms.contains($0) }
+        }
+        var result = code.map { MarkSpan(range: $0, mark: .code) }
+        for span in marks where !span.mark.kind.isAtom && span.mark != .code {
+            var lower = span.range.lowerBound
+            var upper = span.range.upperBound
+            for range in code {
+                if range.lowerBound < lower, lower < range.upperBound { lower = range.lowerBound }
+                if range.lowerBound < upper, upper < range.upperBound { upper = range.upperBound }
+            }
+            let pieces = span.mark.kind == .highlight
+                ? (lower..<upper).split { units[$0] == newline }
+                : [lower..<upper]
+            for piece in pieces where piece.contains(where: { !Self.isSpace(units[$0]) }) {
+                result.append(MarkSpan(range: piece, mark: span.mark))
+            }
+        }
+        return result
+    }
+
+    static func isSpace(_ unit: UInt16) -> Bool {
+        unit == 0x20 || unit == 0x09 || unit == 0x0A
+    }
+
+    mutating func write() -> String {
+        var cuts = Set([0, units.count])
+        for span in spans { cuts.formUnion([span.range.lowerBound, span.range.upperBound]) }
+        for offset in atoms.keys { cuts.formUnion([offset, offset + 1]) }
+        let bounds = cuts.sorted()
+        for (lower, upper) in zip(bounds, bounds.dropFirst()) {
+            let active = spans.filter { $0.range.lowerBound <= lower && upper <= $0.range.upperBound }
+            close(keeping: active)
+            let opening = active.filter { span in !stack.contains(span) && span.mark != .code }
+                .sorted { ($0.range.upperBound, -$0.mark.kind.sortOrder) > ($1.range.upperBound, -$1.mark.kind.sortOrder) }
+            if let atom = atoms[lower] {
+                open(opening)
+                writeAtom(atom, at: lower)
+            } else if active.contains(where: { $0.mark == .code }) {
+                open(opening)
+                writeCode(lower..<upper)
+            } else {
+                writeText(lower..<upper, opening: opening)
+            }
+        }
+        close(keeping: [])
+        return output
+    }
+
+    /// Closes every open mark above the first one no longer active, so the
+    /// delimiters nest; the survivors above it are reopened by the caller.
+    private mutating func close(keeping active: [MarkSpan]) {
+        guard let first = stack.firstIndex(where: { !active.contains($0) }) else { return }
+        var closers = ""
+        for span in stack[first...].reversed() { closers += Self.closer(span.mark) }
+        stack.removeSubrange(first...)
+        // Closers go before trailing whitespace: `**a** b`, not `**a **b`.
+        let trailing = output.reversed().prefix { $0 == " " || $0 == "\t" || $0 == "\n" }.count
+        output.insert(contentsOf: closers, at: output.index(output.endIndex, offsetBy: -trailing))
+    }
+
+    private mutating func open(_ spans: [MarkSpan]) {
+        guard !spans.isEmpty else { return }
+        for span in spans {
+            output += Self.opener(span.mark)
+            stack.append(span)
+        }
+        atLineStart = false
+    }
+
+    private static func opener(_ mark: Mark) -> String {
+        switch mark {
+        case .bold: "**"
+        case .italic: "*"
+        case .strike: "~~"
+        case .highlight: "=="
+        case .link: "["
+        case .code, .mention, .inlineMath, .cite: ""
+        }
+    }
+
+    private static func closer(_ mark: Mark) -> String {
+        switch mark {
+        case .link(let url): "](\(InlineEscaping.destination(url)))"
+        case .code, .mention, .inlineMath, .cite: ""
+        default: opener(mark)
+        }
+    }
+
+    private mutating func writeAtom(_ mark: Mark, at offset: Int) {
+        switch mark {
+        case .inlineMath(let latex):
+            // A digit right after the closing `$` reads as currency.
+            let digitFollows = offset + 1 < units.count && (0x30...0x39).contains(units[offset + 1])
+            let dollarSafe = !latex.isEmpty && !latex.contains("$") && !digitFollows
+                && latex.first?.isWhitespace == false && latex.last?.isWhitespace == false
+            output += dollarSafe ? "$\(latex)$" : "\\(\(latex)\\)"
+        case .cite(let url, let label):
+            output += "[\(InlineEscaping.escaped(label, escapingPipes: escapingPipes, inLink: true))](\(InlineEscaping.destination(url)) \"cite\")"
+        case .mention(_, _, let label):
+            output += InlineEscaping.escaped(label, escapingPipes: escapingPipes)
+        default:
+            break
+        }
+        atLineStart = false
+    }
+
+    private mutating func writeCode(_ range: Range<Int>) {
+        var content = String(decoding: units[range], as: UTF16.self)
+        if singleLine { content = content.replacing("\n", with: " ") }
+        var longest = 0
+        var run = 0
+        for character in content {
+            run = character == "`" ? run + 1 : 0
+            longest = max(longest, run)
+        }
+        let fence = String(repeating: "`", count: longest + 1)
+        let pad = content.hasPrefix("`") || content.hasSuffix("`")
+            || (content.hasPrefix(" ") && content.hasSuffix(" ") && content.contains { $0 != " " })
+        let inner = pad ? " \(content) " : content
+        output += escapingPipes ? "\(fence)\(inner.replacing("|", with: "\\|"))\(fence)" : "\(fence)\(inner)\(fence)"
+        atLineStart = false
+    }
+
+    /// Plain text, escaped. Openers go after the segment's leading
+    /// whitespace so they always touch a word.
+    private mutating func writeText(_ range: Range<Int>, opening: [MarkSpan]) {
+        let text = String(decoding: units[range], as: UTF16.self)
+        let leading = text.prefix { $0 == " " || $0 == "\t" }
+        if !atLineStart { output += leading }
+        open(opening)
+        var line = Substring(text.dropFirst(leading.count))
+        while !line.isEmpty {
+            let end = line.firstIndex(of: "\n") ?? line.endIndex
+            writeLine(line[..<end])
+            guard end < line.endIndex else { break }
+            output += singleLine ? " " : "\n"
+            atLineStart = !singleLine
+            line = line[line.index(after: end)...]
+        }
+    }
+
+    private mutating func writeLine(_ line: Substring) {
+        var line = line
+        if atLineStart {
+            line = line.drop { $0 == " " || $0 == "\t" }
+            guard let first = line.first else { return }
+            if "#>-+=".contains(first) {
+                output += "\\"
+            } else if first == "[", ["[ ]", "[x]", "[X]"].contains(where: line.hasPrefix) {
+                // Would read as a task box at the start of a list item.
+                output += "&#91;"
+                line = line.dropFirst()
+            } else if first.isASCII, first.isNumber {
+                let digits = line.prefix { $0.isASCII && $0.isNumber }
+                let rest = line.dropFirst(digits.count)
+                if let mark = rest.first, mark == "." || mark == ")" {
+                    output += digits
+                    output += "\\"
+                    line = rest
+                }
+            }
+        }
+        let inLink = stack.contains { $0.mark.kind == .link }
+        output += InlineEscaping.escaped(line, escapingPipes: escapingPipes, inLink: inLink)
+        atLineStart = false
+    }
+}
+
+/// The escaping rules inline export shares with image alt text and
+/// link destinations.
+enum InlineEscaping {
+    static func destination(_ url: String) -> String {
+        let plain = !url.isEmpty && !url.contains { " <>()\n\t".contains($0) }
+        if plain { return url }
+        return "<" + url.replacing("<", with: "\\<").replacing(">", with: "\\>") + ">"
+    }
+
+    /// Backslash escapes, except `[`: MarkdownView lifts `\[…\]` out as
+    /// display math before cmark runs, so an escaped bracket would turn
+    /// into a formula. A lone `[` can't start a link while every `]` is
+    /// escaped; inside link text, where it could pair with the link's own
+    /// `]`, it becomes `&#91;`.
+    static func escaped(_ text: some StringProtocol, escapingPipes: Bool = false, inLink: Bool = false) -> String {
+        var result = ""
+        var index = text.startIndex
+        while index < text.endIndex {
+            let character = text[index]
+            if character == "[" {
+                result += inLink ? "&#91;" : "["
+                index = text.index(after: index)
+                continue
+            }
+            if "\\`*_]<~$".contains(character) || (escapingPipes && character == "|") {
+                result.append("\\")
+            } else if character == "&", isEntity(text[text.index(after: index)...]) {
+                result.append("\\")
+            }
+            result.append(character)
+            index = text.index(after: index)
+        }
+        return result
+    }
+
+    /// `&` followed by `name;` or `#123;` would be read as an entity.
+    private static func isEntity(_ rest: some StringProtocol) -> Bool {
+        let body = rest.prefix { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "#") }
+        return !body.isEmpty && rest.dropFirst(body.count).first == ";"
+    }
+}
+
+extension Range<Int> {
+    /// The maximal sub-ranges whose offsets don't satisfy `isSeparator`.
+    func split(_ isSeparator: (Int) -> Bool) -> [Range<Int>] {
+        var pieces: [Range<Int>] = []
+        var start = lowerBound
+        for offset in self where isSeparator(offset) {
+            if start < offset { pieces.append(start..<offset) }
+            start = offset + 1
+        }
+        if start < upperBound { pieces.append(start..<upperBound) }
+        return pieces
+    }
+}
