@@ -20,25 +20,95 @@ public struct HighlightrCodeHighlighter: CodeHighlighter {
     }
 
     public func highlight(code: String, language: String?, colorScheme: ColorScheme, lineLimit: Int?) async throws -> AttributedString? {
-        let source: String
-        if let lineLimit {
-            source = code.split(separator: "\n", omittingEmptySubsequences: false).prefix(lineLimit).joined(separator: "\n")
-        } else {
-            source = code
+        let themeName = theme.themeName(for: colorScheme)
+        if let cached = HighlightCache.shared.code(code, language: language, theme: themeName) {
+            return Self.attributed(cached, lineLimit: lineLimit)
         }
-        guard let colored = await HighlightrEngine.shared.colored(source, language: language, theme: theme.themeName(for: colorScheme)) else { return nil }
+        guard let colored = await HighlightrEngine.shared.colored(code, language: language, theme: themeName) else { return nil }
+        HighlightCache.shared.store(colored, language: language, theme: themeName)
+        return Self.attributed(colored, lineLimit: lineLimit)
+    }
+
+    public func cachedHighlight(code: String, language: String?, colorScheme: ColorScheme, lineLimit: Int?) -> AttributedString? {
+        HighlightCache.shared.code(code, language: language, theme: theme.themeName(for: colorScheme)).flatMap { Self.attributed($0, lineLimit: lineLimit) }
+    }
+
+    /// The colours for `code` now, on the main thread: from the cache, else highlighted
+    /// here and then (an editor showing code it hasn't coloured yet, which mustn't show
+    /// a frame of plain text).
+    @MainActor
+    public func foregroundColorsNow(code: String, language: String?, colorScheme: ColorScheme) -> [(NSRange, UIColor)]? {
+        let themeName = theme.themeName(for: colorScheme)
+        if let cached = HighlightCache.shared.code(code, language: language, theme: themeName) {
+            return cached.runs.map { ($0.range, $0.color) }
+        }
+        guard let colored = MainHighlightr.shared.colored(code, language: language, theme: themeName), colored.string == code else { return nil }
+        HighlightCache.shared.store(colored, language: language, theme: themeName)
+        return colored.runs.map { ($0.range, $0.color) }
+    }
+
+    /// The first `lineLimit` lines (all with nil), coloured.
+    private static func attributed(_ colored: HighlightedCode, lineLimit: Int?) -> AttributedString? {
         let attributed = NSMutableAttributedString(string: colored.string)
-        for run in colored.runs { attributed.addAttribute(.foregroundColor, value: run.color, range: run.range) }
+        for run in colored.runs where NSMaxRange(run.range) <= attributed.length {
+            attributed.addAttribute(.foregroundColor, value: run.color, range: run.range)
+        }
+        if let lineLimit {
+            let text = colored.string as NSString
+            var end = 0
+            var lines = 0
+            while end < text.length, lines < lineLimit {
+                end = NSMaxRange(text.lineRange(for: NSRange(location: end, length: 0)))
+                lines += 1
+            }
+            var cut = end
+            if cut > 0, cut <= text.length, text.character(at: cut - 1) == 0x0A, lines == lineLimit { cut -= 1 }
+            return try? AttributedString(attributed.attributedSubstring(from: NSRange(location: 0, length: cut)), including: \.uiKit)
+        }
         return try? AttributedString(attributed, including: \.uiKit)
     }
 
     /// The same highlighting as foreground colours over `code`, for an editor's storage
     /// (nil when the language isn't known or the text came back different).
     public func foregroundColors(code: String, language: String?, colorScheme: ColorScheme) async -> [(NSRange, UIColor)]? {
-        guard let colored = await HighlightrEngine.shared.colored(code, language: language, theme: theme.themeName(for: colorScheme)),
+        let themeName = theme.themeName(for: colorScheme)
+        if let cached = HighlightCache.shared.code(code, language: language, theme: themeName) {
+            return cached.runs.map { ($0.range, $0.color) }
+        }
+        guard let colored = await HighlightrEngine.shared.colored(code, language: language, theme: themeName),
               colored.string == code
         else { return nil }
+        HighlightCache.shared.store(colored, language: language, theme: themeName)
         return colored.runs.map { ($0.range, $0.color) }
+    }
+}
+
+/// The latest highlights by code, language and theme, shared by the read code block and
+/// its editor (so a switch between them draws coloured at once).
+final class HighlightCache: @unchecked Sendable {
+    static let shared = HighlightCache()
+
+    private struct Key: Hashable {
+        var code: String
+        var language: String
+        var theme: String
+    }
+
+    private let lock = NSLock()
+    private var entries: [Key: HighlightedCode] = [:]
+
+    func code(_ code: String, language: String?, theme: String) -> HighlightedCode? {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries[Key(code: code, language: language?.lowercased() ?? "", theme: theme)]
+    }
+
+    func store(_ colored: HighlightedCode, language: String?, theme: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        // An editor stores every version typed: keep the cache small.
+        if entries.count > 256 { entries.removeAll(keepingCapacity: true) }
+        entries[Key(code: colored.string, language: language?.lowercased() ?? "", theme: theme)] = colored
     }
 }
 
@@ -49,10 +119,27 @@ struct HighlightedCode: @unchecked Sendable {
 }
 
 /// Highlightr runs highlight.js in a JavaScript context, which is not thread-safe: one
-/// engine, used one call at a time.
+/// engine per thread of use — this actor off the main thread, `MainHighlightr` on it.
 actor HighlightrEngine {
     static let shared = HighlightrEngine()
+    private var engine = HighlightrInstance()
 
+    func colored(_ code: String, language: String?, theme: String) -> HighlightedCode? {
+        engine.colored(code, language: language, theme: theme)
+    }
+}
+
+@MainActor
+final class MainHighlightr {
+    static let shared = MainHighlightr()
+    private var engine = HighlightrInstance()
+
+    func colored(_ code: String, language: String?, theme: String) -> HighlightedCode? {
+        engine.colored(code, language: language, theme: theme)
+    }
+}
+
+struct HighlightrInstance {
     #if canImport(Highlightr)
     private var highlightr: Highlightr?
     private var themeName: String?
@@ -60,7 +147,7 @@ actor HighlightrEngine {
     #endif
 
     /// `code` with the theme's colours and no fonts; nil for an unknown language.
-    func colored(_ code: String, language: String?, theme: String) -> HighlightedCode? {
+    mutating func colored(_ code: String, language: String?, theme: String) -> HighlightedCode? {
         #if canImport(Highlightr)
         if highlightr == nil {
             highlightr = Highlightr()

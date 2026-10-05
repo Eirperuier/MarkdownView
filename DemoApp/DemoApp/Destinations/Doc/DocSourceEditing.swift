@@ -107,6 +107,11 @@ final class DocSourceController {
         }
     }
 
+    func syncEditedText() {
+        guard let editing, let view = view(for: editing) else { return }
+        view.show(text(editing))
+    }
+
     /// The panel's 完成, or a touch outside it: the source closes.
     func dismiss(_ block: DocBlockID) {
         view(for: block)?.resignFirstResponder()
@@ -115,6 +120,9 @@ final class DocSourceController {
 
     /// The focus went elsewhere in the document.
     func endEditing() {
+        // The read block draws from the highlight of the code as it is now: made here,
+        // before it shows, if the last keystroke's hadn't come back yet.
+        if let editing { view(for: editing)?.highlightNow() }
         pendingFocus = nil
         editing = nil
     }
@@ -198,8 +206,39 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     private var typedCaret: NSRange?
     /// Code is coloured like the read code block (Highlightr), a moment after each change.
     var language: String?
+    /// The text's font and line attributes (the field's).
+    var baseAttributes: [NSAttributedString.Key: Any] = [:]
+
+    /// Shows `text` (coloured at once), the caret where it was or at the end.
+    func show(_ text: String) {
+        guard self.text != text || attributedText.length == 0, markedTextRange == nil else { return }
+        let caret = selectedRange
+        attributedText = NSAttributedString(string: text, attributes: baseAttributes)
+        if isFirstResponder { selectedRange = NSRange(location: min(caret.location, text.utf16.count), length: 0) }
+        highlightNow()
+    }
     private var highlightTask: Task<Void, Never>?
     private static let highlighter = HighlightrCodeHighlighter()
+
+    /// Colours the text at once (from the read block's highlight when it has one): the
+    /// editor taking over a code block mustn't show a frame of plain text.
+    func highlightNow() {
+        highlightTask?.cancel()
+        guard let language else { return }
+        let scheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+        guard let runs = Self.highlighter.foregroundColorsNow(code: text ?? "", language: language, colorScheme: scheme) else { return }
+        apply(runs)
+    }
+
+    private func apply(_ runs: [(NSRange, UIColor)]) {
+        let storage = textStorage
+        storage.beginEditing()
+        storage.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: storage.length))
+        for (range, color) in runs where NSMaxRange(range) <= storage.length {
+            storage.addAttribute(.foregroundColor, value: color, range: range)
+        }
+        storage.endEditing()
+    }
 
     func scheduleHighlight() {
         highlightTask?.cancel()
@@ -212,13 +251,7 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
                   let runs = await Self.highlighter.foregroundColors(code: code, language: language, colorScheme: scheme),
                   let self, !Task.isCancelled, self.text == code, self.markedTextRange == nil
             else { return }
-            let storage = self.textStorage
-            storage.beginEditing()
-            storage.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: storage.length))
-            for (range, color) in runs where NSMaxRange(range) <= storage.length {
-                storage.addAttribute(.foregroundColor, value: color, range: range)
-            }
-            storage.endEditing()
+            self.apply(runs)
         }
     }
 
@@ -363,16 +396,18 @@ struct DocSourceField: UIViewRepresentable {
         view.controller = controller
         view.isEditable = controller.isEditable
         view.textContainerInset = insets
-        view.typingAttributes = attributes
+        // Typed text takes the colour of the token it's typed into until the next
+        // highlight, not plain.
+        var typing = attributes
+        if language != nil, let color = view.typingAttributes[.foregroundColor] { typing[.foregroundColor] = color }
+        view.typingAttributes = typing
         let languageChanged = view.language != language
         view.language = language
+        view.baseAttributes = attributes
         if (view.text != text || view.attributedText.length == 0) && view.markedTextRange == nil {
-            let caret = view.selectedRange
-            view.attributedText = NSAttributedString(string: text, attributes: attributes)
-            if view.isFirstResponder { view.selectedRange = NSRange(location: min(caret.location, text.utf16.count), length: 0) }
-            view.scheduleHighlight()
+            view.show(text)
         } else if languageChanged {
-            view.scheduleHighlight()
+            view.highlightNow()
         }
         controller.register(view, for: block)
     }

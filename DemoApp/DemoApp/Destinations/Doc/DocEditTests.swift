@@ -651,6 +651,29 @@ final class DocEditTests {
             let shown = self.editor.sources.view(for: block.id)
             try self.expect(shown?.text == block.text.string, "editor after undo: \(String(describing: shown?.text.prefix(12))) same view \(shown === view)")
         }
+        await test("Code block: the editor is coloured from its first frame, and after an undo sets its text") {
+            func colors(_ view: UITextView) -> Int {
+                var colors = Set<UIColor>()
+                view.textStorage.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: view.textStorage.length)) { value, _, _ in
+                    if let color = value as? UIColor { colors.insert(color) }
+                }
+                return colors.count
+            }
+            let block = try codeBlock()
+            let view = try await edit(block)
+            try self.expect(colors(view) >= 3, "plain on entry: \(colors(view)) colours")
+            view.selectedRange = NSRange(location: 0, length: 0)
+            view.insertText("// x ")
+            try await self.undo()
+            // The view takes the undone text on the row's next render, coloured as it does.
+            var shown = view
+            for _ in 0..<40 {
+                shown = self.editor.sources.view(for: block.id) ?? view
+                if shown.text == block.text.string { break }
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            try self.expect(shown.text == block.text.string && colors(shown) >= 3, "after undo: \(colors(shown)) colours, view \(shown.text.prefix(12).debugDescription), model \(self.text(block.id).prefix(12).debugDescription)")
+        }
         await test("Code block: Return keeps the indentation; Tab and Shift-Tab indent and outdent by four") {
             let block = try codeBlock()
             let view = try await edit(block)

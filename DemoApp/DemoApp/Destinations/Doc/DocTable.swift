@@ -185,6 +185,16 @@ final class DocTableController {
         if active == key { active = nil }
     }
 
+    /// After an undo: the edited cell shows the model's text now (see DocEditor.syncEditors).
+    func syncEditedText() {
+        guard let editing, let view = view(for: editing), view.markedTextRange == nil else { return }
+        let text = text(editing)
+        if view.text != text {
+            view.text = text
+            view.selectedRange = NSRange(location: text.utf16.count, length: 0)
+        }
+    }
+
     /// The focus went to the document's text (or nowhere): no cell is edited.
     func endEditing() {
         pendingFocus = nil

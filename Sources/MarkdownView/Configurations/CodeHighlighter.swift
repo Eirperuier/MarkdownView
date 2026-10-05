@@ -30,6 +30,21 @@ public protocol CodeHighlighter: Sendable {
         colorScheme: ColorScheme,
         lineLimit: Int?
     ) async throws -> AttributedString?
+
+    /// The highlight already at hand for this code, synchronously (nil if there is
+    /// none): lets a block that is shown again, or whose code just changed under an
+    /// editor, draw coloured on its first frame instead of plain until `highlight`
+    /// returns.
+    func cachedHighlight(
+        code: String,
+        language: String?,
+        colorScheme: ColorScheme,
+        lineLimit: Int?
+    ) -> AttributedString?
+}
+
+extension CodeHighlighter {
+    public func cachedHighlight(code: String, language: String?, colorScheme: ColorScheme, lineLimit: Int?) -> AttributedString? { nil }
 }
 
 // MARK: - Environment plumbing

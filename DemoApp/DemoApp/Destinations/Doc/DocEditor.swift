@@ -854,11 +854,24 @@ final class DocEditor {
 
     /// One history entry back (⌘Z, the Edit menu, the toolbar).
     func requestUndo() {
-        if let selection = demo.undo() { place(selection) }
+        let selection = demo.undo()
+        syncEditors()
+        if let selection { place(selection) }
     }
 
     func requestRedo() {
-        if let selection = demo.redo() { place(selection) }
+        let selection = demo.redo()
+        syncEditors()
+        if let selection { place(selection) }
+    }
+
+    /// An editor typed into natively (a code block's, a table cell's) shows what it was
+    /// given last; after an undo it takes the model's text now. Its row may never
+    /// re-render: an undo straight after typing leaves the rows as they were before
+    /// the typing, so the list sees no change.
+    private func syncEditors() {
+        sources.syncEditedText()
+        tables.syncEditedText()
     }
 
     func resetHistory() {

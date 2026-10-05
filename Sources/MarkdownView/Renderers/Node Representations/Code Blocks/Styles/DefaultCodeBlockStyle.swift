@@ -160,6 +160,18 @@ struct DefaultMarkdownCodeBlock: View {
         source: String?,
         styleTrigger: Int?
     ) -> [AttributedString]? {
+        // The code changed since the last highlight (an editor was over it): the
+        // highlighter may already have this very code, which beats the old colours on
+        // the unchanged prefix and plain text after it.
+        if source != codeBlockConfiguration.code,
+           let cached = injectedHighlighter?.wrapped.cachedHighlight(
+               code: codeBlockConfiguration.code,
+               language: codeBlockConfiguration.language,
+               colorScheme: colorScheme,
+               lineLimit: codeBlockConfiguration.showFullCode ? nil : 15
+           ) {
+            return cached.splitByLines()
+        }
         guard styleTrigger == highlightStyleTrigger,
               let attributed,
               let source,
