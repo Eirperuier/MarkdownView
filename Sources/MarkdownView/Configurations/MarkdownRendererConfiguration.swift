@@ -58,13 +58,15 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
         hasher.combine(allowedBlockDirectiveRenderers)
         hasher.combine(autolinkDetectionEnabled)
         hasher.combine(highlightedStrings)
-        hasher.combine(linkTintColor.description)
-        hasher.combine(inlineCodeTintColor.description)
-        hasher.combine(blockQuoteTintColor.description)
-        hasher.combine(preferredColor.description)
-        hasher.combine(baseTextColor?.description ?? "")
-        hasher.combine(highlightedColor.description)
-        hasher.combine(highlightedBackgroundColor.description)
+        // Colors hash as themselves: an asset color's `description` reflects on its bundle, and this
+        // runs for every block on every render.
+        hasher.combine(linkTintColor)
+        hasher.combine(inlineCodeTintColor)
+        hasher.combine(blockQuoteTintColor)
+        hasher.combine(preferredColor)
+        hasher.combine(baseTextColor)
+        hasher.combine(highlightedColor)
+        hasher.combine(highlightedBackgroundColor)
         // 脚注上下文(编号/URL)入指纹:流式期间定义陆续到达 → 编号表变化必须失效缓存重渲染。
         hasher.combine(footnotes)
         return hasher.finalize()
