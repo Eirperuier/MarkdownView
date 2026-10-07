@@ -18,7 +18,7 @@ enum MarkdownAutolinkDetector {
         from plain: String,
         linkTintColor: Color
     ) -> AttributedString? {
-        guard let detector, !plain.isEmpty else { return nil }
+        guard let detector, !plain.isEmpty, mayHoldLink(plain) else { return nil }
 
         let nsText = plain as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
@@ -45,5 +45,12 @@ enum MarkdownAutolinkDetector {
         }
 
         return didApply ? attributed : nil
+    }
+
+    /// Whether `plain` holds what a GFM autolink literal starts from: a scheme, `www.`, or an address.
+    /// Only such text is scanned: those are the links the web makes of bare text, and the scan is a
+    /// costly part of rendering a paragraph.
+    static func mayHoldLink(_ plain: String) -> Bool {
+        plain.contains("://") || plain.contains("@") || plain.range(of: "www.", options: .caseInsensitive) != nil
     }
 }
