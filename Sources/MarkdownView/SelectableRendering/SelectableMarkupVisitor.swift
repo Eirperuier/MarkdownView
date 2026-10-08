@@ -50,6 +50,8 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     /// SwiftUI 环境的动态字型档位:标题字号解析、hosted 附件环境注入都按它
     ///(app 可能钉死档位,系统 preferredFont 会差一号)。
     let dynamicTypeSize: DynamicTypeSize?
+    /// The path's fonts: headings and inline code (the body arrives resolved as `bodyFont`).
+    let typography: MarkdownPlatformTypography
     /// 列表深度偏移(per-block 单项 re-parse 后 AST depth 归零;marker •/◦ 交替与有序 marker 深度要补上它)。
     let listDepthOffset: Int
     /// 外层的 OpenURLAction:hosting 边界不继承环境,chip 点击(flowith-linkchip:// 合成 URL 由 app
@@ -92,7 +94,8 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         listDepthOffset: Int = 0,
         plainOffsetBase: Int = 0,
         openURL: OpenURLAction? = nil,
-        dynamicTypeSize: DynamicTypeSize? = nil
+        dynamicTypeSize: DynamicTypeSize? = nil,
+        typography: MarkdownPlatformTypography = .standard
     ) {
         self.configuration = configuration
         self.bodyFont = bodyFont
@@ -105,6 +108,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         self.lineSpacing = lineSpacing
         self.headingPaddings = headingPaddings
         self.dynamicTypeSize = dynamicTypeSize
+        self.typography = typography
         self.listDepthOffset = listDepthOffset
         // plain 基准偏移(片段承载,如表格 cell):锚点/映射全部变绝对坐标,与块级 sweep 同源。
         self.plainCursor = plainOffsetBase
@@ -444,6 +448,13 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
 
     mutating func visitInlineCode(_ inlineCode: InlineCode) -> TextContent {
         var attributed = baseAttributed(inlineCode.code)
+        if let style = typography.inlineCode {
+            #if canImport(UIKit)
+            attributed.uiKit.font = style.font(at: dynamicTypeSize, monospaced: true)
+            #elseif os(macOS)
+            attributed.appKit.font = style.font(at: dynamicTypeSize, monospaced: true)
+            #endif
+        }
         let tint = configuration.inlineCodeTintColor
         attributed.foregroundColor = tint
         attributed.backgroundColor = tint.opacity(0.1)
@@ -930,41 +941,11 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         return content.mergingAttributes(container)
     }
 
-    /// 对齐原版 MarkdownHeading:fontGroup 默认字体 = title/title2/title3/headline(动态字型),
-    /// 再叠 fontWeight(h1 .heavy / h2 .bold / h3 .semibold / h4-6 .medium)。
+    /// 对齐原版 MarkdownHeading:字号/字重来自 typography(standard = title/title2/title3/headline,
+    /// h1 .heavy / h2 .bold / h3 .semibold / h4-6 .medium),按环境动态字型档位解析。
     /// 不能用 bodyFont×倍率推导 —— 字号与原版明显不一致(h2 23.8 vs 22 等)。
     private func headingFont(_ level: Int) -> PlatformFont {
-        let clamped = min(max(level, 1), 6)
-        #if canImport(UIKit)
-        let style: UIFont.TextStyle = switch clamped {
-        case 1: .title1
-        case 2: .title2
-        case 3: .title3
-        default: .headline
-        }
-        // 与正文同源:按环境动态字型档位解析(app 钉档时系统 preferredFont 会差一号)。
-        let size: CGFloat
-        if let dynamicTypeSize {
-            size = UIFont.preferredFont(
-                forTextStyle: style,
-                compatibleWith: UITraitCollection(preferredContentSizeCategory: dynamicTypeSize.uiContentSizeCategory)
-            ).pointSize
-        } else {
-            size = UIFont.preferredFont(forTextStyle: style).pointSize
-        }
-        let weight: UIFont.Weight = clamped <= 1 ? .heavy : clamped <= 2 ? .bold : clamped <= 3 ? .semibold : .medium
-        return UIFont.systemFont(ofSize: size, weight: weight)
-        #elseif os(macOS)
-        let style: NSFont.TextStyle = switch clamped {
-        case 1: .title1
-        case 2: .title2
-        case 3: .title3
-        default: .headline
-        }
-        let size = NSFont.preferredFont(forTextStyle: style).pointSize
-        let weight: NSFont.Weight = clamped <= 1 ? .heavy : clamped <= 2 ? .bold : clamped <= 3 ? .semibold : .medium
-        return NSFont.systemFont(ofSize: size, weight: weight)
-        #endif
+        typography.heading(level).font(at: dynamicTypeSize)
     }
 
     /// block → InlineView attachment:复用魔改 view。configOverride 可给该 block 改 config(如引用块换黑白色)。

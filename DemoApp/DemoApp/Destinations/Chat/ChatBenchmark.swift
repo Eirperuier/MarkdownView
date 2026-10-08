@@ -102,7 +102,9 @@ final class JitterProbe {
 /// Each row's rendered height, as the row itself lays out (reported by the row view).
 @MainActor
 final class ChatRenderedHeights {
-    var heights: [String: CGFloat] = [:]
+    /// The size each row last rendered at. The width tells a row's cell from another host
+    /// rendering the same row off screen at another width (measuring, or pooled).
+    var sizes: [String: CGSize] = [:]
 }
 
 /// Watches for rows whose layout height stays different from the height they render at:
@@ -128,7 +130,8 @@ final class StaleHeightProbe {
         var stale: CGFloat = 0
         var mismatched = Set<String>()
         for (id, frame) in reader.contentFrames(intersecting: CGRect(x: 0, y: offset, width: 100_000, height: height)) {
-            guard let renderedHeight = rendered.heights[id] else { continue }
+            guard let renderedSize = rendered.sizes[id], abs(renderedSize.width - frame.width) < 1 else { continue }
+            let renderedHeight = renderedSize.height
             let mismatch = abs(renderedHeight - frame.height)
             guard mismatch > 1 else { continue }
             mismatched.insert(id)
@@ -149,6 +152,9 @@ final class ChatBenchmark {
         let id = UUID()
         let scenario: String
         let wallMilliseconds: Double
+        /// Main thread CPU time: the work itself, which a busy machine doesn't skew as it
+        /// does frame times.
+        let cpuMilliseconds: Double
         let stats: FrameStats
         let jitterFrames: Int
         let maxJitter: CGFloat
@@ -376,7 +382,10 @@ final class ChatBenchmark {
 
     private func measure(_ scenario: String, _ body: () async -> Void) async {
         if let only = Self.onlyScenarios, !only.contains(scenario) {
+            // Untimed, but the clock still drives the scenarios that scroll frame by frame.
+            clock.start()
             await body()
+            clock.stop()
             return
         }
         clock.start()
@@ -392,13 +401,16 @@ final class ChatBenchmark {
         // An interval per scenario, to line Instruments traces (Animation Hitches, say) up with it.
         let interval = Self.signposter.beginInterval("scenario", "\(scenario)")
         let start = CACurrentMediaTime()
+        let cpuStart = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         await body()
+        let cpu = Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - cpuStart) / 1_000_000
         let wall = (CACurrentMediaTime() - start) * 1000
         Self.signposter.endInterval("scenario", interval)
         clock.onFrame = nil
         let result = Result(
             scenario: scenario,
             wallMilliseconds: wall,
+            cpuMilliseconds: cpu,
             stats: clock.stop(),
             jitterFrames: jitter.jitterFrames,
             maxJitter: jitter.maxDeviation,
@@ -423,6 +435,7 @@ final class ChatBenchmark {
             ("platform", "\"\(Self.platform)\""),
             ("scenario", "\"\(result.scenario)\""),
             ("wall_ms", String(format: "%.1f", result.wallMilliseconds)),
+            ("cpu_ms", String(format: "%.1f", result.cpuMilliseconds)),
             ("frames", stats.frames),
             ("budget_ms", String(format: "%.2f", stats.budgetMilliseconds)),
             ("hitch_ms_per_s", String(format: "%.2f", stats.hitchMillisecondsPerSecond)),

@@ -63,6 +63,8 @@ public struct MarkdownSelectableText: View, Equatable {
     // 动态字型按 SwiftUI 环境解析:app 可能把 dynamicTypeSize 钉死(flowith 全局 .medium),
     // 直接用 UIFont.preferredFont 会读**系统**设置(默认 Large)→ 可选中文本比原版大一号。
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// The path's fonts: the app's text styles, else the standard ones.
+    @Environment(\.markdownPlatformTypography) private var typography
     #if canImport(UIKit)
     @State private var revealCoordinator = RevealCoordinator()
     #endif
@@ -191,6 +193,7 @@ public struct MarkdownSelectableText: View, Equatable {
         hasher.combine(listDepthOffset)
         hasher.combine(plainOffsetBase)
         hasher.combine(dynamicTypeSize)
+        hasher.combine(typography)
         // config 指纹必须入键:主题色(强调/链接等)是按当前深浅色算死的静态 Color,
         // 烤进渲染结果 —— 切换外观后 env config 换了新色,rawText 却没变,不入键就会
         // 命中旧内容,颜色永远停在旧模式(动态 Color 的 description 稳定,不会误失效)。
@@ -218,6 +221,7 @@ public struct MarkdownSelectableText: View, Equatable {
             plainOffsetBase: plainOffsetBase,
             openURL: openURL,
             dynamicTypeSize: dynamicTypeSize,
+            typography: typography,
             inlineAnchors: inlineAnchors,
             rangeDecorations: rangeDecorations,
             topicPreview: externalHooks?.topicPreview
@@ -248,6 +252,7 @@ public struct MarkdownSelectableText: View, Equatable {
         plainOffsetBase: Int = 0,
         openURL: OpenURLAction? = nil,
         dynamicTypeSize: DynamicTypeSize? = nil,
+        typography: MarkdownPlatformTypography = .standard,
         inlineAnchors: [MarkdownTextInlineAnchor] = [],
         rangeDecorations: [MarkdownTextRangeDecoration] = [],
         topicPreview: (@MainActor (String) -> AnyView?)? = nil
@@ -285,7 +290,7 @@ public struct MarkdownSelectableText: View, Equatable {
         #endif
         let visitor = SelectableMarkupVisitor(
             configuration: config,
-            bodyFont: bodyPlatformFont(for: dynamicTypeSize),
+            bodyFont: typography.body.font(at: dynamicTypeSize),
             inlineMathStorage: math.inlineMathStorage ?? [:],
             inlineFootnoteTokens: inlineFootnoteTokens,
             blockViewCache: blockViewCache,
@@ -296,7 +301,8 @@ public struct MarkdownSelectableText: View, Equatable {
             listDepthOffset: listDepthOffset,
             plainOffsetBase: plainOffsetBase,
             openURL: openURL,
-            dynamicTypeSize: dynamicTypeSize
+            dynamicTypeSize: dynamicTypeSize,
+            typography: typography
         )
         var result = visitor.makeTextContent(document)
         #if canImport(UIKit)
@@ -317,7 +323,7 @@ public struct MarkdownSelectableText: View, Equatable {
                 openURL: openURL,
                 streamingManager: streamingManager,
                 fadeConfig: fadeConfig,
-                bubbleSize: bodyPlatformFont(for: dynamicTypeSize).pointSize,
+                bubbleSize: typography.body.font(at: dynamicTypeSize).pointSize,
                 dynamicTypeSize: dynamicTypeSize,
                 topicPreview: topicPreview
             )
@@ -363,21 +369,6 @@ public struct MarkdownSelectableText: View, Equatable {
     @MainActor
     public static func revealUnitCount(_ rawText: String) -> Int {
         render(rawText, configuration: MarkdownRendererConfiguration()).revealTotal
-    }
-
-    /// 正文 PlatformFont 按 SwiftUI 环境的 dynamicTypeSize 解析:直接 preferredFont 读的是
-    /// **系统**动态字型;app 若用 `.dynamicTypeSize(...)` 钉死环境档位(flowith 全局 .medium=16pt),
-    /// 两者会差一号 → 可选中文本比原版 Text 大。
-    static func bodyPlatformFont(for dynamicTypeSize: DynamicTypeSize?) -> PlatformFont {
-        #if canImport(UIKit)
-        guard let dynamicTypeSize else { return UIFont.preferredFont(forTextStyle: .body) }
-        return UIFont.preferredFont(
-            forTextStyle: .body,
-            compatibleWith: UITraitCollection(preferredContentSizeCategory: dynamicTypeSize.uiContentSizeCategory)
-        )
-        #else
-        NSFont.preferredFont(forTextStyle: .body) ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
-        #endif
     }
 
     /// parse + visit 结果缓存(class:在 body 里写不触发 re-eval)。

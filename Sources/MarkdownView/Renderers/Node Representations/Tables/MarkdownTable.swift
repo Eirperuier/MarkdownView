@@ -1442,13 +1442,17 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         } else if !isHeader, cellsSelectable, !cellContainsImage, selectableUpgraded {
             // body cell 可选中(per-cell,不跨 cell):cell 源码单独渲染,reveal 锚点经
             // blockTextOffset 变绝对坐标,与块级 sweep 完全同源(节奏=原版逐 cell 扫过)。
-            // 表头保持原渲染(bold/uppercase 样式)。tableBody 默认 Font.body,与可选中路径字体一致。
+            // 表头保持原渲染(bold/uppercase 样式)。tableBody 默认 Font.body,与可选中路径字体一致;
+            // app 改了 tableBody 字号时由 typography.tableBody 对齐(否则点一下 cell 字号会跳)。
             // 注意:Table.Cell 禁止整体 format()(swift-markdown fatalError),逐个 inline 子节点拼接。
             MarkdownSelectableText(
                 cell.children.map { $0.format() }.joined().trimmingCharacters(in: .whitespacesAndNewlines),
                 plainOffsetBase: blockTextOffset,
                 applyEdgeInsets: false  // cell 内容无竖向 padding(原版 cell 同)
             )
+            .transformEnvironment(\.markdownPlatformTypography) { typography in
+                if let cell = typography.tableBody { typography.body = cell }
+            }
         } else if !isHeader, cellsSelectable, !cellContainsImage {
             // 惰性升级前的原版渲染:首击本 cell 即升级(simultaneous 不消费触摸,
             // 双击选字的第二击落在升级后的 UITextView 上)。

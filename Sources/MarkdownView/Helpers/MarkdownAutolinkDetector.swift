@@ -18,7 +18,7 @@ enum MarkdownAutolinkDetector {
         from plain: String,
         linkTintColor: Color
     ) -> AttributedString? {
-        guard let detector, !plain.isEmpty else { return nil }
+        guard let detector, !plain.isEmpty, mayHoldLink(plain) else { return nil }
 
         let nsText = plain as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
@@ -45,5 +45,25 @@ enum MarkdownAutolinkDetector {
         }
 
         return didApply ? attributed : nil
+    }
+
+    /// Whether `plain` can hold anything the detector links, so text that can't is never
+    /// scanned (the scan is a costly part of rendering a paragraph). Every link the detector
+    /// finds has an address's `@`, or a `.` or `:` right before a letter or digit: a domain
+    /// (`apple.com`, bare ones too), an IP, a scheme (`https:`, `:` also before `/`). A
+    /// sentence's full stop or a label's colon is followed by a space, so prose goes unscanned.
+    static func mayHoldLink(_ plain: String) -> Bool {
+        var previous: Unicode.Scalar = " "
+        for scalar in plain.unicodeScalars {
+            if scalar == "@" || scalar == "\u{FF20}" { return true }
+            // ASCII only: the detector links no domain written with a fullwidth or ideographic
+            // full stop, and Chinese prose runs straight on after "。".
+            if previous == "." || previous == ":",
+               scalar.properties.isAlphabetic || scalar.properties.numericType != nil || (previous == ":" && scalar == "/") {
+                return true
+            }
+            previous = scalar
+        }
+        return false
     }
 }
