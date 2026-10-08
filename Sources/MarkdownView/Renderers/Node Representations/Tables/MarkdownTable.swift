@@ -227,6 +227,7 @@ struct MarkdownTableContent: View {
     @Environment(\.markdownStreaming) private var revealManager
     @Environment(\.markdownFadeReveal) private var fadeConfig
     @Environment(\.markdownTableCellsSelectable) private var cellsSelectable
+    @Environment(\.markdownTableCellHooks) private var cellHooks
     /// 表格 cell 可选中的**惰性升级(逐 cell)**:初载全部走原版 Text(大表逐 cell UITextView
     /// 实测把初载拖到 ~4×),某个 cell 第一次被点按才升级为可选中 —— 双击选字的第一击即完成
     /// 该 cell 升级,第二击已落在 UITextView 上;粒度=单 cell(整表升级在超大表上会卡一帧)。
@@ -352,6 +353,8 @@ struct MarkdownTableContent: View {
         let horizontalPadding: CGFloat = 8
         let verticalPadding: CGFloat = horizontalPadding + 5
         let stripeRows = scrollableTableStripeRows
+        // Cells a host shows its own view in (an editor): measured again when they change.
+        let replaced = replacedCells
 
         ScrollView(.horizontal, showsIndicators: true) {
             AdaptiveTableLayout(
@@ -361,7 +364,7 @@ struct MarkdownTableContent: View {
                 columnWidthBuckets: tableConfiguration.columnWidthBuckets,
                 rowBackgroundRows: stripeRows.map(\.row),
                 columnSpacing: spacing,
-                contentRevision: cache.revision
+                contentRevision: replaced.isEmpty ? cache.revision : cache.revision &+ replaced.hashValue
             ) {
                 ForEach(stripeRows) { item in
                     AdaptiveTableRowStripe(
@@ -371,32 +374,38 @@ struct MarkdownTableContent: View {
                 }
                 ForEach(cache.headerItems) { item in
                     let info = cache.flatCellInfos[item.flatIndex]
-                    AdaptiveTableCell(
-                        cell: item.cell,
-                        cellContentHash: item.contentHash,
-                        blockTextOffset: item.blockTextOffset,
-                        characterCount: info.count,
-                        isHeader: item.isHeader
-                    )
-                        .equatable()
-                        .tableCellHash(item.contentHash)
-                }
-                ForEach(cache.bodyItems) { item in
-                    let info = cache.flatCellInfos[item.flatIndex]
-                    let upgraded = upgradedCells.contains(item.id)
+                    let isReplaced = replaced.contains(item.id)
                     AdaptiveTableCell(
                         cell: item.cell,
                         cellContentHash: item.contentHash,
                         blockTextOffset: item.blockTextOffset,
                         characterCount: info.count,
                         isHeader: item.isHeader,
+                        position: MarkdownTableCellPosition(row: item.row, column: item.column),
+                        isReplaced: isReplaced
+                    )
+                        .equatable()
+                        .tableCellHash(item.contentHash ^ (isReplaced ? Self.replacedHashSalt : 0))
+                }
+                ForEach(cache.bodyItems) { item in
+                    let info = cache.flatCellInfos[item.flatIndex]
+                    let upgraded = upgradedCells.contains(item.id)
+                    let isReplaced = replaced.contains(item.id)
+                    AdaptiveTableCell(
+                        cell: item.cell,
+                        cellContentHash: item.contentHash,
+                        blockTextOffset: item.blockTextOffset,
+                        characterCount: info.count,
+                        isHeader: item.isHeader,
+                        position: MarkdownTableCellPosition(row: item.row, column: item.column),
+                        isReplaced: isReplaced,
                         selectableUpgraded: upgraded,
                         onSelectableUpgrade: { upgradedCells.insert(item.id) }
                     )
                         .equatable()
                         // 升级混入 hash:该 cell 切可选中后高度会变(UITextView 行盒),
                         // 让 AdaptiveTableLayout 重测,不能吃原版的缓存尺寸。
-                        .tableCellHash(item.contentHash ^ (upgraded ? 0x5e1ec7 : 0))
+                        .tableCellHash(item.contentHash ^ (upgraded ? 0x5e1ec7 : 0) ^ (isReplaced ? Self.replacedHashSalt : 0))
                 }
             }
         }
@@ -413,6 +422,16 @@ struct MarkdownTableContent: View {
                     }
             }
         }
+    }
+
+    private static let replacedHashSalt = 0x7e9a1ace
+
+    /// The cells the host's `markdownTableCellReplacement` shows a view in.
+    private var replacedCells: Set<MarkdownTableCellKey> {
+        guard let replacement = cellHooks.replacement else { return [] }
+        return Set((cache.headerItems + cache.bodyItems).lazy
+            .filter { replacement(MarkdownTableCellPosition(row: $0.row, column: $0.column)) != nil }
+            .map(\.id))
     }
 
     private var scrollableTableStripeRows: [AdaptiveTableRowStripeItem] {
@@ -919,9 +938,10 @@ struct AdaptiveTableLayout: Layout {
             }
         }
 
-        // Recompute column widths only when affected columns changed
+        // Recompute column widths only when affected columns changed, or the width to
+        // fill did (a row measured off screen at an estimated width, then shown).
         var colWidths: [CGFloat]
-        if changedCols.isEmpty, cache.columnWidths.count == columnCount {
+        if changedCols.isEmpty, cache.columnWidths.count == columnCount, cache.containerWidth == containerWidth {
             colWidths = cache.columnWidths
         } else {
             var colIdeals = [CGFloat](repeating: 0, count: columnCount)
@@ -1346,6 +1366,10 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     /// `endOffset = blockTextOffset + characterCount`.
     var characterCount: Int
     var isHeader: Bool
+    /// Where the cell is, for the host's tap and replacement hooks.
+    var position: MarkdownTableCellPosition
+    /// The host shows its own view here (`markdownTableCellReplacement`).
+    var isReplaced: Bool = false
     /// 惰性升级:本 cell 已被点按 → 内容走可选中渲染(见 MarkdownTableContent.upgradedCells)。
     var selectableUpgraded: Bool = false
     var onSelectableUpgrade: (() -> Void)? = nil
@@ -1359,6 +1383,8 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         && lhs.blockTextOffset == rhs.blockTextOffset
         && lhs.characterCount == rhs.characterCount
         && lhs.isHeader == rhs.isHeader
+        && lhs.position == rhs.position
+        && lhs.isReplaced == rhs.isReplaced
         && lhs.selectableUpgraded == rhs.selectableUpgraded
     }
 
@@ -1370,6 +1396,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     @Environment(\.markdownTableCellSettleDuration) private var settleDuration
     @Environment(\.markdownTableHeaderDimsParentheticals) private var dimsParentheticals
     @Environment(\.markdownTableCellsSelectable) private var cellsSelectable
+    @Environment(\.markdownTableCellHooks) private var hooks
 
     @StateObject private var phaseHolder = AdaptiveTableCellPhaseHolder()
 
@@ -1393,10 +1420,20 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
             .onChange(of: blockTextOffset) { _, _ in configurePhaseHolder() }
             .onChange(of: characterCount) { _, _ in configurePhaseHolder() }
             .onChange(of: settleDuration) { _, _ in configurePhaseHolder() }
+            .modifier(AdaptiveTableCellTap(position: position, onTap: hooks.onTap))
     }
 
     @ViewBuilder
     private var cellContent: some View {
+        if isReplaced, let replacement = hooks.replacement?(position) {
+            replacement
+        } else {
+            renderedContent
+        }
+    }
+
+    @ViewBuilder
+    private var renderedContent: some View {
         // 表头 + 开关开 + 纯文本单元格:把 (...) 改小一号 + secondary。
         // 含图片/数学等非文本 inline 的表头(asAttributedString == nil)走原渲染。
         if isHeader, dimsParentheticals, let attributed = dimmedHeaderAttributed {
@@ -1463,6 +1500,22 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         case .leading: return .topLeading
         case .trailing: return .topTrailing
         default: return .top
+        }
+    }
+}
+
+/// The host's tap on a cell (`markdownTableCellTap`), anywhere in the cell.
+private struct AdaptiveTableCellTap: ViewModifier {
+    var position: MarkdownTableCellPosition
+    var onTap: (@MainActor (MarkdownTableCellPosition) -> Void)?
+
+    func body(content: Content) -> some View {
+        if let onTap {
+            content
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded { onTap(position) })
+        } else {
+            content
         }
     }
 }

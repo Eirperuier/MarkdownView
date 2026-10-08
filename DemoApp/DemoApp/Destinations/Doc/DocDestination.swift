@@ -191,6 +191,8 @@ private struct DocRowView: View {
         // Tables and code change height when an editor comes or goes.
         .modifier(DocRowHeightReporter(isOn: row.table != nil || row.sourceKind != nil))
         .codeHighlighter(DocDestination.highlighter)
+        // Wide tables scroll sideways instead of squeezing their columns.
+        .markdownTableScrollable()
         // Code at the text's size, monospaced (the editor uses the same font).
         .font(Font(docCodeFont), for: .codeBlock)
         // The whole row takes the caret, not only its text: beside a short line, the
