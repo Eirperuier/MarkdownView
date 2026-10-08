@@ -144,7 +144,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     /// 文档级:block 之间插 LineBreak(段落/标题/block 各自成行),块内间距靠 paragraphSpacing。
     /// 每个顶层 block 走整块缓存(NodeViewCache 思路):前缀未变的块命中、跳过 visit,只推进游标;
     /// 只有正在增长的最后一个 block 重新 visit → visit 从 O(全篇) 降到 O(尾块)。
-    mutating func visitDocument(_ document: Document) -> TextContent {
+    mutating func visitDocument(_ document: Markdown.Document) -> TextContent {
         let children = Array(document.children)
         // Extended Heading(topLevelBlocks 会把相邻同级标题合成一个描述符,sourceText="title\nsubtitle"):
         // 对齐 MarkdownBlockView._extendedHeadingBlock —— subtitle 降一级 + 全 .secondary + 交界间距归零。

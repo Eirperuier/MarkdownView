@@ -26,7 +26,7 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
       .environment(\.markdownRendererConfiguration, configuration)
   }
 
-  func visitDocument(_ document: Document) -> MarkdownNodeView {
+  func visitDocument(_ document: Markdown.Document) -> MarkdownNodeView {
     var renderer = self
     let nodeViews = document.children.map {
       renderer.visit($0)
