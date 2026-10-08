@@ -20,8 +20,8 @@ let package = Package(
         .package(url: "https://github.com/raspu/Highlightr.git", from: "2.2.1"),
         // Forks carrying the changes the selectable path and math rendering need;
         // see each fork's history on top of its upstream tag.
-        .package(url: "https://github.com/Eirperuier/LaTeXSwiftUI.git", revision: "6fc58af6c692a0393b9ccec1338d111d5b2b1046"),
-        .package(url: "https://github.com/Eirperuier/RichText.git", revision: "7ba6a5435100ae04a14f16049caeca4232661c01"),
+        .package(url: "https://github.com/techx-academy/floo-LaTeXSwiftUI.git", revision: "7f85a202db84142f13ce461796e30b1a7ffc9466"),
+        .package(url: "https://github.com/techx-academy/floo-RichText.git", revision: "7ba6a5435100ae04a14f16049caeca4232661c01"),
     ],
     targets: [
         .target(
@@ -35,13 +35,13 @@ let package = Package(
                 ),
                 .product(
                     name: "LaTeXSwiftUI",
-                    package: "LaTeXSwiftUI",
+                    package: "floo-LaTeXSwiftUI",
                     condition: .when(platforms: [.iOS, .macCatalyst, .macOS])
                 ),
                 // Text-based selectable rendering reuses every block renderer and the reveal; iOS and macOS only.
                 .product(
                     name: "RichText",
-                    package: "RichText",
+                    package: "floo-RichText",
                     condition: .when(platforms: [.iOS, .macCatalyst, .macOS])
                 ),
             ],

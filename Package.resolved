@@ -1,6 +1,30 @@
 {
-  "originHash" : "f0a6b68402d7b22a9ec4152221704cdb80fb58cff42f6085428e7c995fa84a88",
+  "originHash" : "f7ee1501cf8f6d4687cc9a18699033427bc618909bc267a4f7dc3a48046cbe9f",
   "pins" : [
+    {
+      "identity" : "floo-latexswiftui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/techx-academy/floo-LaTeXSwiftUI.git",
+      "state" : {
+        "revision" : "7f85a202db84142f13ce461796e30b1a7ffc9466"
+      }
+    },
+    {
+      "identity" : "floo-richtext",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/techx-academy/floo-RichText.git",
+      "state" : {
+        "revision" : "7ba6a5435100ae04a14f16049caeca4232661c01"
+      }
+    },
+    {
+      "identity" : "floo-swiftdraw",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/techx-academy/floo-SwiftDraw.git",
+      "state" : {
+        "revision" : "e5487948edafe317108cb414f162dc57550a12f2"
+      }
+    },
     {
       "identity" : "highlightr",
       "kind" : "remoteSourceControl",
@@ -11,28 +35,12 @@
       }
     },
     {
-      "identity" : "latexswiftui",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Eirperuier/LaTeXSwiftUI.git",
-      "state" : {
-        "revision" : "6fc58af6c692a0393b9ccec1338d111d5b2b1046"
-      }
-    },
-    {
       "identity" : "mathjaxswift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/colinc86/MathJaxSwift",
       "state" : {
         "revision" : "00e9c3df6b1c82031c7fe3785028f3d21c0d73ba",
         "version" : "3.5.0"
-      }
-    },
-    {
-      "identity" : "richtext",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Eirperuier/RichText.git",
-      "state" : {
-        "revision" : "7ba6a5435100ae04a14f16049caeca4232661c01"
       }
     },
     {
@@ -59,14 +67,6 @@
       "location" : "https://github.com/Eirperuier/swift-markdown.git",
       "state" : {
         "revision" : "daac37a4170ddb163eb2db53f97d0cf1ee742c18"
-      }
-    },
-    {
-      "identity" : "swiftdraw",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Eirperuier/SwiftDraw.git",
-      "state" : {
-        "revision" : "8569df8377945bcd61d25a672de143cf17ce7587"
       }
     }
   ],
