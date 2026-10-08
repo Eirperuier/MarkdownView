@@ -954,7 +954,103 @@ final class DocEditTests {
             try self.expect(text?.marks.contains(MarkSpan(range: 0..<2, mark: .bold)) == true, "marks \(String(describing: text?.marks))")
             try self.expectCursor(block.id, 2)
         }
+        await blockTests()
         print("DOCTEST DONE pass=\(passed) fail=\(failed)")
+    }
+
+    /// Blocks as wholes: the handle, selecting, moving (DocBlocks.swift).
+    private func blockTests() async {
+        let blocks = editor.blocks
+        func order() -> [DocBlockID] { demo.doc.blocks.map(\.id) }
+        func show(_ id: DocBlockID) async {
+            demo.bringIntoView(id)
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        if DocBlockController.usesHandles {
+            await test("the handle shows beside the block under the pointer, at its first line") {
+                let heading = try self.block("第 1 节")
+                await show(heading.id)
+                blocks.testHover(heading.id)
+                let handle = try self.expectValue(blocks.testHandleFrame, "no handle")
+                let row = try self.expectValue(blocks.testRowFrame(heading.id), "no row")
+                let line = try self.expectValue(self.editor.textView(for: heading.id).map { $0.convert($0.caretRect(for: $0.beginningOfDocument), to: nil) }, "no text view")
+                let list = try self.expectValue(self.editor.textView(for: heading.id).flatMap { DocScrolling.list(of: $0) }, "no list")
+                let lineInList = list.convert(line, from: nil)
+                try self.expect(abs(handle.midY - lineInList.midY) < 1, "handle at \(handle.midY), first line at \(lineInList.midY)")
+                try self.expect(handle.maxX <= lineInList.minX && handle.minX >= row.minX, "handle \(handle) beside \(lineInList)")
+            }
+            await test("every block's handle is in the same column, nested or not") {
+                let paragraph = try self.block("这篇文档由 DocKit")
+                let nested = try self.block("编号也一样")
+                var xs: [CGFloat] = []
+                for id in [paragraph.id, nested.id] {
+                    await show(id)
+                    blocks.testHover(id)
+                    xs.append(try self.expectValue(blocks.testHandleFrame, "no handle").minX)
+                }
+                try self.expect(xs[0] == xs[1], "handles at \(xs)")
+            }
+        }
+        await test("a click on the handle selects the block; Delete removes it, undo brings it back") {
+            let block = try self.block("Loading older")
+            await show(block.id)
+            let before = order()
+            blocks.click(block.id)
+            try self.expect(blocks.selected == [block.id], "selected \(blocks.selected.count)")
+            try self.expect(blocks.testHighlightFrames.count == 1, "highlights \(blocks.testHighlightFrames.count)")
+            blocks.deleteSelection()
+            try self.expect(self.demo.doc.block(block.id) == nil && blocks.selected.isEmpty, "not deleted")
+            try await self.undo()
+            try self.expect(order() == before, "undo left \(self.demo.doc.blocks.count) blocks, had \(before.count)")
+        }
+        await test("dragging a block down two rows moves it there; one undo puts it back") {
+            let block = try self.block("Loading older")
+            await show(block.id)
+            let before = order()
+            let index = try self.expectValue(before.firstIndex(of: block.id), "no index")
+            let target = before[index + 2]
+            let frame = try self.expectValue(blocks.testRowFrame(target), "no row")
+            blocks.testDrag(block.id, toY: frame.maxY - 2)
+            try self.expect(order().firstIndex(of: block.id) == index + 2 && order()[index + 1] == target, "at \(String(describing: order().firstIndex(of: block.id))), wanted \(index + 2)")
+            try await self.undo()
+            try self.expect(order() == before, "undo didn't restore the order")
+        }
+        await test("dragging a block above the one before it moves it up") {
+            let block = try self.block("Loading older")
+            await show(block.id)
+            let before = order()
+            let index = try self.expectValue(before.firstIndex(of: block.id), "no index")
+            let frame = try self.expectValue(blocks.testRowFrame(before[index - 1]), "no row")
+            blocks.testDrag(block.id, toY: frame.minY + 2)
+            try self.expect(order().firstIndex(of: block.id) == index - 1, "at \(String(describing: order().firstIndex(of: block.id))), wanted \(index - 1)")
+        }
+        await test("a list item moves with its nested items, and comes out a level where it lands") {
+            let nested = try self.block("嵌套列表的缩进")
+            let intro = try self.block("这篇文档由 DocKit")
+            let group = blocks.groups([nested.id])[0]
+            try self.expect(group.count == 3, "group of \(group.count)")
+            let indents = group.compactMap { self.demo.doc.block($0)?.indent }
+            try self.expect(blocks.move([nested.id], after: intro.id), "move failed")
+            let ids = order()
+            let at = try self.expectValue(ids.firstIndex(of: intro.id), "no intro")
+            try self.expect(Array(ids[(at + 1)...(at + 3)]) == group, "group not after the paragraph")
+            let moved = group.compactMap { self.demo.doc.block($0)?.indent }
+            try self.expect(moved == indents.map { $0 - 1 }, "indents \(moved), were \(indents)")
+            try await self.undo()
+            try self.expect(group.compactMap { self.demo.doc.block($0)?.indent } == indents, "undo left indents")
+        }
+        await test("several selected blocks move together, in order") {
+            let first = try self.block("Loading older")
+            let heading = try self.block("第 2 节")
+            await show(first.id)
+            blocks.click(first.id)
+            blocks.click(heading.id, modifiers: .command)
+            try self.expect(blocks.selected == [first.id, heading.id], "selected \(blocks.selected.count)")
+            let top = try self.expectValue(self.demo.doc.blocks.first, "empty doc")
+            try self.expect(blocks.move([first.id, heading.id], after: top.id), "move failed")
+            try self.expect(Array(order()[1...2]) == [first.id, heading.id], "not moved together")
+            blocks.clear()
+        }
     }
 
     private var blockCountAtStart = 0

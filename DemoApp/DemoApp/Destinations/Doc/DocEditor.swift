@@ -48,6 +48,8 @@ final class DocEditor {
     lazy var tables = DocTableController(demo: demo, editor: self)
     /// Code and math blocks, edited as their source.
     lazy var sources = DocSourceController(demo: demo, editor: self)
+    /// Blocks as wholes: the handle, selecting blocks, moving them.
+    lazy var blocks = DocBlockController(demo: demo, editor: self)
     var slashOrigin: DocPosition?
     /// The next render of the selection's block should also take keyboard focus.
     private var wantsFocus = false
@@ -972,6 +974,7 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
         original?.textViewDidBeginEditing?(textView)
         editor?.tables.endEditing()
         editor?.sources.endEditing()
+        editor?.blocks.textEditingBegan()
     }
 
     /// Letters typed with a Chinese, Japanese or Korean keyboard start marked text.

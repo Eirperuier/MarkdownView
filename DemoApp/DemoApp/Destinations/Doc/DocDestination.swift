@@ -42,12 +42,15 @@ struct DocDestination: View {
                 row.estimatedHeight(width: width)
             }
             .overlay { DocSlashMenuView(menu: editor.slash) }
+            .overlay(alignment: .bottom) { DocBlockSelectionBar(blocks: editor.blocks) }
         }
+        .modifier(DocBlockOverlays(reader: reader, blocks: editor.blocks))
         .onChange(of: demo.focus?.serial) {
             if let id = demo.focus?.id { reader.scrollTo(id: id, anchor: .center) }
         }
         // The agent writing makes the whole page a preview (§6.3).
         .onChange(of: demo.isAgentWriting) {
+            editor.blocks.clear()
             editor.isEditable = !demo.isAgentWriting
         }
         .task {
@@ -56,6 +59,7 @@ struct DocDestination: View {
             try? await Task.sleep(for: .milliseconds(150))
             if let first = demo.rows.first?.id { reader.scrollTo(id: first, anchor: .top, animated: false) }
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
+            editor.blocks.attach(reader)
             // -docShow code|math: open at the first code or math block; -docEdit YES edits it.
             if let kind = UserDefaults.standard.string(forKey: "docShow"),
                let row = demo.rows.first(where: { kind == "code" ? { if case .code = $0.sourceKind { true } else { false } }($0) : $0.sourceKind == .math }),
@@ -74,6 +78,26 @@ struct DocDestination: View {
                     try? await Task.sleep(for: .milliseconds(400))
                     editor.tables.tapped(snapshot, at: MarkdownTableCellPosition(row: 2, column: 1))
                 }
+            }
+            // -docShowHandle YES: a list item's handle under the pointer and the item after
+            // it selected (on a phone, selecting).
+            if UserDefaults.standard.bool(forKey: "docShowHandle"),
+               let index = demo.doc.blocks.firstIndex(where: { $0.text.string.hasPrefix("嵌套列表") }) {
+                let blocks = demo.doc.blocks
+                // A phone has no handle: its selection mode instead.
+                if DocBlockController.usesHandles {
+                    editor.blocks.click(blocks[index + 3].id)
+                } else {
+                    editor.blocks.beginSelecting(blocks[index + 3].id)
+                }
+                editor.blocks.testHover(blocks[index].id)
+            }
+            // -docShot <path>: what the options above show, drawn to a PNG there
+            // (screenshots without screen recording).
+            if let path = UserDefaults.standard.string(forKey: "docShot") {
+                try? await Task.sleep(for: .milliseconds(800))
+                if let hovered = editor.blocks.hovered { editor.blocks.testHover(hovered) }
+                DocBlockController.drawWindow(to: path)
             }
             if UserDefaults.standard.bool(forKey: "docEditTest") {
                 await DocEditTests(demo: demo, editor: editor).run()
@@ -162,7 +186,7 @@ private struct DocRowView: View {
         }
         .padding(.vertical, 5)
         .frame(maxWidth: 720, alignment: .leading)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, DocBlockController.gutter)
         .frame(maxWidth: .infinity)
         // Tables and code change height when an editor comes or goes.
         .modifier(DocRowHeightReporter(isOn: row.table != nil || row.sourceKind != nil))
@@ -220,6 +244,19 @@ private struct RowClickArea: UIViewRepresentable {
         init(onClick: @escaping (CGPoint) -> Void) { self.onClick = onClick }
         @objc func click(_ recognizer: UITapGestureRecognizer) {
             onClick(recognizer.location(in: nil))
+        }
+    }
+}
+
+/// Rows changed (an edit, a measured height): the handle and the selection follow.
+private struct DocBlockOverlays: ViewModifier {
+    let reader: TiledViewReader<String>
+    let blocks: DocBlockController
+
+    func body(content: Content) -> some View {
+        content.onChange(of: reader.version) {
+            blocks.attach(reader)
+            blocks.layoutOverlays()
         }
     }
 }
