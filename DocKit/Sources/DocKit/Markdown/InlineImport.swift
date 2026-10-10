@@ -172,6 +172,8 @@ struct InlineBuilder {
             append("\n", marks: marks)
         case let html as InlineHTML:
             append(html.rawHTML, marks: marks)
+        case let attributes as InlineAttributes:
+            for child in markup.children { walk(child, marks: marks + Self.marks(attributes.attributes)) }
         default:
             if markup.childCount > 0 {
                 for child in markup.children { walk(child, marks: marks) }
@@ -200,7 +202,38 @@ struct InlineBuilder {
         var text = DocText(string: string, marks: spans)
         text.normalize()
         text.applyHighlightSyntax()
+        text.applyPenSyntax()
         return text
+    }
+
+    /// The marks inline attributes give, as MarkdownView reads them
+    /// (`MarkdownInlineStyle`): `color: red`, `highlight[: yellow]`,
+    /// `pen: circle|wavy`, `ink: blue`.
+    static func marks(_ attributes: String) -> [Mark] {
+        var color: String?
+        var highlight: String??
+        var pen: String?
+        var ink: String?
+        var body = attributes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if body.hasPrefix("{"), body.hasSuffix("}") { body = String(body.dropFirst().dropLast()) }
+        for pair in body.split(separator: ",") {
+            let parts = pair.split(separator: ":", maxSplits: 1)
+            let quotes = CharacterSet(charactersIn: "\"'")
+            let key = parts[0].trimmingCharacters(in: .whitespaces).trimmingCharacters(in: quotes).lowercased()
+            let value = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces).trimmingCharacters(in: quotes).lowercased() : ""
+            switch key {
+            case "color" where !value.isEmpty: color = value
+            case "highlight": highlight = .some(value.isEmpty || value == "true" ? nil : value)
+            case "pen" where ["circle", "wavy"].contains(value): pen = value
+            case "ink" where !value.isEmpty: ink = value
+            default: continue
+            }
+        }
+        var marks: [Mark] = []
+        if let color { marks.append(.color(color)) }
+        if let highlight { marks.append(.highlight(color: highlight)) }
+        if let pen { marks.append(.pen(kind: pen, color: ink)) }
+        return marks
     }
 }
 
@@ -232,6 +265,93 @@ extension DocText {
             }
             normalize()
         }
+    }
+
+    /// Turns `:circle[text]{color=blue}` / `:wavy[text]` into pen marks with
+    /// MarkdownView's matcher (`MarkdownPenMarkSyntax.matchOffsets`): `:` not after
+    /// another, a known name, `[` right after it, non-empty text within a line of at
+    /// most 40 characters closed by the first `]`, then an optional `{color=…}`.
+    fileprivate mutating func applyPenSyntax() {
+        guard string.contains(":") else { return }
+        let characters = Array(string)
+        var utf16Offsets = [0]
+        var running = 0
+        for character in characters {
+            running += character.utf16.count
+            utf16Offsets.append(running)
+        }
+        let code = marks.filter { $0.mark == .code }.map(\.range)
+        func inCode(_ offset: Int) -> Bool { code.contains { $0.contains(offset) } }
+        for match in Self.penMatches(characters).reversed() {
+            let open = utf16Offsets[match.start]..<utf16Offsets[match.innerStart]
+            let close = utf16Offsets[match.innerEnd]..<utf16Offsets[match.end]
+            guard !(open.contains(where: inCode) || close.contains(where: inCode)) else { continue }
+            delete(close)
+            delete(open)
+            let atoms = Set(marks.filter { $0.mark.kind.isAtom }.map(\.range.lowerBound))
+            for piece in (open.lowerBound..<(close.lowerBound - open.count)).split(atoms.contains) {
+                marks.append(MarkSpan(range: piece, mark: .pen(kind: match.kind, color: match.color)))
+            }
+            normalize()
+        }
+    }
+
+    private static func penMatches(_ chars: [Character]) -> [(start: Int, innerStart: Int, innerEnd: Int, end: Int, kind: String, color: String?)] {
+        let n = chars.count
+        var matches: [(start: Int, innerStart: Int, innerEnd: Int, end: Int, kind: String, color: String?)] = []
+        var i = 0
+        while i < n {
+            guard chars[i] == ":", !(i > 0 && chars[i - 1] == ":") else {
+                i += 1
+                continue
+            }
+            var j = i + 1
+            while j < n, chars[j].isLowercase, chars[j].isLetter { j += 1 }
+            let name = String(chars[(i + 1)..<j])
+            guard j > i + 1, j < n, chars[j] == "[", ["circle", "wavy"].contains(name) else {
+                i += 1
+                continue
+            }
+            let innerStart = j + 1
+            var k = innerStart
+            var closed = false
+            while k < n, k - innerStart <= 40, chars[k] != "\n" {
+                if chars[k] == "]" {
+                    if k > innerStart {
+                        let attributes = penAttributes(chars, after: k + 1)
+                        let end = attributes?.end ?? (k + 1)
+                        matches.append((i, innerStart, k, end, name, attributes?.color))
+                        i = end
+                        closed = true
+                    }
+                    break
+                }
+                k += 1
+            }
+            if !closed { i += 1 }
+        }
+        return matches
+    }
+
+    /// `{color=blue}` right after the `]`, closed within the line and 48 characters.
+    private static func penAttributes(_ chars: [Character], after index: Int) -> (end: Int, color: String?)? {
+        guard index < chars.count, chars[index] == "{" else { return nil }
+        var k = index + 1
+        while k < chars.count, k - index <= 48, chars[k] != "\n" {
+            if chars[k] == "}" {
+                var color: String?
+                for pair in String(chars[(index + 1)..<k]).split(separator: " ") {
+                    let parts = pair.split(separator: "=", maxSplits: 1)
+                    if parts.count == 2, parts[0].lowercased() == "color" {
+                        let token = parts[1].trimmingCharacters(in: .whitespaces).lowercased()
+                        if !token.isEmpty { color = token }
+                    }
+                }
+                return (k + 1, color)
+            }
+            k += 1
+        }
+        return nil
     }
 
     private static func highlightMatches(_ chars: [Character]) -> [(start: Int, innerStart: Int, innerEnd: Int, end: Int)] {

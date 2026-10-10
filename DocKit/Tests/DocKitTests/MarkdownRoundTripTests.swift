@@ -51,10 +51,11 @@ private enum CanonicalDoc {
     static let words = [
         "alpha", "beta", "x1", "snake_case", "a*b", "[ref]", "<tag>", "`tick`", "$5", "~tilde~",
         "back\\slash", "pipe|bar", "AT&T", "&amp;", "#hash", "-dash", "+plus", ">gt", "1.", "2)", "(paren)",
-        "!bang", "中文", "测试", "日本語", "，", "😀", "👨‍👩‍👧", "🇫🇷",
+        "!bang", "中文", "测试", "日本語", "，", "😀", "👨‍👩‍👧", "🇫🇷", "^[sup]", "a^b",
     ]
     static let latex = ["x^2", "\\alpha", "a_{1}", "\\frac{1}{2}"]
-    static let marks: [Mark] = [.bold, .italic, .strike, .code, .highlight(color: nil), .link(url: "https://e.com/p1"), .link(url: "https://e.com/a b")]
+    static let marks: [Mark] = [.bold, .italic, .strike, .code, .highlight(color: nil), .link(url: "https://e.com/p1"), .link(url: "https://e.com/a b"),
+                                .color("red"), .color("#3366ff"), .highlight(color: "yellow"), .pen(kind: "circle", color: "blue"), .pen(kind: "wavy", color: nil)]
 
     static func pick<T>(_ items: [T], _ rng: inout SplitMix64) -> T {
         items[Int(rng.next() % UInt64(items.count))]

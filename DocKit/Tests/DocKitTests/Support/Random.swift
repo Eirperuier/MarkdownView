@@ -57,6 +57,8 @@ enum RandomDoc {
         case .mention: .mention(kind: "person", id: "u\(rng.next() % 100)", label: "User")
         case .inlineMath: .inlineMath(latex: "x^{\(rng.next() % 10)}")
         case .cite: .cite(url: "https://ref.example.com/\(rng.next() % 100)", label: "[\(rng.next() % 10)]")
+        case .color: .color(rng.next() % 2 == 0 ? "red" : "#3366ff")
+        case .pen: .pen(kind: rng.next() % 2 == 0 ? "circle" : "wavy", color: rng.next() % 2 == 0 ? "blue" : nil)
         }
     }
 

@@ -1,11 +1,13 @@
 extension DocText {
     /// This text as inline markdown, in the dialect MarkdownView renders:
     /// `**bold**`, `*italic*`, `~~strike~~`, `==highlight==`, `` `code` ``,
-    /// `[link](url)`, `$math$`, `[label](url "cite")`.
+    /// `[link](url)`, `$math$`, `[label](url "cite")`; a colour, a coloured
+    /// highlight and a pen mark as `^[text](color: red)`, `^[text](highlight: yellow)`,
+    /// `^[text](pen: circle, ink: blue)`.
     ///
     /// Lossy on purpose where markdown can't say it: whitespace at a mark's
     /// edge moves outside it, leading spaces of a line go, a mention becomes
-    /// its label, a highlight colour is dropped.
+    /// its label.
     /// `singleLine` (headings, table cells) turns line breaks into spaces.
     /// `preservingWhitespace` (the editing style) writes spaces and tabs at a
     /// line's edges as entities, which markdown would otherwise drop.
@@ -72,7 +74,7 @@ private struct InlineWriter {
                 if range.lowerBound < lower, lower < range.upperBound { lower = range.lowerBound }
                 if range.lowerBound < upper, upper < range.upperBound { upper = range.upperBound }
             }
-            let pieces = span.mark.kind == .highlight
+            let pieces = span.mark == .highlight(color: nil)
                 ? (lower..<upper).split { units[$0] == newline }
                 : [lower..<upper]
             for piece in pieces where piece.contains(where: { !Self.isSpace(units[$0]) }) {
@@ -136,18 +138,29 @@ private struct InlineWriter {
         case .bold: "**"
         case .italic: "*"
         case .strike: "~~"
-        case .highlight: "=="
+        case .highlight(nil): "=="
+        case .highlight, .color, .pen: "^["
         case .link: "["
         case .code, .mention, .inlineMath, .cite: ""
         }
     }
 
+    /// A colour, a coloured highlight and a pen mark are inline attributes,
+    /// `^[text](color: red)`, which MarkdownView renders (MarkdownInlineStyle).
     private static func closer(_ mark: Mark) -> String {
         switch mark {
         case .link(let url): "](\(InlineEscaping.destination(url)))"
+        case .highlight(let color?): "](highlight: \(token(color)))"
+        case .color(let color): "](color: \(token(color)))"
+        case .pen(let kind, let color): "](pen: \(token(kind))\(color.map { ", ink: \(token($0))" } ?? ""))"
         case .code, .mention, .inlineMath, .cite: ""
         default: opener(mark)
         }
+    }
+
+    /// A colour token or pen kind as an attribute value: letters, digits, `#` and `-`.
+    private static func token(_ value: String) -> String {
+        String(value.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "#" || $0 == "-") })
     }
 
     private mutating func writeAtom(_ mark: Mark, at offset: Int) {
@@ -235,7 +248,8 @@ private struct InlineWriter {
                 }
             }
         }
-        let inLink = stack.contains { $0.mark.kind == .link }
+        // Inside a link's or inline attributes' brackets a `[` would open another.
+        let inLink = stack.contains { Self.opener($0.mark).hasSuffix("[") }
         output += InlineEscaping.escaped(line, escapingPipes: escapingPipes, inLink: inLink, literalPunctuation: preservesWhitespace)
         atLineStart = false
     }
@@ -272,6 +286,10 @@ enum InlineEscaping {
                 result += inLink ? "&#91;" : "["
                 index = text.index(after: index)
                 continue
+            }
+            // `^[` would open inline attributes (a colour, a pen mark).
+            if character == "^", text.index(after: index) < text.endIndex, text[text.index(after: index)] == "[" {
+                result += "\\"
             }
             if "\\`*_]<~$".contains(character) || (escapingPipes && character == "|") {
                 result.append("\\")

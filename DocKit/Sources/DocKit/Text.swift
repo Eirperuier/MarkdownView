@@ -181,6 +181,12 @@ public enum Mark: Hashable, Sendable, Codable {
     case mention(kind: String, id: String, label: String)
     case inlineMath(latex: String)
     case cite(url: String, label: String)
+    /// Text in a colour: a palette name (`red`, `blue`, …) or `#RRGGBB`, the
+    /// renderer's colour tokens (MarkdownView's `MarkdownColorToken`).
+    case color(String)
+    /// A hand-drawn mark over the text (MarkdownView's pen marks): `circle` or
+    /// `wavy`, in a colour token (nil: the red pen).
+    case pen(kind: String, color: String?)
 
     public var kind: MarkKind {
         switch self {
@@ -193,6 +199,8 @@ public enum Mark: Hashable, Sendable, Codable {
         case .mention: .mention
         case .inlineMath: .inlineMath
         case .cite: .cite
+        case .color: .color
+        case .pen: .pen
         }
     }
 }
@@ -209,6 +217,8 @@ public enum MarkKind: String, Hashable, Sendable, Codable, CaseIterable {
     case mention
     case inlineMath
     case cite
+    case color
+    case pen
 
     /// Sort position inside a span list; declaration order is canonical.
     var sortOrder: Int { Self.allCases.firstIndex(of: self)! }
@@ -217,15 +227,15 @@ public enum MarkKind: String, Hashable, Sendable, Codable, CaseIterable {
     public var isAtom: Bool {
         switch self {
         case .mention, .inlineMath, .cite: true
-        case .bold, .italic, .strike, .code, .link, .highlight: false
+        case .bold, .italic, .strike, .code, .link, .highlight, .color, .pen: false
         }
     }
 
     /// Typing at the span's edge continues the mark.
     var extendsAtEdges: Bool {
         switch self {
-        case .bold, .italic, .strike, .highlight: true
-        case .code, .link, .mention, .inlineMath, .cite: false
+        case .bold, .italic, .strike, .highlight, .color: true
+        case .code, .link, .mention, .inlineMath, .cite, .pen: false
         }
     }
 }

@@ -225,6 +225,24 @@ struct MarkdownImportTests {
     }
 
     @Test
+    func coloursHighlightsAndPenMarksAreInlineAttributes() {
+        let fragment = parse("""
+            ^[红字](color: red) and ^[**粗**](highlight: yellow), :circle[重点]{color=blue} ^[波浪](pen: wavy)
+            """)
+        let text = fragment.blocks[0].text
+        #expect(text.string == "红字 and 粗, 重点 波浪")
+        #expect(Set(text.marks) == [
+            MarkSpan(range: 0..<2, mark: .color("red")),
+            MarkSpan(range: 7..<8, mark: .bold),
+            MarkSpan(range: 7..<8, mark: .highlight(color: "yellow")),
+            MarkSpan(range: 10..<12, mark: .pen(kind: "circle", color: "blue")),
+            MarkSpan(range: 13..<15, mark: .pen(kind: "wavy", color: nil)),
+        ])
+        let doc = Doc(id: fixedID(0), blocks: [block(1, .paragraph, text.string, marks: text.marks)])
+        #expect(doc.markdown == "^[红字](color: red) and **^[粗](highlight: yellow)**, ^[重点](pen: circle, ink: blue) ^[波浪](pen: wavy)")
+    }
+
+    @Test
     func imagesWrittenBeforeFitAndSizeRead() throws {
         let image = try JSONDecoder().decode(DocImage.self, from: Data(#"{"source":"a.png","alt":""}"#.utf8))
         #expect(image == DocImage(source: "a.png"))
