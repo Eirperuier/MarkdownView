@@ -57,6 +57,10 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     /// 外层的 OpenURLAction:hosting 边界不继承环境,chip 点击(flowith-linkchip:// 合成 URL 由 app
     /// OpenURLAction 拦截开 sheet)等交互附件必须显式注入。
     let openURL: OpenURLAction?
+    /// Whether text is read for MarkdownView's text-level syntax (`==highlight==`,
+    /// `:circle[…]`): yes for markdown, no for a tree a model built (MarkdownTree),
+    /// whose text is the person's own and whose highlights and pens are nodes.
+    let interpretsTextSyntax: Bool
     /// InlineView attachment 的递增 id,保证 RichText identity 稳定。
     private var attachmentCounter: Int = 0
     /// textStorage 字符游标(文字每字 1、内联公式/block attachment 各 1 个 ￼、换行 1)。
@@ -95,8 +99,10 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         plainOffsetBase: Int = 0,
         openURL: OpenURLAction? = nil,
         dynamicTypeSize: DynamicTypeSize? = nil,
-        typography: MarkdownPlatformTypography = .standard
+        typography: MarkdownPlatformTypography = .standard,
+        interpretsTextSyntax: Bool = true
     ) {
+        self.interpretsTextSyntax = interpretsTextSyntax
         self.configuration = configuration
         self.bodyFont = bodyFont
         self.inlineMathStorage = inlineMathStorage
@@ -753,7 +759,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     /// 尾段(删的 `==` 各占 1 storage/1 plain,后续 plain 值下移;reveal 计数侧本就已 strip)。
     /// storageStart = descendInto 前的 storageToPlain.count(本段内容在映射表尾部,1:1 对应扁平字符)。
     private mutating func applyingCrossNodeHighlight(_ content: TextContent, storageStart: Int) -> TextContent {
-        guard MarkdownHighlightSyntax.isEnabled else { return content }
+        guard MarkdownHighlightSyntax.isEnabled, interpretsTextSyntax else { return content }
         // 扁平化成字符串(view 附件 = 1 个 ￼,与 storage/映射 1:1)。
         var flat = ""
         for f in content.fragments {
@@ -870,6 +876,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         }
         // 笔迹注记:剥定界符 + PenMarkAttribute 进 storage(reveal 计数两侧同链已对齐),
         // 笔迹由 SelectablePenMarkOverlay 绘制。
+        guard interpretsTextSyntax else { return attributed }
         return MarkdownPenMarkSyntax.appliedSelectable(
             to: MarkdownHighlightSyntax.applied(to: attributed)
         )

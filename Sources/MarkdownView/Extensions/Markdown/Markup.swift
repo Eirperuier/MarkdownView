@@ -58,6 +58,10 @@ extension Markup {
             hasher.combine(heading.level)
         case let link as Markdown.Link:
             hasher.combine(link.destination)
+            hasher.combine(link.title)
+        case let attributes as InlineAttributes:
+            // `^[x](color: red)` and `^[x](color: blue)` are different text.
+            hasher.combine(attributes.attributes)
         case let image as Markdown.Image:
             hasher.combine(image.source)
             hasher.combine(image.title)

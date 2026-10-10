@@ -22,12 +22,15 @@ public struct MarkdownSelectableText: View, Equatable {
     // (rawText 不变即等价),避免 TextView updateUIView 把 coordinator 改的 textStorage 颜色刷回 base。
     public nonisolated static func == (lhs: MarkdownSelectableText, rhs: MarkdownSelectableText) -> Bool {
         lhs.rawText == rhs.rawText
+            && lhs.tree == rhs.tree
             && lhs.listDepthOffset == rhs.listDepthOffset
             && lhs.plainOffsetBase == rhs.plainOffsetBase
             && lhs.applyEdgeInsets == rhs.applyEdgeInsets
     }
 
     private nonisolated let rawText: String
+    /// The block as a tree a model built, in place of markdown (MarkdownTree).
+    private nonisolated let tree: MarkdownTree?
     /// 列表深度偏移:per-block 场景列表项单独 re-parse 后 AST 深度归零,marker 的 •/◦ 交替
     /// 与原版 `_markerView`(按 ctx.depth)对不上 —— 调用方把 listItemContext.depth 传进来补偏移。
     private nonisolated let listDepthOffset: Int
@@ -76,6 +79,22 @@ public struct MarkdownSelectableText: View, Equatable {
         applyEdgeInsets: Bool = true
     ) {
         self.rawText = text
+        self.tree = nil
+        self.listDepthOffset = listDepthOffset
+        self.plainOffsetBase = plainOffsetBase
+        self.applyEdgeInsets = applyEdgeInsets
+    }
+
+    /// A block as its tree (MarkdownTree): rendered as its markdown would be, with
+    /// nothing parsed and its text taken as it is.
+    public init(
+        tree: MarkdownTree,
+        listDepthOffset: Int = 0,
+        plainOffsetBase: Int = 0,
+        applyEdgeInsets: Bool = true
+    ) {
+        self.rawText = ""
+        self.tree = tree
         self.listDepthOffset = listDepthOffset
         self.plainOffsetBase = plainOffsetBase
         self.applyEdgeInsets = applyEdgeInsets
@@ -190,6 +209,7 @@ public struct MarkdownSelectableText: View, Equatable {
     private func buildContent() -> (content: TextContent, configuration: MarkdownRendererConfiguration, revealTotal: Int, storageToPlain: [Int], topEdgeInset: CGFloat, bottomEdgeInset: CGFloat) {
         var hasher = Hasher()
         hasher.combine(rawText)
+        hasher.combine(tree)
         hasher.combine(listDepthOffset)
         hasher.combine(plainOffsetBase)
         hasher.combine(dynamicTypeSize)
@@ -211,6 +231,7 @@ public struct MarkdownSelectableText: View, Equatable {
         }
         let result = Self.render(
             rawText,
+            tree: tree,
             configuration: configuration,
             blockViewCache: blockViewCache,
             streamingManager: streamingManager,
@@ -242,6 +263,7 @@ public struct MarkdownSelectableText: View, Equatable {
     @MainActor
     static func render(
         _ rawText: String,
+        tree: MarkdownTree? = nil,
         configuration: MarkdownRendererConfiguration,
         blockViewCache: BlockViewCache? = nil,
         streamingManager: StreamingRevealManager? = nil,
@@ -263,7 +285,9 @@ public struct MarkdownSelectableText: View, Equatable {
         // math:提取 $…$/$$…$$ → 占位符 + LaTeX storage,注册 @math directive renderer。
         var math = configuration.math
         math.shouldRender = true
-        let processedText = MathFirstMarkdownViewRenderer.preprocessMath(rawText, into: &math)
+        // A tree has its maths as nodes; markdown has it in its text.
+        let prepared = tree?.prepared(math: &math)
+        let processedText = tree == nil ? MathFirstMarkdownViewRenderer.preprocessMath(rawText, into: &math) : ""
         BlockDirectiveRenderers.shared.addRenderer(MathBlockDirectiveRenderer(), for: "math")
         #if DEBUG
         let __tMath = CFAbsoluteTimeGetCurrent()
@@ -277,14 +301,19 @@ public struct MarkdownSelectableText: View, Equatable {
         // 仅在 app 注入了脚注上下文且本块确有内联脚注时才扫描,plain 记账与未预处理的 AST 一致。
         var footnoteText = processedText
         var inlineFootnoteTokens: [Int: MarkdownFootnoteSyntax.InlineToken] = [:]
-        if let footnotes = config.footnotes, !footnotes.inlineNotes.isEmpty {
+        if tree == nil, let footnotes = config.footnotes, !footnotes.inlineNotes.isEmpty {
             let pre = MarkdownFootnoteSyntax.preprocessInlineNotes(processedText)
             footnoteText = pre.text
             inlineFootnoteTokens = pre.tokens
         }
 
-        let mdContent = MarkdownContent(raw: .plainText(footnoteText))
-        let document = mdContent.parse(options: mdContent.parseOptions(allowingBlockDirectives: true))
+        let document: Markdown.Document
+        if let prepared {
+            document = prepared
+        } else {
+            let mdContent = MarkdownContent(raw: .plainText(footnoteText))
+            document = mdContent.parse(options: mdContent.parseOptions(allowingBlockDirectives: true))
+        }
         #if DEBUG
         let __t1 = CFAbsoluteTimeGetCurrent()
         #endif
@@ -302,7 +331,8 @@ public struct MarkdownSelectableText: View, Equatable {
             plainOffsetBase: plainOffsetBase,
             openURL: openURL,
             dynamicTypeSize: dynamicTypeSize,
-            typography: typography
+            typography: typography,
+            interpretsTextSyntax: tree == nil
         )
         var result = visitor.makeTextContent(document)
         #if canImport(UIKit)

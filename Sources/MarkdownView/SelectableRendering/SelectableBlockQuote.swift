@@ -17,6 +17,8 @@ import SwiftUI
 @available(visionOS, unavailable)
 public struct SelectableBlockQuote: View {
     private let innerMarkdown: String
+    /// The quote's content as a tree a model built (MarkdownTree), in place of markdown.
+    private let innerTree: MarkdownTree?
 
     @Environment(\.markdownFontGroup.blockQuote) private var font
     @Environment(\.markdownRendererConfiguration.blockQuoteTintColor) private var tint
@@ -26,6 +28,13 @@ public struct SelectableBlockQuote: View {
     /// - Parameter quoteSource: 引用块源码("> …" 形式);逐行剥 `>` 标记得到内部 markdown。
     public init(quoteSource: String) {
         self.innerMarkdown = Self.strippingQuoteMarkers(quoteSource)
+        self.innerTree = nil
+    }
+
+    /// - Parameter content: what the quote holds, as a tree (MarkdownTree).
+    public init(content: MarkdownTree) {
+        self.innerMarkdown = ""
+        self.innerTree = content
     }
 
     private func decorationVisible(revealCount: Int?) -> Bool {
@@ -35,7 +44,9 @@ public struct SelectableBlockQuote: View {
     public var body: some View {
         StreamingRevealCountReader { _, revealCount in
             let visible = decorationVisible(revealCount: revealCount)
-            MarkdownSelectableText(innerMarkdown)
+            Group {
+                if let innerTree { MarkdownSelectableText(tree: innerTree) } else { MarkdownSelectableText(innerMarkdown) }
+            }
                 // 引用块内部黑白(同魔改覆写:不带 theme 色)。
                 .preferredColor(.primary)
                 .tint(.primary, for: .link)
