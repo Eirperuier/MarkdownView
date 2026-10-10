@@ -36,6 +36,15 @@ struct DocDestination: View {
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .padding(.horizontal)
                 .padding(.vertical, 8)
+                // The Mac's format panel: under the bar at the window's right, open until
+                // its Aa closes it (Craft's).
+                .docAnchoredPanel(isPresented: showsFormat,
+                                  configuration: .init(horizontalAlignment: .trailing, anchorGap: 0, dismissesOnOutsideTouch: false),
+                                  onDismiss: { showsFormat = false }) {
+                    DocFloatingPanelSurface(contentInset: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)) {
+                        DocFormatPanel(editor: editor, demo: demo)
+                    }
+                }
             Divider()
             TiledView(items: demo.rows, scrollPosition: $scrollPosition) { row in
                 DocRowCell(item: row, demo: demo, editor: editor)
@@ -125,6 +134,17 @@ struct DocDestination: View {
                 editor.blocks.select(demo.doc.blocks.filter { DocMediaView.draws($0.kind) }.map(\.id))
                 editor.blocks.isChoosingLayout = true
             }
+            // -docSelectKind link|image: the first link or image selected, as a click selects it.
+            if let kind = UserDefaults.standard.string(forKey: "docSelectKind"),
+               let block = demo.doc.blocks.first(where: {
+                   switch $0.kind {
+                   case .link: kind == "link"
+                   case .image: kind == "image"
+                   default: false
+                   }
+               }) {
+                if DocBlockController.usesHandles { editor.blocks.click(block.id) } else { editor.blocks.beginSelecting(block.id) }
+            }
             // -docShot <path>: what the options above show, drawn to a PNG there
             // (screenshots without screen recording).
             if let path = UserDefaults.standard.string(forKey: "docShot") {
@@ -181,13 +201,6 @@ struct DocDestination: View {
                     .background(showsFormat ? Color.accentColor.opacity(0.12) : .clear, in: .rect(cornerRadius: 7))
                     .buttonStyle(.plain)
                     .help("格式")
-                    .docAnchoredPanel(isPresented: showsFormat,
-                                      configuration: .init(horizontalAlignment: .trailing),
-                                      onDismiss: { showsFormat = false }) {
-                        DocFloatingPanelSurface(contentInset: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)) {
-                            DocFormatPanel(editor: editor, demo: demo)
-                        }
-                    }
                 #endif
                 Button("重置") {
                     demo.reset()

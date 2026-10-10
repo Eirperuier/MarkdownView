@@ -28,42 +28,80 @@ struct DocFormatPanel: View {
             Text("格式")
                 .font(.system(size: 17, weight: .bold))
                 .padding(.bottom, 14)
-            section("标题") {
-                HStack(spacing: 6) {
-                    tile("标题", weight: .bold, kind: .heading(level: 1))
-                    tile("副标题", weight: .bold, kind: .heading(level: 2))
-                    tile("小标题", weight: .bold, kind: .heading(level: 3))
+            // Text first offers its kinds; a link, file or image its layout, after the
+            // segments (as Craft orders them).
+            if !targets.isEmpty {
+                section("标题") {
+                    HStack(spacing: 6) {
+                        tile("标题", weight: .bold, kind: .heading(level: 1))
+                        tile("副标题", weight: .bold, kind: .heading(level: 2))
+                        tile("小标题", weight: .bold, kind: .heading(level: 3))
+                    }
+                }
+                section("正文") {
+                    HStack(spacing: 6) {
+                        tile("强调", weight: .semibold, kind: .heading(level: 4))
+                        tile("正文", weight: .regular, kind: .paragraph)
+                        tile("引用", weight: .regular, kind: .quote)
+                    }
                 }
             }
-            section("正文") {
-                HStack(spacing: 6) {
-                    tile("强调", weight: .semibold, kind: .heading(level: 4))
-                    tile("正文", weight: .regular, kind: .paragraph)
-                    tile("引用", weight: .regular, kind: .quote)
+            segments
+            if !editor.blocks.selectedLayouts.isEmpty {
+                section("布局") {
+                    HStack(spacing: 6) {
+                        ForEach(DocLayout.allCases, id: \.self) { layout in
+                            choice(isOn: editor.blocks.selectedLayouts == [layout], help: layout.title) {
+                                editor.blocks.setLayout(layout)
+                            } label: {
+                                DocLayoutIllustration(layout: layout)
+                                    .frame(maxWidth: .infinity, minHeight: 40)
+                            }
+                        }
+                    }
                 }
+                .padding(.top, 18)
             }
-            VStack(spacing: 8) {
-                DocSegments(items: Self.marks.map { item in
-                    .init(id: item.id, symbol: item.symbol, title: item.title, isOn: markIsOn(item.mark), isEnabled: !markRanges.isEmpty) {
-                        editor.toggle(item.mark, over: markRanges)
+            if !editor.blocks.selectedImageSizes.isEmpty {
+                section("图片大小") {
+                    HStack(spacing: 6) {
+                        imageChoice("自动", symbol: "rectangle.center.inset.filled", isOn: editor.blocks.selectedImageSizes == [.auto]) { editor.blocks.setImage(size: .auto) }
+                        imageChoice("大图", symbol: "rectangle", isOn: editor.blocks.selectedImageSizes == [.large]) { editor.blocks.setImage(size: .large) }
                     }
-                })
-                DocSegments(items: Self.lists.map { item in
-                    .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: !targets.isEmpty) {
-                        editor.setKind(item.kind, of: targets.map(\.id))
+                }
+                .padding(.top, 18)
+                section("图片显示") {
+                    HStack(spacing: 6) {
+                        imageChoice("填充", symbol: "square.arrowtriangle.4.outward", isOn: editor.blocks.selectedImageFits == [.fill]) { editor.blocks.setImage(fit: .fill) }
+                        imageChoice("适应", symbol: "arrow.down.and.line.horizontal.and.arrow.up", isOn: editor.blocks.selectedImageFits == [.fit]) { editor.blocks.setImage(fit: .fit) }
                     }
-                })
-                DocSegments(items: [
-                    .init(id: "outdent", symbol: "decrease.indent", title: "减少缩进", isOn: false, isEnabled: canIndent(-1)) {
-                        editor.indent(targets.map(\.id), by: -1)
-                    },
-                    .init(id: "indent", symbol: "increase.indent", title: "增加缩进", isOn: false, isEnabled: canIndent(1)) {
-                        editor.indent(targets.map(\.id), by: 1)
-                    },
-                ])
+                }
             }
         }
         .frame(width: 246)
+    }
+
+    private var segments: some View {
+        VStack(spacing: 8) {
+            DocSegments(items: Self.marks.map { item in
+                .init(id: item.id, symbol: item.symbol, title: item.title, isOn: markIsOn(item.mark), isEnabled: !markRanges.isEmpty) {
+                    editor.toggle(item.mark, over: markRanges)
+                }
+            })
+            DocSegments(items: Self.lists.map { item in
+                .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: !targets.isEmpty) {
+                    editor.setKind(item.kind, of: targets.map(\.id))
+                }
+            })
+            DocSegments(items: [
+                .init(id: "outdent", symbol: "decrease.indent", title: "减少缩进", isOn: false, isEnabled: canIndent(-1)) {
+                    editor.indent(targets.map(\.id), by: -1)
+                },
+                .init(id: "indent", symbol: "increase.indent", title: "增加缩进", isOn: false, isEnabled: canIndent(1)) {
+                    editor.indent(targets.map(\.id), by: 1)
+                },
+            ])
+        }
     }
 
     // MARK: What it acts on
@@ -142,6 +180,33 @@ struct DocFormatPanel: View {
             content()
         }
         .padding(.bottom, 16)
+    }
+
+    /// A choice on a soft tile, outlined in the tint when it's in use.
+    private func choice(isOn: Bool, help: String, action: @escaping () -> Void, @ViewBuilder label: () -> some View) -> some View {
+        Button(action: action) {
+            label()
+                .background(isOn ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06), in: .rect(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    if isOn { RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 1) }
+                }
+                .contentShape(.rect(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    /// An image's size or fit: its name, and its symbol at the right (Craft's).
+    private func imageChoice(_ title: String, symbol: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        choice(isOn: isOn, help: title, action: action) {
+            HStack {
+                Text(title).font(.system(size: 15))
+                Spacer(minLength: 4)
+                Image(systemName: symbol).font(.system(size: 15))
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 40)
+        }
     }
 
     private func tile(_ title: String, weight: Font.Weight, kind: BlockKind) -> some View {

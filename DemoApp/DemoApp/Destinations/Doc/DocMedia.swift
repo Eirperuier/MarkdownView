@@ -37,8 +37,8 @@ struct DocMediaView: View {
 
 // MARK: Links
 
-/// A link; a click opens it (DocEditor.click: the row's own click, not a SwiftUI
-/// gesture, which a reused cell would carry into the rows after it).
+/// A link. A click selects it and a double click opens it (DocBlockController: the
+/// list's taps, not a SwiftUI gesture, which a reused cell carries into later rows).
 struct DocLinkView: View {
     let link: DocLink
     var reservesDot = false

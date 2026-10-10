@@ -34,6 +34,8 @@ struct DocAnchoredPanelConfiguration {
     var dismissDuration: TimeInterval = 0.13
     /// A slight scale keeps the panel attached to its trigger instead of reading as a zoom.
     var transitionScale: CGFloat = 0.975
+    /// A touch outside closes it (a picker's way); a tool panel stays until its trigger.
+    var dismissesOnOutsideTouch = true
 }
 
 extension View {
@@ -245,13 +247,15 @@ private final class DocAnchoredPanelPresenter {
     private func installObservers(window: UIWindow) {
         removeObservers()
         // A touch outside closes it, and still does what it was going to do.
-        let recognizer = DocOutsideTouchRecognizer { [weak self] point in
-            guard let self, let container = self.container else { return }
-            if let anchor = self.anchorView, anchor.bounds.contains(anchor.convert(point, from: nil)) { return }
-            if !container.panelContentRect.contains(container.convert(point, from: nil)) { self.onRequestDismiss?() }
+        if configuration.dismissesOnOutsideTouch {
+            let recognizer = DocOutsideTouchRecognizer { [weak self] point in
+                guard let self, let container = self.container else { return }
+                if let anchor = self.anchorView, anchor.bounds.contains(anchor.convert(point, from: nil)) { return }
+                if !container.panelContentRect.contains(container.convert(point, from: nil)) { self.onRequestDismiss?() }
+            }
+            window.addGestureRecognizer(recognizer)
+            outsideTouches = recognizer
         }
-        window.addGestureRecognizer(recognizer)
-        outsideTouches = recognizer
         // The trigger moves with the document; the panel goes with it.
         let link = CADisplayLink(target: DocDisplayLinkTarget { [weak self] in self?.container?.followAnchor() }, selector: #selector(DocDisplayLinkTarget.tick))
         link.add(to: .main, forMode: .common)

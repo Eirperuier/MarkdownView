@@ -14,12 +14,13 @@
 //
 
 import SwiftUI
+import QuickLook
 import DocKit
 import MessagingUI
 
 @MainActor
 @Observable
-final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
+final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreviewControllerDataSource {
     #if targetEnvironment(macCatalyst)
     nonisolated static let usesHandles = true
     #else
@@ -73,6 +74,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     /// picks blocks while selecting.
     @ObservationIgnored private var rowClick: UITapGestureRecognizer?
     @ObservationIgnored private var selectTap: UITapGestureRecognizer?
+    /// A double click on a link or image opens it (a single one selects it).
+    @ObservationIgnored private var mediaOpen: UITapGestureRecognizer?
+    /// Where a link opens (the browser; the edit tests catch it).
+    @ObservationIgnored var opensURL: (URL) -> Void = { UIApplication.shared.open($0) }
+    /// The image Quick Look shows.
+    @ObservationIgnored private var previewing: URL?
     /// Pieces flying to their rows: the selection shows once they're down.
     @ObservationIgnored private var landings = 0
 
@@ -145,6 +152,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         click.delegate = self
         list.addGestureRecognizer(click)
         rowClick = click
+        // It only takes touches on links and images, so elsewhere nothing waits for it.
+        let open = UITapGestureRecognizer(target: self, action: #selector(mediaDoubleClicked(_:)))
+        open.numberOfTapsRequired = 2
+        open.delegate = self
+        list.addGestureRecognizer(open)
+        mediaOpen = open
+        click.require(toFail: open)
+        selectTap?.require(toFail: open)
         observations = [
             list.observe(\.contentSize) { [weak self] _, _ in MainActor.assumeIsolated { self?.layoutOverlays() } },
             list.observe(\.contentOffset) { [weak self] _, _ in MainActor.assumeIsolated { self?.followHover() } },
@@ -482,6 +497,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if recognizer === selectTap { return isSelecting }
+        if recognizer === mediaOpen {
+            guard drag == nil, let list, let id = block(at: touch.location(in: list)) else { return false }
+            return opens(id)
+        }
         if recognizer === rowClick {
             // Text views and controls take their own clicks.
             guard !isSelecting, drag == nil else { return false }
@@ -539,10 +558,59 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     }
 
     /// A click at a point of the window outside any text: the block whose row it is in
-    /// takes it.
+    /// takes it. A link, file or image is selected by it (and opened by a second).
     func click(atWindowPoint point: CGPoint) {
         guard let list, let id = block(at: list.convert(point, from: nil)) else { return }
-        editor.click(id, at: point)
+        guard let kind = demo.doc.block(id)?.kind, DocMediaView.draws(kind) else { return editor.click(id, at: point) }
+        if Self.usesHandles {
+            click(id)
+        } else if !isSelecting {
+            beginSelecting(id)
+        }
+    }
+
+    @objc private func mediaDoubleClicked(_ recognizer: UITapGestureRecognizer) {
+        guard let list, let id = block(at: recognizer.location(in: list)) else { return }
+        open(id)
+    }
+
+    /// Whether a double click opens this block: a link, or an image.
+    private func opens(_ id: DocBlockID) -> Bool {
+        switch demo.doc.block(id)?.kind {
+        case .link?, .image?: true
+        default: false
+        }
+    }
+
+    /// A link in the browser; an image in Quick Look.
+    func open(_ id: DocBlockID) {
+        switch demo.doc.block(id)?.kind {
+        case .link(let link)?:
+            if let url = URL(string: link.url) { opensURL(url) }
+        case .image(let image)?:
+            if let picture = DocMediaLayout.asset(image.source), let data = picture.jpegData(compressionQuality: 0.95) {
+                let file = FileManager.default.temporaryDirectory.appendingPathComponent((image.alt.isEmpty ? "图片" : image.alt) + ".jpg")
+                guard (try? data.write(to: file)) != nil else { return }
+                previewing = file
+                let preview = QLPreviewController()
+                preview.dataSource = self
+                list?.window?.rootViewController.map { root in
+                    var top = root
+                    while let presented = top.presentedViewController { top = presented }
+                    top.present(preview, animated: true)
+                }
+            } else if let url = URL(string: image.source), url.scheme?.hasPrefix("http") == true {
+                opensURL(url)
+            }
+        default:
+            break
+        }
+    }
+
+    nonisolated func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+
+    nonisolated func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
+        MainActor.assumeIsolated { (previewing ?? URL(fileURLWithPath: "/")) as NSURL }
     }
 
     @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
@@ -1108,6 +1176,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     }
 
     func testContentFrame(_ id: DocBlockID) -> CGRect? { contentFrame(id) }
+
+    /// A click at the middle of a block, as the list's click takes it.
+    func testClick(_ id: DocBlockID) {
+        guard let list, let frame = contentFrame(id) else { return }
+        click(atWindowPoint: list.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil))
+    }
     func testBlock(at point: CGPoint) -> DocBlockID? { block(at: point) }
 
     var testRowFrame: (DocBlockID) -> CGRect? { { [weak self] in self?.rowFrame($0) } }
@@ -1450,7 +1524,7 @@ private struct DocLayoutOption<Picture: View>: View {
 }
 
 /// Craft's little pictures of the layouts: a warm thumbnail and lines of text.
-private struct DocLayoutIllustration: View {
+struct DocLayoutIllustration: View {
     let layout: DocLayout
 
     var body: some View {

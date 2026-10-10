@@ -1179,6 +1179,21 @@ final class DocEditTests {
             try self.expect(items.allSatisfy { self.demo.doc.block($0)?.indent == 0 }, "one undo didn't take both back")
             blocks.clear()
         }
+        await test("a click on a link selects it and a double click opens it") {
+            let link = try self.expectValue(self.demo.doc.blocks.first { if case .link = $0.kind { true } else { false } }, "no link")
+            await show(link.id)
+            var opened: [URL] = []
+            blocks.opensURL = { opened.append($0) }
+            defer { blocks.opensURL = { UIApplication.shared.open($0) } }
+            blocks.testClick(link.id)
+            try self.expect(blocks.selected == [link.id], "selected \(blocks.selected.count)")
+            try self.expect(opened.isEmpty, "a single click opened it")
+            blocks.open(link.id)
+            guard case .link(let shown) = link.kind else { return }
+            try self.expect(opened == [URL(string: shown.url)!], "opened \(opened)")
+            blocks.clear()
+            if blocks.isSelecting { blocks.endSelecting() }
+        }
         await test("several selected blocks move together, in order") {
             let first = try self.block("Loading older")
             let heading = try self.block("第 2 节")
