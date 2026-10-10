@@ -42,6 +42,8 @@ struct DocMediaView: View {
 struct DocLinkView: View {
     let link: DocLink
     var reservesDot = false
+    /// Laid out at a transition's box size: pictures follow the box, text keeps its size.
+    @Environment(\.docFillsFrame) private var fills
 
     @ViewBuilder
     var body: some View {
@@ -56,13 +58,14 @@ struct DocLinkView: View {
             }
             .padding(.leading, 10)
             .padding(.trailing, reservesDot ? 34 : 10)
-            .docSized(height: 36)
+            .docSized(height: 36, alignment: .leading)
             .docMediaFrame()
         case .regular:
             VStack(spacing: 0) {
-                HStack(spacing: 12) {
+                HStack(alignment: fills ? .top : .center, spacing: 12) {
                     DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 28) }
-                        .frame(width: 82, height: 62)
+                        .frame(width: fills ? nil : 82, height: fills ? nil : 62)
+                        .modifier(DocFlexibleThumbnail(isOn: fills, aspect: 82 / 62))
                         .clipped()
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title)
@@ -75,6 +78,7 @@ struct DocLinkView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.trailing, reservesDot ? 34 : 12)
+                    .padding(.top, fills ? 10 : 0)
                 }
                 DocLinkFooter(link: link)
             }
@@ -84,7 +88,8 @@ struct DocLinkView: View {
             VStack(alignment: .leading, spacing: 0) {
                 DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 36) }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 104)
+                    .frame(height: fills ? nil : 104)
+                    .frame(maxHeight: fills ? .infinity : nil)
                     .clipped()
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
@@ -100,7 +105,7 @@ struct DocLinkView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Spacer(minLength: 0)
+                if !fills { Spacer(minLength: 0) }
                 DocLinkFooter(link: link)
             }
             .docSized(width: DocMediaLayout.cardWidth, height: 222)
@@ -152,6 +157,7 @@ private struct DocLinkIcon: View {
 struct DocFileView: View {
     let file: DocFile
     var reservesDot = false
+    @Environment(\.docFillsFrame) private var fills
 
     var body: some View {
         switch file.layout {
@@ -170,7 +176,7 @@ struct DocFileView: View {
             }
             .padding(.leading, 10)
             .padding(.trailing, reservesDot ? 34 : 10)
-            .docSized(height: 42)
+            .docSized(height: 42, alignment: .leading)
             .docMediaFrame()
         case .regular:
             HStack(spacing: 14) {
@@ -191,13 +197,14 @@ struct DocFileView: View {
             .padding(.leading, 14)
             .padding(.trailing, reservesDot ? 34 : 14)
             .padding(.vertical, 10)
-            .docSized()
+            .docSized(alignment: .leading)
             .docMediaFrame()
         case .card:
             VStack(spacing: 0) {
                 DocFileIcon(name: file.name, height: 72)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 104)
+                    .frame(height: fills ? nil : 104)
+                    .frame(maxHeight: fills ? .infinity : nil)
                     .background(Color(.secondarySystemBackground))
                 VStack(spacing: 2) {
                     Text(file.name)
@@ -211,7 +218,7 @@ struct DocFileView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 10)
-                Spacer(minLength: 0)
+                if !fills { Spacer(minLength: 0) }
             }
             .docSized(width: DocMediaLayout.cardWidth, height: 182)
             .docMediaFrame()
@@ -546,8 +553,9 @@ struct DocMediaCell: View {
     let kind: BlockKind
     let blocks: DocBlockController
     var size: CGSize?
-    /// Drawn in a change's transition: it fills the frame it's given (DocMorph).
-    var fills = false
+    /// A layer of a change's transition (DocMorph): its content at `size`, without the
+    /// box and outline the transition draws around it.
+    var isLayer = false
 
     var body: some View {
         let isSelected = blocks.selected.contains(id)
@@ -561,14 +569,14 @@ struct DocMediaCell: View {
             }
             .animation(.easeOut(duration: 0.2), value: blocks.isSelecting)
             .overlay {
-                if isSelected {
+                if isSelected, !isLayer {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5)
                         .padding(-3)
                 }
             }
-            .modifier(DocMediaContextMenu(kind: kind, block: id, blocks: blocks, isOn: !fills))
-            .environment(\.docFillsFrame, fills)
+            .modifier(DocMediaContextMenu(kind: kind, block: id, blocks: blocks, isOn: !isLayer))
+            .environment(\.docFillsFrame, isLayer)
     }
 
     @ViewBuilder
@@ -578,11 +586,9 @@ struct DocMediaCell: View {
                 .frame(width: size.width, height: size.height)
                 .clipShape(.rect(cornerRadius: 8, style: .continuous))
                 .accessibilityLabel(image.alt)
-        } else if fills {
-            // In a transition the box is the cell's, at the size the transition has reached.
+        } else if isLayer, let size {
             DocMediaView(kind: kind, reservesDot: blocks.isSelecting)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .docMediaBox()
+                .frame(width: size.width, height: size.height, alignment: .topLeading)
         } else {
             DocMediaView(kind: kind, reservesDot: blocks.isSelecting)
         }
@@ -614,11 +620,12 @@ extension EnvironmentValues {
 private struct DocSized: ViewModifier {
     let width: CGFloat?
     let height: CGFloat?
+    let alignment: Alignment
     @Environment(\.docFillsFrame) private var fills
 
     func body(content: Content) -> some View {
         if fills {
-            content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
         } else {
             content.frame(width: width, height: height)
         }
@@ -626,8 +633,8 @@ private struct DocSized: ViewModifier {
 }
 
 extension View {
-    func docSized(width: CGFloat? = nil, height: CGFloat? = nil) -> some View {
-        modifier(DocSized(width: width, height: height))
+    func docSized(width: CGFloat? = nil, height: CGFloat? = nil, alignment: Alignment = .topLeading) -> some View {
+        modifier(DocSized(width: width, height: height, alignment: alignment))
     }
 }
 
@@ -649,5 +656,23 @@ private struct DocMediaContextMenu: ViewModifier {
         #else
         content
         #endif
+    }
+}
+
+/// A regular link's thumbnail in a transition: as tall as the row, its width by its
+/// aspect, the way Craft's grows and shrinks with the box.
+private struct DocFlexibleThumbnail: ViewModifier {
+    let isOn: Bool
+    let aspect: CGFloat
+
+    func body(content: Content) -> some View {
+        if isOn {
+            Color.clear
+                .aspectRatio(aspect, contentMode: .fit)
+                .frame(maxHeight: .infinity)
+                .overlay { content }
+        } else {
+            content
+        }
     }
 }

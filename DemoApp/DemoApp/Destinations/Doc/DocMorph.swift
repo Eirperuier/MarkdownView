@@ -3,12 +3,8 @@
 //  DemoApp
 //
 //  A change that reshapes blocks, without a jump, as Craft's: every block on screen
-//  goes from where it was to where the change puts it. Each frame of the animation
-//  lays its content out again at the size it has reached, so a link or file reflows
-//  into its new layout as its box grows or shrinks; its old layout stays under it while
-//  the new one fades in. Text is its picture, moving, its new picture fading in over
-//  it when its shape changes. Drawn over the list, the colour of the page, while the
-//  list takes the change underneath.
+//  goes from where it was to where the change puts it (DocMorphPiece). Drawn over
+//  the list, the colour of the page, while the list takes the change underneath.
 //
 
 import SwiftUI
@@ -55,7 +51,12 @@ struct DocMorphView: View {
     }
 }
 
-/// One block at a point of the change: `progress` 0 is before, 1 after.
+/// One block at a point of the change, `progress` 0 before and 1 after, as Craft
+/// draws it: the box (background, border, the selection's outline) goes from its old
+/// frame to its new one. Inside, the new layout is laid out at the box's size as it
+/// goes (its text at its own size; a picture follows the box), fading in; the old
+/// layout stays as it was, at its own size, fading out. Text is its pictures at their
+/// own size: the old one moving, the new one fading in over it.
 private struct DocMorphPiece: View, @preconcurrency Animatable {
     let item: DocMorph.Item
     let blocks: DocBlockController
@@ -67,32 +68,71 @@ private struct DocMorphPiece: View, @preconcurrency Animatable {
     }
 
     var body: some View {
-        let frame = self.frame
+        let box = mix(from, to)
         ZStack(alignment: .topLeading) {
-            if let kind = item.fromKind, DocMediaView.draws(kind), item.toKind != kind {
-                DocMediaCell(id: item.id, kind: kind, blocks: blocks, size: frame.size, fills: true)
-            }
             if let kind = item.toKind ?? item.fromKind, DocMediaView.draws(kind) {
-                // The new layout fades in over the old one in the first third.
-                let changed = item.fromKind != nil && item.toKind != nil && item.fromKind != item.toKind
-                DocMediaCell(id: item.id, kind: kind, blocks: blocks, size: frame.size, fills: true)
-                    .opacity(changed ? min(1, progress * 3) : 1)
+                media(kind, box: box)
             } else {
-                if let old = item.old { Image(uiImage: old).resizable() }
-                if let new = item.new { Image(uiImage: new).resizable().opacity(min(1, progress * 3)) }
+                text
             }
         }
-        .frame(width: frame.width, height: frame.height, alignment: .topLeading)
-        .position(x: frame.midX, y: frame.midY)
+        .frame(width: box.width, height: box.height, alignment: .topLeading)
+        .position(x: box.midX, y: box.midY)
         .opacity(item.from == nil ? progress : item.to == nil ? 1 - progress : 1)
     }
 
-    /// Between where it was and where it goes (where it is, if it only comes or goes).
-    private var frame: CGRect {
-        guard let from = item.from ?? item.to, let to = item.to ?? item.from else { return .zero }
-        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * progress }
-        return CGRect(x: mix(from.minX, to.minX), y: mix(from.minY, to.minY),
-                      width: mix(from.width, to.width), height: mix(from.height, to.height))
+    @ViewBuilder
+    private func media(_ kind: BlockKind, box: CGRect) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        let isImage = if case .image = kind { true } else { false }
+        let changes = item.fromKind != nil && item.fromKind != kind
+        if isImage {
+            // An image is its picture, filling the box as it goes.
+            DocMediaCell(id: item.id, kind: kind, blocks: blocks, size: box.size, isLayer: true)
+        } else {
+            // Sized to the box: in the stack the old layout, at its own size, is wider or
+            // taller, and an unsized shape would take the stack's size.
+            shape.fill(Color(.systemBackground))
+                .frame(width: box.width, height: box.height)
+            if changes, let old = item.fromKind, let from = item.from {
+                // At its own size, inside the box: what the box no longer covers is cut off.
+                DocMediaCell(id: item.id, kind: old, blocks: blocks, size: from.size, isLayer: true)
+                    .frame(width: box.width, height: box.height, alignment: .topLeading)
+                    .clipShape(shape)
+                    .opacity(max(0, 1 - progress / 0.7))
+            }
+            DocMediaCell(id: item.id, kind: kind, blocks: blocks, size: box.size, isLayer: true)
+                .clipShape(shape)
+                .opacity(changes ? min(1, progress / 0.4) : 1)
+            shape.strokeBorder(DocMediaLayout.border, lineWidth: 1)
+                .frame(width: box.width, height: box.height)
+        }
+        if blocks.selected.contains(item.id) {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5)
+                .padding(-3)
+                .frame(width: box.width, height: box.height)
+        }
+    }
+
+    @ViewBuilder
+    private var text: some View {
+        if let old = item.old {
+            Image(uiImage: old).fixedSize()
+                .opacity(item.new == nil ? 1 : max(0, 1 - progress / 0.7))
+        }
+        if let new = item.new {
+            Image(uiImage: new).fixedSize()
+                .opacity(min(1, progress / 0.4))
+        }
+    }
+
+    private var from: CGRect { item.from ?? item.to ?? .zero }
+    private var to: CGRect { item.to ?? item.from ?? .zero }
+
+    private func mix(_ a: CGRect, _ b: CGRect) -> CGRect {
+        func mix(_ x: CGFloat, _ y: CGFloat) -> CGFloat { x + (y - x) * progress }
+        return CGRect(x: mix(a.minX, b.minX), y: mix(a.minY, b.minY), width: mix(a.width, b.width), height: mix(a.height, b.height))
     }
 }
 

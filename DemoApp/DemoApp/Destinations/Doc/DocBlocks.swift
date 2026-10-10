@@ -1043,9 +1043,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
                 let reshaped = before[id].map { abs($0.width - frame.width) > 0.5 || abs($0.height - frame.height) > 0.5 } ?? true
                 if !media, reshaped, let new { items[index].new = self.picture(of: new, at: self.outset(frame)) }
             }
-            morph.items = items
+            // Later blocks over earlier ones (Craft's): a box that grows goes under the next.
+            let order = Dictionary(uniqueKeysWithValues: self.demo.doc.blocks.enumerated().map { ($1.id, $0) })
+            morph.items = items.sorted { (order[$0.id] ?? .max, $0.from?.minY ?? 0) < (order[$1.id] ?? .max, $1.from?.minY ?? 0) }
             try? await Task.sleep(for: .milliseconds(16))
-            withAnimation(.spring(duration: 0.4, bounce: 0.06)) {
+            // Craft's: about a third of a second, most of the way early.
+            withAnimation(.spring(duration: 0.34, bounce: 0)) {
                 morph.isDone = true
             } completion: {
                 host.view.removeFromSuperview()
