@@ -25,6 +25,8 @@ struct DocRow: Identifiable, Equatable {
     let table: DocTableSnapshot?
     /// A link, file or image block, drawn as itself (DocMedia).
     let media: BlockKind?
+    /// Several of them in one row (cards side by side, a gallery); `block` is the first.
+    var members: [DocMediaMember] = []
     /// A code or math block, edited as its source (and whether it's empty).
     let sourceKind: DocSourceKind?
     let sourceIsEmpty: Bool
@@ -52,7 +54,7 @@ struct DocRow: Identifiable, Equatable {
     }
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
-        lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.table == rhs.table && lhs.media == rhs.media
+        lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.table == rhs.table && lhs.media == rhs.media && lhs.members == rhs.members
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
             && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role
@@ -169,6 +171,17 @@ final class DocDemo {
                 emitLayer()
                 continue
             }
+            // Cards next to each other share a row, as do images (not while the agent writes).
+            if layer == nil, let kind = DocMediaLayout.run(block.kind) {
+                let run = doc.blocks[(index - 1)...].prefix { DocMediaLayout.run($0.kind) == kind && $0.indent == block.indent }
+                if run.count > 1 {
+                    index += run.count - 1
+                    var row = DocRow(id: block.id.description, block: block.id, blocks: [], media: nil)
+                    row.members = run.map { DocMediaMember(id: $0.id, kind: $0.kind) }
+                    result.append(row)
+                    continue
+                }
+            }
             if case .database(let id, _) = block.kind, let database = doc.databases[id] {
                 if let cached = rowCache[block.id], cached.block == block, cached.database == database {
                     result.append(cached.row)
@@ -196,6 +209,10 @@ final class DocDemo {
         }
         space(&result)
         rows = result
+        places = [:]
+        for row in result where !row.members.isEmpty {
+            for (index, member) in row.members.enumerated() { places[member.id] = (row.id, index) }
+        }
         canUndo = history.canUndo
         canRedo = history.canRedo
     }
@@ -215,6 +232,9 @@ final class DocDemo {
         }
         spacingAbove = Dictionary(rows.map { ($0.id, $0.spacingAbove) }, uniquingKeysWith: { first, _ in first })
     }
+
+    /// Where a block sits in a row of several: the row and its place among the members.
+    @ObservationIgnored private(set) var places: [DocBlockID: (row: String, index: Int)] = [:]
 
     /// The space above each row (by row id), for laying things over the rows.
     @ObservationIgnored private(set) var spacingAbove: [String: CGFloat] = [:]
@@ -489,6 +509,9 @@ extension DocRow {
         let source = blocks.map(\.source).joined(separator: "\n")
         let lines = CGFloat(source.split(separator: "\n", omittingEmptySubsequences: false).count)
         let spacing = spacingAbove + spacingBelow
+        if !members.isEmpty {
+            return DocMediaLayout.groupHeight(members.map(\.kind), width: min(720, width - DocBlockController.leadingGutter - DocBlockController.trailingGutter)) + spacing
+        }
         if let media, let height = DocMediaLayout.estimatedHeight(media) { return height + spacing }
         if source.hasPrefix("```") { return lines * 18 + 46 + spacing }
         if source.hasPrefix("|") { return (lines - 1) * 44 + spacing }

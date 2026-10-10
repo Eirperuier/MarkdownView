@@ -1133,6 +1133,32 @@ final class DocEditTests {
             try self.expect(abs(row.height - (height + (self.demo.spacingAbove[image.id.description] ?? 0))) < 2, "row \(row.height), image \(height)")
             blocks.clear()
         }
+        await test("cards next to each other share a row; a point on each picks that one") {
+            let row = try self.expectValue(self.demo.rows.first { $0.members.count >= 2 && { if case .link = $0.members[0].kind { true } else { false } }($0) }, "no row of cards")
+            await show(row.members[0].id)
+            let left = try self.expectValue(blocks.testContentFrame(row.members[0].id), "no frame")
+            let right = try self.expectValue(blocks.testContentFrame(row.members[1].id), "no frame")
+            try self.expect(left.minY == right.minY && right.minX > left.maxX, "cards at \(left) and \(right)")
+            try self.expect(blocks.testBlock(at: CGPoint(x: left.midX, y: left.midY)) == row.members[0].id, "left point picks another block")
+            try self.expect(blocks.testBlock(at: CGPoint(x: right.midX, y: right.midY)) == row.members[1].id, "right point picks another block")
+        }
+        await test("a card dragged out of a row of cards stands on its own where it's dropped") {
+            let row = try self.expectValue(self.demo.rows.first { $0.members.count >= 2 && { if case .link = $0.members[0].kind { true } else { false } }($0) }, "no row of cards")
+            let (first, second) = (row.members[0].id, row.members[1].id)
+            let ids = order()
+            let at = try self.expectValue(ids.firstIndex(of: second), "no card")
+            let below = ids[at + 1]
+            await show(first)
+            let target = try self.expectValue(blocks.testRowFrame(below), "no row below")
+            blocks.testDrag(second, toY: target.maxY - 2)
+            let after = order()
+            try self.expect(after.firstIndex(of: second) == at + 1 && after[at] == below, "order \(String(describing: after.firstIndex(of: second))), wanted \(at + 1)")
+            try? await Task.sleep(for: .milliseconds(300))
+            try self.expect(self.demo.rows.contains { $0.block == first && $0.members.isEmpty }, "the card left behind isn't on its own")
+            try self.expect(self.demo.rows.contains { $0.block == second && $0.members.isEmpty }, "the dragged card isn't on its own")
+            try await self.undo()
+            try self.expect(order() == ids, "undo didn't restore the order")
+        }
         await test("several selected blocks move together, in order") {
             let first = try self.block("Loading older")
             let heading = try self.block("第 2 节")

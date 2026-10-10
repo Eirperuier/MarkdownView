@@ -161,27 +161,46 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
 
     // MARK: Geometry
 
+    /// The row a block is in (its own, or the row it shares with others).
     private func rowFrame(_ id: DocBlockID) -> CGRect? {
-        reader?.frame(forItem: id.description)
+        reader?.frame(forItem: demo.places[id]?.row ?? id.description)
     }
 
-    /// The block in its row: less the page's margins (at most 720 wide, centred) and
-    /// the space above and below it.
-    private func contentFrame(_ id: DocBlockID) -> CGRect? {
-        guard let row = rowFrame(id) else { return nil }
+    /// The page's part of a block's row: less the page's margins (at most 720 wide,
+    /// centred) and the space above and below it.
+    private func pageFrame(_ id: DocBlockID) -> CGRect? {
+        let rowID = demo.places[id]?.row ?? id.description
+        guard let row = reader?.frame(forItem: rowID) else { return nil }
         let room = max(0, row.width - Self.leadingGutter - Self.trailingGutter)
         let width = min(720, room)
-        let above = demo.spacingAbove[id.description] ?? 0
-        let below = demo.rows.last?.block == id ? DocTypography.pageBottom : 0
+        let above = demo.spacingAbove[rowID] ?? 0
+        let below = demo.rows.last?.id == rowID ? DocTypography.pageBottom : 0
         return CGRect(x: row.minX + Self.leadingGutter + (room - width) / 2, y: row.minY + above, width: width, height: max(0, row.height - above - below))
     }
 
-    /// The committed block whose row is at `y` (list coordinates).
-    private func block(atY y: CGFloat) -> DocBlockID? {
+    /// The block itself: its row's page part, or its place among the row's members.
+    private func contentFrame(_ id: DocBlockID) -> CGRect? {
+        guard let page = pageFrame(id) else { return nil }
+        guard let place = demo.places[id], let row = demo.rows.first(where: { $0.id == place.row }) else { return page }
+        let frames = DocMediaLayout.memberFrames(row.members.map(\.kind), width: page.width)
+        guard frames.indices.contains(place.index) else { return page }
+        return frames[place.index].offsetBy(dx: page.minX, dy: page.minY)
+    }
+
+    /// The committed block at a point (list coordinates): the row's block, or in a row
+    /// of several, the member under the point (or nearest it).
+    private func block(at point: CGPoint) -> DocBlockID? {
         guard let list, let reader else { return nil }
-        let hits = reader.contentFrames(intersecting: CGRect(x: 0, y: y, width: list.bounds.width, height: 1))
-        guard let id = hits.first(where: { $0.value.minY <= y && y < $0.value.maxY })?.key ?? hits.first?.key else { return nil }
-        return demo.rows.first { $0.id == id }?.block
+        let hits = reader.contentFrames(intersecting: CGRect(x: 0, y: point.y, width: list.bounds.width, height: 1))
+        guard let id = hits.first(where: { $0.value.minY <= point.y && point.y < $0.value.maxY })?.key ?? hits.first?.key,
+            let row = demo.rows.first(where: { $0.id == id })
+        else { return nil }
+        guard !row.members.isEmpty else { return row.block }
+        let frames = row.members.compactMap { member in contentFrame(member.id).map { (member.id, $0) } }
+        func distance(_ frame: CGRect) -> CGFloat {
+            hypot(max(frame.minX - point.x, 0, point.x - frame.maxX), max(frame.minY - point.y, 0, point.y - frame.maxY))
+        }
+        return frames.min { distance($0.1) < distance($1.1) }?.0 ?? row.block
     }
 
     /// Where a block's first line is, for the handle: the text's first line, or near
@@ -303,7 +322,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         }
         let size = DocBlockHandleView.size
         // One column for every block, nested or not: the handles line up.
-        handle.frame = CGRect(x: content.minX - size.width - 6, y: firstLineMidY(hovered, row: content) - size.height / 2,
+        let left = pageFrame(hovered)?.minX ?? content.minX
+        handle.frame = CGRect(x: left - size.width - 6, y: firstLineMidY(hovered, row: content) - size.height / 2,
                               width: size.width, height: size.height)
         handle.layer.zPosition = 8
         handle.isHidden = false
@@ -327,7 +347,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     /// The block under the pointer, again: the pointer moved or the rows did.
     private func followHover() {
         guard Self.usesHandles, let list, press == nil, drag == nil else { return }
-        let next = hoverPoint.flatMap { block(atY: list.convert($0, from: list.superview).y) }
+        let next = hoverPoint.flatMap { block(at: list.convert($0, from: list.superview)) }
         if next != hovered { hovered = next }
         layoutHandle()
     }
@@ -483,7 +503,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         let point = recognizer.location(in: list)
         switch recognizer.state {
         case .began:
-            guard let id = block(atY: point.y) else { return }
+            guard let id = block(at: point) else { return }
             press = (id, point)
             list.window?.endEditing(true)
             lift(id, at: point)
@@ -521,12 +541,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     /// A click at a point of the window outside any text: the block whose row it is in
     /// takes it.
     func click(atWindowPoint point: CGPoint) {
-        guard let list, let id = block(atY: list.convert(point, from: nil).y) else { return }
+        guard let list, let id = block(at: list.convert(point, from: nil)) else { return }
         editor.click(id, at: point)
     }
 
     @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
-        guard isSelecting, let list, let id = block(atY: recognizer.location(in: list).y) else { return }
+        guard isSelecting, let list, let id = block(at: recognizer.location(in: list)) else { return }
         let group = Set(groups([id]).flatMap { $0 })
         if selected.contains(id) {
             setSelection(selected.filter { !group.contains($0) })
@@ -642,15 +662,17 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     private func gap(atY y: CGFloat) -> Int? {
         guard let list, let reader else { return nil }
         let index = Dictionary(uniqueKeysWithValues: demo.doc.blocks.enumerated().map { ($1.id.description, $0) })
+        let spans = Dictionary(demo.rows.filter { !$0.members.isEmpty }.map { ($0.id, $0.members.count) }, uniquingKeysWith: { a, _ in a })
+        // A row of several is one gap before it and one after its last member.
         let frames = reader.contentFrames(intersecting: list.bounds.insetBy(dx: 0, dy: -400))
-            .compactMap { id, frame in index[id].map { ($0, frame) } }
-            .sorted { $0.0 < $1.0 }
+            .compactMap { id, frame in index[id].map { (first: $0, end: $0 + (spans[id] ?? 1), frame: frame) } }
+            .sorted { $0.first < $1.first }
         guard let first = frames.first, let last = frames.last else { return nil }
-        if y < first.1.minY { return first.0 }
-        for (index, frame) in frames where y < frame.maxY {
-            return y < frame.midY ? index : index + 1
+        if y < first.frame.minY { return first.first }
+        for row in frames where y < row.frame.maxY {
+            return y < row.frame.midY ? row.first : row.end
         }
-        return last.0 + 1
+        return last.end
     }
 
     /// The drop line: halfway through the space above the block after the gap, or under
@@ -1090,6 +1112,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         moveDrag(to: list.convert(CGPoint(x: start.x, y: y), to: list.superview))
         drop()
     }
+
+    func testContentFrame(_ id: DocBlockID) -> CGRect? { contentFrame(id) }
+    func testBlock(at point: CGPoint) -> DocBlockID? { block(at: point) }
 
     var testRowFrame: (DocBlockID) -> CGRect? { { [weak self] in self?.rowFrame($0) } }
     var testHighlightFrames: [CGRect] { highlights.filter { !$0.isHidden }.map(\.frame) }

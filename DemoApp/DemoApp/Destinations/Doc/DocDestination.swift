@@ -67,7 +67,7 @@ struct DocDestination: View {
                let row = demo.rows.first(where: { row in
                    switch kind {
                    case "code": if case .code = row.sourceKind { true } else { false }
-                   case "media": row.media != nil
+                   case "media": row.media != nil || !row.members.isEmpty
                    default: row.sourceKind == .math
                    }
                }),
@@ -210,31 +210,11 @@ private struct DocRowView: View {
             // with a new id, and the text view being typed in must stay the same view.
             if let table = row.table, !row.isStreaming {
                 DocTableRowView(table: table, blocks: row.blocks, controller: tables)
-            } else if let media = row.media, !row.isStreaming {
-                let isSelected = row.block.map(blocks.selected.contains) ?? false
-                DocMediaView(kind: media, reservesDot: blocks.isSelecting)
-                    .overlay(alignment: .trailing) {
-                        // Selecting: a dot inside the box, at its right (Craft's).
-                        if blocks.isSelecting {
-                            DocSelectionDot(isOn: isSelected)
-                                .padding(.trailing, 10)
-                                .transition(.opacity)
-                        }
-                    }
-                    .animation(.easeOut(duration: 0.2), value: blocks.isSelecting)
-                    .overlay {
-                        // Selected: a tinted outline around its box (Craft's).
-                        if isSelected {
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5)
-                                .padding(-3)
-                        }
-                    }
+            } else if !row.members.isEmpty, !row.isStreaming {
+                DocMediaGroupView(members: row.members, blocks: blocks)
+            } else if let media = row.media, let block = row.block, !row.isStreaming {
+                DocMediaCell(id: block, kind: media, blocks: blocks)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    #if targetEnvironment(macCatalyst)
-                    // Right-click: its layout (the selection's, when it is in it).
-                    .contextMenu { if let block = row.block { DocMediaMenu(kind: media, block: block, blocks: blocks) } }
-                    #endif
             } else if let block = row.block, case .code(let language) = row.sourceKind, !row.isStreaming {
                 DocCodeRowView(block: block, language: language, blocks: row.blocks, controller: sources)
             } else if let block = row.block, row.sourceKind == .math, !row.isStreaming {
@@ -301,7 +281,7 @@ private struct DocBlockOverlays: ViewModifier {
 }
 
 /// A link, file or image's layouts, as a menu (the Mac's right-click).
-private struct DocMediaMenu: View {
+struct DocMediaMenu: View {
     let kind: BlockKind
     let block: DocBlockID
     let blocks: DocBlockController
@@ -337,15 +317,3 @@ private struct DocMediaMenu: View {
     }
 }
 
-/// The dot inside a selected link, file or image: a ring, filled with the tint when
-/// the block is selected.
-private struct DocSelectionDot: View {
-    let isOn: Bool
-
-    var body: some View {
-        Circle()
-            .fill(isOn ? Color.accentColor : Color(.systemBackground))
-            .overlay { if !isOn { Circle().strokeBorder(Color(.systemGray3), lineWidth: 1.5) } }
-            .frame(width: 14, height: 14)
-    }
-}

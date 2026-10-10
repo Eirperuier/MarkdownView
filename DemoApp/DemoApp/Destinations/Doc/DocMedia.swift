@@ -401,3 +401,153 @@ private extension View {
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(DocMediaLayout.border, lineWidth: 1))
     }
 }
+
+// MARK: Groups
+
+/// A block in a row of several: cards side by side, images in a gallery.
+struct DocMediaMember: Equatable {
+    let id: DocBlockID
+    let kind: BlockKind
+}
+
+extension DocMediaLayout {
+    static let gap: CGFloat = 12
+
+    /// What run a block joins (cards with cards, images with images); nil: it stands
+    /// alone. A large image always does.
+    enum Run { case cards, gallery }
+
+    static func run(_ kind: BlockKind) -> Run? {
+        switch kind {
+        case .link(let link) where link.layout == .card: .cards
+        case .file(let file) where file.layout == .card: .cards
+        case .image(let image) where image.size == .auto: .gallery
+        default: nil
+        }
+    }
+
+    /// Where each member sits, from the row's top left, at `width`: cards in as many
+    /// columns as fit, each line as tall as its tallest; images in lines of up to four,
+    /// one height per line, as wide together as the page (no taller than 280).
+    static func memberFrames(_ kinds: [BlockKind], width: CGFloat) -> [CGRect] {
+        guard let first = kinds.first, let run = run(first) else { return [] }
+        var frames: [CGRect] = []
+        var y: CGFloat = 0
+        switch run {
+        case .cards:
+            let card = cardWidth
+            let columns = max(1, Int((width + gap) / (card + gap)))
+            for line in stride(from: 0, to: kinds.count, by: columns) {
+                let members = kinds[line..<min(line + columns, kinds.count)]
+                let height = members.map(cardHeight).max() ?? 0
+                for (column, kind) in members.enumerated() {
+                    frames.append(CGRect(x: CGFloat(column) * (card + gap), y: y, width: card, height: cardHeight(kind)))
+                }
+                y += height + gap
+            }
+        case .gallery:
+            for line in stride(from: 0, to: kinds.count, by: 4) {
+                let ratios = kinds[line..<min(line + 4, kinds.count)].map(aspect)
+                let height = min(280, (width - gap * CGFloat(ratios.count - 1)) / ratios.reduce(0, +)).rounded(.down)
+                var x: CGFloat = 0
+                for ratio in ratios {
+                    let w = (ratio * height).rounded(.down)
+                    frames.append(CGRect(x: x, y: y, width: w, height: height))
+                    x += w + gap
+                }
+                y += height + gap
+            }
+        }
+        return frames
+    }
+
+    static func groupHeight(_ kinds: [BlockKind], width: CGFloat) -> CGFloat {
+        memberFrames(kinds, width: width).map(\.maxY).max() ?? 0
+    }
+
+    private static func cardHeight(_ kind: BlockKind) -> CGFloat {
+        if case .file = kind { 182 } else { 222 }
+    }
+
+    /// An image's width over its height in a gallery (4:3 when it fills, or unknown).
+    private static func aspect(_ kind: BlockKind) -> CGFloat {
+        guard case .image(let image) = kind, image.fit == .fit, let size = naturalSize(image.source), size.height > 0 else { return 4 / 3 }
+        return size.width / size.height
+    }
+}
+
+/// A row of several links, files or images, each where memberFrames puts it.
+struct DocMediaGroupView: View {
+    let members: [DocMediaMember]
+    let blocks: DocBlockController
+
+    var body: some View {
+        let width = DocMediaLayout.pageWidth
+        let frames = DocMediaLayout.memberFrames(members.map(\.kind), width: width)
+        ZStack(alignment: .topLeading) {
+            ForEach(Array(zip(members, frames)), id: \.0.id) { member, frame in
+                DocMediaCell(id: member.id, kind: member.kind, blocks: blocks, size: frame.size)
+                    .offset(x: frame.minX, y: frame.minY)
+            }
+        }
+        .frame(width: width, height: DocMediaLayout.groupHeight(members.map(\.kind), width: width), alignment: .topLeading)
+    }
+}
+
+/// A link, file or image with what selecting adds: a dot inside its box at its right,
+/// a tinted outline around it (Craft's); on the Mac a right-click offers its layouts.
+/// `size` sets an image's box in a gallery.
+struct DocMediaCell: View {
+    let id: DocBlockID
+    let kind: BlockKind
+    let blocks: DocBlockController
+    var size: CGSize?
+
+    var body: some View {
+        let isSelected = blocks.selected.contains(id)
+        content
+            .overlay(alignment: .trailing) {
+                if blocks.isSelecting {
+                    DocSelectionDot(isOn: isSelected)
+                        .padding(.trailing, 10)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: blocks.isSelecting)
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5)
+                        .padding(-3)
+                }
+            }
+            #if targetEnvironment(macCatalyst)
+            .contextMenu { DocMediaMenu(kind: kind, block: id, blocks: blocks) }
+            #endif
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if case .image(let image) = kind, let size {
+            DocMediaPreview(source: image.source, fill: true) { Color(.secondarySystemBackground) }
+                .frame(width: size.width, height: size.height)
+                .clipShape(.rect(cornerRadius: 8, style: .continuous))
+                .accessibilityLabel(image.alt)
+        } else {
+            DocMediaView(kind: kind, reservesDot: blocks.isSelecting)
+        }
+    }
+}
+
+/// The dot inside a selected link, file or image: a ring, filled with the tint when
+/// the block is selected.
+private struct DocSelectionDot: View {
+    let isOn: Bool
+
+    var body: some View {
+        Circle()
+            .fill(isOn ? Color.accentColor : Color(.systemBackground))
+            .overlay { if !isOn { Circle().strokeBorder(Color(.systemGray3), lineWidth: 1.5) } }
+            .frame(width: 14, height: 14)
+    }
+}

@@ -40,13 +40,15 @@ enum DocDemoCorpus {
         [行程预算.xlsx](blob:demo-budget "file")
 
         ![平江路](asset:pingjianglu)
+
+        ![拙政园](asset:zhuozhengyuan)
         """
 
     /// What the app would have found out about the links and files (their pages'
     /// summaries and previews, the files' sizes) and the layouts they're shown in.
     private static let links: [String: (summary: String, image: String, layout: DocLayout)] = [
         "https://zh.wikipedia.org/wiki/%E6%8B%99%E6%94%BF%E5%9B%AD": ("中国四大名园之一，明代园林的代表作，以水为中心，亭台楼榭临水而建。", "asset:zhuozhengyuan", .card),
-        "https://zh.wikipedia.org/wiki/%E5%B9%B3%E6%B1%9F%E8%B7%AF": ("苏州保存最完整的古街之一，河街并行，白墙黛瓦。", "asset:pingjianglu", .regular),
+        "https://zh.wikipedia.org/wiki/%E5%B9%B3%E6%B1%9F%E8%B7%AF": ("苏州保存最完整的古街之一，河街并行，白墙黛瓦。", "asset:pingjianglu", .card),
     ]
     private static let files: [String: (size: Int, layout: DocLayout)] = [
         "blob:demo-route": (2_516_582, .regular),
