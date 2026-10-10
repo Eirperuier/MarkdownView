@@ -1,0 +1,5592 @@
+[
+ {
+  "hooks": [
+   {
+    "summary": "Triggers when a Gmail message is sent by the authenticated user. It polls the 'SENT' label and emits metadata including sender, recipients, subject, timestamp, and thread ID."
+   },
+   {
+    "summary": "Triggers when a new message is received in Gmail."
+   }
+  ],
+  "id": "gmail",
+  "operations": [
+   {
+    "effect": "write",
+    "title": "Modify email labels"
+   },
+   {
+    "effect": "destructive",
+    "title": "Batch delete Gmail messages"
+   },
+   {
+    "effect": "write",
+    "title": "Batch modify Gmail messages"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create email draft"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create Gmail filter"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create label"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete Draft"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete Gmail filter"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete label from account (permanent)"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete message"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete thread"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch emails"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch message by message ID"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch Message by Thread ID"
+   },
+   {
+    "effect": "unknown",
+    "title": "Forward email message"
+   },
+   {
+    "effect": "read",
+    "title": "Get Gmail attachment"
+   },
+   {
+    "effect": "read",
+    "title": "Get Auto-Forwarding Settings"
+   },
+   {
+    "effect": "read",
+    "title": "Get contacts"
+   },
+   {
+    "effect": "read",
+    "title": "Get Draft"
+   },
+   {
+    "effect": "read",
+    "title": "Get Gmail filter"
+   },
+   {
+    "effect": "read",
+    "title": "Get label details"
+   },
+   {
+    "effect": "read",
+    "title": "Get Language Settings"
+   },
+   {
+    "effect": "read",
+    "title": "Get People"
+   },
+   {
+    "effect": "read",
+    "title": "Get Profile"
+   },
+   {
+    "effect": "read",
+    "title": "Get Vacation Settings"
+   },
+   {
+    "effect": "unknown",
+    "title": "Import message"
+   },
+   {
+    "effect": "unknown",
+    "title": "Insert message into mailbox"
+   },
+   {
+    "effect": "read",
+    "title": "List CSE identities"
+   },
+   {
+    "effect": "read",
+    "title": "List CSE key pairs"
+   },
+   {
+    "effect": "read",
+    "title": "List Drafts"
+   },
+   {
+    "effect": "read",
+    "title": "List Gmail filters"
+   },
+   {
+    "effect": "read",
+    "title": "List forwarding addresses"
+   },
+   {
+    "effect": "read",
+    "title": "List Gmail history"
+   },
+   {
+    "effect": "read",
+    "title": "List Gmail labels"
+   },
+   {
+    "effect": "read",
+    "title": "List send-as aliases"
+   },
+   {
+    "effect": "read",
+    "title": "List S/MIME configs"
+   },
+   {
+    "effect": "read",
+    "title": "List threads"
+   },
+   {
+    "effect": "write",
+    "title": "Modify thread labels"
+   },
+   {
+    "effect": "write",
+    "title": "Trash thread"
+   },
+   {
+    "effect": "write",
+    "title": "Move to Trash"
+   },
+   {
+    "effect": "write",
+    "title": "Patch Label"
+   },
+   {
+    "effect": "write",
+    "title": "Patch send-as alias"
+   },
+   {
+    "effect": "unknown",
+    "title": "Reply to email thread"
+   },
+   {
+    "effect": "read",
+    "title": "Search People"
+   },
+   {
+    "effect": "destructive",
+    "title": "Send Draft"
+   },
+   {
+    "effect": "unknown",
+    "title": "Send Email"
+   },
+   {
+    "effect": "read",
+    "title": "Get IMAP Settings"
+   },
+   {
+    "effect": "read",
+    "title": "Get POP settings"
+   },
+   {
+    "effect": "read",
+    "title": "Get send-as alias"
+   },
+   {
+    "effect": "destructive",
+    "title": "Stop watch notifications"
+   },
+   {
+    "effect": "write",
+    "title": "Untrash Message"
+   },
+   {
+    "effect": "write",
+    "title": "Untrash thread"
+   },
+   {
+    "effect": "write",
+    "title": "Update Google Contact"
+   },
+   {
+    "effect": "write",
+    "title": "Update draft"
+   },
+   {
+    "effect": "write",
+    "title": "Update IMAP settings"
+   },
+   {
+    "effect": "write",
+    "title": "Update Label"
+   },
+   {
+    "effect": "write",
+    "title": "Update Language Settings"
+   },
+   {
+    "effect": "write",
+    "title": "Update POP settings"
+   },
+   {
+    "effect": "write",
+    "title": "Update send-as alias"
+   },
+   {
+    "effect": "write",
+    "title": "Update Vacation Settings"
+   },
+   {
+    "effect": "read",
+    "title": "Who Am I"
+   }
+  ],
+  "presentation": {
+   "category": "email",
+   "description": "Search and read the mail in your Gmail account, write drafts and replies, send messages, and sort mail with labels. New mail is noticed as it arrives.",
+   "developer": "Google",
+   "icon": "/v1/icons/gmail.png",
+   "localized": {
+    "zh-Hans": {
+     "description": "搜索和阅读 Gmail 账号里的邮件，写草稿和回复，发送邮件，用标签整理。新邮件一到就能知道。",
+     "prompts": [
+      "今天早上来的邮件里，哪些要回？",
+      "找一下房东最近发的那封邮件",
+      "回一封草稿，说我周五前发过去"
+     ],
+     "short_description": "读写和整理邮件"
+    }
+   },
+   "name": "Gmail",
+   "privacy_policy": "https://policies.google.com/privacy",
+   "prompts": [
+    "What came in this morning that needs a reply?",
+    "Find the last email from my landlord",
+    "Draft a reply saying I'll send it by Friday"
+   ],
+   "short_description": "Read, send and organize email",
+   "terms_of_service": "https://policies.google.com/terms",
+   "website": "https://mail.google.com"
+  }
+ },
+ {
+  "hooks": [
+   {
+    "summary": "Polling trigger that fires when any attendee's RSVP changes to accepted, declined, or tentative. Returns attendee info and current status."
+   },
+   {
+    "summary": "Triggers when a Google Calendar event is cancelled or deleted. Returns minimal data: event_id, summary (if available), and cancellation timestamp."
+   },
+   {
+    "summary": "Triggers when a calendar event is within a configured number of minutes from starting. Returns event details, time remaining, attendees, and join links when available."
+   },
+   {
+    "summary": "**SOON TO BE DEPRECATED** - Use Calendar Event Sync (polling trigger) instead. Real-time webhook trigger for calendar event changes. Returns event metadata only. For full event data, use Calendar Event Sync (polling trigger)."
+   },
+   {
+    "summary": "Polling trigger that fires when a new calendar event is created. Returns event ID, summary, start/end times, and organizer info."
+   },
+   {
+    "summary": "Polling trigger that returns full event data including details, attendees, and metadata. For real-time notifications with basic info, use Calendar Event Changes (webhook)."
+   },
+   {
+    "summary": "Triggers when an existing Google Calendar event is modified. Returns the event ID, change type, and the specific fields that changed with their previous and new values."
+   }
+  ],
+  "id": "googlecalendar",
+  "operations": [
+   {
+    "effect": "destructive",
+    "title": "Delete ACL Rule"
+   },
+   {
+    "effect": "read",
+    "title": "Get ACL Rule"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create ACL Rule"
+   },
+   {
+    "effect": "read",
+    "title": "List ACL Rules"
+   },
+   {
+    "effect": "write",
+    "title": "Patch ACL Rule"
+   },
+   {
+    "effect": "write",
+    "title": "Update ACL Rule"
+   },
+   {
+    "effect": "unknown",
+    "title": "Watch ACL Changes"
+   },
+   {
+    "effect": "destructive",
+    "title": "Batch Events"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove Calendar from List"
+   },
+   {
+    "effect": "read",
+    "title": "Get Single Calendar by ID"
+   },
+   {
+    "effect": "unknown",
+    "title": "Insert Calendar into List"
+   },
+   {
+    "effect": "write",
+    "title": "Patch Calendar List Entry"
+   },
+   {
+    "effect": "write",
+    "title": "Update Calendar List Entry"
+   },
+   {
+    "effect": "unknown",
+    "title": "Watch Calendar List"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete Calendar"
+   },
+   {
+    "effect": "write",
+    "title": "Update Calendar"
+   },
+   {
+    "effect": "destructive",
+    "title": "Stop Channel"
+   },
+   {
+    "effect": "destructive",
+    "title": "Clear Calendar"
+   },
+   {
+    "effect": "read",
+    "title": "Get Color Definitions"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a new calendar"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create Event"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete event"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a calendar"
+   },
+   {
+    "effect": "read",
+    "title": "Get Event"
+   },
+   {
+    "effect": "unknown",
+    "title": "Import Event"
+   },
+   {
+    "effect": "read",
+    "title": "Get Event Instances"
+   },
+   {
+    "effect": "read",
+    "title": "List Events"
+   },
+   {
+    "effect": "read",
+    "title": "List Events from All Calendars"
+   },
+   {
+    "effect": "write",
+    "title": "Move Event"
+   },
+   {
+    "effect": "unknown",
+    "title": "Watch Events"
+   },
+   {
+    "effect": "read",
+    "title": "Find event"
+   },
+   {
+    "effect": "read",
+    "title": "Find free slots"
+   },
+   {
+    "effect": "read",
+    "title": "Query Calendar Availability"
+   },
+   {
+    "effect": "read",
+    "title": "Get Google Calendar"
+   },
+   {
+    "effect": "read",
+    "title": "Get current date and time"
+   },
+   {
+    "effect": "read",
+    "title": "Get Current Google Calendar User"
+   },
+   {
+    "effect": "read",
+    "title": "List Buildings"
+   },
+   {
+    "effect": "read",
+    "title": "List Calendar Resources"
+   },
+   {
+    "effect": "read",
+    "title": "List Google Calendars"
+   },
+   {
+    "effect": "write",
+    "title": "Patch Calendar"
+   },
+   {
+    "effect": "write",
+    "title": "Patch Event"
+   },
+   {
+    "effect": "unknown",
+    "title": "Quick Add Event"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove attendee from event"
+   },
+   {
+    "effect": "read",
+    "title": "Get Calendar Setting"
+   },
+   {
+    "effect": "read",
+    "title": "List Settings"
+   },
+   {
+    "effect": "unknown",
+    "title": "Watch Settings"
+   },
+   {
+    "effect": "write",
+    "title": "Update Google event"
+   }
+  ],
+  "presentation": {
+   "category": "scheduling-&-booking",
+   "description": "Read the events on your Google Calendar, create, move and cancel them, and find times when you and others are free. Changes and upcoming events are noticed as they happen.",
+   "developer": "Google",
+   "icon": "/v1/icons/googlecalendar.png",
+   "localized": {
+    "zh-Hans": {
+     "description": "读取 Google 日历上的日程，新建、改时间和取消，找出你和别人都有空的时间。日程有变化、快开始时都能知道。",
+     "name": "Google 日历",
+     "prompts": [
+      "我明天有什么安排？",
+      "下周哪天下午有一小时空？",
+      "把周五的电话改到下午四点"
+     ],
+     "short_description": "查看和安排日程"
+    }
+   },
+   "name": "Google Calendar",
+   "privacy_policy": "https://policies.google.com/privacy",
+   "prompts": [
+    "What's on my calendar tomorrow?",
+    "Find an hour next week when I'm free in the afternoon",
+    "Move Friday's call to 4 pm"
+   ],
+   "short_description": "See and manage your schedule",
+   "terms_of_service": "https://policies.google.com/terms",
+   "website": "https://calendar.google.com"
+  }
+ },
+ {
+  "hooks": [
+   {
+    "summary": "Triggers when a new workflow artifact is created in a GitHub repository. Monitors for newly created GitHub Actions workflow artifacts. Optionally filters by artifact name to restrict monitoring to specific artifacts."
+   },
+   {
+    "summary": "Triggers when a GitHub branch changes. Monitors a specific branch for: - New commits pushed (head commit SHA changes) - Protection status toggled (branch becomes protected or unprotected) - Protection settings changed, including: required status checks and their enforcement level, admin enforcement, required pull request reviews (dismiss stale reviews, code owner reviews, approving review count, last push approval), required linear history, force push allowance, deletion allowance, conversation resolution, branch locking, and fork syncing."
+   },
+   {
+    "summary": "Triggers when a new branch is created in a GitHub repository. Detects newly created branches. Deleted branches do not fire events."
+   },
+   {
+    "summary": "Triggers when a specific GitHub check run changes its status or conclusion. Monitors a single check run for changes to: status (queued, in_progress, completed, etc.), conclusion (success, failure, neutral, cancelled, skipped, timed_out, action_required), started_at, and completed_at."
+   },
+   {
+    "summary": "Triggers when a GitHub check suite changes its status or conclusion for a given ref. Monitors all check suites associated with a git reference (branch, tag, or commit SHA) for changes to status (queued, in_progress, completed, etc.) and conclusion (success, failure, neutral, cancelled, skipped, timed_out, action_required, startup_failure, stale). Optionally filters by GitHub App ID."
+   },
+   {
+    "summary": "Triggers when a new code scanning alert is created in a repository. Fires an event for each newly created code scanning alert detected in the configured repository. Alerts can be filtered by Git reference, scanning tool, state, and severity. The payload includes the alert number, rule details, tool information, state, severity, and the location of the most recent instance."
+   },
+   {
+    "summary": "Triggers when a new collaborator is added to a GitHub repository. Monitors the full list of collaborators on a repository and fires an event for each newly added collaborator. The payload includes the collaborator's GitHub username, account ID, profile URL, avatar URL, permission flags (pull, triage, push, maintain, admin), and assigned role name."
+   },
+   {
+    "summary": "Triggered when a new commit is pushed to a repository."
+   },
+   {
+    "summary": "Triggers when a new deployment is created in a GitHub repository. Fires an event for each newly created deployment detected in the configured repository. Deployments can optionally be filtered by target environment. The payload includes the deployment ID, commit SHA, ref, task, environment, creator details, and timestamps."
+   },
+   {
+    "summary": "Triggers when a specific GitHub deployment's fields change. Monitors the following aspects of a single deployment: - ``environment`` -- the target environment name - ``original_environment`` -- the original environment name before normalization - ``description`` -- the human-readable deployment description - ``task`` -- the deployment task name - ``sha`` -- the commit SHA being deployed - ``ref`` -- the branch, tag, or SHA reference being deployed - ``updated_at`` -- the last-updated timestamp - ``transient_environment`` -- whether the environment is temporary - ``production_environment`` -- whether this is a production deployment When any of these fields change, an event is emitted containing the full current deployment details and a list of which fields changed."
+   },
+   {
+    "summary": "Triggers when a new deployment status is created for a specific deployment. Fires an event for each newly created deployment status on the monitored deployment. Deployment statuses represent state transitions such as pending, in_progress, success, failure, error, inactive, and queued. The payload includes the status state, creator, environment, description, timestamps, and relevant URLs."
+   },
+   {
+    "summary": "Triggers when new followers are detected on your GitHub account."
+   },
+   {
+    "summary": "Triggers when a new Git reference (branch or tag) matching a specified prefix is created in a repository. Fires an event for each newly created branch or tag whose name matches the configured prefix. Use ``ref_prefix`` to control what is monitored: - ``heads/`` to watch all branches - ``heads/feature/`` to watch only feature branches - ``tags/`` to watch all tags - ``tags/v`` to watch tags starting with 'v' The payload includes the full reference name, node ID, the SHA and type of the Git object the reference points to, and the reference API URL."
+   },
+   {
+    "summary": "Triggered when a new issue is added to the repository."
+   },
+   {
+    "summary": "Triggers when a new issue is assigned to the authenticated user. Fires an event for each GitHub issue that is newly assigned to the authenticated user. Pull requests are automatically excluded -- only true issues are emitted. Issues can optionally be filtered by labels and state. The payload includes the issue number, title, body, state, labels, assignees, creator, repository details, and timestamps."
+   },
+   {
+    "summary": "Triggers when a specific GitHub issue comment changes. Monitors the following fields for changes: - ``body`` -- the text content of the comment (detects edits) - ``updated_at`` -- the last-updated timestamp - ``reactions_*`` -- all individual reaction counts (thumbs up/down, laugh, confused, heart, hooray, eyes, rocket) and the total count When a change is detected, the payload includes the full current comment data plus a ``changed_fields`` list indicating exactly which fields were modified."
+   },
+   {
+    "summary": "Triggers when a new comment is added to a specific GitHub issue. Only genuinely new comments are emitted; edits to existing comments do not produce duplicate events.  The payload includes the comment ID, text body, author details, timestamps, and direct links to the comment on GitHub."
+   },
+   {
+    "summary": "Triggers when a new issue is created in a GitHub repository. Pull requests are automatically excluded -- only true issues produce events. Results can be filtered by labels, assignee, creator, and mentioned user. The payload includes the issue number, title, body, state, labels, assignees, comment count, creator details, timestamps, and direct links to the issue on GitHub."
+   },
+   {
+    "summary": "Triggers when a new issue event occurs in a GitHub repository. Covers all issue timeline events such as issues being closed, reopened, assigned, unassigned, labeled, unlabeled, milestoned, demilestoned, renamed, locked, or unlocked.  Events can optionally be filtered by type. The payload includes the event type, timestamp, the actor who triggered the event, the affected issue details, and any associated commit references."
+   },
+   {
+    "summary": "Triggers when the labels on a specific GitHub issue change. Fires whenever a label is added to, removed from, or has its metadata (color, description) modified on the monitored issue.  The payload includes: - ``current_labels`` -- the full set of labels currently on the issue - ``added_labels`` -- labels that were newly added - ``removed_label_names`` -- names of labels that were removed - ``changed_label_names`` -- labels whose metadata changed without being added or removed"
+   },
+   {
+    "summary": "Triggers when a specific GitHub issue changes any of its tracked properties. Monitored properties: state (open/closed), state_reason, title, body, assignees, labels, milestone, lock status, active_lock_reason, comment count, and closed_at timestamp. When a change is detected, the payload includes the full current issue details, the list of changed field names, and their previous values."
+   },
+   {
+    "summary": "Triggers when an existing issue is updated in a GitHub repository. Monitors issues for any changes such as title edits, body edits, label changes, assignee changes, state transitions (opening, closing, reopening), milestone updates, and comment additions. Only pre-existing issues that receive updates are emitted; newly created issues are excluded. Pull requests are also excluded -- only true issues fire events."
+   },
+   {
+    "summary": "Triggered when a new label is added to a pull request."
+   },
+   {
+    "summary": "Triggers when a new user stars a GitHub repository. Emits an event for each new stargazer detected on the monitored repository."
+   },
+   {
+    "summary": "Triggers when a new inline review comment is added to a specific GitHub pull request. Monitors all review comments across all reviews on the specified pull request and emits an event for each newly created comment. Edits to existing comments do not fire new events."
+   },
+   {
+    "summary": "Triggers when a new commit is pushed to a specific pull request. Monitors all commits on the specified pull request and emits an event for each newly added commit. This covers force-pushes and additional commits pushed to the PR's head branch."
+   },
+   {
+    "summary": "Triggers when a new pull request is created in GitHub, matching the optional configured filters. Emits an event for each newly created pull request. Supports filtering by repository, owner/organisation, author, assignee, label, state, base branch, head branch, and draft status."
+   },
+   {
+    "summary": "Triggered when a pull request is opened, closed, or synchronized."
+   },
+   {
+    "summary": "Triggers when a new review is submitted for a GitHub pull request. Emits an event for each newly submitted review on the monitored pull request, covering all review types: APPROVED, CHANGES_REQUESTED, COMMENTED, and DISMISSED."
+   },
+   {
+    "summary": "Triggers when the list of requested reviewers (users or teams) for a pull request changes — for example when a reviewer is added, removed, or re-requested. The payload includes the full current reviewer list (users and teams with details), which reviewers were added, which were removed, and the previous reviewer list for reference."
+   },
+   {
+    "summary": "Triggers when a specific GitHub pull request changes any of these tracked properties: state (open/closed), title, body, draft status, lock status, merge status, assignees, labels, requested reviewers, or milestone. The payload includes the full current PR details, the list of changed field names, and their previous values."
+   },
+   {
+    "summary": "Triggers when an existing pull request is updated in a GitHub repository. Updates include title edits, description changes, label changes, assignee changes, reviewer requests, draft status changes, base branch changes, being closed, merged, or reopened. Only pre-existing PRs that receive an update will fire the trigger; newly created PRs are excluded. Supports optional filters: state, base branch, head branch, author, label, and draft status."
+   },
+   {
+    "summary": "Triggers when the README file in a specific repository directory changes. Monitors the README in a configurable directory and branch/tag/commit. The payload includes the current README metadata (filename, path, SHA, size, URLs), the previous and current git blob SHAs, and a list of which tracked fields changed."
+   },
+   {
+    "summary": "Triggers when a new asset is added to a specific GitHub release. Monitors a single release (identified by release ID) for newly uploaded assets such as binaries, archives, or checksum files. One event is emitted per new asset, containing full asset metadata."
+   },
+   {
+    "summary": "Triggers when a specific GitHub release (identified by tag name) changes. Monitors the release title, body/notes, draft flag, prerelease flag, published timestamp, target branch/commit, and the set of attached assets. The payload includes the full current release details, a list of which fields changed, and the previous values for comparison."
+   },
+   {
+    "summary": "Triggers when the content of a file or directory in a GitHub repository changes. Monitors a specified path within a repository on a given branch or tag. For a single file, fires ``content_changed`` when the file is modified. For a directory, fires ``content_changed``, ``content_added``, or ``content_removed`` for modified, new, or deleted entries respectively. content."
+   },
+   {
+    "summary": "Triggers when a new or newly updated notification thread appears for a specific GitHub repository. Monitors notifications for issues, pull requests, commits, releases, check suites, security alerts, and other repository activity. Supports filtering by read/unread status and by direct participation. Requires a Personal Access Token (classic) with the ``notifications``"
+   },
+   {
+    "summary": "Triggers when a new tag is created in a GitHub repository. Monitors the repository's tags and fires an event for each newly created tag. The payload includes the tag name, the commit SHA and URL it points to, and archive download URLs."
+   },
+   {
+    "summary": "Triggers when a new secret scanning alert is detected in a GitHub repository. Monitors open secret scanning alerts and fires an event for each newly detected alert. Supports filtering by secret type (e.g., personal access tokens, AWS keys) and by token validity status (active, inactive, unknown). The payload includes the alert number, secret type, validity status, resolution state, timestamps, URLs, and flags for push protection bypass, public exposure, and multi-repo detection."
+   },
+   {
+    "summary": "Triggered when a new star is added to the repository."
+   },
+   {
+    "summary": "Triggers when a new GitHub Actions workflow is added to a repository. Monitors a repository's GitHub Actions workflows and fires an event for each newly added workflow. The payload includes the workflow's name, file path, state, creation and update timestamps, and URLs for the API, web interface, and status badge."
+   },
+   {
+    "summary": "Triggers when a new job appears in a specific GitHub Actions workflow run. This is useful for detecting matrix-expanded jobs that are added after the initial workflow run creation, or any other scenario where jobs are dynamically added to an existing run."
+   },
+   {
+    "summary": "Triggers when the status, conclusion, timestamps, runner assignment, or step details of a specific GitHub Actions workflow job change between polls. The payload includes the full current job state, a list of which fields changed, and the previous status/conclusion values for easy comparison."
+   },
+   {
+    "summary": "Triggers when a new artifact is uploaded to a specific GitHub Actions workflow run. Monitors a single workflow run for newly added artifacts such as build outputs, test results, or coverage reports. Each new artifact detected fires a separate event."
+   },
+   {
+    "summary": "Triggers when a new workflow run is created in a GitHub repository. Monitors the repository for any new workflow runs and fires an event for each one. Optional filters allow narrowing to a specific branch, actor, or event type."
+   },
+   {
+    "summary": "Triggers when a GitHub Actions workflow run's status or conclusion changes. Monitors a single workflow run and fires an event whenever it transitions between states (e.g., queued to in_progress, or in_progress to completed) or when its conclusion is set (e.g., success, failure, cancelled)."
+   }
+  ],
+  "id": "github",
+  "operations": [
+   {
+    "effect": "destructive",
+    "title": "Abort Repository Migration"
+   },
+   {
+    "effect": "write",
+    "title": "Accept a repository invitation"
+   },
+   {
+    "effect": "write",
+    "title": "Add a repository collaborator"
+   },
+   {
+    "effect": "write",
+    "title": "Add app access restrictions"
+   },
+   {
+    "effect": "write",
+    "title": "Add assignees to an issue"
+   },
+   {
+    "effect": "unknown",
+    "title": "Add email for auth user"
+   },
+   {
+    "effect": "unknown",
+    "title": "Add field to user project"
+   },
+   {
+    "effect": "unknown",
+    "title": "Add item to user project"
+   },
+   {
+    "effect": "write",
+    "title": "Add labels to an issue"
+   },
+   {
+    "effect": "write",
+    "title": "Add or update team membership for a user"
+   },
+   {
+    "effect": "write",
+    "title": "Add or update team project permissions"
+   },
+   {
+    "effect": "write",
+    "title": "Add or update team repository permissions"
+   },
+   {
+    "effect": "write",
+    "title": "Add org runner labels"
+   },
+   {
+    "effect": "write",
+    "title": "Add repo to org secret with selected access"
+   },
+   {
+    "effect": "write",
+    "title": "Add selected repo to org secret"
+   },
+   {
+    "effect": "write",
+    "title": "Add a repository to an app installation"
+   },
+   {
+    "effect": "write",
+    "title": "Add runner labels"
+   },
+   {
+    "effect": "write",
+    "title": "Add selected repository to an organization secret"
+   },
+   {
+    "effect": "write",
+    "title": "Add selected repository to an organization variable"
+   },
+   {
+    "effect": "write",
+    "title": "Add a selected repository to a user secret"
+   },
+   {
+    "effect": "write",
+    "title": "Add social accounts for the authenticated user"
+   },
+   {
+    "effect": "write",
+    "title": "Add status check contexts"
+   },
+   {
+    "effect": "write",
+    "title": "Add sub-issue to an issue"
+   },
+   {
+    "effect": "write",
+    "title": "Add team access restrictions"
+   },
+   {
+    "effect": "write",
+    "title": "Add user access restrictions"
+   },
+   {
+    "effect": "write",
+    "title": "Add users to codespaces access for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get GitHub API root"
+   },
+   {
+    "effect": "write",
+    "title": "Approve a workflow run for a fork pull request"
+   },
+   {
+    "effect": "write",
+    "title": "Assign an organization role to a team"
+   },
+   {
+    "effect": "write",
+    "title": "Assign an organization role to a user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Block a user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Block a user from an organization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Cancel a GitHub Pages deployment"
+   },
+   {
+    "effect": "destructive",
+    "title": "Cancel sponsorship"
+   },
+   {
+    "effect": "destructive",
+    "title": "Cancel a workflow run"
+   },
+   {
+    "effect": "read",
+    "title": "Check if following user"
+   },
+   {
+    "effect": "read",
+    "title": "Check if a gist is starred"
+   },
+   {
+    "effect": "read",
+    "title": "Check if pull request merged"
+   },
+   {
+    "effect": "read",
+    "title": "Check if pull request merged"
+   },
+   {
+    "effect": "read",
+    "title": "Check if a user can be assigned"
+   },
+   {
+    "effect": "read",
+    "title": "Check if a user can be assigned to an issue"
+   },
+   {
+    "effect": "read",
+    "title": "Check if a user follows another user"
+   },
+   {
+    "effect": "read",
+    "title": "Check if a user is blocked by the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "Check if a user is blocked by an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Check if a user is a repository collaborator"
+   },
+   {
+    "effect": "read",
+    "title": "Check if person is followed by authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "Check private vulnerability reporting status"
+   },
+   {
+    "effect": "read",
+    "title": "Check public organization membership"
+   },
+   {
+    "effect": "read",
+    "title": "Check if repository is starred"
+   },
+   {
+    "effect": "read",
+    "title": "Check team permissions for a project"
+   },
+   {
+    "effect": "read",
+    "title": "Check team permissions for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Check a token"
+   },
+   {
+    "effect": "destructive",
+    "title": "Clear Project V2 Item Field Value"
+   },
+   {
+    "effect": "destructive",
+    "title": "Clear repository cache by key"
+   },
+   {
+    "effect": "destructive",
+    "title": "Clear self-hosted runner org labels"
+   },
+   {
+    "effect": "write",
+    "title": "Close an issue"
+   },
+   {
+    "effect": "write",
+    "title": "Close a pull request"
+   },
+   {
+    "effect": "destructive",
+    "title": "Commit Multiple Files"
+   },
+   {
+    "effect": "read",
+    "title": "Compare two commits"
+   },
+   {
+    "effect": "unknown",
+    "title": "Configure JIT runner for an org"
+   },
+   {
+    "effect": "write",
+    "title": "Configure OIDC subject claim template"
+   },
+   {
+    "effect": "write",
+    "title": "Convert an organization member to outside collaborator"
+   },
+   {
+    "effect": "write",
+    "title": "Convert Pull Request to Draft"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a blob"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a check run"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a check suite"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a codespace for the authenticated user"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a codespace from a pull request"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a codespace in a repository"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a commit"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a commit comment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a commit status"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a custom organization role"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a deploy key"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a deployment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a deployment branch policy"
+   },
+   {
+    "effect": "write",
+    "title": "Create a deployment status"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a discussion"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a discussion comment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a fork"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a gist"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a gist comment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a GitHub App from a manifest"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a github pages deployment"
+   },
+   {
+    "effect": "write",
+    "title": "Create a github pages site"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a label"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a milestone"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a project card"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a pull request"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a reference"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a registration token for a repository"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a registration token for an organization"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a release"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a remove token for a repository"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a remove token for an organization"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a reply for a review comment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a repository dispatch event"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a repository for the authenticated user"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a repository from an unpublished codespace"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a repository project"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a repository ruleset"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a repository using a template"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a repository variable"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a repository webhook"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a review comment for a pull request"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a review for a pull request"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a scoped access token"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a dependency snapshot"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a tag object"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a team"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a temporary private fork"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a tree"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a user project"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a workflow dispatch event"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create an autolink reference for a repository"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create an environment variable"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create an issue"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create an issue comment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create an organization project"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create an organization repository"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create an organization variable"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create an organization webhook"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a branch"
+   },
+   {
+    "effect": "write",
+    "title": "Create commit signature protection"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a custom deployment protection rule on an environment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create draft item for user project"
+   },
+   {
+    "effect": "read",
+    "title": "Create inference chat completions"
+   },
+   {
+    "effect": "read",
+    "title": "Create inference embeddings"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create issue type"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create JIT runner config for repo"
+   },
+   {
+    "effect": "destructive",
+    "title": "Create or update a repository secret"
+   },
+   {
+    "effect": "destructive",
+    "title": "Create or update a secret for the authenticated user"
+   },
+   {
+    "effect": "write",
+    "title": "Create or update an environment"
+   },
+   {
+    "effect": "destructive",
+    "title": "Create or update an environment secret"
+   },
+   {
+    "effect": "destructive",
+    "title": "Create or update an organization secret"
+   },
+   {
+    "effect": "write",
+    "title": "Create or update custom properties for an organization"
+   },
+   {
+    "effect": "write",
+    "title": "Create or update a custom property for an organization"
+   },
+   {
+    "effect": "write",
+    "title": "Create or update file contents"
+   },
+   {
+    "effect": "write",
+    "title": "Create or Update GitHub Pages Site"
+   },
+   {
+    "effect": "destructive",
+    "title": "Create or update repo secret with encrypted value"
+   },
+   {
+    "effect": "write",
+    "title": "Create reaction for a commit comment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create reaction for a pull request review comment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create reaction for a release"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create reaction for a team discussion"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create reaction for a team discussion comment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create reaction for an issue"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create reaction for an issue comment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create repository"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create Sponsors Tier"
+   },
+   {
+    "effect": "write",
+    "title": "Create sponsorship"
+   },
+   {
+    "effect": "destructive",
+    "title": "Create or Update Organization Secret with LibSodium"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create user list"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create view for user project"
+   },
+   {
+    "effect": "destructive",
+    "title": "Decline a repository invitation"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a file"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a package version for the authenticated user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a reference"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a release"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a release asset"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a release reaction"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a repository"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a repository invitation"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a repository ruleset"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a repository secret"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a repository subscription"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a repository variable"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a repository webhook"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a review comment for a pull request"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a secret for the authenticated user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a self hosted runner from a repository"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a self hosted runner from an organization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a team"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a thread subscription"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a workflow run"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete access restrictions"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete admin branch protection"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an app authorization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an app token"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an artifact"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an autolink reference from a repository"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete branch protection"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a code scanning analysis from a repository"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a codespace for the authenticated user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a commit comment"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a commit comment reaction"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete commit signature protection"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a custom organization role"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete dependabot secret by name"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a deploy key"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a deployment"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a deployment branch policy"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a discussion"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a discussion comment"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete authenticated user email address"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an environment"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an environment secret"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an environment variable"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a gist"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a gist comment"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete GitHub Actions cache by ID"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a GitHub Pages site"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an issue comment"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an issue comment reaction"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an issue reaction"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a label"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a milestone"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a codespace from the organization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a package for an organization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an organization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an organization secret"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an organization variable"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an organization webhook"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a package for the authenticated user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete package version"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete package version for a user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete package version for an organization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a pending review for a pull request"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a project"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a project field (column)"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete project item for user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a pull request comment reaction"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete pull request review protection"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete repo codespace secret by name"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete social accounts for the authenticated user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete team discussion comment reaction"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete team discussion reaction"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete User List"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a package for a user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete workflow run logs"
+   },
+   {
+    "effect": "destructive",
+    "title": "Disable a custom protection rule for an environment"
+   },
+   {
+    "effect": "write",
+    "title": "Disable a workflow"
+   },
+   {
+    "effect": "destructive",
+    "title": "Disable private vulnerability reporting for a repository"
+   },
+   {
+    "effect": "write",
+    "title": "Disable Repository Actions In Org"
+   },
+   {
+    "effect": "write",
+    "title": "Dismiss a review for a pull request"
+   },
+   {
+    "effect": "read",
+    "title": "Download a repository tarball"
+   },
+   {
+    "effect": "read",
+    "title": "Download a repository archive ZIP"
+   },
+   {
+    "effect": "read",
+    "title": "Download an artifact"
+   },
+   {
+    "effect": "read",
+    "title": "Download job logs for a workflow run"
+   },
+   {
+    "effect": "read",
+    "title": "Download workflow run attempt logs"
+   },
+   {
+    "effect": "read",
+    "title": "Download workflow run logs"
+   },
+   {
+    "effect": "write",
+    "title": "Enable a workflow"
+   },
+   {
+    "effect": "write",
+    "title": "Enable GitHub actions in selected repositories"
+   },
+   {
+    "effect": "write",
+    "title": "Enable private vulnerability reporting for a repository"
+   },
+   {
+    "effect": "write",
+    "title": "Enable repo for Github Actions"
+   },
+   {
+    "effect": "destructive",
+    "title": "Encrypt and update dev secret"
+   },
+   {
+    "effect": "destructive",
+    "title": "Encrypt org dev env secret"
+   },
+   {
+    "effect": "write",
+    "title": "Export a codespace for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "Export an SBOM for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Find Pull Requests"
+   },
+   {
+    "effect": "read",
+    "title": "Find Repositories"
+   },
+   {
+    "effect": "write",
+    "title": "Follow Organization (GraphQL)"
+   },
+   {
+    "effect": "write",
+    "title": "Follow a user"
+   },
+   {
+    "effect": "write",
+    "title": "Follow User (GraphQL)"
+   },
+   {
+    "effect": "destructive",
+    "title": "Force cancel a workflow run"
+   },
+   {
+    "effect": "unknown",
+    "title": "Fork a gist"
+   },
+   {
+    "effect": "read",
+    "title": "Generate release notes content for a release"
+   },
+   {
+    "effect": "read",
+    "title": "Get a blob"
+   },
+   {
+    "effect": "read",
+    "title": "Get a branch"
+   },
+   {
+    "effect": "read",
+    "title": "Get a commit"
+   },
+   {
+    "effect": "read",
+    "title": "Get a milestone"
+   },
+   {
+    "effect": "read",
+    "title": "Get a package for a user"
+   },
+   {
+    "effect": "read",
+    "title": "Get a package for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get a package for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "Get a package version for a user"
+   },
+   {
+    "effect": "read",
+    "title": "Get a package version for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get authenticated user package version"
+   },
+   {
+    "effect": "read",
+    "title": "Get a project"
+   },
+   {
+    "effect": "read",
+    "title": "Get a project card"
+   },
+   {
+    "effect": "read",
+    "title": "Get a pull request"
+   },
+   {
+    "effect": "read",
+    "title": "Get a reference"
+   },
+   {
+    "effect": "read",
+    "title": "Get a release"
+   },
+   {
+    "effect": "read",
+    "title": "Get a release asset"
+   },
+   {
+    "effect": "read",
+    "title": "Get a release by tag name"
+   },
+   {
+    "effect": "read",
+    "title": "Get a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get a repository public key"
+   },
+   {
+    "effect": "read",
+    "title": "Get a repository readme"
+   },
+   {
+    "effect": "read",
+    "title": "Get a repository readme for a directory"
+   },
+   {
+    "effect": "read",
+    "title": "Get a repository rule suite"
+   },
+   {
+    "effect": "read",
+    "title": "Get a repository ruleset"
+   },
+   {
+    "effect": "read",
+    "title": "Get a repository secret"
+   },
+   {
+    "effect": "read",
+    "title": "Get a repository subscription"
+   },
+   {
+    "effect": "read",
+    "title": "Get a repository variable"
+   },
+   {
+    "effect": "read",
+    "title": "Get a repository webhook"
+   },
+   {
+    "effect": "read",
+    "title": "Get a review comment for a pull request"
+   },
+   {
+    "effect": "read",
+    "title": "Get a review for a pull request"
+   },
+   {
+    "effect": "read",
+    "title": "Get a secret for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "Get a self hosted runner for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get a self hosted runner for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get a tag"
+   },
+   {
+    "effect": "read",
+    "title": "Get a team by name"
+   },
+   {
+    "effect": "read",
+    "title": "Get a thread"
+   },
+   {
+    "effect": "read",
+    "title": "Get a thread subscription for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List repository files and directories"
+   },
+   {
+    "effect": "read",
+    "title": "Get a user"
+   },
+   {
+    "effect": "read",
+    "title": "Get a webhook configuration for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get a webhook configuration for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get a webhook delivery for an organization webhook"
+   },
+   {
+    "effect": "read",
+    "title": "Get a workflow"
+   },
+   {
+    "effect": "read",
+    "title": "Get a workflow run"
+   },
+   {
+    "effect": "read",
+    "title": "Get a workflow run attempt"
+   },
+   {
+    "effect": "read",
+    "title": "Get access restrictions"
+   },
+   {
+    "effect": "read",
+    "title": "Get admin branch protection"
+   },
+   {
+    "effect": "read",
+    "title": "Get all API versions"
+   },
+   {
+    "effect": "read",
+    "title": "Get all contributor commit activity"
+   },
+   {
+    "effect": "read",
+    "title": "Get all deployment protection rules for an environment"
+   },
+   {
+    "effect": "read",
+    "title": "Get an app"
+   },
+   {
+    "effect": "read",
+    "title": "Get an artifact"
+   },
+   {
+    "effect": "read",
+    "title": "Get an assignment"
+   },
+   {
+    "effect": "read",
+    "title": "Get an autolink reference of a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get an environment"
+   },
+   {
+    "effect": "read",
+    "title": "Get an environment public key"
+   },
+   {
+    "effect": "read",
+    "title": "Get an environment secret"
+   },
+   {
+    "effect": "read",
+    "title": "Get an environment variable"
+   },
+   {
+    "effect": "read",
+    "title": "Get an issue"
+   },
+   {
+    "effect": "read",
+    "title": "Get an issue comment"
+   },
+   {
+    "effect": "read",
+    "title": "Get an issue event"
+   },
+   {
+    "effect": "read",
+    "title": "Get an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get an organization public key"
+   },
+   {
+    "effect": "read",
+    "title": "Get an organization role"
+   },
+   {
+    "effect": "read",
+    "title": "Get an organization secret"
+   },
+   {
+    "effect": "read",
+    "title": "Get an organization variable"
+   },
+   {
+    "effect": "read",
+    "title": "Get an organization webhook"
+   },
+   {
+    "effect": "read",
+    "title": "Get assignment grades"
+   },
+   {
+    "effect": "read",
+    "title": "Get billing usage report for user"
+   },
+   {
+    "effect": "read",
+    "title": "Get branch protection"
+   },
+   {
+    "effect": "read",
+    "title": "Get catalog models"
+   },
+   {
+    "effect": "read",
+    "title": "Get a check run"
+   },
+   {
+    "effect": "read",
+    "title": "Get a check suite"
+   },
+   {
+    "effect": "read",
+    "title": "Get a classroom"
+   },
+   {
+    "effect": "read",
+    "title": "Get a code of conduct"
+   },
+   {
+    "effect": "read",
+    "title": "Get Code of Conduct (GraphQL)"
+   },
+   {
+    "effect": "read",
+    "title": "Get a code scanning alert"
+   },
+   {
+    "effect": "read",
+    "title": "Get a code scanning analysis for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get a code scanning default setup configuration"
+   },
+   {
+    "effect": "read",
+    "title": "Get a CodeQL database for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get a codespace for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "Get a commit comment"
+   },
+   {
+    "effect": "read",
+    "title": "Get a commit object"
+   },
+   {
+    "effect": "read",
+    "title": "Get commit signature protection"
+   },
+   {
+    "effect": "read",
+    "title": "Get commit statuses"
+   },
+   {
+    "effect": "read",
+    "title": "Get community profile metrics"
+   },
+   {
+    "effect": "read",
+    "title": "Get contextual information for a user"
+   },
+   {
+    "effect": "read",
+    "title": "Get a custom deployment protection rule"
+   },
+   {
+    "effect": "read",
+    "title": "Get default attributes for a codespace"
+   },
+   {
+    "effect": "read",
+    "title": "Get default workflow permissions for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get default workflow permissions for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get a diff of the dependencies between commits"
+   },
+   {
+    "effect": "read",
+    "title": "Get a deploy key"
+   },
+   {
+    "effect": "read",
+    "title": "Get a deployment"
+   },
+   {
+    "effect": "read",
+    "title": "Get a deployment branch policy"
+   },
+   {
+    "effect": "read",
+    "title": "Get a deployment status"
+   },
+   {
+    "effect": "read",
+    "title": "Get details about a codespace export"
+   },
+   {
+    "effect": "read",
+    "title": "Get a discussion"
+   },
+   {
+    "effect": "read",
+    "title": "Get a discussion comment"
+   },
+   {
+    "effect": "read",
+    "title": "Get emojis"
+   },
+   {
+    "effect": "read",
+    "title": "Get Enterprise Member Invitation"
+   },
+   {
+    "effect": "read",
+    "title": "Get feeds"
+   },
+   {
+    "effect": "read",
+    "title": "Get a gist"
+   },
+   {
+    "effect": "read",
+    "title": "Get a gist comment"
+   },
+   {
+    "effect": "read",
+    "title": "Get a gist revision"
+   },
+   {
+    "effect": "read",
+    "title": "Get github actions cache usage for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get GitHub Actions cache usage for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get GitHub Actions permissions for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get github actions permissions for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get billing premium request usage"
+   },
+   {
+    "effect": "read",
+    "title": "Get billing usage summary for user"
+   },
+   {
+    "effect": "read",
+    "title": "Get github meta information"
+   },
+   {
+    "effect": "read",
+    "title": "Get github pages build"
+   },
+   {
+    "effect": "read",
+    "title": "Get a gitignore template"
+   },
+   {
+    "effect": "read",
+    "title": "Get a global security advisory"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch GraphQL Node"
+   },
+   {
+    "effect": "read",
+    "title": "Get GraphQL rate limit"
+   },
+   {
+    "effect": "read",
+    "title": "Get information about a sarif upload"
+   },
+   {
+    "effect": "read",
+    "title": "Get interaction restrictions for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get interaction restrictions for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get interaction restrictions for public repositories"
+   },
+   {
+    "effect": "read",
+    "title": "Get issue comments"
+   },
+   {
+    "effect": "read",
+    "title": "Get a label"
+   },
+   {
+    "effect": "read",
+    "title": "Get latest pages build"
+   },
+   {
+    "effect": "read",
+    "title": "Get a license"
+   },
+   {
+    "effect": "read",
+    "title": "Get License (GraphQL)"
+   },
+   {
+    "effect": "read",
+    "title": "Get octocat"
+   },
+   {
+    "effect": "read",
+    "title": "Customize OIDC subject claim template"
+   },
+   {
+    "effect": "read",
+    "title": "Get allowed actions and workflows for an org"
+   },
+   {
+    "effect": "read",
+    "title": "Get org dev environment secret safely"
+   },
+   {
+    "effect": "read",
+    "title": "Get custom OIDC subject claim template"
+   },
+   {
+    "effect": "read",
+    "title": "Get organization audit log"
+   },
+   {
+    "effect": "read",
+    "title": "Get a custom property for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get organization project item"
+   },
+   {
+    "effect": "read",
+    "title": "Get organization public key for Codespaces secrets"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch Public Key For Secret Encryption"
+   },
+   {
+    "effect": "read",
+    "title": "Get organization teams"
+   },
+   {
+    "effect": "read",
+    "title": "Get page views"
+   },
+   {
+    "effect": "read",
+    "title": "Get a dns health check for github pages"
+   },
+   {
+    "effect": "read",
+    "title": "Get a GitHub Pages site"
+   },
+   {
+    "effect": "read",
+    "title": "Get parent issue"
+   },
+   {
+    "effect": "read",
+    "title": "Get pending deployments for a workflow run"
+   },
+   {
+    "effect": "read",
+    "title": "Get project permission for a user"
+   },
+   {
+    "effect": "read",
+    "title": "Get public key for secret encryption"
+   },
+   {
+    "effect": "read",
+    "title": "Get public key for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "Get pull request review protection"
+   },
+   {
+    "effect": "read",
+    "title": "Get Pull Requests"
+   },
+   {
+    "effect": "read",
+    "title": "Get rate limit status for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "Get Raw Repository Content"
+   },
+   {
+    "effect": "read",
+    "title": "Get allowed actions and workflows for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get repository development environment secret"
+   },
+   {
+    "effect": "read",
+    "title": "Get repository attestations"
+   },
+   {
+    "effect": "read",
+    "title": "Get repository clones"
+   },
+   {
+    "effect": "read",
+    "title": "Get repository content"
+   },
+   {
+    "effect": "read",
+    "title": "Get Repository via GraphQL"
+   },
+   {
+    "effect": "read",
+    "title": "Get Repository Owner"
+   },
+   {
+    "effect": "read",
+    "title": "Get repository permissions for a user"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve repo public key for encryption"
+   },
+   {
+    "effect": "read",
+    "title": "Get repository secret securely"
+   },
+   {
+    "effect": "read",
+    "title": "Get repository security advisory"
+   },
+   {
+    "effect": "read",
+    "title": "Get a delivery for a repository webhook"
+   },
+   {
+    "effect": "read",
+    "title": "Get rules for a branch"
+   },
+   {
+    "effect": "read",
+    "title": "Get Organization Dependabot Secret"
+   },
+   {
+    "effect": "read",
+    "title": "Get status checks protection"
+   },
+   {
+    "effect": "read",
+    "title": "Get team members"
+   },
+   {
+    "effect": "read",
+    "title": "Get team membership for a user"
+   },
+   {
+    "effect": "read",
+    "title": "Get teams with access to the protected branch"
+   },
+   {
+    "effect": "read",
+    "title": "Get the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "Get the combined status for a specific reference"
+   },
+   {
+    "effect": "read",
+    "title": "Get the hourly commit count for each day"
+   },
+   {
+    "effect": "read",
+    "title": "Get the last year of commit activity"
+   },
+   {
+    "effect": "read",
+    "title": "Get the latest release"
+   },
+   {
+    "effect": "read",
+    "title": "Get the license for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get the review history for a workflow run"
+   },
+   {
+    "effect": "read",
+    "title": "Get the status of a GitHub Pages deployment"
+   },
+   {
+    "effect": "read",
+    "title": "Get the weekly commit activity"
+   },
+   {
+    "effect": "read",
+    "title": "Get the weekly commit count"
+   },
+   {
+    "effect": "read",
+    "title": "Get the Zen of GitHub"
+   },
+   {
+    "effect": "read",
+    "title": "Get top referral paths"
+   },
+   {
+    "effect": "read",
+    "title": "Get top referral sources"
+   },
+   {
+    "effect": "read",
+    "title": "Get user by ID"
+   },
+   {
+    "effect": "read",
+    "title": "Get user project item"
+   },
+   {
+    "effect": "read",
+    "title": "Get user attestations by subject digest"
+   },
+   {
+    "effect": "read",
+    "title": "Get user's projects v2"
+   },
+   {
+    "effect": "read",
+    "title": "Get users with access to the protected branch"
+   },
+   {
+    "effect": "read",
+    "title": "Get Viewer via GraphQL"
+   },
+   {
+    "effect": "read",
+    "title": "Get workflow external access level"
+   },
+   {
+    "effect": "read",
+    "title": "Get a job for a workflow run"
+   },
+   {
+    "effect": "read",
+    "title": "Get workflow run usage"
+   },
+   {
+    "effect": "read",
+    "title": "Get workflow usage"
+   },
+   {
+    "effect": "read",
+    "title": "Check if repo starred by auth user"
+   },
+   {
+    "effect": "read",
+    "title": "List accepted assignments for an assignment"
+   },
+   {
+    "effect": "read",
+    "title": "List repositories accessible via GitHub App installation"
+   },
+   {
+    "effect": "read",
+    "title": "List app installations for user token"
+   },
+   {
+    "effect": "read",
+    "title": "Get apps with access to the protected branch"
+   },
+   {
+    "effect": "read",
+    "title": "List artifacts for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List assignees"
+   },
+   {
+    "effect": "read",
+    "title": "List assignments for a classroom"
+   },
+   {
+    "effect": "read",
+    "title": "List attestation repositories"
+   },
+   {
+    "effect": "read",
+    "title": "List available machine types for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List branches"
+   },
+   {
+    "effect": "read",
+    "title": "List branches for head commit"
+   },
+   {
+    "effect": "read",
+    "title": "List check run annotations"
+   },
+   {
+    "effect": "read",
+    "title": "List check runs for a git ref"
+   },
+   {
+    "effect": "read",
+    "title": "List check runs in a check suite"
+   },
+   {
+    "effect": "read",
+    "title": "List check suites for a git reference"
+   },
+   {
+    "effect": "read",
+    "title": "List child teams"
+   },
+   {
+    "effect": "read",
+    "title": "List classrooms"
+   },
+   {
+    "effect": "read",
+    "title": "List code scanning alerts for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List code scanning alerts for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "List code scanning analyses for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List codeowners errors"
+   },
+   {
+    "effect": "read",
+    "title": "List CodeQL databases for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "Get all codes of conduct"
+   },
+   {
+    "effect": "read",
+    "title": "List Codes of Conduct (GraphQL)"
+   },
+   {
+    "effect": "read",
+    "title": "List codespaces for a user in organization"
+   },
+   {
+    "effect": "read",
+    "title": "List codespaces for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List codespaces for the organization"
+   },
+   {
+    "effect": "read",
+    "title": "List comment changes across organization"
+   },
+   {
+    "effect": "read",
+    "title": "List comments for a pull request review"
+   },
+   {
+    "effect": "read",
+    "title": "List commit comments"
+   },
+   {
+    "effect": "read",
+    "title": "List commit comments for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List commits"
+   },
+   {
+    "effect": "read",
+    "title": "List commits on a pull request"
+   },
+   {
+    "effect": "read",
+    "title": "Get all commonly used licenses"
+   },
+   {
+    "effect": "read",
+    "title": "Get all custom properties for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "Get all custom property values for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List custom property values for organization repositories"
+   },
+   {
+    "effect": "read",
+    "title": "List deliveries for a repository webhook"
+   },
+   {
+    "effect": "read",
+    "title": "List deliveries for an organization webhook"
+   },
+   {
+    "effect": "read",
+    "title": "List deploy keys"
+   },
+   {
+    "effect": "read",
+    "title": "List deployment branch policies"
+   },
+   {
+    "effect": "read",
+    "title": "List deployment statuses"
+   },
+   {
+    "effect": "read",
+    "title": "List deployments"
+   },
+   {
+    "effect": "read",
+    "title": "List email addresses for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List environment custom deployment rules"
+   },
+   {
+    "effect": "read",
+    "title": "List environment secrets"
+   },
+   {
+    "effect": "read",
+    "title": "List environment variables"
+   },
+   {
+    "effect": "read",
+    "title": "List environments"
+   },
+   {
+    "effect": "read",
+    "title": "List events for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List events for user"
+   },
+   {
+    "effect": "read",
+    "title": "List events received by the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List followers of a user"
+   },
+   {
+    "effect": "read",
+    "title": "List followers of the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List following for user"
+   },
+   {
+    "effect": "read",
+    "title": "List forks"
+   },
+   {
+    "effect": "read",
+    "title": "List gist comments"
+   },
+   {
+    "effect": "read",
+    "title": "List gist commits"
+   },
+   {
+    "effect": "read",
+    "title": "List gist forks"
+   },
+   {
+    "effect": "read",
+    "title": "List gists for a user"
+   },
+   {
+    "effect": "read",
+    "title": "List gists for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List github actions caches for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List GitHub Pages builds"
+   },
+   {
+    "effect": "read",
+    "title": "Get all gitignore templates"
+   },
+   {
+    "effect": "read",
+    "title": "List global security advisories"
+   },
+   {
+    "effect": "read",
+    "title": "List GPG keys for a user"
+   },
+   {
+    "effect": "read",
+    "title": "List installation requests for the authenticated app"
+   },
+   {
+    "effect": "read",
+    "title": "List instances of a code scanning alert"
+   },
+   {
+    "effect": "read",
+    "title": "List issue comments"
+   },
+   {
+    "effect": "read",
+    "title": "List issue comments for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List issue dependencies blocked by"
+   },
+   {
+    "effect": "read",
+    "title": "List issue dependencies blocking"
+   },
+   {
+    "effect": "read",
+    "title": "List issue events"
+   },
+   {
+    "effect": "read",
+    "title": "List issue events for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List issue types"
+   },
+   {
+    "effect": "read",
+    "title": "List issues for user"
+   },
+   {
+    "effect": "read",
+    "title": "List jobs for a workflow run"
+   },
+   {
+    "effect": "read",
+    "title": "List jobs for a workflow run attempt"
+   },
+   {
+    "effect": "read",
+    "title": "List labels for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List labels for a self-hosted runner for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List labels for an issue"
+   },
+   {
+    "effect": "read",
+    "title": "List labels for issues in a milestone"
+   },
+   {
+    "effect": "read",
+    "title": "List labels for a self-hosted runner for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "List Licenses (GraphQL)"
+   },
+   {
+    "effect": "read",
+    "title": "List machine types for a codespace"
+   },
+   {
+    "effect": "read",
+    "title": "List matching references"
+   },
+   {
+    "effect": "read",
+    "title": "List milestones"
+   },
+   {
+    "effect": "read",
+    "title": "List notifications for authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List organization fine-grained permissions"
+   },
+   {
+    "effect": "read",
+    "title": "List organization issues assigned to the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List package versions for an organization package"
+   },
+   {
+    "effect": "read",
+    "title": "List organization project view items"
+   },
+   {
+    "effect": "read",
+    "title": "List organization repositories with Github Actions enabled"
+   },
+   {
+    "effect": "read",
+    "title": "List org resource access tokens"
+   },
+   {
+    "effect": "read",
+    "title": "List org resources with personal tokens"
+   },
+   {
+    "effect": "read",
+    "title": "List organization Dependabot secrets without values"
+   },
+   {
+    "effect": "read",
+    "title": "List org level codespaces secrets"
+   },
+   {
+    "effect": "read",
+    "title": "List organization events for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List organization members"
+   },
+   {
+    "effect": "read",
+    "title": "List organization memberships for authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List organization projects"
+   },
+   {
+    "effect": "read",
+    "title": "List organization repositories"
+   },
+   {
+    "effect": "read",
+    "title": "Get all organization roles for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "List organization secrets"
+   },
+   {
+    "effect": "read",
+    "title": "List organization variables"
+   },
+   {
+    "effect": "read",
+    "title": "List organization webhooks"
+   },
+   {
+    "effect": "read",
+    "title": "List organizations"
+   },
+   {
+    "effect": "read",
+    "title": "List organizations for a user"
+   },
+   {
+    "effect": "read",
+    "title": "List organizations for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List organizations for a user"
+   },
+   {
+    "effect": "read",
+    "title": "List outside collaborators for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "List owned package versions"
+   },
+   {
+    "effect": "read",
+    "title": "List package versions for a package owned by a user"
+   },
+   {
+    "effect": "read",
+    "title": "List packages for a user"
+   },
+   {
+    "effect": "read",
+    "title": "List packages for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "List packages for the authenticated user's namespace"
+   },
+   {
+    "effect": "read",
+    "title": "List pending team invitations"
+   },
+   {
+    "effect": "read",
+    "title": "List project collaborators (classic)"
+   },
+   {
+    "effect": "read",
+    "title": "List project columns"
+   },
+   {
+    "effect": "read",
+    "title": "List project fields for user"
+   },
+   {
+    "effect": "read",
+    "title": "List project items for user"
+   },
+   {
+    "effect": "read",
+    "title": "List items for user project view"
+   },
+   {
+    "effect": "read",
+    "title": "List public email addresses for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List public events"
+   },
+   {
+    "effect": "read",
+    "title": "List public events for a network of repositories"
+   },
+   {
+    "effect": "read",
+    "title": "List public events for a user"
+   },
+   {
+    "effect": "read",
+    "title": "List public events received by a user"
+   },
+   {
+    "effect": "read",
+    "title": "List public gists"
+   },
+   {
+    "effect": "read",
+    "title": "List public keys for a user"
+   },
+   {
+    "effect": "read",
+    "title": "List public organization events"
+   },
+   {
+    "effect": "read",
+    "title": "List public organization members"
+   },
+   {
+    "effect": "read",
+    "title": "List public repositories"
+   },
+   {
+    "effect": "read",
+    "title": "List pull requests"
+   },
+   {
+    "effect": "read",
+    "title": "List pull requests associated with a commit"
+   },
+   {
+    "effect": "read",
+    "title": "List pull requests files"
+   },
+   {
+    "effect": "read",
+    "title": "List reactions for a commit comment"
+   },
+   {
+    "effect": "read",
+    "title": "List reactions for a pull request review comment"
+   },
+   {
+    "effect": "read",
+    "title": "List reactions for a release"
+   },
+   {
+    "effect": "read",
+    "title": "List reactions for a team discussion"
+   },
+   {
+    "effect": "read",
+    "title": "List reactions for a team discussion comment"
+   },
+   {
+    "effect": "read",
+    "title": "List reactions for an issue"
+   },
+   {
+    "effect": "read",
+    "title": "List reactions for an issue comment"
+   },
+   {
+    "effect": "read",
+    "title": "List release assets"
+   },
+   {
+    "effect": "read",
+    "title": "List releases"
+   },
+   {
+    "effect": "read",
+    "title": "List repo access by token"
+   },
+   {
+    "effect": "read",
+    "title": "List repo codespaces for authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List repo dev container configs for user"
+   },
+   {
+    "effect": "read",
+    "title": "List authenticated user's repository invitations"
+   },
+   {
+    "effect": "read",
+    "title": "List repository notifications for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List repo secrets without values"
+   },
+   {
+    "effect": "read",
+    "title": "List repositories"
+   },
+   {
+    "effect": "read",
+    "title": "List repos accessible to app installation"
+   },
+   {
+    "effect": "read",
+    "title": "List repositories for a user"
+   },
+   {
+    "effect": "read",
+    "title": "List repositories for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List repositories starred by a user"
+   },
+   {
+    "effect": "read",
+    "title": "List repositories starred by the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List repositories watched by a user"
+   },
+   {
+    "effect": "read",
+    "title": "List repositories watched by the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List repos with ghactions cache usage"
+   },
+   {
+    "effect": "read",
+    "title": "List repository activities"
+   },
+   {
+    "effect": "read",
+    "title": "Get all autolinks of a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List repository collaborators"
+   },
+   {
+    "effect": "read",
+    "title": "List repository contributors"
+   },
+   {
+    "effect": "read",
+    "title": "List repository Dependabot alerts"
+   },
+   {
+    "effect": "read",
+    "title": "List repository events"
+   },
+   {
+    "effect": "read",
+    "title": "List repository invitations"
+   },
+   {
+    "effect": "read",
+    "title": "List repository issues"
+   },
+   {
+    "effect": "read",
+    "title": "List repository languages"
+   },
+   {
+    "effect": "read",
+    "title": "List repository organization secrets"
+   },
+   {
+    "effect": "read",
+    "title": "List repository organization variables"
+   },
+   {
+    "effect": "read",
+    "title": "List repository projects"
+   },
+   {
+    "effect": "read",
+    "title": "List repository rule suites"
+   },
+   {
+    "effect": "read",
+    "title": "Get all repository rulesets"
+   },
+   {
+    "effect": "read",
+    "title": "List repository secrets"
+   },
+   {
+    "effect": "read",
+    "title": "List repository secrets without decrypting"
+   },
+   {
+    "effect": "read",
+    "title": "List repository security advisories"
+   },
+   {
+    "effect": "read",
+    "title": "List repository tags"
+   },
+   {
+    "effect": "read",
+    "title": "List repository teams"
+   },
+   {
+    "effect": "read",
+    "title": "Get all repository topics"
+   },
+   {
+    "effect": "read",
+    "title": "List repository variables"
+   },
+   {
+    "effect": "read",
+    "title": "List repository webhooks"
+   },
+   {
+    "effect": "read",
+    "title": "List repository workflows"
+   },
+   {
+    "effect": "read",
+    "title": "Get all requested reviewers for a pull request"
+   },
+   {
+    "effect": "read",
+    "title": "List review comments in a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List review comments on a pull request"
+   },
+   {
+    "effect": "read",
+    "title": "List reviews for a pull request"
+   },
+   {
+    "effect": "read",
+    "title": "List runner applications for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List runner applications for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "List secret scanning alerts for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List secrets for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List security advisories (GraphQL)"
+   },
+   {
+    "effect": "read",
+    "title": "List security vulnerabilities"
+   },
+   {
+    "effect": "read",
+    "title": "List selected repositories for an organization variable"
+   },
+   {
+    "effect": "read",
+    "title": "List selected repositories for a user secret"
+   },
+   {
+    "effect": "read",
+    "title": "List selected repositories for a Codespaces organization secret"
+   },
+   {
+    "effect": "read",
+    "title": "List selected repos for secret access"
+   },
+   {
+    "effect": "read",
+    "title": "List self hosted runners for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List self hosted runners for an organization"
+   },
+   {
+    "effect": "read",
+    "title": "List social accounts for a user"
+   },
+   {
+    "effect": "read",
+    "title": "List social accounts for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List Sponsorable Users and Organizations"
+   },
+   {
+    "effect": "read",
+    "title": "List SSH signing keys for user"
+   },
+   {
+    "effect": "read",
+    "title": "List stargazers"
+   },
+   {
+    "effect": "read",
+    "title": "List starred gists"
+   },
+   {
+    "effect": "read",
+    "title": "List starred repositories for user"
+   },
+   {
+    "effect": "read",
+    "title": "Get all status check contexts"
+   },
+   {
+    "effect": "read",
+    "title": "List sub-issues for an issue"
+   },
+   {
+    "effect": "read",
+    "title": "List marketplace subscriptions for authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List stubbed subscriptions for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List team members"
+   },
+   {
+    "effect": "read",
+    "title": "List team projects"
+   },
+   {
+    "effect": "read",
+    "title": "List team repositories"
+   },
+   {
+    "effect": "read",
+    "title": "List teams"
+   },
+   {
+    "effect": "read",
+    "title": "List teams for the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List teams assigned to an organization role"
+   },
+   {
+    "effect": "read",
+    "title": "List the people a user follows"
+   },
+   {
+    "effect": "read",
+    "title": "List people the authenticated user follows"
+   },
+   {
+    "effect": "read",
+    "title": "List timeline events for an issue"
+   },
+   {
+    "effect": "read",
+    "title": "List token access repositories"
+   },
+   {
+    "effect": "read",
+    "title": "List user projects"
+   },
+   {
+    "effect": "read",
+    "title": "List users"
+   },
+   {
+    "effect": "read",
+    "title": "List users blocked by an organization"
+   },
+   {
+    "effect": "read",
+    "title": "List users blocked by the authenticated user"
+   },
+   {
+    "effect": "read",
+    "title": "List users assigned org role"
+   },
+   {
+    "effect": "read",
+    "title": "List watchers"
+   },
+   {
+    "effect": "read",
+    "title": "List workflow run artifacts"
+   },
+   {
+    "effect": "read",
+    "title": "List workflow runs for a repository"
+   },
+   {
+    "effect": "read",
+    "title": "List workflow runs for a workflow"
+   },
+   {
+    "effect": "write",
+    "title": "Lock an issue"
+   },
+   {
+    "effect": "read",
+    "title": "Lookup Enterprise Administrator Invitation"
+   },
+   {
+    "effect": "read",
+    "title": "Lookup GitHub Resource"
+   },
+   {
+    "effect": "read",
+    "title": "Lookup nodes by IDs"
+   },
+   {
+    "effect": "read",
+    "title": "Lookup Organization (GraphQL)"
+   },
+   {
+    "effect": "read",
+    "title": "Look Up Topic by Name"
+   },
+   {
+    "effect": "write",
+    "title": "Manage access control for organization codespaces"
+   },
+   {
+    "effect": "write",
+    "title": "Manage custom properties for org repos"
+   },
+   {
+    "effect": "destructive",
+    "title": "Manage issue blocking dependency"
+   },
+   {
+    "effect": "read",
+    "title": "List selected repositories for a GitHub Actions organization secret"
+   },
+   {
+    "effect": "write",
+    "title": "Mark a thread as done"
+   },
+   {
+    "effect": "write",
+    "title": "Mark a thread as read"
+   },
+   {
+    "effect": "write",
+    "title": "Mark notifications as read"
+   },
+   {
+    "effect": "write",
+    "title": "Mark pull request ready for review"
+   },
+   {
+    "effect": "write",
+    "title": "Mark repository notifications as read"
+   },
+   {
+    "effect": "write",
+    "title": "Merge a branch"
+   },
+   {
+    "effect": "write",
+    "title": "Merge a pull request"
+   },
+   {
+    "effect": "write",
+    "title": "Ping a repository webhook"
+   },
+   {
+    "effect": "write",
+    "title": "Ping an organization webhook"
+   },
+   {
+    "effect": "unknown",
+    "title": "Privately report a security vulnerability"
+   },
+   {
+    "effect": "write",
+    "title": "Publish Sponsors Tier (GraphQL)"
+   },
+   {
+    "effect": "write",
+    "title": "Re-run a job from a workflow run"
+   },
+   {
+    "effect": "write",
+    "title": "Rerun a workflow"
+   },
+   {
+    "effect": "write",
+    "title": "Rerun failed jobs from a workflow run"
+   },
+   {
+    "effect": "write",
+    "title": "Redeliver a delivery for a repository webhook"
+   },
+   {
+    "effect": "write",
+    "title": "Redeliver a delivery for an organization webhook"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove a custom property for an organization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove a label from an issue"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove a project from a team"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove a repository collaborator"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove a repository from a team"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove a repository from an app installation"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove a selected repository from a user secret"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove all labels from an issue"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove all organization roles for a team"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove all organization roles for a user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove an organization member"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove an organization role from a team"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove an organization role from a user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove app access restrictions"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove assignees from an issue"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove custom label from repo runner"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove custom label from self hosted runner"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove custom labels from self hosted repo runner"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove interaction restrictions for a repository"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove interaction restrictions for an organization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove org dev env secret by name"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove org secret by name"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove outside collaborator from an organization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove public org membership"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove user public repo interaction restrictions"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove repository from organization dev environment secret"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove selected repo from org secret"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove requested reviewers from a pull request"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove review request"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove selected repository from an organization secret"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove selected repository from an organization variable"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove status check contexts"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove status check protection"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove team access restrictions"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove team membership"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove team membership for a user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove user access restrictions"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove users from codespaces access for an organization"
+   },
+   {
+    "effect": "write",
+    "title": "Rename a branch"
+   },
+   {
+    "effect": "read",
+    "title": "Render a markdown document"
+   },
+   {
+    "effect": "read",
+    "title": "Render Markdown (Raw Mode)"
+   },
+   {
+    "effect": "write",
+    "title": "Reopen an issue"
+   },
+   {
+    "effect": "write",
+    "title": "Reopen Pull Request"
+   },
+   {
+    "effect": "write",
+    "title": "Replace all repository topics"
+   },
+   {
+    "effect": "write",
+    "title": "Replace org secret visibility to selected"
+   },
+   {
+    "effect": "write",
+    "title": "Replace repository access for an org Codespaces secret"
+   },
+   {
+    "effect": "unknown",
+    "title": "Request a github pages build"
+   },
+   {
+    "effect": "write",
+    "title": "Request reviewers for a pull request"
+   },
+   {
+    "effect": "write",
+    "title": "Add reviewers to a specific pull request"
+   },
+   {
+    "effect": "write",
+    "title": "Rerequest a check run"
+   },
+   {
+    "effect": "write",
+    "title": "Rerequest a check suite"
+   },
+   {
+    "effect": "destructive",
+    "title": "Reset a token"
+   },
+   {
+    "effect": "write",
+    "title": "Restore a package for a user"
+   },
+   {
+    "effect": "write",
+    "title": "Restore a package for an organization"
+   },
+   {
+    "effect": "write",
+    "title": "Restore a package for the authenticated user"
+   },
+   {
+    "effect": "write",
+    "title": "Restore a package version for the authenticated user"
+   },
+   {
+    "effect": "write",
+    "title": "Restore package version for a user"
+   },
+   {
+    "effect": "write",
+    "title": "Restore package version for an organization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Retire Sponsors Tier"
+   },
+   {
+    "effect": "destructive",
+    "title": "Review access with personal token"
+   },
+   {
+    "effect": "write",
+    "title": "Review Custom Deployment Rules For Workflow Run"
+   },
+   {
+    "effect": "write",
+    "title": "Review pending deployments for a workflow run"
+   },
+   {
+    "effect": "destructive",
+    "title": "Review PAT Requests in Bulk"
+   },
+   {
+    "effect": "destructive",
+    "title": "Revoke an installation access token"
+   },
+   {
+    "effect": "destructive",
+    "title": "Run GraphQL Query"
+   },
+   {
+    "effect": "destructive",
+    "title": "Run GraphQL Relay Query"
+   },
+   {
+    "effect": "read",
+    "title": "Search code"
+   },
+   {
+    "effect": "read",
+    "title": "Search code (all pages)"
+   },
+   {
+    "effect": "read",
+    "title": "Search commits"
+   },
+   {
+    "effect": "read",
+    "title": "Search commits by author across repos"
+   },
+   {
+    "effect": "read",
+    "title": "GitHub GraphQL Search"
+   },
+   {
+    "effect": "read",
+    "title": "Search issues and pull requests"
+   },
+   {
+    "effect": "read",
+    "title": "Search issues and pull requests"
+   },
+   {
+    "effect": "read",
+    "title": "Search labels"
+   },
+   {
+    "effect": "read",
+    "title": "Search repositories"
+   },
+   {
+    "effect": "read",
+    "title": "Search topics"
+   },
+   {
+    "effect": "read",
+    "title": "Search users"
+   },
+   {
+    "effect": "write",
+    "title": "Set a repository subscription"
+   },
+   {
+    "effect": "write",
+    "title": "Set a thread subscription"
+   },
+   {
+    "effect": "write",
+    "title": "Set admin branch protection"
+   },
+   {
+    "effect": "write",
+    "title": "Set app access restrictions"
+   },
+   {
+    "effect": "write",
+    "title": "Set default workflow permissions for a repository"
+   },
+   {
+    "effect": "write",
+    "title": "Set default workflow permissions for an organization"
+   },
+   {
+    "effect": "write",
+    "title": "Set primary email visibility"
+   },
+   {
+    "effect": "write",
+    "title": "Set github actions permissions for a repository"
+   },
+   {
+    "effect": "write",
+    "title": "Set GitHub Actions permissions for an organization"
+   },
+   {
+    "effect": "write",
+    "title": "Set interaction restrictions for a repository"
+   },
+   {
+    "effect": "write",
+    "title": "Set interaction restrictions for an organization"
+   },
+   {
+    "effect": "write",
+    "title": "Set interaction restrictions for your public repositories"
+   },
+   {
+    "effect": "write",
+    "title": "Set labels for an issue"
+   },
+   {
+    "effect": "write",
+    "title": "Set custom OIDC subject claim template"
+   },
+   {
+    "effect": "write",
+    "title": "Set allowed actions and workflows for an organization"
+   },
+   {
+    "effect": "write",
+    "title": "Set custom labels for a self-hosted runner for an organization"
+   },
+   {
+    "effect": "write",
+    "title": "Set repo allowed actions"
+   },
+   {
+    "effect": "write",
+    "title": "Set custom labels for repo runner"
+   },
+   {
+    "effect": "write",
+    "title": "Set selected repositories for an organization variable"
+   },
+   {
+    "effect": "write",
+    "title": "Set selected repositories for a user secret"
+   },
+   {
+    "effect": "write",
+    "title": "Set selected repositories for an organization secret"
+   },
+   {
+    "effect": "write",
+    "title": "Set status check contexts"
+   },
+   {
+    "effect": "write",
+    "title": "Set team access restrictions"
+   },
+   {
+    "effect": "write",
+    "title": "Set user access restrictions"
+   },
+   {
+    "effect": "write",
+    "title": "Set User Interaction Limit (GraphQL)"
+   },
+   {
+    "effect": "write",
+    "title": "Set workflow access level outside repository"
+   },
+   {
+    "effect": "write",
+    "title": "Star a gist"
+   },
+   {
+    "effect": "write",
+    "title": "Star a specified repository (requires owner and repo)"
+   },
+   {
+    "effect": "write",
+    "title": "Start a codespace for the authenticated user"
+   },
+   {
+    "effect": "write",
+    "title": "Stop a codespace for an organization user"
+   },
+   {
+    "effect": "write",
+    "title": "Stop a codespace for the authenticated user"
+   },
+   {
+    "effect": "write",
+    "title": "Submit a review for a pull request"
+   },
+   {
+    "effect": "write",
+    "title": "Sync a fork branch with the upstream repository"
+   },
+   {
+    "effect": "write",
+    "title": "Test the push repository webhook"
+   },
+   {
+    "effect": "write",
+    "title": "Transfer a repository"
+   },
+   {
+    "effect": "destructive",
+    "title": "Unblock a user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Unblock a user from an organization"
+   },
+   {
+    "effect": "destructive",
+    "title": "Unfollow a user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Unfollow organization"
+   },
+   {
+    "effect": "write",
+    "title": "Unfollow user"
+   },
+   {
+    "effect": "write",
+    "title": "Unlock an issue"
+   },
+   {
+    "effect": "write",
+    "title": "Unlock an organization repository"
+   },
+   {
+    "effect": "destructive",
+    "title": "Unlock a user repository"
+   },
+   {
+    "effect": "destructive",
+    "title": "Unstar a gist"
+   },
+   {
+    "effect": "destructive",
+    "title": "Unstar a repository"
+   },
+   {
+    "effect": "write",
+    "title": "Update a check run"
+   },
+   {
+    "effect": "write",
+    "title": "Update a code scanning alert"
+   },
+   {
+    "effect": "write",
+    "title": "Update a commit comment"
+   },
+   {
+    "effect": "write",
+    "title": "Update a custom organization role"
+   },
+   {
+    "effect": "write",
+    "title": "Update a deployment branch policy"
+   },
+   {
+    "effect": "write",
+    "title": "Update a discussion"
+   },
+   {
+    "effect": "write",
+    "title": "Update a discussion comment"
+   },
+   {
+    "effect": "write",
+    "title": "Update a gist"
+   },
+   {
+    "effect": "write",
+    "title": "Update a gist comment"
+   },
+   {
+    "effect": "write",
+    "title": "Update a label"
+   },
+   {
+    "effect": "write",
+    "title": "Update a milestone"
+   },
+   {
+    "effect": "write",
+    "title": "Update a project"
+   },
+   {
+    "effect": "write",
+    "title": "Update a pull request"
+   },
+   {
+    "effect": "write",
+    "title": "Update a pull request branch"
+   },
+   {
+    "effect": "write",
+    "title": "Update a reference"
+   },
+   {
+    "effect": "write",
+    "title": "Update a release"
+   },
+   {
+    "effect": "write",
+    "title": "Update a release asset"
+   },
+   {
+    "effect": "write",
+    "title": "Update a repository"
+   },
+   {
+    "effect": "write",
+    "title": "Update a repository invitation"
+   },
+   {
+    "effect": "write",
+    "title": "Update a repository ruleset"
+   },
+   {
+    "effect": "write",
+    "title": "Update a repository variable"
+   },
+   {
+    "effect": "write",
+    "title": "Update a repository webhook"
+   },
+   {
+    "effect": "write",
+    "title": "Update a team"
+   },
+   {
+    "effect": "write",
+    "title": "Update an environment variable"
+   },
+   {
+    "effect": "write",
+    "title": "Update an issue"
+   },
+   {
+    "effect": "write",
+    "title": "Update an issue comment"
+   },
+   {
+    "effect": "write",
+    "title": "Update an organization"
+   },
+   {
+    "effect": "write",
+    "title": "Update an organization variable"
+   },
+   {
+    "effect": "write",
+    "title": "Update an organization webhook"
+   },
+   {
+    "effect": "write",
+    "title": "Update branch protection"
+   },
+   {
+    "effect": "write",
+    "title": "Update a code scanning default setup configuration"
+   },
+   {
+    "effect": "write",
+    "title": "Update a codespace for the authenticated user"
+   },
+   {
+    "effect": "write",
+    "title": "Update issue type"
+   },
+   {
+    "effect": "write",
+    "title": "Update a webhook configuration for an organization"
+   },
+   {
+    "effect": "write",
+    "title": "Update a review for a pull request"
+   },
+   {
+    "effect": "write",
+    "title": "Update a review comment for a pull request"
+   },
+   {
+    "effect": "write",
+    "title": "Update pull request review protection"
+   },
+   {
+    "effect": "write",
+    "title": "Update repository preferences for check suites"
+   },
+   {
+    "effect": "write",
+    "title": "Update a webhook configuration for a repository"
+   },
+   {
+    "effect": "destructive",
+    "title": "Update resource access with tokens"
+   },
+   {
+    "effect": "write",
+    "title": "Update status check protection"
+   },
+   {
+    "effect": "write",
+    "title": "Update Subscription"
+   },
+   {
+    "effect": "write",
+    "title": "Update the authenticated user"
+   },
+   {
+    "effect": "destructive",
+    "title": "Revoke Token Organization Access"
+   },
+   {
+    "effect": "write",
+    "title": "Update User List"
+   },
+   {
+    "effect": "write",
+    "title": "Update user lists for item"
+   },
+   {
+    "effect": "write",
+    "title": "Update Project V2 Item for User"
+   },
+   {
+    "effect": "write",
+    "title": "Change User Status"
+   },
+   {
+    "effect": "unknown",
+    "title": "Upload a release asset"
+   },
+   {
+    "effect": "unknown",
+    "title": "Upload an analysis as sarif data"
+   },
+   {
+    "effect": "write",
+    "title": "Create or update repository custom property values"
+   },
+   {
+    "effect": "read",
+    "title": "Validate credential"
+   },
+   {
+    "effect": "read",
+    "title": "Verify dev container permissions accepted"
+   },
+   {
+    "effect": "read",
+    "title": "Who Am I"
+   }
+  ],
+  "presentation": {
+   "category": "developer-tools",
+   "description": "Read your repositories, issues, pull requests, reviews and checks on GitHub, comment and open issues, and hear about new activity on the repositories you choose.",
+   "developer": "GitHub",
+   "icon": "/v1/icons/github.png",
+   "localized": {
+    "zh-Hans": {
+     "description": "读取 GitHub 上你的仓库、issue、PR、review 和检查结果，发评论、开 issue；你选的仓库有新动静时能知道。",
+     "prompts": [
+      "有哪些 PR 在等我 review？",
+      "上一次 CI 为什么没过？",
+      "总结一下标了 bug 的 open issue"
+     ],
+     "short_description": "关注仓库、issue 和 PR"
+    }
+   },
+   "name": "GitHub",
+   "privacy_policy": "https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement",
+   "prompts": [
+    "Which pull requests are waiting for my review?",
+    "Why did the last CI run fail?",
+    "Summarize the open issues labeled bug"
+   ],
+   "short_description": "Follow repositories, issues and pull requests",
+   "terms_of_service": "https://docs.github.com/site-policy/github-terms/github-terms-of-service",
+   "website": "https://github.com"
+  }
+ },
+ {
+  "hooks": [
+   {
+    "summary": "Triggers when a new comment is created in Notion. Optional `page_id` filter scopes to comments on a specific page. When omitted, fires for any new comment in the workspace the integration has access to. Requires the 'Read comments' capability on the Notion integration. If a connection was authorized before that capability was enabled, the user must re-authorize the connection for comment events to flow."
+   },
+   {
+    "summary": "Triggers when a new Notion database (the container) is created. A database is the post-2025-09-03 container that holds one or more data sources. This trigger fires for the container's creation event (`database.created`), distinct from `notion.datasource_created` which fires when a new data source is added to an existing database. Most customers calling Notion's `POST /v1/databases` (the legacy API) or creating a database via the Notion UI will see this event. Adding a new data source to an existing database fires `data_source.created` instead — use `notion.datasource_created` for that. Notion's payload puts `entity.type: \"block\"` (the container is a `child_database` block in the content tree) and `entity.id` is the database id."
+   },
+   {
+    "summary": "Triggers when a new Notion data source is created. Fires workspace-wide. The payload's `data.parent` carries the data source's tree parent (typically the teamspace) for downstream filtering. A single template-based database creation can fire multiple `data_source.created` events at once — one per data source the template instantiates."
+   },
+   {
+    "summary": "Triggers when a Notion data source's schema is updated. Fires on column add / remove / rename. Payload includes `data.updated_properties: [{id, name, action}]` so consumers can discriminate the kind of change downstream. Optional `data_source_id` filter scopes to schema changes on a single data source. When omitted, fires for any schema change in the workspace the integration has access to. Note: adding a column also fires `page.properties_updated` once per existing row in the data source. Customers wanting a single structural-change signal should use this trigger."
+   },
+   {
+    "summary": "Triggers when the body content of a Notion page is updated. Customer optionally scopes with at most one of: - data_source_id: any row in this data source - page_id: this specific page - parent_page_id: any page whose immediate parent is this page With none set, fires for any page content edit in the workspace the integration has access to. Notion aggregates content edits within a short window (~60s typical)."
+   },
+   {
+    "summary": "Triggers when a new Notion page is created. Customer optionally scopes with at most one of: - data_source_id: new row in this data source - parent_page_id: new sub-page under this page (immediate parent only) With neither set, fires for any new page in the workspace the integration has access to. Notion sends ~60s aggregation latency on most events."
+   },
+   {
+    "summary": "Triggers when properties of a Notion page are updated. Customer optionally scopes with at most one of: - data_source_id: any row in this data source - page_id: this specific page - parent_page_id: any page whose immediate parent is this page With none set, fires for any property change in the workspace the integration has access to. Adding a column to a data source fires this trigger once per existing row. Customers can branch on `data.updated_properties` (array of property IDs) to filter downstream."
+   },
+   {
+    "summary": "Triggers when a new Notion view is created. Fires workspace-wide. The payload includes `data.view_type` (`table`, `board`, `gallery`, `calendar`, `list`, `timeline`, `gantt`) and `data.parent` pointing at the view's tree parent (typically the teamspace), so customers can filter downstream."
+   }
+  ],
+  "id": "notion",
+  "operations": [
+   {
+    "effect": "write",
+    "title": "Add multiple content blocks (bulk, user-friendly)"
+   },
+   {
+    "effect": "write",
+    "title": "Append code blocks (code, quote, equation)"
+   },
+   {
+    "effect": "write",
+    "title": "Append layout blocks (divider, TOC, columns)"
+   },
+   {
+    "effect": "write",
+    "title": "Append media blocks (image, video, audio, files)"
+   },
+   {
+    "effect": "write",
+    "title": "Append table blocks"
+   },
+   {
+    "effect": "write",
+    "title": "Append task blocks (to-do, toggle, callout)"
+   },
+   {
+    "effect": "write",
+    "title": "Append text blocks (paragraphs, headings, lists)"
+   },
+   {
+    "effect": "destructive",
+    "title": "Archive Notion Page"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create comment"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create Notion Database"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create Notion file upload"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create Notion page"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create Notion view"
+   },
+   {
+    "effect": "read",
+    "title": "Create Notion view query"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a block"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete Notion view"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete Notion view query"
+   },
+   {
+    "effect": "unknown",
+    "title": "Duplicate page"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch All Notion Block Contents"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch Notion Block Children"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch Notion block metadata"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch comments"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch Notion Data"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch Database"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch database row"
+   },
+   {
+    "effect": "read",
+    "title": "Get about user"
+   },
+   {
+    "effect": "read",
+    "title": "Get page markdown"
+   },
+   {
+    "effect": "read",
+    "title": "Get page property"
+   },
+   {
+    "effect": "read",
+    "title": "Get plugin"
+   },
+   {
+    "effect": "read",
+    "title": "Get Notion view query results"
+   },
+   {
+    "effect": "unknown",
+    "title": "Insert row database"
+   },
+   {
+    "effect": "unknown",
+    "title": "Insert Row From Natural Language"
+   },
+   {
+    "effect": "read",
+    "title": "List data source templates"
+   },
+   {
+    "effect": "read",
+    "title": "List Notion file uploads"
+   },
+   {
+    "effect": "read",
+    "title": "List plugins"
+   },
+   {
+    "effect": "read",
+    "title": "List users"
+   },
+   {
+    "effect": "read",
+    "title": "List Notion views"
+   },
+   {
+    "effect": "write",
+    "title": "Move Page"
+   },
+   {
+    "effect": "read",
+    "title": "Query data source"
+   },
+   {
+    "effect": "read",
+    "title": "Query database"
+   },
+   {
+    "effect": "read",
+    "title": "Query database with filter"
+   },
+   {
+    "effect": "destructive",
+    "title": "Replace page content (with backup)"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve Comment"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve Database Property"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve Notion file upload"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve page"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve Notion view"
+   },
+   {
+    "effect": "read",
+    "title": "Search Notion pages and databases"
+   },
+   {
+    "effect": "write",
+    "title": "Send file upload"
+   },
+   {
+    "effect": "write",
+    "title": "Update block"
+   },
+   {
+    "effect": "write",
+    "title": "Update Page"
+   },
+   {
+    "effect": "write",
+    "title": "Update page markdown"
+   },
+   {
+    "effect": "destructive",
+    "title": "Update Database Row (Page)"
+   },
+   {
+    "effect": "write",
+    "title": "Update database schema"
+   },
+   {
+    "effect": "unknown",
+    "title": "Update Notion view"
+   },
+   {
+    "effect": "write",
+    "title": "Upsert database rows"
+   },
+   {
+    "effect": "read",
+    "title": "Who Am I"
+   }
+  ],
+  "presentation": {
+   "category": "notes",
+   "description": "Search and read the pages and databases in your Notion workspace, write new pages, add to existing ones, and update database rows. Edits and comments are noticed as they happen.",
+   "developer": "Notion Labs",
+   "icon": "/v1/icons/notion.png",
+   "localized": {
+    "zh-Hans": {
+     "description": "搜索和阅读 Notion 工作区里的页面与数据库，写新页面，往已有页面里添内容，更新数据库里的条目。页面有改动、有新评论时能知道。",
+     "prompts": [
+      "找一下上周规划会的笔记",
+      "把这几点加到项目页面里",
+      "任务表里这周到期的有哪些？"
+     ],
+     "short_description": "搜索和编辑页面"
+    }
+   },
+   "name": "Notion",
+   "privacy_policy": "https://www.notion.so/notion/Privacy-Policy-3468d120cf614d4c9014c09f6adc9091",
+   "prompts": [
+    "Find my notes from last week's planning meeting",
+    "Add these points to the project page",
+    "Which tasks in my task list are due this week?"
+   ],
+   "short_description": "Search and edit your pages",
+   "terms_of_service": "https://www.notion.so/notion/Terms-and-Privacy-28ffdd083dc3473e9c2da6ec011b58ac",
+   "website": "https://www.notion.com"
+  }
+ },
+ {
+  "hooks": [
+   {
+    "summary": "Triggered when a new channel is created in Slack."
+   },
+   {
+    "summary": "Triggered when a message is posted in a Slack channel (public, private, or multi-party IM). Does NOT match direct messages."
+   },
+   {
+    "summary": "Triggered when a new direct message (DM) is sent to a user in Slack. Catches all DMs across all DM channels, including thread replies."
+   },
+   {
+    "summary": "Triggered when a reaction is added to a message in Slack. Supports optional filtering by channel and emoji name."
+   },
+   {
+    "summary": "Triggered when a reaction is removed from a message in Slack. Supports optional filtering by channel and emoji name."
+   },
+   {
+    "summary": "DEPRECATED: use `slack.message_reaction_added` instead. Triggered when a reaction is added to a message in Slack."
+   },
+   {
+    "summary": "DEPRECATED: use `slack.message_reaction_removed` instead. Triggered when a reaction is removed from a message."
+   },
+   {
+    "summary": "DEPRECATED: use `slack.channel_message_received` with `is_bot_message=true` instead. Triggered when a new bot message is posted to a Slack channel."
+   },
+   {
+    "summary": "DEPRECATED: use `slack.channel_message_received` instead. Triggered when a new message is posted to a Slack channel."
+   }
+  ],
+  "id": "slack",
+  "operations": [
+   {
+    "effect": "write",
+    "title": "Add call participants"
+   },
+   {
+    "effect": "unknown",
+    "title": "Add emoji"
+   },
+   {
+    "effect": "unknown",
+    "title": "Add an emoji alias"
+   },
+   {
+    "effect": "write",
+    "title": "Add Enterprise user to workspace"
+   },
+   {
+    "effect": "unknown",
+    "title": "Add reaction to message"
+   },
+   {
+    "effect": "unknown",
+    "title": "Add a remote file"
+   },
+   {
+    "effect": "write",
+    "title": "Add a star to an item"
+   },
+   {
+    "effect": "read",
+    "title": "Search for channels in Enterprise organization"
+   },
+   {
+    "effect": "read",
+    "title": "Test Slack API connection"
+   },
+   {
+    "effect": "write",
+    "title": "Archive a Slack conversation"
+   },
+   {
+    "effect": "read",
+    "title": "Real-time search"
+   },
+   {
+    "effect": "read",
+    "title": "Check search capabilities"
+   },
+   {
+    "effect": "write",
+    "title": "Close conversation channel"
+   },
+   {
+    "effect": "destructive",
+    "title": "Convert public channel to private"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a reminder"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create Slack Canvas"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create channel"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a channel-based conversation"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create Enterprise team"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create Slack List"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create Slack List item"
+   },
+   {
+    "effect": "unknown",
+    "title": "Create a Slack user group"
+   },
+   {
+    "effect": "write",
+    "title": "Customize URL unfurl"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete Slack Canvas"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a public or private channel"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a file by ID"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete file comment"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete multiple Slack List items"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a Slack reminder"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete scheduled chat message"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete Slack List access"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete Slack List item"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete user profile photo"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a message from a chat"
+   },
+   {
+    "effect": "write",
+    "title": "Disable a Slack user group"
+   },
+   {
+    "effect": "read",
+    "title": "Download Slack file"
+   },
+   {
+    "effect": "write",
+    "title": "Edit Slack Canvas"
+   },
+   {
+    "effect": "write",
+    "title": "Share file public url"
+   },
+   {
+    "effect": "write",
+    "title": "Enable a user group"
+   },
+   {
+    "effect": "destructive",
+    "title": "End a call"
+   },
+   {
+    "effect": "write",
+    "title": "End DND session"
+   },
+   {
+    "effect": "write",
+    "title": "End snooze"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch conversation history"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch item reactions"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve conversation replies"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch team info"
+   },
+   {
+    "effect": "read",
+    "title": "Find channels"
+   },
+   {
+    "effect": "read",
+    "title": "Lookup users by email"
+   },
+   {
+    "effect": "read",
+    "title": "Find users"
+   },
+   {
+    "effect": "read",
+    "title": "Get Audit Action Types"
+   },
+   {
+    "effect": "read",
+    "title": "Get Audit Schemas"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch bot user information"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve call information"
+   },
+   {
+    "effect": "read",
+    "title": "Get channel conversation preferences"
+   },
+   {
+    "effect": "read",
+    "title": "Get reminder information"
+   },
+   {
+    "effect": "read",
+    "title": "Get remote file"
+   },
+   {
+    "effect": "read",
+    "title": "Get Slack List item"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve team profile details"
+   },
+   {
+    "effect": "read",
+    "title": "Get unread messages from user"
+   },
+   {
+    "effect": "read",
+    "title": "Get team DND status"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve user presence"
+   },
+   {
+    "effect": "read",
+    "title": "Get workspace connections for channel"
+   },
+   {
+    "effect": "read",
+    "title": "Fetch workspace settings information"
+   },
+   {
+    "effect": "write",
+    "title": "Invite users to channel"
+   },
+   {
+    "effect": "unknown",
+    "title": "Invite user to workspace"
+   },
+   {
+    "effect": "write",
+    "title": "Invite users to a Slack channel"
+   },
+   {
+    "effect": "write",
+    "title": "Join conversation by channel id"
+   },
+   {
+    "effect": "write",
+    "title": "Leave conversation channel"
+   },
+   {
+    "effect": "read",
+    "title": "List approved apps"
+   },
+   {
+    "effect": "read",
+    "title": "List app requests"
+   },
+   {
+    "effect": "read",
+    "title": "List admin emoji"
+   },
+   {
+    "effect": "read",
+    "title": "List all channels"
+   },
+   {
+    "effect": "read",
+    "title": "List all users"
+   },
+   {
+    "effect": "read",
+    "title": "List approved workspace invite requests"
+   },
+   {
+    "effect": "read",
+    "title": "List authorized teams"
+   },
+   {
+    "effect": "read",
+    "title": "List available workspaces"
+   },
+   {
+    "effect": "read",
+    "title": "List conversations"
+   },
+   {
+    "effect": "read",
+    "title": "List team custom emojis"
+   },
+   {
+    "effect": "read",
+    "title": "List denied workspace invite requests"
+   },
+   {
+    "effect": "read",
+    "title": "List Enterprise teams"
+   },
+   {
+    "effect": "read",
+    "title": "List Slack files"
+   },
+   {
+    "effect": "read",
+    "title": "List IDP groups linked to channel"
+   },
+   {
+    "effect": "read",
+    "title": "List pending workspace invite requests"
+   },
+   {
+    "effect": "read",
+    "title": "List pinned items in a channel"
+   },
+   {
+    "effect": "read",
+    "title": "List reminders"
+   },
+   {
+    "effect": "read",
+    "title": "List remote files"
+   },
+   {
+    "effect": "read",
+    "title": "List Restricted Apps"
+   },
+   {
+    "effect": "read",
+    "title": "List scheduled messages"
+   },
+   {
+    "effect": "read",
+    "title": "List Slack List items"
+   },
+   {
+    "effect": "read",
+    "title": "List starred items"
+   },
+   {
+    "effect": "read",
+    "title": "List unread channel messages"
+   },
+   {
+    "effect": "read",
+    "title": "List all users in a user group"
+   },
+   {
+    "effect": "read",
+    "title": "List user groups"
+   },
+   {
+    "effect": "read",
+    "title": "List user reactions"
+   },
+   {
+    "effect": "read",
+    "title": "List workspace admins"
+   },
+   {
+    "effect": "read",
+    "title": "List workspace owners"
+   },
+   {
+    "effect": "read",
+    "title": "List admin users"
+   },
+   {
+    "effect": "read",
+    "title": "Lookup Canvas Sections"
+   },
+   {
+    "effect": "write",
+    "title": "Open DM"
+   },
+   {
+    "effect": "write",
+    "title": "Pin an item to a channel"
+   },
+   {
+    "effect": "read",
+    "title": "Read Audit Logs"
+   },
+   {
+    "effect": "write",
+    "title": "Remove call participants"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove emoji"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove reaction from item"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove remote file"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove a star from an item"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove user from conversation"
+   },
+   {
+    "effect": "destructive",
+    "title": "Remove user from workspace"
+   },
+   {
+    "effect": "write",
+    "title": "Rename a conversation"
+   },
+   {
+    "effect": "write",
+    "title": "Rename an emoji"
+   },
+   {
+    "effect": "unknown",
+    "title": "Reserve Slack file upload"
+   },
+   {
+    "effect": "destructive",
+    "title": "Reset user sessions"
+   },
+   {
+    "effect": "write",
+    "title": "Restrict app installation"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve a user's identity details"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve conversation information"
+   },
+   {
+    "effect": "read",
+    "title": "Get conversation members"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve user DND status"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve detailed file information"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve detailed user information"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve message permalink"
+   },
+   {
+    "effect": "read",
+    "title": "Retrieve user profile information"
+   },
+   {
+    "effect": "destructive",
+    "title": "Revoke a file's public url"
+   },
+   {
+    "effect": "unknown",
+    "title": "Start RTM session"
+   },
+   {
+    "effect": "unknown",
+    "title": "Schedule message"
+   },
+   {
+    "effect": "read",
+    "title": "Get SCIM service provider configuration"
+   },
+   {
+    "effect": "read",
+    "title": "Search all content"
+   },
+   {
+    "effect": "read",
+    "title": "Search Slack files"
+   },
+   {
+    "effect": "read",
+    "title": "Search messages"
+   },
+   {
+    "effect": "unknown",
+    "title": "Send ephemeral message"
+   },
+   {
+    "effect": "unknown",
+    "title": "Share a me message in a channel"
+   },
+   {
+    "effect": "unknown",
+    "title": "Send message"
+   },
+   {
+    "effect": "write",
+    "title": "Set admin user"
+   },
+   {
+    "effect": "write",
+    "title": "Set conversation preferences"
+   },
+   {
+    "effect": "write",
+    "title": "Set a conversation's purpose"
+   },
+   {
+    "effect": "write",
+    "title": "Set default channels"
+   },
+   {
+    "effect": "write",
+    "title": "Set DND duration"
+   },
+   {
+    "effect": "write",
+    "title": "Set profile photo"
+   },
+   {
+    "effect": "write",
+    "title": "Set conversation read cursor"
+   },
+   {
+    "effect": "write",
+    "title": "Set Slack List access"
+   },
+   {
+    "effect": "write",
+    "title": "Set conversation topic"
+   },
+   {
+    "effect": "write",
+    "title": "Set user presence"
+   },
+   {
+    "effect": "write",
+    "title": "Set Slack user profile information"
+   },
+   {
+    "effect": "write",
+    "title": "Set workspace description"
+   },
+   {
+    "effect": "write",
+    "title": "Set workspace icon"
+   },
+   {
+    "effect": "write",
+    "title": "Set workspace name"
+   },
+   {
+    "effect": "write",
+    "title": "Set workspace owner"
+   },
+   {
+    "effect": "write",
+    "title": "Set workspaces for channel"
+   },
+   {
+    "effect": "write",
+    "title": "Share a remote file in channels"
+   },
+   {
+    "effect": "unknown",
+    "title": "Start call"
+   },
+   {
+    "effect": "read",
+    "title": "Test authentication"
+   },
+   {
+    "effect": "write",
+    "title": "Unarchive channel"
+   },
+   {
+    "effect": "destructive",
+    "title": "Unpin message from channel"
+   },
+   {
+    "effect": "write",
+    "title": "Update call information"
+   },
+   {
+    "effect": "write",
+    "title": "Update an existing remote file"
+   },
+   {
+    "effect": "write",
+    "title": "Update Slack List"
+   },
+   {
+    "effect": "write",
+    "title": "Update Slack List item"
+   },
+   {
+    "effect": "write",
+    "title": "Update Slack user group"
+   },
+   {
+    "effect": "write",
+    "title": "Update user group members"
+   },
+   {
+    "effect": "write",
+    "title": "Update a Slack message"
+   },
+   {
+    "effect": "unknown",
+    "title": "Upload or create a file in Slack"
+   },
+   {
+    "effect": "read",
+    "title": "Who Am I"
+   }
+  ],
+  "presentation": {
+   "category": "team-chat",
+   "description": "Read channels and direct messages in your Slack workspace, search past conversations, and send messages and replies. New messages are noticed as they arrive.",
+   "developer": "Slack",
+   "icon": "/v1/icons/slack.png",
+   "localized": {
+    "zh-Hans": {
+     "description": "读取 Slack 工作区里的频道和私信，搜索以前的对话，发消息和回复。有新消息时能知道。",
+     "prompts": [
+      "今天 #general 里我错过了什么？",
+      "这周有人提到我吗？",
+      "跟团队说我晚到 10 分钟"
+     ],
+     "short_description": "读取和发送消息"
+    }
+   },
+   "name": "Slack",
+   "privacy_policy": "https://slack.com/trust/privacy/privacy-policy",
+   "prompts": [
+    "What did I miss in #general today?",
+    "Did anyone mention me this week?",
+    "Tell the team I'll be 10 minutes late"
+   ],
+   "short_description": "Read and send messages",
+   "terms_of_service": "https://slack.com/terms-of-service",
+   "website": "https://slack.com"
+  }
+ },
+ {
+  "hooks": [
+   {
+    "summary": "An event in the person's calendars was added, changed or deleted, within the days watched."
+   }
+  ],
+  "id": "calendar",
+  "operations": [
+   {
+    "effect": "read",
+    "title": "Calendars"
+   },
+   {
+    "effect": "write",
+    "title": "New event"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete an event"
+   },
+   {
+    "effect": "read",
+    "title": "An event"
+   },
+   {
+    "effect": "read",
+    "title": "Look at the calendar"
+   },
+   {
+    "effect": "write",
+    "title": "Change an event"
+   }
+  ],
+  "presentation": {
+   "category": "productivity",
+   "color": "#FF3B30",
+   "description": "Read and change the events in Calendar on your iPhone or Mac, including the iCloud, Google and Exchange calendars you have added there. Changes are noticed as they happen.",
+   "developer": "Apple",
+   "icon": "/v1/icons/calendar.png",
+   "localized": {
+    "zh-Hans": {
+     "description": "读取和修改 iPhone 或 Mac 上「日历」里的日程，包括你在那里添加的 iCloud、Google、Exchange 日历。日程有变化时能知道。",
+     "name": "日历",
+     "prompts": [
+      "我明天有什么安排？",
+      "周六晚上 7 点和妈妈吃饭，记一下",
+      "周四下午我有空吗？"
+     ],
+     "short_description": "查看和安排日程"
+    }
+   },
+   "name": "Calendar",
+   "prompts": [
+    "What's on my calendar tomorrow?",
+    "Add dinner with Mom on Saturday at 7",
+    "Am I free Thursday afternoon?"
+   ],
+   "short_description": "See and manage your schedule"
+  }
+ },
+ {
+  "hooks": [
+   {
+    "summary": "A reminder was added, changed, completed or deleted."
+   }
+  ],
+  "id": "reminders",
+  "operations": [
+   {
+    "effect": "write",
+    "title": "Complete a reminder"
+   },
+   {
+    "effect": "write",
+    "title": "New reminder"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a reminder"
+   },
+   {
+    "effect": "read",
+    "title": "Look at reminders"
+   },
+   {
+    "effect": "read",
+    "title": "Reminder lists"
+   },
+   {
+    "effect": "write",
+    "title": "Change a reminder"
+   }
+  ],
+  "presentation": {
+   "category": "productivity",
+   "color": "#FF9500",
+   "description": "Read, add, complete and change the to-dos in Reminders on your iPhone or Mac, in any of your lists. Changes are noticed as they happen.",
+   "developer": "Apple",
+   "icon": "/v1/icons/reminders.png",
+   "localized": {
+    "zh-Hans": {
+     "description": "读取、添加、完成和修改 iPhone 或 Mac 上「提醒事项」里各个列表的待办。待办有变化时能知道。",
+     "name": "提醒事项",
+     "prompts": [
+      "今天还有哪些没做？",
+      "提醒我下个月续签护照",
+      "把买菜那条标成完成"
+     ],
+     "short_description": "管理待办"
+    }
+   },
+   "name": "Reminders",
+   "prompts": [
+    "What's still on my list for today?",
+    "Remind me to renew my passport next month",
+    "Mark the grocery run as done"
+   ],
+   "short_description": "Keep track of your to-dos"
+  }
+ },
+ {
+  "hooks": [
+   {
+    "summary": "A contact was added, changed or deleted."
+   }
+  ],
+  "id": "contacts",
+  "operations": [
+   {
+    "effect": "read",
+    "title": "Upcoming birthdays"
+   },
+   {
+    "effect": "read",
+    "title": "A contact"
+   },
+   {
+    "effect": "write",
+    "title": "New contact"
+   },
+   {
+    "effect": "read",
+    "title": "Find a contact"
+   },
+   {
+    "effect": "write",
+    "title": "Change a contact"
+   }
+  ],
+  "presentation": {
+   "category": "productivity",
+   "color": "#8E8E93",
+   "description": "Find people in Contacts on your iPhone or Mac, with their numbers, email addresses, addresses and birthdays, and add or update contacts.",
+   "developer": "Apple",
+   "icon": "/v1/icons/contacts.png",
+   "localized": {
+    "zh-Hans": {
+     "description": "在 iPhone 或 Mac 的「通讯录」里找人，看电话、邮箱、地址和生日，新建或更新联系人。",
+     "name": "通讯录",
+     "prompts": [
+      "Lisa 的邮箱是什么？",
+      "这个月谁过生日？",
+      "把这个号码存成修水管的师傅"
+     ],
+     "short_description": "查找和更新联系人"
+    }
+   },
+   "name": "Contacts",
+   "prompts": [
+    "What's Lisa's email address?",
+    "Whose birthday is coming up this month?",
+    "Save this number for the plumber"
+   ],
+   "short_description": "Look up and update contacts"
+  }
+ },
+ {
+  "hooks": [
+   {
+    "summary": "A photo or video was added to the library: taken, saved or received."
+   }
+  ],
+  "id": "photos",
+  "operations": [
+   {
+    "effect": "write",
+    "title": "Add to an album"
+   },
+   {
+    "effect": "read",
+    "title": "Albums"
+   },
+   {
+    "effect": "write",
+    "title": "New album"
+   },
+   {
+    "effect": "read",
+    "title": "Export photos"
+   },
+   {
+    "effect": "read",
+    "title": "A photo"
+   },
+   {
+    "effect": "read",
+    "title": "Find photos"
+   }
+  ],
+  "presentation": {
+   "category": "media",
+   "color": "#FFCC00",
+   "description": "Find photos and videos in the library on your iPhone or Mac by date, album or kind, export them as files, and make albums. New photos are noticed as they are added.",
+   "developer": "Apple",
+   "icon": "/v1/icons/photos.png",
+   "localized": {
+    "zh-Hans": {
+     "description": "按时间、相簿或类型找 iPhone 或 Mac 图库里的照片和视频，导出成文件，新建相簿。有新照片时能知道。",
+     "name": "照片",
+     "prompts": [
+      "找出五月旅行的照片",
+      "把这个周末的照片建个相簿",
+      "给我看看昨天的截图"
+     ],
+     "short_description": "查找和整理照片"
+    }
+   },
+   "name": "Photos",
+   "prompts": [
+    "Find the photos from my trip in May",
+    "Make an album of this weekend's photos",
+    "Show me the screenshots from yesterday"
+   ],
+   "short_description": "Find and organize photos"
+  }
+ },
+ {
+  "hooks": [
+   {
+    "summary": "New health data: a night's sleep once it is over, or a day's resting heart rate."
+   }
+  ],
+  "id": "health",
+  "operations": [
+   {
+    "effect": "read",
+    "title": "Activity and heart rate"
+   },
+   {
+    "effect": "read",
+    "title": "Sleep"
+   }
+  ],
+  "presentation": {
+   "category": "health",
+   "color": "#FF2D55",
+   "description": "Read steps, activity, heart rate and sleep from Health on your iPhone, compared with your usual days. Nothing is written to Health.",
+   "developer": "Apple",
+   "icon": "/v1/icons/health.png",
+   "localized": {
+    "zh-Hans": {
+     "description": "读取 iPhone「健康」里的步数、活动、心率和睡眠，并和你平时的状态对比。不会往「健康」里写入。",
+     "name": "健康",
+     "prompts": [
+      "我昨晚睡得怎么样？",
+      "这周比平时活动得多吗？",
+      "这个月静息心率有变化吗？"
+     ],
+     "short_description": "查看活动和睡眠"
+    }
+   },
+   "name": "Health",
+   "prompts": [
+    "How did I sleep last night?",
+    "Was I more active this week than usual?",
+    "How has my resting heart rate changed this month?"
+   ],
+   "short_description": "Read your activity and sleep"
+  }
+ },
+ {
+  "hooks": [
+   {
+    "summary": "Codex is waiting for an approval, or an answer to its question, in a session."
+   },
+   {
+    "summary": "A Codex session started running, went idle, or began waiting."
+   },
+   {
+    "summary": "A Codex turn finished: completed, interrupted or failed."
+   }
+  ],
+  "id": "codex",
+  "operations": [
+   {
+    "effect": "read",
+    "title": "Codex account"
+   },
+   {
+    "effect": "write",
+    "title": "Answer Codex"
+   },
+   {
+    "effect": "read",
+    "title": "Codex approvals"
+   },
+   {
+    "effect": "write",
+    "title": "Archive a Codex session"
+   },
+   {
+    "effect": "read",
+    "title": "Codex's own hooks"
+   },
+   {
+    "effect": "destructive",
+    "title": "Delete a Codex session"
+   },
+   {
+    "effect": "write",
+    "title": "Fork a Codex session"
+   },
+   {
+    "effect": "write",
+    "title": "Stop Codex"
+   },
+   {
+    "effect": "read",
+    "title": "Codex models"
+   },
+   {
+    "effect": "read",
+    "title": "Permission modes"
+   },
+   {
+    "effect": "read",
+    "title": "Codex projects"
+   },
+   {
+    "effect": "write",
+    "title": "Rename a Codex session"
+   },
+   {
+    "effect": "read",
+    "title": "Codex review"
+   },
+   {
+    "effect": "write",
+    "title": "Send to a Codex session"
+   },
+   {
+    "effect": "read",
+    "title": "A Codex session"
+   },
+   {
+    "effect": "read",
+    "title": "Codex sessions"
+   },
+   {
+    "effect": "destructive",
+    "title": "Change a session's permissions"
+   },
+   {
+    "effect": "write",
+    "title": "Start a Codex session"
+   },
+   {
+    "effect": "read",
+    "title": "A session's turns"
+   }
+  ],
+  "presentation": {
+   "category": "development",
+   "description": "Start Codex sessions in the projects on your computer, send them tasks, answer their approval requests, and read what they did. You hear when a run finishes or needs you.",
+   "developer": "OpenAI",
+   "localized": {
+    "zh-Hans": {
+     "description": "在你电脑上的项目里开 Codex 会话，给它派任务，回应它的批准请求，看它做了什么。跑完或需要你时会告诉你。",
+     "name": "Codex",
+     "prompts": [
+      "让 Codex 修一下项目里挂掉的测试",
+      "Codex 上一次会话改了什么？",
+      "让 Codex review 一下我当前的分支"
+     ],
+     "short_description": "运行和跟进编程会话"
+    }
+   },
+   "name": "Codex",
+   "privacy_policy": "https://openai.com/policies/privacy-policy",
+   "prompts": [
+    "Ask Codex to fix the failing test in my project",
+    "What did Codex change in its last session?",
+    "Have Codex review my current branch"
+   ],
+   "short_description": "Run and follow coding sessions",
+   "terms_of_service": "https://openai.com/policies/terms-of-use",
+   "website": "https://openai.com/codex"
+  }
+ }
+]
