@@ -89,6 +89,9 @@ private struct DocMorphPiece: View, @preconcurrency Animatable {
         if isImage {
             // An image is its picture, filling the box as it goes.
             DocMediaCell(id: item.id, kind: kind, blocks: blocks, size: box.size, isLayer: true)
+        } else if !changes, let to = item.to ?? item.from, to.size == (item.from ?? to).size {
+            // Unchanged: as it is on the page, only moving.
+            DocMediaCell(id: item.id, kind: kind, blocks: blocks, isInteractive: false)
         } else {
             // Sized to the box: in the stack the old layout, at its own size, is wider or
             // taller, and an unsized shape would take the stack's size.
@@ -107,7 +110,7 @@ private struct DocMorphPiece: View, @preconcurrency Animatable {
             shape.strokeBorder(DocMediaLayout.border, lineWidth: 1)
                 .frame(width: box.width, height: box.height)
         }
-        if blocks.selected.contains(item.id) {
+        if blocks.selected.contains(item.id), isImage || changes {
             RoundedRectangle(cornerRadius: 11, style: .continuous)
                 .strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5)
                 .padding(-3)

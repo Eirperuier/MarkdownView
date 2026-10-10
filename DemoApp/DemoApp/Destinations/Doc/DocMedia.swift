@@ -43,7 +43,7 @@ struct DocLinkView: View {
     let link: DocLink
     var reservesDot = false
     /// Laid out at a transition's box size: pictures follow the box, text keeps its size.
-    @Environment(\.docFillsFrame) private var fills
+    @Environment(\.docLayerSize) private var layer
 
     @ViewBuilder
     var body: some View {
@@ -62,10 +62,12 @@ struct DocLinkView: View {
             .docMediaFrame()
         case .regular:
             VStack(spacing: 0) {
-                HStack(alignment: fills ? .top : .center, spacing: 12) {
+                // In a transition the thumbnail is as tall as the row (Craft's); the text
+                // keeps to the band it has on the page.
+                let thumbnail = max(62, (layer?.height ?? 88) - 26)
+                HStack(alignment: .top, spacing: 12) {
                     DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 28) }
-                        .frame(width: fills ? nil : 82, height: fills ? nil : 62)
-                        .modifier(DocFlexibleThumbnail(isOn: fills, aspect: 82 / 62))
+                        .frame(width: thumbnail * 82 / 62, height: thumbnail)
                         .clipped()
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title)
@@ -78,7 +80,7 @@ struct DocLinkView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.trailing, reservesDot ? 34 : 12)
-                    .padding(.top, fills ? 10 : 0)
+                    .frame(height: 62)
                 }
                 DocLinkFooter(link: link)
             }
@@ -88,8 +90,7 @@ struct DocLinkView: View {
             VStack(alignment: .leading, spacing: 0) {
                 DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 36) }
                     .frame(maxWidth: .infinity)
-                    .frame(height: fills ? nil : 104)
-                    .frame(maxHeight: fills ? .infinity : nil)
+                    .frame(height: max(0, 104 + (layer?.height ?? 222) - 222))
                     .clipped()
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
@@ -105,7 +106,7 @@ struct DocLinkView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if !fills { Spacer(minLength: 0) }
+                Spacer(minLength: 0)
                 DocLinkFooter(link: link)
             }
             .docSized(width: DocMediaLayout.cardWidth, height: 222)
@@ -157,7 +158,7 @@ private struct DocLinkIcon: View {
 struct DocFileView: View {
     let file: DocFile
     var reservesDot = false
-    @Environment(\.docFillsFrame) private var fills
+    @Environment(\.docLayerSize) private var layer
 
     var body: some View {
         switch file.layout {
@@ -203,8 +204,7 @@ struct DocFileView: View {
             VStack(spacing: 0) {
                 DocFileIcon(name: file.name, height: 72)
                     .frame(maxWidth: .infinity)
-                    .frame(height: fills ? nil : 104)
-                    .frame(maxHeight: fills ? .infinity : nil)
+                    .frame(height: max(0, 104 + (layer?.height ?? 182) - 182))
                     .background(Color(.secondarySystemBackground))
                 VStack(spacing: 2) {
                     Text(file.name)
@@ -218,7 +218,7 @@ struct DocFileView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 10)
-                if !fills { Spacer(minLength: 0) }
+                Spacer(minLength: 0)
             }
             .docSized(width: DocMediaLayout.cardWidth, height: 182)
             .docMediaFrame()
@@ -556,6 +556,8 @@ struct DocMediaCell: View {
     /// A layer of a change's transition (DocMorph): its content at `size`, without the
     /// box and outline the transition draws around it.
     var isLayer = false
+    /// Off in a transition, where it is a picture of the page.
+    var isInteractive = true
 
     var body: some View {
         let isSelected = blocks.selected.contains(id)
@@ -575,8 +577,8 @@ struct DocMediaCell: View {
                         .padding(-3)
                 }
             }
-            .modifier(DocMediaContextMenu(kind: kind, block: id, blocks: blocks, isOn: !isLayer))
-            .environment(\.docFillsFrame, isLayer)
+            .modifier(DocMediaContextMenu(kind: kind, block: id, blocks: blocks, isOn: isInteractive && !isLayer))
+            .environment(\.docLayerSize, isLayer ? size : nil)
     }
 
     @ViewBuilder
@@ -611,9 +613,12 @@ private struct DocSelectionDot: View {
 // MARK: Transitions
 
 extension EnvironmentValues {
-    /// Drawn in a change's transition: a link or file fills the frame it's given, at
-    /// each size the transition passes through (DocMorph).
-    @Entry var docFillsFrame = false
+    /// Drawn in a change's transition at this size (DocMorph): a link or file lays itself
+    /// out at each size the transition passes through. Its picture takes what the box
+    /// gains or loses over its own size, the rest stays as it is, so at its own size it
+    /// is exactly as on the page.
+    @Entry var docLayerSize: CGSize?
+    var docFillsFrame: Bool { docLayerSize != nil }
 }
 
 /// Its fixed size on the page; in a transition, the frame the transition gives it.
@@ -656,23 +661,5 @@ private struct DocMediaContextMenu: ViewModifier {
         #else
         content
         #endif
-    }
-}
-
-/// A regular link's thumbnail in a transition: as tall as the row, its width by its
-/// aspect, the way Craft's grows and shrinks with the box.
-private struct DocFlexibleThumbnail: ViewModifier {
-    let isOn: Bool
-    let aspect: CGFloat
-
-    func body(content: Content) -> some View {
-        if isOn {
-            Color.clear
-                .aspectRatio(aspect, contentMode: .fit)
-                .frame(maxHeight: .infinity)
-                .overlay { content }
-        } else {
-            content
-        }
     }
 }

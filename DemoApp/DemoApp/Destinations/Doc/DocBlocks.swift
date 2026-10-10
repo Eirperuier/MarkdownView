@@ -981,12 +981,13 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     /// What the list shows now, as an image to cut the rows out of: a preview's pieces
     /// are the rows themselves, so they land on them without a seam.
-    private func snapshot() -> (image: CGImage, bounds: CGRect, scale: CGFloat)? {
+    /// - Parameter updated: after pending screen updates (a selection made just now is
+    /// in the picture); slower than what's on screen already.
+    private func snapshot(updated: Bool = true) -> (image: CGImage, bounds: CGRect, scale: CGFloat)? {
         guard let list, list.bounds.width > 0, list.bounds.height > 0 else { return nil }
         let renderer = UIGraphicsImageRenderer(size: list.bounds.size)
-        // After updates: a selection made just now is in the picture.
         let image = renderer.image { _ in
-            list.drawHierarchy(in: CGRect(origin: .zero, size: list.bounds.size), afterScreenUpdates: true)
+            list.drawHierarchy(in: CGRect(origin: .zero, size: list.bounds.size), afterScreenUpdates: updated)
         }
         return image.cgImage.map { ($0, list.bounds, image.scale) }
     }
@@ -998,7 +999,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// the list takes the change underneath. Reduce Motion skips it.
     func transition(_ change: () -> Void) {
         guard let list, let container = list.superview, let reader, morphHost == nil,
-            !UIAccessibility.isReduceMotionEnabled, let old = snapshot()
+            !UIAccessibility.isReduceMotionEnabled, let old = snapshot(updated: false)
         else { return change() }
         let before = visibleBlocks()
         let kinds = Dictionary(uniqueKeysWithValues: demo.doc.blocks.map { ($0.id, $0.kind) })
@@ -1019,16 +1020,21 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         let version = reader.version
         change()
         Task { [weak self] in
-            // The list takes the change on a later pass; then a frame to draw it.
-            for _ in 0..<20 where reader.version == version {
-                try? await Task.sleep(for: .milliseconds(16))
+            // The list takes the change on a later pass (the sooner the animation starts,
+            // the more it feels like the click did it).
+            for _ in 0..<60 where reader.version == version {
+                try? await Task.sleep(for: .milliseconds(5))
             }
-            try? await Task.sleep(for: .milliseconds(16))
             guard let self, let list = self.list else { return host.view.removeFromSuperview() }
             list.layoutIfNeeded()
             let after = self.visibleBlocks()
-            let new = self.snapshot()
             let kinds = Dictionary(uniqueKeysWithValues: self.demo.doc.blocks.map { ($0.id, $0.kind) })
+            // A second picture only for text that changes shape or comes.
+            let textReshapes = after.contains { id, frame in
+                !(kinds[id].map(DocMediaView.draws) ?? false)
+                    && (before[id].map { abs($0.width - frame.width) > 0.5 || abs($0.height - frame.height) > 0.5 } ?? true)
+            }
+            let new = textReshapes ? self.snapshot() : nil
             // In place, in the same order: the views stay the ones on screen.
             var items = morph.items
             for (id, frame) in after {
@@ -1046,7 +1052,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             // Later blocks over earlier ones (Craft's): a box that grows goes under the next.
             let order = Dictionary(uniqueKeysWithValues: self.demo.doc.blocks.enumerated().map { ($1.id, $0) })
             morph.items = items.sorted { (order[$0.id] ?? .max, $0.from?.minY ?? 0) < (order[$1.id] ?? .max, $1.from?.minY ?? 0) }
-            try? await Task.sleep(for: .milliseconds(16))
             // Craft's: about a third of a second, most of the way early.
             withAnimation(.spring(duration: 0.34, bounce: 0)) {
                 morph.isDone = true
