@@ -474,6 +474,21 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         return content
     }
 
+    /// `^[…](color: red)` 一类的行内样式(MarkdownInlineStyle):子内容照常渲染,再合并文字色/
+    /// 高亮底色;笔迹打 RichText scope 的 PenMarkAttribute(SelectablePenMarkOverlay 据此绘制)。
+    /// 节点本身不占字符,storage/plain 记账由子节点完成。
+    mutating func visitInlineAttributes(_ attributes: InlineAttributes) -> TextContent {
+        let content = descendInto(attributes)
+        guard let style = MarkdownInlineStyle(attributes: attributes.attributes) else { return content }
+        var container = style.colorAttributes()
+        if let pen = style.pen {
+            let seed = MarkdownPenMarkSyntax.contentSeed(attributes.plainText)
+            container[AttributeScopes.RichTextAttributes.PenMarkAttribute.self] =
+                MarkdownPenMarkSyntax.encodeAttributeValue(kind: pen, color: style.ink, seed: seed)
+        }
+        return content.mergingAttributes(container)
+    }
+
     mutating func visitEmphasis(_ emphasis: Markdown.Emphasis) -> TextContent {
         applyingCJKObliqueness(
             mergeInlinePresentationIntent(.emphasized, children: Array(emphasis.children))

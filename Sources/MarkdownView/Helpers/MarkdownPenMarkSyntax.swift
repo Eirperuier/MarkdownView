@@ -336,6 +336,8 @@ enum PenMarkPainter {
         case "accent": base = .accentColor
         case let hex? where hex.hasPrefix("#"):
             base = Self.hexColor(hex) ?? .red
+        case let name?:
+            base = MarkdownColorToken.text(name) ?? .red
         default: base = .red
         }
         return base.opacity(0.72)

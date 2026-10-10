@@ -186,6 +186,8 @@ final class SelectablePenMarkOverlayView: UIView {
         case "accent": base = textView.tintColor ?? .systemRed
         case let hex? where hex.hasPrefix("#"):
             base = Self.hexColor(hex) ?? .systemRed
+        case let name?:
+            base = MarkdownColorToken.text(name).map { UIColor($0) } ?? .systemRed
         default: base = .systemRed
         }
         return base

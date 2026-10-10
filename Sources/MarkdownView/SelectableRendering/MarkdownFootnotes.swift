@@ -107,7 +107,9 @@ public enum MarkdownFootnoteSyntax {
             if c == "^" {
                 let bracket = text.index(after: i)
                 if bracket < text.endIndex, text[bracket] == "[" {
-                    if let closing = balancedClosingBracket(in: text, openingAt: bracket) {
+                    // `^[…](…)` is an inline style (MarkdownInlineStyle), not a note.
+                    if let closing = balancedClosingBracket(in: text, openingAt: bracket),
+                       text.index(after: closing) == text.endIndex || text[text.index(after: closing)] != "(" {
                         let content = String(text[text.index(after: bracket)..<closing])
                         // 空内容不算脚注(`^[]` 保持字面)。
                         if !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

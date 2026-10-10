@@ -303,6 +303,32 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
     return MarkdownNodeView(nodeViews)
   }
 
+  /// `^[…](color: red)` 一类的行内样式(MarkdownInlineStyle):文字色/高亮底色合并进子内容;
+  /// 笔迹打 MarkdownPenMarkAttribute,由 TextRenderer(PenMarkPainter)绘制。
+  func visitInlineAttributes(_ attributes: InlineAttributes) -> MarkdownNodeView {
+    guard let style = MarkdownInlineStyle(attributes: attributes.attributes) else { return descendInto(attributes) }
+    var container = style.colorAttributes()
+    if let pen = style.pen {
+      container[MarkdownPenMarkAttribute.self] = MarkdownPenMarkSyntax.encodeAttributeValue(
+        kind: pen, color: style.ink, seed: MarkdownPenMarkSyntax.contentSeed(attributes.plainText)
+      )
+    }
+    var nodeViews = [MarkdownNodeView]()
+    for child in attributes.children {
+      var renderer = self
+      let childView = renderer.visit(child)
+      if let text = childView.asAttributedString {
+        nodeViews.append(MarkdownNodeView(text.mergingAttributes(container)))
+      } else if let color = style.color.flatMap(MarkdownColorToken.text) {
+        nodeViews.append(MarkdownNodeView { childView.foregroundStyle(color) })
+      } else {
+        nodeViews.append(childView)
+      }
+    }
+    if nodeViews.count == 1 { return nodeViews[0] }
+    return MarkdownNodeView(nodeViews)
+  }
+
   func visitStrikethrough(_ strikethrough: Strikethrough) -> MarkdownNodeView {
     var nodeViews = [MarkdownNodeView]()
     for child in strikethrough.children {
