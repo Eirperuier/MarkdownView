@@ -27,7 +27,6 @@ struct FlooService: Identifiable, Hashable, Sendable {
 
     let id: String
     let name: String
-    let symbol: String
     let tint: Color
     let blurb: String
     let category: String
@@ -37,30 +36,33 @@ struct FlooService: Identifiable, Hashable, Sendable {
     /// What it says first, once added; `account` is the one signed in to.
     let hello: @Sendable (_ account: String?) -> String
 
+    /// Where its definition says its icon is: the server's copy (floo docs/app.md 3.1).
+    var icon: URL? { URL(string: "https://floo-server.fly.dev/v1/icons/\(id).png") }
+
     static func == (a: Self, b: Self) -> Bool { a.id == b.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     static let all: [FlooService] = [
         FlooService(
-            id: "weather", name: "天气", symbol: "cloud.sun.fill", tint: .cyan,
+            id: "weather", name: "天气", tint: .cyan,
             blurb: "只在影响你安排时才说话。", category: "生活", needs: .nothing,
             data: "只用你告诉它的城市。",
             hello: { _ in "我是天气。你在哪个城市？之后天气要碍着你的安排，我会提前说；平常不打扰你。" }
         ),
         FlooService(
-            id: "health", name: "健康", symbol: "heart.fill", tint: .pink,
+            id: "health", name: "健康", tint: .pink,
             blurb: "睡眠、步数、运动。", category: "生活", needs: .permission("读取健康数据"),
             data: "数据不离开手机。",
             hello: { _ in "我是健康，能看到你这台手机上的睡眠和步数了。睡得不好的那几天，我会在早上说一声。" }
         ),
         FlooService(
-            id: "calendar", name: "日历", symbol: "calendar", tint: .red,
+            id: "calendar", name: "日历", tint: .red,
             blurb: "提前告诉你撞车的日程。", category: "效率", needs: .permission("访问日历"),
             data: "数据不离开手机。",
             hello: { _ in "我是日历。看到撞车的安排，我会提前告诉你；要改什么，跟我说就行。" }
         ),
         FlooService(
-            id: "gmail", name: "Gmail", symbol: "envelope.fill", tint: Color(red: 0.86, green: 0.27, blue: 0.22),
+            id: "gmail", name: "Gmail", tint: Color(red: 0.86, green: 0.27, blue: 0.22),
             blurb: "挑出值得回的，先拟好草稿。", category: "效率", needs: .signIn("Google"),
             data: "经 Google 授权读取，可随时在 Google 账号里收回。",
             hello: { account in
@@ -68,25 +70,25 @@ struct FlooService: Identifiable, Hashable, Sendable {
             }
         ),
         FlooService(
-            id: "googlecalendar", name: "Google 日历", symbol: "calendar.badge.clock", tint: .blue,
+            id: "googlecalendar", name: "Google 日历", tint: .blue,
             blurb: "Google 上的日程，和手机上的放一起看。", category: "效率", needs: .signIn("Google"),
             data: "经 Google 授权读取，可随时在 Google 账号里收回。",
             hello: { account in "我是 Google 日历，连上了 \(account ?? "你的账号")。有人邀请你、时间变了，我会告诉你。" }
         ),
         FlooService(
-            id: "github", name: "GitHub", symbol: "chevron.left.forwardslash.chevron.right", tint: .black,
+            id: "github", name: "GitHub", tint: .black,
             blurb: "等你的 PR 和 issue，有动静才提。", category: "工作", needs: .signIn("GitHub"),
             data: "经 GitHub 授权读取，可随时在 GitHub 设置里收回。",
             hello: { account in "我是 GitHub，连上了 \(account ?? "你的账号")。有人等你 review、你的 PR 有了回复，我会说。" }
         ),
         FlooService(
-            id: "notion", name: "Notion", symbol: "doc.text.fill", tint: .gray,
+            id: "notion", name: "Notion", tint: .gray,
             blurb: "找页面、记下要记的。", category: "工作", needs: .signIn("Notion"),
             data: "只读你在 Notion 里允许它看的页面。",
             hello: { account in "我是 Notion，连上了 \(account ?? "你的工作区")。要找什么页面、记什么，跟我说。" }
         ),
         FlooService(
-            id: "slack", name: "Slack", symbol: "number", tint: .purple,
+            id: "slack", name: "Slack", tint: .purple,
             blurb: "有人 @你、等你回，才提醒。", category: "工作", needs: .signIn("Slack"),
             data: "经 Slack 授权读取，可随时在 Slack 里收回。",
             hello: { account in "我是 Slack，连上了 \(account ?? "你的工作区")。有人 @你、等你回，我会告诉你。" }
@@ -242,27 +244,15 @@ struct FlooContactsDestination: View {
     }
 }
 
-struct FlooServiceAvatar: View {
-    let symbol: String
-    let tint: Color
-    var size: CGFloat = 40
-
-    var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: size * 0.45, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(tint.gradient, in: RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
-    }
-}
-
 private struct FlooContactRow: View {
+    let service: FlooService?
     let symbol: String
     let tint: Color
     let name: String
     let line: String?
 
     init(symbol: String, tint: Color, name: String, line: String?) {
+        self.service = nil
         self.symbol = symbol
         self.tint = tint
         self.name = name
@@ -270,16 +260,20 @@ private struct FlooContactRow: View {
     }
 
     init(service: FlooService, added: FlooAdded?) {
-        self.init(
-            symbol: service.symbol, tint: service.tint,
-            name: added.map { $0.nickname.isEmpty ? service.name : $0.nickname } ?? service.name,
-            line: added?.account ?? service.blurb
-        )
+        self.service = service
+        self.symbol = ""
+        self.tint = service.tint
+        self.name = added.map { $0.nickname.isEmpty ? service.name : $0.nickname } ?? service.name
+        self.line = added?.account ?? service.blurb
     }
 
     var body: some View {
         HStack(spacing: 12) {
-            FlooServiceAvatar(symbol: symbol, tint: tint)
+            if let service {
+                FlooServiceIcon(url: service.icon, name: service.name, tint: service.tint, size: 36)
+            } else {
+                FlooGlyphIcon(symbol: symbol, tint: tint, size: 36)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
                 if let line {
@@ -344,7 +338,7 @@ private struct FlooIntroduced: View {
                 if let service = FlooService.named(item.service) {
                     NavigationLink(value: FlooContactsRoute.profile(service.id)) {
                         HStack(spacing: 12) {
-                            FlooServiceAvatar(symbol: service.symbol, tint: service.tint)
+                            FlooServiceIcon(url: service.icon, name: service.name, tint: service.tint)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(service.name)
                                 Text("管家介绍：\(item.why)").font(.caption).foregroundStyle(.secondary)
@@ -373,56 +367,44 @@ private struct FlooServiceProfile: View {
     let service: FlooService
 
     private var added: FlooAdded? { demo.added[service.id] }
+    private var shownName: String { added.map { $0.nickname.isEmpty ? service.name : $0.nickname } ?? service.name }
 
+    /// As iOS Contacts shows a person: the picture and name centred, a row of actions, then
+    /// what there is to know, grouped.
     var body: some View {
         List {
             Section {
-                HStack(alignment: .top, spacing: 14) {
-                    FlooServiceAvatar(symbol: service.symbol, tint: service.tint, size: 64)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(added.map { $0.nickname.isEmpty ? service.name : $0.nickname } ?? service.name)
-                            .font(.title2.weight(.semibold))
-                        if let added, !added.nickname.isEmpty {
-                            Text("名字：\(service.name)").font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        if let account = added?.account {
-                            Text("账号：\(account)").font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Text(service.blurb).font(.subheadline)
+                VStack(spacing: 10) {
+                    FlooServiceIcon(url: service.icon, name: service.name, tint: service.tint, size: 96)
+                        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+                    Text(shownName).font(.title.weight(.semibold))
+                    if let added, !added.nickname.isEmpty {
+                        Text(service.name).font(.subheadline).foregroundStyle(.secondary)
                     }
+                    Text(service.blurb).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    actions.padding(.top, 8)
                 }
-                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
             }
             Section {
+                if let account = added?.account {
+                    LabeledContent("账号", value: account)
+                }
                 LabeledContent("需要", value: needs)
                 LabeledContent("数据", value: service.data)
-                if let added {
+                LabeledContent("分类", value: service.category)
+            }
+            if let added {
+                Section {
                     LabeledContent("少打扰", value: added.quiet ? "开" : "关")
                 }
-            }
-            Section {
-                if added != nil {
-                    Button {
-                        demo.path.append(.chat(service.id, fresh: false))
-                    } label: {
-                        Label("发消息", systemImage: "message.fill").frame(maxWidth: .infinity)
-                    }
-                } else {
-                    Button {
-                        demo.path.append(.request(service.id))
-                    } label: {
-                        Text("添加").fontWeight(.semibold).foregroundStyle(.white).frame(maxWidth: .infinity)
-                    }
-                    .listRowBackground(Color.green)
-                }
-            }
-            if added != nil {
                 Section {
-                    Button("删除", role: .destructive) {
+                    Button("删除\(shownName)", role: .destructive) {
                         demo.remove(service)
                         demo.path.removeLast()
                     }
-                    .frame(maxWidth: .infinity)
                 } footer: {
                     Text("删除后不再为你做事；和它的聊天记录还在。")
                 }
@@ -430,6 +412,35 @@ private struct FlooServiceProfile: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// iOS Contacts' action tiles: message once added, add before.
+    private var actions: some View {
+        HStack(spacing: 8) {
+            if added != nil {
+                tile("消息", "message.fill") { demo.path.append(.chat(service.id, fresh: false)) }
+            } else {
+                tile("添加", "plus", prominent: true) { demo.path.append(.request(service.id)) }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private func tile(_ title: String, _ symbol: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: symbol).font(.system(size: 18, weight: .semibold))
+                Text(title).font(.caption.weight(.medium))
+            }
+            .foregroundStyle(prominent ? Color.white : Color.accentColor)
+            .frame(maxWidth: 160)
+            .padding(.vertical, 10)
+            .background(
+                prominent ? AnyShapeStyle(Color.green) : AnyShapeStyle(Color(uiColor: .secondarySystemGroupedBackground)),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private var needs: String {
@@ -465,7 +476,7 @@ private struct FlooAddRequest: View {
         List {
             Section {
                 HStack(spacing: 12) {
-                    FlooServiceAvatar(symbol: service.symbol, tint: service.tint)
+                    FlooServiceIcon(url: service.icon, name: service.name, tint: service.tint)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(service.name).font(.headline)
                         Text(service.blurb).font(.caption).foregroundStyle(.secondary)
@@ -687,7 +698,7 @@ private struct FlooServiceChat: View {
                         .padding(.top, 16)
                     if said || !fresh {
                         HStack(alignment: .top, spacing: 8) {
-                            FlooServiceAvatar(symbol: service.symbol, tint: service.tint, size: 32)
+                            FlooServiceIcon(url: service.icon, name: service.name, tint: service.tint, size: 32)
                             Text(service.hello(added?.account))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 9)
@@ -699,7 +710,7 @@ private struct FlooServiceChat: View {
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                     } else {
                         HStack(spacing: 8) {
-                            FlooServiceAvatar(symbol: service.symbol, tint: service.tint, size: 32)
+                            FlooServiceIcon(url: service.icon, name: service.name, tint: service.tint, size: 32)
                             Text("正在写…").font(.footnote).foregroundStyle(.secondary)
                             Spacer()
                         }
