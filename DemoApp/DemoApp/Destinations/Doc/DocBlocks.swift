@@ -80,8 +80,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     @ObservationIgnored var opensURL: (URL) -> Void = { UIApplication.shared.open($0) }
     /// The image Quick Look shows.
     @ObservationIgnored private var previewing: URL?
-    /// What covers the list while a change reshapes it (transition(_:)).
-    @ObservationIgnored private var transitionCover: UIView?
+    /// What's drawn over the list while a change reshapes it (transition(_:)).
+    @ObservationIgnored private var morphHost: UIViewController?
     /// Pieces flying to their rows: the selection shows once they're down.
     @ObservationIgnored private var landings = 0
 
@@ -198,7 +198,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// The block itself: its row's page part, or its place among the row's members.
     private func contentFrame(_ id: DocBlockID) -> CGRect? {
         guard let page = pageFrame(id) else { return nil }
-        guard let place = demo.places[id], let row = demo.rows.first(where: { $0.id == place.row }) else { return page }
+        guard let place = demo.places[id], let row = demo.rows.first(where: { $0.id == place.row }) else {
+            // A link, file or image alone: its own box, at the page's left.
+            guard let kind = demo.doc.block(id)?.kind, DocMediaView.draws(kind), let box = DocMediaLayout.boxSize(kind, width: page.width) else { return page }
+            return CGRect(x: page.minX, y: page.minY, width: min(box.width, page.width), height: page.height)
+        }
         let frames = DocMediaLayout.memberFrames(row.members.map(\.kind), width: page.width)
         guard frames.indices.contains(place.index) else { return page }
         return frames[place.index].offsetBy(dx: page.minX, dy: page.minY)
@@ -731,7 +735,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// The gap between blocks (an index into the document's blocks) nearest `y`.
     private func gap(atY y: CGFloat) -> Int? {
         guard let list, let reader else { return nil }
-        let index = Dictionary(uniqueKeysWithValues: demo.doc.blocks.enumerated().map { ($1.id.description, $0) })
+        // Rows by their first block's place in the document (a row of several has an id
+        // of its own).
+        let places = Dictionary(uniqueKeysWithValues: demo.doc.blocks.enumerated().map { ($1.id, $0) })
+        let index = Dictionary(demo.rows.compactMap { row in row.block.flatMap { places[$0] }.map { (row.id, $0) } }, uniquingKeysWith: { a, _ in a })
         let spans = Dictionary(demo.rows.filter { !$0.members.isEmpty }.map { ($0.id, $0.members.count) }, uniquingKeysWith: { a, _ in a })
         // A row of several is one gap before it and one after its last member.
         let frames = reader.contentFrames(intersecting: list.bounds.insetBy(dx: 0, dy: -400))
@@ -750,7 +757,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     private func lineY(gap: Int) -> CGFloat? {
         let blocks = demo.doc.blocks
         if blocks.indices.contains(gap), let frame = rowFrame(blocks[gap].id) {
-            return frame.minY + (demo.spacingAbove[blocks[gap].id.description] ?? 0) / 2
+            let row = demo.places[blocks[gap].id]?.row ?? blocks[gap].id.description
+            return frame.minY + (demo.spacingAbove[row] ?? 0) / 2
         }
         if blocks.indices.contains(gap - 1), let frame = contentFrame(blocks[gap - 1].id) { return frame.maxY + 6 }
         return nil
@@ -985,100 +993,97 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     // MARK: Transitions
 
-    /// Makes a change the way Craft does, without a jump: every block on screen goes
-    /// from where it was, at its old size, to where the change puts it, its old look
-    /// fading into its new one; blocks that come or go fade. Snapshots do it, over a
-    /// cover the colour of the page, while the list lays itself out underneath.
+    /// Makes a change that reshapes blocks without a jump (DocMorph): every block on
+    /// screen goes from where it was to where the change puts it, over the list while
+    /// the list takes the change underneath. Reduce Motion skips it.
     func transition(_ change: () -> Void) {
-        guard let list, let container = list.superview, let reader, transitionCover == nil,
+        guard let list, let container = list.superview, let reader, morphHost == nil,
             !UIAccessibility.isReduceMotionEnabled, let old = snapshot()
         else { return change() }
         let before = visibleBlocks()
-        let version = reader.version
-        let cover = UIView(frame: list.frame)
-        cover.backgroundColor = .systemBackground
-        cover.isUserInteractionEnabled = false
-        container.insertSubview(cover, aboveSubview: list)
-        transitionCover = cover
-        var olds: [DocBlockID: UIImageView] = [:]
-        for (id, frame) in before {
-            guard let piece = piece(of: old, at: frame) else { continue }
-            cover.addSubview(piece)
-            olds[id] = piece
+        let kinds = Dictionary(uniqueKeysWithValues: demo.doc.blocks.map { ($0.id, $0.kind) })
+        let morph = DocMorph()
+        morph.items = before.map { id, frame in
+            let media = kinds[id].map(DocMediaView.draws) ?? false
+            return DocMorph.Item(id: id, from: shown(frame, media: media, in: list), fromKind: kinds[id],
+                                 old: media ? nil : picture(of: old, at: outset(frame)))
         }
+        let host = UIHostingController(rootView: DocMorphView(morph: morph, blocks: self))
+        host.view.backgroundColor = .clear
+        host.view.isUserInteractionEnabled = false
+        host.view.frame = list.frame
+        container.insertSubview(host.view, aboveSubview: list)
+        // Drawn now, before the list takes the change under it.
+        host.view.layoutIfNeeded()
+        morphHost = host
+        let version = reader.version
         change()
         Task { [weak self] in
-            // The list takes the change on a later pass; then one more frame to draw it.
+            // The list takes the change on a later pass; then a frame to draw it.
             for _ in 0..<20 where reader.version == version {
                 try? await Task.sleep(for: .milliseconds(16))
             }
             try? await Task.sleep(for: .milliseconds(16))
-            guard let self, let list = self.list else { return cover.removeFromSuperview() }
+            guard let self, let list = self.list else { return host.view.removeFromSuperview() }
             list.layoutIfNeeded()
             let after = self.visibleBlocks()
-            cover.isHidden = true
             let new = self.snapshot()
-            cover.isHidden = false
-            // A block that only moves is its old picture moving; one that changes shape
-            // gets its new picture too, from where it was.
-            func reshapes(_ id: DocBlockID) -> Bool {
-                guard let from = before[id], let to = after[id] else { return before[id] == nil }
-                return abs(from.width - to.width) > 0.5 || abs(from.height - to.height) > 0.5
+            let kinds = Dictionary(uniqueKeysWithValues: self.demo.doc.blocks.map { ($0.id, $0.kind) })
+            // In place, in the same order: the views stay the ones on screen.
+            var items = morph.items
+            for (id, frame) in after {
+                let media = kinds[id].map(DocMediaView.draws) ?? false
+                let index = items.firstIndex { $0.id == id } ?? {
+                    items.append(DocMorph.Item(id: id))
+                    return items.count - 1
+                }()
+                items[index].to = self.shown(frame, media: media, in: list)
+                items[index].toKind = kinds[id]
+                // Text that changes shape, or comes, needs its picture after.
+                let reshaped = before[id].map { abs($0.width - frame.width) > 0.5 || abs($0.height - frame.height) > 0.5 } ?? true
+                if !media, reshaped, let new { items[index].new = self.picture(of: new, at: self.outset(frame)) }
             }
-            let place = { (frame: CGRect) in frame.offsetBy(dx: -list.bounds.minX, dy: -list.bounds.minY) }
-            var news: [DocBlockID: UIImageView] = [:]
-            for (id, frame) in after where reshapes(id) {
-                guard let new, let piece = self.piece(of: new, at: frame) else { continue }
-                piece.frame = place(before[id] ?? frame)
-                piece.alpha = 0
-                cover.addSubview(piece)
-                news[id] = piece
-            }
-            // The new look comes in quickly, the old one goes just after it: the stretched
-            // old picture is there only a moment, and nothing washes out between them.
-            UIView.animate(withDuration: 0.14, delay: 0, options: [.curveEaseOut]) {
-                for piece in news.values { piece.alpha = 1 }
-            }
-            UIView.animate(withDuration: 0.16, delay: 0.06, options: [.curveEaseIn]) {
-                for (id, piece) in olds where after[id] == nil || news[id] != nil { piece.alpha = 0 }
-            }
-            UIView.animate(withDuration: 0.36, delay: 0, usingSpringWithDamping: 0.92, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-                for (id, piece) in olds {
-                    if let to = after[id] { piece.frame = place(to) }
-                }
-                for (id, piece) in news {
-                    piece.frame = place(after[id]!)
-                }
-            } completion: { _ in
-                cover.removeFromSuperview()
-                if self.transitionCover === cover { self.transitionCover = nil }
+            morph.items = items
+            try? await Task.sleep(for: .milliseconds(16))
+            withAnimation(.spring(duration: 0.4, bounce: 0.06)) {
+                morph.isDone = true
+            } completion: {
+                host.view.removeFromSuperview()
+                if self.morphHost === host { self.morphHost = nil }
             }
         }
     }
 
-    /// The committed blocks on screen and their boxes, outline included (list coordinates).
+    /// The committed blocks on screen and their boxes (list coordinates).
     private func visibleBlocks() -> [DocBlockID: CGRect] {
         guard let list, let reader else { return [:] }
         let shown = Set(reader.contentFrames(intersecting: list.bounds).keys)
         var frames: [DocBlockID: CGRect] = [:]
         for row in demo.rows where shown.contains(row.id) {
             let ids = row.members.isEmpty ? row.block.map { [$0] } ?? [] : row.members.map(\.id)
-            // With room for what's drawn around a block: its selection's outline.
             for id in ids {
-                if let frame = contentFrame(id) { frames[id] = frame.insetBy(dx: -6, dy: -4) }
+                if let frame = contentFrame(id) { frames[id] = frame }
             }
         }
         return frames
     }
 
-    /// A snapshot's part at a frame (list coordinates), as a view placed there.
-    private func piece(of shot: (image: CGImage, bounds: CGRect, scale: CGFloat), at frame: CGRect) -> UIImageView? {
+    private func outset(_ frame: CGRect) -> CGRect {
+        frame.insetBy(dx: -Self.morphOutset.width, dy: -Self.morphOutset.height)
+    }
+
+    /// Where a block shows over the list: a live view at its box, a picture with room
+    /// for its outline.
+    private func shown(_ frame: CGRect, media: Bool, in list: UIScrollView) -> CGRect {
+        (media ? frame : outset(frame)).offsetBy(dx: -list.bounds.minX, dy: -list.bounds.minY)
+    }
+
+    /// A snapshot's part at a frame (list coordinates).
+    private func picture(of shot: (image: CGImage, bounds: CGRect, scale: CGFloat), at frame: CGRect) -> UIImage? {
         let local = frame.offsetBy(dx: -shot.bounds.minX, dy: -shot.bounds.minY)
         let pixels = local.applying(CGAffineTransform(scaleX: shot.scale, y: shot.scale)).integral
         guard local.width > 0, local.height > 0, let image = shot.image.cropping(to: pixels) else { return nil }
-        let view = UIImageView(image: UIImage(cgImage: image, scale: shot.scale, orientation: .up))
-        view.frame = local
-        return view
+        return UIImage(cgImage: image, scale: shot.scale, orientation: .up)
     }
 
     // MARK: Model

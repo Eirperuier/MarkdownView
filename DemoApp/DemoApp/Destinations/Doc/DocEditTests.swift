@@ -1142,6 +1142,16 @@ final class DocEditTests {
             try self.expect(blocks.testBlock(at: CGPoint(x: left.midX, y: left.midY)) == row.members[0].id, "left point picks another block")
             try self.expect(blocks.testBlock(at: CGPoint(x: right.midX, y: right.midY)) == row.members[1].id, "right point picks another block")
         }
+        await test("a file turned into a card after cards joins their row, a new row") {
+            let pdf = try self.expectValue(self.demo.doc.blocks.first { if case .file(let file) = $0.kind { file.name.hasSuffix(".pdf") } else { false } }, "no pdf")
+            let row = try self.expectValue(self.demo.rows.first { $0.members.count >= 2 }, "no row of cards")
+            blocks.setLayout(.card, of: [pdf.id])
+            try? await Task.sleep(for: .milliseconds(700))
+            let joined = try self.expectValue(self.demo.rows.first { $0.members.contains { $0.id == pdf.id } }, "the pdf didn't join a row")
+            try self.expect(joined.members.count == row.members.count + 1, "row of \(joined.members.count)")
+            // A row whose members change is made anew (one updated in place could grow without redrawing).
+            try self.expect(joined.id != row.id, "the row was updated in place")
+        }
         await test("a card dragged out of a row of cards stands on its own where it's dropped") {
             let row = try self.expectValue(self.demo.rows.first { $0.members.count >= 2 && { if case .link = $0.members[0].kind { true } else { false } }($0) }, "no row of cards")
             let (first, second) = (row.members[0].id, row.members[1].id)

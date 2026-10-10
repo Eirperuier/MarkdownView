@@ -56,7 +56,7 @@ struct DocLinkView: View {
             }
             .padding(.leading, 10)
             .padding(.trailing, reservesDot ? 34 : 10)
-            .frame(height: 36)
+            .docSized(height: 36)
             .docMediaFrame()
         case .regular:
             VStack(spacing: 0) {
@@ -78,6 +78,7 @@ struct DocLinkView: View {
                 }
                 DocLinkFooter(link: link)
             }
+            .docSized()
             .docMediaFrame()
         case .card:
             VStack(alignment: .leading, spacing: 0) {
@@ -102,7 +103,7 @@ struct DocLinkView: View {
                 Spacer(minLength: 0)
                 DocLinkFooter(link: link)
             }
-            .frame(width: DocMediaLayout.cardWidth, height: 222)
+            .docSized(width: DocMediaLayout.cardWidth, height: 222)
             .docMediaFrame()
         }
     }
@@ -169,7 +170,7 @@ struct DocFileView: View {
             }
             .padding(.leading, 10)
             .padding(.trailing, reservesDot ? 34 : 10)
-            .frame(height: 42)
+            .docSized(height: 42)
             .docMediaFrame()
         case .regular:
             HStack(spacing: 14) {
@@ -190,6 +191,7 @@ struct DocFileView: View {
             .padding(.leading, 14)
             .padding(.trailing, reservesDot ? 34 : 14)
             .padding(.vertical, 10)
+            .docSized()
             .docMediaFrame()
         case .card:
             VStack(spacing: 0) {
@@ -211,7 +213,7 @@ struct DocFileView: View {
                 .padding(.vertical, 10)
                 Spacer(minLength: 0)
             }
-            .frame(width: DocMediaLayout.cardWidth, height: 182)
+            .docSized(width: DocMediaLayout.cardWidth, height: 182)
             .docMediaFrame()
         }
     }
@@ -359,6 +361,33 @@ enum DocMediaLayout {
         source.hasPrefix("asset:") ? UIImage(named: String(source.dropFirst("asset:".count))) : nil
     }
 
+    /// The box a link, file or image alone in its row takes, at the page's `width`:
+    /// a card's or a small pill's own size, a regular row's the page's, an image's as
+    /// it shows.
+    @MainActor static func boxSize(_ kind: BlockKind, width: CGFloat) -> CGSize? {
+        switch kind {
+        case .image(let image):
+            let shown = image.size == .large ? width : min(width, naturalSize(image.source)?.width ?? width)
+            return CGSize(width: shown, height: imageHeight(image, width: width))
+        case .link, .file:
+            let key = BoxKey(kind: kind, width: width)
+            if let size = boxSizes[key] { return size }
+            let host = UIHostingController(rootView: DocMediaView(kind: kind))
+            let size = host.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
+            boxSizes[key] = size
+            return size
+        default:
+            return nil
+        }
+    }
+
+    private struct BoxKey: Hashable {
+        let kind: BlockKind
+        let width: CGFloat
+    }
+
+    @MainActor private static var boxSizes: [BoxKey: CGSize] = [:]
+
     static func host(_ url: String) -> String {
         guard let components = URLComponents(string: url), let host = components.host else { return url }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
@@ -393,12 +422,27 @@ enum DocMediaLayout {
     }
 }
 
-private extension View {
-    /// A link or file's box: white, a light border, rounded corners.
-    func docMediaFrame() -> some View {
+/// A link or file's box: white, a light border, rounded corners. In a transition the
+/// transition draws it, around the frame it moves (DocMorphView).
+private struct DocMediaBox: ViewModifier {
+    @Environment(\.docFillsFrame) private var fills
+
+    func body(content: Content) -> some View {
+        if fills { content } else { content.docMediaBox() }
+    }
+}
+
+extension View {
+    func docMediaBox() -> some View {
         background(Color(.systemBackground))
             .clipShape(.rect(cornerRadius: 8, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(DocMediaLayout.border, lineWidth: 1))
+    }
+}
+
+private extension View {
+    func docMediaFrame() -> some View {
+        modifier(DocMediaBox())
     }
 }
 
@@ -502,6 +546,8 @@ struct DocMediaCell: View {
     let kind: BlockKind
     let blocks: DocBlockController
     var size: CGSize?
+    /// Drawn in a change's transition: it fills the frame it's given (DocMorph).
+    var fills = false
 
     var body: some View {
         let isSelected = blocks.selected.contains(id)
@@ -521,18 +567,22 @@ struct DocMediaCell: View {
                         .padding(-3)
                 }
             }
-            #if targetEnvironment(macCatalyst)
-            .contextMenu { DocMediaMenu(kind: kind, block: id, blocks: blocks) }
-            #endif
+            .modifier(DocMediaContextMenu(kind: kind, block: id, blocks: blocks, isOn: !fills))
+            .environment(\.docFillsFrame, fills)
     }
 
     @ViewBuilder
     private var content: some View {
         if case .image(let image) = kind, let size {
-            DocMediaPreview(source: image.source, fill: true) { Color(.secondarySystemBackground) }
+            DocMediaPreview(source: image.source, fill: image.fit == .fill) { Color(.secondarySystemBackground) }
                 .frame(width: size.width, height: size.height)
                 .clipShape(.rect(cornerRadius: 8, style: .continuous))
                 .accessibilityLabel(image.alt)
+        } else if fills {
+            // In a transition the box is the cell's, at the size the transition has reached.
+            DocMediaView(kind: kind, reservesDot: blocks.isSelecting)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .docMediaBox()
         } else {
             DocMediaView(kind: kind, reservesDot: blocks.isSelecting)
         }
@@ -549,5 +599,55 @@ private struct DocSelectionDot: View {
             .fill(isOn ? Color.accentColor : Color(.systemBackground))
             .overlay { if !isOn { Circle().strokeBorder(Color(.systemGray3), lineWidth: 1.5) } }
             .frame(width: 14, height: 14)
+    }
+}
+
+// MARK: Transitions
+
+extension EnvironmentValues {
+    /// Drawn in a change's transition: a link or file fills the frame it's given, at
+    /// each size the transition passes through (DocMorph).
+    @Entry var docFillsFrame = false
+}
+
+/// Its fixed size on the page; in a transition, the frame the transition gives it.
+private struct DocSized: ViewModifier {
+    let width: CGFloat?
+    let height: CGFloat?
+    @Environment(\.docFillsFrame) private var fills
+
+    func body(content: Content) -> some View {
+        if fills {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else {
+            content.frame(width: width, height: height)
+        }
+    }
+}
+
+extension View {
+    func docSized(width: CGFloat? = nil, height: CGFloat? = nil) -> some View {
+        modifier(DocSized(width: width, height: height))
+    }
+}
+
+/// On the Mac a right-click offers a link, file or image's layouts. Not in a
+/// transition: the menu's interaction hosts the content in UIKit.
+private struct DocMediaContextMenu: ViewModifier {
+    let kind: BlockKind
+    let block: DocBlockID
+    let blocks: DocBlockController
+    let isOn: Bool
+
+    func body(content: Content) -> some View {
+        #if targetEnvironment(macCatalyst)
+        if isOn {
+            content.contextMenu { DocMediaMenu(kind: kind, block: block, blocks: blocks) }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }
