@@ -84,6 +84,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     @ObservationIgnored private var morphHost: UIViewController?
     /// Pieces flying to their rows: the selection shows once they're down.
     @ObservationIgnored private var landings = 0
+    /// Members of a row of several whose pieces are landing: hidden until they're down.
+    private(set) var hiddenMembers: Set<DocBlockID> = []
 
     private struct Drag {
         /// The blocks picked up (the selection, or the one grabbed), and with them the
@@ -729,18 +731,48 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// Where the blocks would land under the pointer, and the line that shows it.
     private func updateTarget() {
         guard var drag, let list else { return }
-        let y = list.convert(drag.point, from: list.superview).y
-        let gap = gap(atY: y)
-        let target = gap.flatMap { destination(gap: $0, moving: drag.moving) }
+        let point = list.convert(drag.point, from: list.superview)
+        let gap = memberGap(at: point, moving: drag.moving) ?? gap(atY: point.y).map { ($0, nil as CGRect?) }
+        let target = gap.flatMap { destination(gap: $0.index, moving: drag.moving) }
         if !Self.usesHandles, target != drag.target, drag.target != nil { UISelectionFeedbackGenerator().selectionChanged() }
         drag.target = target
         self.drag = drag
-        guard let gap, target != nil, let lineY = lineY(gap: gap), let content = contentFrame(drag.tops[0]) else {
+        guard let gap, target != nil else {
             indicator.isHidden = true
             return
         }
-        indicator.frame = CGRect(x: content.minX - 6, y: lineY - 1, width: content.width + 12, height: 2)
+        if let line = gap.line {
+            indicator.frame = line
+        } else if let lineY = lineY(gap: gap.index), let content = contentFrame(drag.tops[0]) {
+            indicator.frame = CGRect(x: content.minX - 6, y: lineY - 1, width: content.width + 12, height: 2)
+        } else {
+            indicator.isHidden = true
+            return
+        }
         indicator.isHidden = false
+    }
+
+    /// Over a row of cards or a gallery that the moving blocks would join, the gap
+    /// between two of its members nearest the point, shown by an upright line between
+    /// them (Craft's). Nil elsewhere, or for blocks that wouldn't join it.
+    private func memberGap(at point: CGPoint, moving: [DocBlockID]) -> (index: Int, line: CGRect?)? {
+        guard let reader,
+            let hit = reader.contentFrames(intersecting: CGRect(x: 0, y: point.y, width: 1, height: 1).insetBy(dx: -10_000, dy: 0)).first,
+            hit.value.minY <= point.y, point.y < hit.value.maxY,
+            let row = demo.rows.first(where: { $0.id == hit.key }), let first = row.members.first,
+            let run = DocMediaLayout.run(first.kind),
+            moving.allSatisfy({ id in demo.doc.block(id).map { DocMediaLayout.run($0.kind) == run } ?? false })
+        else { return nil }
+        let frames = row.members.compactMap { member in contentFrame(member.id).map { (member.id, $0) } }
+        func distance(_ frame: CGRect) -> CGFloat {
+            hypot(max(frame.minX - point.x, 0, point.x - frame.maxX), max(frame.minY - point.y, 0, point.y - frame.maxY))
+        }
+        guard let (id, frame) = frames.min(by: { distance($0.1) < distance($1.1) }),
+            let index = demo.doc.blocks.firstIndex(where: { $0.id == id })
+        else { return nil }
+        let isAfter = point.x > frame.midX
+        let x = (isAfter ? frame.maxX : frame.minX) + (isAfter ? 1 : -1) * DocMediaLayout.gap / 2
+        return (isAfter ? index + 1 : index, CGRect(x: x - 1, y: frame.minY, width: 2, height: frame.height))
     }
 
     /// The gap between blocks (an index into the document's blocks) nearest `y`.
@@ -809,8 +841,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     /// Hides these blocks' rows: what the cells host, not the cells or their content
     /// views, whose alpha the list sets itself (a move is a delete and an insert, faded).
+    /// In a row of several only the member goes (`hiddenMembers`), not its neighbours.
     private func hide(_ ids: [DocBlockID]) -> [UIView] {
-        let rows = cells(of: ids).flatMap(\.contentView.subviews).filter { $0.alpha != 0 }
+        let members = ids.filter { demo.places[$0] != nil }
+        hiddenMembers.formUnion(members)
+        let rows = cells(of: ids.filter { demo.places[$0] == nil }).flatMap(\.contentView.subviews).filter { $0.alpha != 0 }
         for row in rows { row.alpha = 0 }
         return rows
     }
@@ -833,6 +868,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         let preview = drag.preview, card = drag.card, pieces = drag.pieces
         let first = drag.moving[0]
         let before = rowFrame(first)
+        let version = reader?.version
         // The moving rows stay hidden until their pieces land on them (the list slides
         // the other rows into place meanwhile).
         var hidden = rows
@@ -841,14 +877,16 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         layoutOverlays()
         func show() {
             for row in hidden { row.alpha = 1 }
+            self.hiddenMembers.subtract(drag.moving)
             self.landings -= 1
             self.layoutOverlays()
         }
         hide()
         Task { [weak self] in
-            // A move shows once the list has laid the rows out in their new order.
+            // A move shows once the list has laid the rows out in their new order (a row
+            // of several reordered in place stays where it is: the list's update says so).
             for _ in 0..<30 {
-                guard let self, moved, self.rowFrame(first) == before else { break }
+                guard let self, moved, self.rowFrame(first) == before, self.reader?.version == version else { break }
                 try? await Task.sleep(for: .milliseconds(16))
                 hide()
             }
@@ -1302,14 +1340,15 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     /// A drag as the handle or a long press would do it, for the edit tests: picks the
     /// block up, moves to `y` (list coordinates), drops.
-    func testDrag(_ id: DocBlockID, toY y: CGFloat) {
-        guard let list, let frame = rowFrame(id) else { return }
+    func testDrag(_ id: DocBlockID, toY y: CGFloat, x: CGFloat? = nil) {
+        guard let list, let frame = contentFrame(id) else { return }
         let start = CGPoint(x: frame.midX, y: frame.midY)
         lift(id, at: start)
         startMoving()
-        moveDrag(to: list.convert(CGPoint(x: start.x, y: y), to: list.superview))
+        moveDrag(to: list.convert(CGPoint(x: x ?? start.x, y: y), to: list.superview))
         drop()
     }
+    var testIndicatorFrame: CGRect? { indicator.isHidden ? nil : indicator.frame }
 
     func testContentFrame(_ id: DocBlockID) -> CGRect? { contentFrame(id) }
 

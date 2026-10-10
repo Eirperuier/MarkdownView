@@ -541,10 +541,13 @@ struct DocMediaGroupView: View {
         ZStack(alignment: .topLeading) {
             ForEach(Array(zip(members, frames)), id: \.0.id) { member, frame in
                 DocMediaCell(id: member.id, kind: member.kind, blocks: blocks, size: frame.size)
+                    .opacity(blocks.hiddenMembers.contains(member.id) ? 0 : 1)
                     .offset(x: frame.minX, y: frame.minY)
             }
         }
         .frame(width: width, height: DocMediaLayout.groupHeight(members.map(\.kind), width: width), alignment: .topLeading)
+        // Reordered (a member dropped beside another), the others slide to their places.
+        .animation(.spring(duration: 0.34, bounce: 0), value: members.map(\.id))
     }
 }
 

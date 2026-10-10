@@ -1200,6 +1200,24 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(order() == ids, "undo didn't restore the order")
         }
+        await test("a card dropped on the near half of another in its row goes beside it, in the row; only it hides while it lands") {
+            let row = try self.expectValue(self.demo.rows.first { $0.members.count >= 2 && { if case .link = $0.members[0].kind { true } else { false } }($0) }, "no row of cards")
+            let (first, second) = (row.members[0].id, row.members[1].id)
+            let ids = order()
+            await show(first)
+            let target = try self.expectValue(blocks.testContentFrame(first), "no card")
+            blocks.testDrag(second, toY: target.midY, x: target.minX + 20)
+            try self.expect(blocks.hiddenMembers == [second], "hidden while landing \(blocks.hiddenMembers)")
+            let after = order()
+            let at = try self.expectValue(ids.firstIndex(of: first), "no card")
+            try self.expect(after[at] == second && after[at + 1] == first, "order \(String(describing: after.firstIndex(of: second)))")
+            try? await Task.sleep(for: .milliseconds(600))
+            try self.expect(blocks.hiddenMembers.isEmpty, "still hidden \(blocks.hiddenMembers)")
+            let joined = try self.expectValue(self.demo.rows.first { $0.members.contains { $0.id == second } }, "the card left the row")
+            try self.expect(joined.members.map(\.id).prefix(2) == [second, first], "row \(joined.members.map(\.id))")
+            try await self.undo()
+            try self.expect(order() == ids, "undo didn't restore the order")
+        }
         await test("the format panel's edits act on all the selected blocks, one undo each") {
             let first = try self.block("Loading older")
             let second = try self.block("The trap is timing")

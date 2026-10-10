@@ -181,9 +181,11 @@ final class DocDemo {
                 let run = doc.blocks[(index - 1)...].prefix { DocMediaLayout.run($0.kind) == kind && $0.indent == block.indent }
                 if run.count > 1 {
                     index += run.count - 1
-                    // A new row when the members change in number: the list makes a row anew
-                    // at its measured height; one updated in place can grow without redrawing.
-                    var row = DocRow(id: "\(block.id)+\(run.count)", block: block.id, blocks: [], media: nil)
+                    // A new row when the members change: the list makes a row anew at its
+                    // measured height; one updated in place can grow without redrawing. The
+                    // same members in a new order are the same row (reordered in place).
+                    let key = run.map(\.id.description).min() ?? block.id.description
+                    var row = DocRow(id: "\(key)+\(run.count)", block: block.id, blocks: [], media: nil)
                     row.members = run.map { DocMediaMember(id: $0.id, kind: $0.kind) }
                     result.append(row)
                     continue
