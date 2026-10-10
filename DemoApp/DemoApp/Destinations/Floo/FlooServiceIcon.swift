@@ -12,10 +12,15 @@ import SwiftUI
 import UIKit
 
 /// iOS's icon shape: a continuous rounded square, its radius 22.37% of the side.
-struct FlooIconShape: Shape {
+struct FlooIconShape: InsettableShape {
+    var inset: CGFloat = 0
+
     func path(in rect: CGRect) -> Path {
-        RoundedRectangle(cornerRadius: rect.width * 0.2237, style: .continuous).path(in: rect)
+        let rect = rect.insetBy(dx: inset, dy: inset)
+        return RoundedRectangle(cornerRadius: rect.width * 0.2237, style: .continuous).path(in: rect)
     }
+
+    func inset(by amount: CGFloat) -> FlooIconShape { FlooIconShape(inset: inset + amount) }
 }
 
 struct FlooServiceIcon: View {
