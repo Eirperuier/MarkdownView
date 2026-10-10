@@ -130,6 +130,8 @@ enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mentio
 
 书签只带地址和标题(markdown 里是 `[标题](url "bookmark")`);摘要和预览图由 app 从网页的 Open Graph 标签(没有就用 `<title>` 和 description)取来,只填书签空着的项。填写是 app 自己的事务,和 agent 的一样不进人的撤销栈,只让历史映射过去;每个地址只取一次。在空行里粘贴一个网址,这一行变成它的书签,光标到下面的新行(Craft 的做法),一次撤销退回。
 
+单击选中,双击打开:书签在浏览器里打开,图片用 Quick Look;附件的来源是网址的在浏览器打开、本地文件用 Quick Look。`blob:` 附件还没有存储,双击不响应——附件放在哪里(本机、floo 服务端)待定。
+
 ### 3.5 数据库块:多维表格和看板【定】
 
 ```swift

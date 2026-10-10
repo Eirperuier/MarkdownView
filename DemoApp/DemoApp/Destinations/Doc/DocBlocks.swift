@@ -74,7 +74,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// picks blocks while selecting.
     @ObservationIgnored private var rowClick: UITapGestureRecognizer?
     @ObservationIgnored private var selectTap: UITapGestureRecognizer?
-    /// A double click on a link or image opens it (a single one selects it).
+    /// A double click on a link, image or file opens it (a single one selects it).
     @ObservationIgnored private var mediaOpen: UITapGestureRecognizer?
     /// Where a link opens (the browser; the edit tests catch it).
     @ObservationIgnored var opensURL: (URL) -> Void = { UIApplication.shared.open($0) }
@@ -580,15 +580,17 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         open(id)
     }
 
-    /// Whether a double click opens this block: a link, or an image.
+    /// Whether a double click opens this block: a link, an image, a file that has
+    /// somewhere to open from.
     private func opens(_ id: DocBlockID) -> Bool {
         switch demo.doc.block(id)?.kind {
         case .link?, .image?: true
+        case .file(let file)?: URL(string: file.source).map { $0.isFileURL || $0.scheme?.hasPrefix("http") == true } ?? false
         default: false
         }
     }
 
-    /// A link in the browser; an image in Quick Look.
+    /// A link in the browser; an image in Quick Look; a file in either.
     func open(_ id: DocBlockID) {
         switch demo.doc.block(id)?.kind {
         case .link(let link)?:
@@ -597,19 +599,28 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             if let picture = DocMediaLayout.asset(image.source), let data = picture.jpegData(compressionQuality: 0.95) {
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent((image.alt.isEmpty ? "图片" : image.alt) + ".jpg")
                 guard (try? data.write(to: file)) != nil else { return }
-                previewing = file
-                let preview = QLPreviewController()
-                preview.dataSource = self
-                list?.window?.rootViewController.map { root in
-                    var top = root
-                    while let presented = top.presentedViewController { top = presented }
-                    top.present(preview, animated: true)
-                }
+                quickLook(file)
             } else if let url = URL(string: image.source), url.scheme?.hasPrefix("http") == true {
                 opensURL(url)
             }
+        case .file(let file)?:
+            // A file on the web opens in the browser, one on disk in Quick Look. A blob
+            // has nowhere to come from yet: attachments aren't stored (Docs/doc.md §3.4.1).
+            guard let url = URL(string: file.source) else { return }
+            if url.isFileURL { quickLook(url) } else if url.scheme?.hasPrefix("http") == true { opensURL(url) }
         default:
             break
+        }
+    }
+
+    private func quickLook(_ file: URL) {
+        previewing = file
+        let preview = QLPreviewController()
+        preview.dataSource = self
+        list?.window?.rootViewController.map { root in
+            var top = root
+            while let presented = top.presentedViewController { top = presented }
+            top.present(preview, animated: true)
         }
     }
 
