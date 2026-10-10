@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Markdown
 
 @testable import DocKit
 
@@ -21,6 +22,101 @@ struct MarkdownRoundTripTests {
             #expect(back.markdown == markdown, "seed \(seed)")
             #expect((try? back.validate()) != nil, "seed \(seed) invalid import")
         }
+    }
+}
+
+/// A text block's tree is what its editing markdown parses into, built without writing
+/// or parsing it. (Inline maths is a node in the tree, text in markdown: those blocks
+/// aside; a default highlight is `==…==` text in markdown, compared as such.)
+@Suite
+struct MarkupTreeTests {
+    @Test
+    func treesAreTheirEditingMarkdownParsed() {
+        var compared = 0
+        for iteration in 0..<400 {
+            let seed = UInt64(iteration) &+ 0x7E00_0000
+            var rng = SplitMix64(seed: seed)
+            let doc = Self.trimmingMarks(CanonicalDoc.doc(using: &rng))
+            for block in doc.blocks {
+                guard let tree = doc.markupTree(of: block.id),
+                    !block.text.marks.contains(where: { $0.mark.kind == .inlineMath }),
+                    let markdown = doc.markdown(of: block.id, style: .editing)
+                else { continue }
+                let parsed = Document(parsing: markdown)
+                #expect(TreeDump.of(tree.document) == TreeDump.of(parsed), "seed \(seed)\n\(markdown)")
+                compared += 1
+            }
+        }
+        #expect(compared > 500)
+    }
+
+    /// Marks without the whitespace at their edges, and none over whitespace alone: markdown
+    /// puts delimiters inside the spaces (`**a** b`), so only such marks read back the same.
+    static func trimmingMarks(_ doc: Doc) -> Doc {
+        var doc = doc
+        for index in doc.blocks.indices {
+            let units = Array(doc.blocks[index].text.string.utf16)
+            func blank(_ offset: Int) -> Bool { [0x20, 0x09, 0x0A].contains(units[offset]) }
+            var text = doc.blocks[index].text
+            text.marks = text.marks.compactMap { span in
+                guard !span.mark.kind.isAtom, span.mark != .code else { return span }
+                var lower = span.range.lowerBound, upper = span.range.upperBound
+                while lower < upper, blank(lower) { lower += 1 }
+                while upper > lower, blank(upper - 1) { upper -= 1 }
+                return lower < upper ? MarkSpan(range: lower..<upper, mark: span.mark) : nil
+            }
+            text.normalize()
+            doc.blocks[index].text = text
+        }
+        return doc
+    }
+
+    @Test
+    func textIsTakenAsItIs() throws {
+        let text = "a ==not highlight== costs $5 and $6, :circle[x] **y** ^[z](color: red) <b>"
+        let doc = Doc(id: fixedID(0), blocks: [DocBlock(id: fixedID(1), kind: .paragraph, text: DocText(string: text))])
+        let tree = try #require(doc.markupTree(of: fixedID(1)))
+        #expect(TreeDump.of(tree.document) == "Document[Paragraph[Text(\(text))]]")
+    }
+}
+
+/// A tree as a string: node kinds, what they carry, children, adjacent text joined
+/// (cmark splits text at escapes and entities); a default highlight as `==` text.
+enum TreeDump {
+    static func of(_ markup: any Markup) -> String {
+        var children: [String] = []
+        var text = ""
+        func flush() {
+            if !text.isEmpty { children.append("Text(\(text))") }
+            text = ""
+        }
+        func add(_ nodes: some Sequence<any Markup>) {
+            for child in nodes {
+                if let piece = child as? Text {
+                    text += piece.string
+                } else if let attributes = child as? InlineAttributes, attributes.attributes == "highlight" {
+                    // `==…==` around what it holds, at its level.
+                    text += "=="
+                    add(attributes.children)
+                    text += "=="
+                } else {
+                    flush()
+                    children.append(of(child))
+                }
+            }
+        }
+        add(markup.children)
+        flush()
+        let name: String = switch markup {
+        case let heading as Heading: "Heading\(heading.level)"
+        case let list as OrderedList: "OrderedList\(list.startIndex)"
+        case let item as ListItem: "ListItem\(item.checkbox.map { "\($0)" } ?? "")"
+        case let link as Link: "Link(\(link.destination ?? "") \(link.title ?? ""))"
+        case let attributes as InlineAttributes: "Attributes(\(attributes.attributes))"
+        case let code as InlineCode: "Code(\(code.code))"
+        default: String(describing: type(of: markup))
+        }
+        return children.isEmpty ? name : "\(name)[\(children.joined(separator: ", "))]"
     }
 }
 

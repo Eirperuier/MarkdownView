@@ -137,12 +137,18 @@ struct ListPlacement: Equatable {
 struct ListLayout {
     private var levels: [(numbered: Bool, ordinal: Int, column: Int)] = []
 
+    /// The depth the last placed item reads at (its indent, clamped).
+    private(set) var depth = 0
+    /// Its number in its list (1 for a bullet).
+    var ordinal: Int { levels.last?.ordinal ?? 1 }
+
     mutating func place(_ block: DocBlock) -> ListPlacement? {
         guard case .listItem(let style) = block.kind else {
             levels = []
             return nil
         }
         let depth = min(block.indent, levels.count)
+        self.depth = depth
         let leading = depth == 0 ? 0 : levels[depth - 1].column
         let numbered = style == .numbered
         let ordinal = depth < levels.count && numbered && levels[depth].numbered ? levels[depth].ordinal + 1 : 1
