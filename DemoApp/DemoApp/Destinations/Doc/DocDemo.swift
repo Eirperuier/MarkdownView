@@ -481,7 +481,7 @@ struct DocDemoRNG: RandomNumberGenerator {
 extension DocRow {
     /// A rough height for the list to use until the row is measured.
     func estimatedHeight(width: CGFloat) -> CGFloat {
-        let textWidth = max(100, min(width - 2 * DocBlockController.gutter, 720))
+        let textWidth = max(100, min(width - DocBlockController.leadingGutter - DocBlockController.trailingGutter, 720))
         let source = blocks.map(\.source).joined(separator: "\n")
         let lines = CGFloat(source.split(separator: "\n", omittingEmptySubsequences: false).count)
         let spacing = spacingAbove + spacingBelow

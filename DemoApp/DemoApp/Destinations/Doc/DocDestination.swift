@@ -129,7 +129,17 @@ struct DocDestination: View {
     @ViewBuilder
     private var bar: some View {
         HStack {
-            if let status = demo.agentStatus {
+            if editor.blocks.isSelecting {
+                // Selecting blocks: only the way out, as Craft has it.
+                Spacer()
+                Button("完成", systemImage: "checkmark") { editor.blocks.endSelecting() }
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(.tint, in: .circle)
+                    .shadow(color: .accentColor.opacity(0.3), radius: 6, y: 2)
+                    .buttonStyle(.plain)
+            } else if let status = demo.agentStatus {
                 ProgressView()
                     .controlSize(.small)
                 Text("Agent · \(status)")
@@ -204,7 +214,8 @@ private struct DocRowView: View {
         .padding(.top, row.spacingAbove)
         .padding(.bottom, row.spacingBelow)
         .frame(maxWidth: 720, alignment: .leading)
-        .padding(.horizontal, DocBlockController.gutter)
+        .padding(.leading, DocBlockController.leadingGutter)
+        .padding(.trailing, DocBlockController.trailingGutter)
         .frame(maxWidth: .infinity)
         // Tables and code change height when an editor comes or goes.
         .modifier(DocRowHeightReporter(isOn: row.table != nil || row.sourceKind != nil))

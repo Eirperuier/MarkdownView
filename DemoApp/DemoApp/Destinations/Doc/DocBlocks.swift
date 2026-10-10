@@ -25,8 +25,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     #else
     nonisolated static let usesHandles = false
     #endif
-    /// The page's side margins; on the Mac they leave room for the handle.
-    nonisolated static let gutter: CGFloat = usesHandles ? 40 : 16
+    /// The page's side margins: on the Mac room for the handle on the left, on a phone
+    /// for the selection's circles on the right (Craft's).
+    nonisolated static let leadingGutter: CGFloat = usesHandles ? 40 : 20
+    nonisolated static let trailingGutter: CGFloat = usesHandles ? 40 : 34
 
     @ObservationIgnored private let demo: DocDemo
     @ObservationIgnored unowned let editor: DocEditor
@@ -53,6 +55,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         return view
     }()
     @ObservationIgnored private var highlights: [UIView] = []
+    /// The phone's selection mode: a circle beside every block, filled when it's selected.
+    @ObservationIgnored private var checks: [DocBlockCheck] = []
+    /// The circles fading out after the mode ended: laid out until they're gone.
+    @ObservationIgnored private var checksLeaving = false
     @ObservationIgnored private var dimmers: [UIView] = []
     /// The block under the pointer (its handle is shown), and where the pointer is in
     /// the list's frame, to find it again after a scroll.
@@ -150,10 +156,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     /// the space above and below it.
     private func contentFrame(_ id: DocBlockID) -> CGRect? {
         guard let row = rowFrame(id) else { return nil }
-        let width = max(0, min(720, row.width - 2 * Self.gutter))
+        let room = max(0, row.width - Self.leadingGutter - Self.trailingGutter)
+        let width = min(720, room)
         let above = demo.spacingAbove[id.description] ?? 0
         let below = demo.rows.last?.block == id ? DocTypography.pageBottom : 0
-        return CGRect(x: row.midX - width / 2, y: row.minY + above, width: width, height: max(0, row.height - above - below))
+        return CGRect(x: row.minX + Self.leadingGutter + (room - width) / 2, y: row.minY + above, width: width, height: max(0, row.height - above - below))
     }
 
     /// The committed block whose row is at `y` (list coordinates).
@@ -184,14 +191,18 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
             selected.removeAll { !existing.contains($0) }
             if selected.isEmpty, isSelecting { endSelecting() }
         }
-        highlights = place(landings > 0 ? [] : runs(of: selected), in: highlights, outset: 6) {
+        // Craft's: a light tint with a tinted outline, a little outside the blocks.
+        highlights = place(landings > 0 ? [] : runs(of: selected).map { $0.insetBy(dx: 0, dy: -4) }, in: highlights, outset: 6) {
             let view = UIView()
-            view.backgroundColor = UIColor.tintColor.withAlphaComponent(0.13)
-            view.layer.cornerRadius = 6
+            view.backgroundColor = UIColor.tintColor.withAlphaComponent(0.08)
+            view.layer.borderColor = UIColor.tintColor.withAlphaComponent(0.45).cgColor
+            view.layer.borderWidth = 1
+            view.layer.cornerRadius = 10
             view.layer.cornerCurve = .continuous
             view.layer.zPosition = 5
             return view
         }
+        layoutChecks()
         dimmers = place(drag.map { $0.isMoving ? runs(of: $0.moving) : [] } ?? [], in: dimmers, outset: 6) {
             let view = UIView()
             view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.65)
@@ -201,6 +212,30 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         for view in highlights + dimmers where view.superview !== list { list.addSubview(view) }
         layoutHandle()
         if drag?.isMoving == true { updateTarget() }
+    }
+
+    /// A circle at the right edge of every block, level with its middle, while selecting.
+    private func layoutChecks() {
+        guard let list else { return }
+        let ids = isSelecting || checksLeaving ? demo.doc.blocks.map(\.id) : []
+        let chosen = Set(selected)
+        let frames = reader?.contentFrames(forItems: ids.map(\.description)) ?? [:]
+        while checks.count < ids.count {
+            let check = DocBlockCheck()
+            check.layer.zPosition = 9
+            list.addSubview(check)
+            checks.append(check)
+        }
+        for (index, check) in checks.enumerated() {
+            guard index < ids.count, let row = frames[ids[index].description], let content = contentFrame(ids[index]) else {
+                check.isHidden = true
+                continue
+            }
+            let size = DocBlockCheck.size
+            check.frame = CGRect(x: row.maxX - 10 - size, y: content.midY - size / 2, width: size, height: size)
+            check.isOn = chosen.contains(ids[index])
+            check.isHidden = false
+        }
     }
 
     /// The list's cells showing these blocks (by where the layout puts them).
@@ -235,7 +270,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         for (index, view) in views.enumerated() {
             view.isUserInteractionEnabled = false
             if index < rects.count {
-                view.frame = rects[index].insetBy(dx: -outset, dy: 1)
+                view.frame = rects[index].insetBy(dx: -outset, dy: 0)
                 view.isHidden = false
             } else {
                 view.isHidden = true
@@ -468,6 +503,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         isSelecting = true
         editor.isEditable = false
         select([id])
+        fadeChecks(in: true)
     }
 
     func endSelecting() {
@@ -475,7 +511,21 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         editor.isEditable = !demo.isAgentWriting
         anchor = nil
         head = nil
-        if !selected.isEmpty { setSelection([]) }
+        fadeChecks(in: false)
+        setSelection([])
+    }
+
+    /// The circles come and go with the mode, faded.
+    private func fadeChecks(in showing: Bool) {
+        if showing { checks.forEach { $0.alpha = 0 } } else { checksLeaving = true }
+        UIView.animate(withDuration: 0.2) { [checks] in
+            checks.forEach { $0.alpha = showing ? 1 : 0 }
+        } completion: { [weak self] _ in
+            guard let self, !showing, !self.isSelecting else { return }
+            self.checksLeaving = false
+            self.layoutChecks()
+            self.checks.forEach { $0.alpha = 1 }
+        }
     }
 
     // MARK: Dragging
@@ -894,6 +944,43 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         if let after, !wasSelecting { editor.place(after) }
     }
 
+    /// The selected blocks of text become `kind` (as the slash menu turns one), in one
+    /// transaction; the rest stay as they are.
+    func turnSelection(into kind: BlockKind) {
+        let ids = Set(selected)
+        let steps: [DocStep] = demo.doc.blocks.filter { ids.contains($0.id) && $0.kind.carriesText && $0.kind != kind }.map { block in
+            let indent = if case .listItem = kind, case .listItem = block.kind { block.indent } else { 0 }
+            return .setBlock(block: block.id, kind: kind, indent: indent, previousKind: block.kind, previousIndent: block.indent)
+        }
+        guard !steps.isEmpty else { return }
+        demo.edit(steps, before: editor.selection, after: editor.selection)
+    }
+
+    /// A copy of the selected blocks right after the last of them, in order; a table's
+    /// copy gets a database of its own. The copies become the selection.
+    func duplicateSelection() {
+        let ids = Set(selected)
+        let originals = demo.doc.blocks.filter { ids.contains($0.id) }
+        guard let last = originals.last else { return }
+        var steps: [DocStep] = []
+        var copies: [DocBlockID] = []
+        var after = last.id
+        for original in originals {
+            var copy = original
+            copy.id = demo.newBlockID()
+            if case .database(let id, let view) = original.kind, var database = demo.doc.databases[id] {
+                database.id = demo.newID()
+                steps.append(.createDatabase(database: database))
+                copy.kind = .database(id: database.id, view: view)
+            }
+            steps.append(.insertBlock(block: copy, after: after))
+            after = copy.id
+            copies.append(copy.id)
+        }
+        guard demo.edit(steps, before: editor.selection, after: editor.selection) != nil else { return }
+        setSelection(copies)
+    }
+
     /// The selected blocks as markdown, on the pasteboard.
     func copySelection() {
         let ids = Set(selected)
@@ -987,6 +1074,45 @@ final class DocBlockHandleView: UIView {
     }
 }
 
+/// The circle beside a block while selecting: a gray ring, or a tinted dot when the
+/// block is selected (Craft's).
+final class DocBlockCheck: UIView {
+    static let size: CGFloat = 18
+    private let ring = CAShapeLayer()
+
+    var isOn = false {
+        didSet { if isOn != oldValue { setNeedsLayout() } }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        layer.addSublayer(ring)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        ring.frame = bounds
+        if isOn {
+            ring.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 2, dy: 2)).cgPath
+            ring.fillColor = tintColor.cgColor
+            ring.strokeColor = nil
+        } else {
+            ring.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 0.75, dy: 0.75)).cgPath
+            ring.fillColor = UIColor.systemBackground.resolvedColor(with: traitCollection).cgColor
+            ring.strokeColor = UIColor.systemGray3.resolvedColor(with: traitCollection).cgColor
+            ring.lineWidth = 1.5
+        }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        setNeedsLayout()
+    }
+}
+
 /// Takes the keys while blocks are selected on the Mac: Delete, Esc, ↑ ↓ (⇧ extends),
 /// Return to edit, ⌘C ⌘X; ⌘Z stays the document's.
 final class DocBlockKeyView: UIView {
@@ -1050,36 +1176,75 @@ final class DocBlockKeyView: UIView {
     @objc private func extendDown() { controller?.step(1, extending: true) }
 }
 
-/// The phone's bar while blocks are selected (Composer's batch editing).
+/// The phone's actions on the selected blocks, as Craft's panel: a floating glass
+/// panel of tiles, each its own color, its symbol over its name.
 struct DocBlockSelectionBar: View {
     let blocks: DocBlockController
 
     var body: some View {
         VStack {
-            if blocks.isSelecting { bar }
+            if blocks.isSelecting { panel }
         }
         .animation(.smooth(duration: 0.25), value: blocks.isSelecting)
     }
 
-    private var bar: some View {
-        HStack(spacing: 16) {
-            Text("已选 \(blocks.selected.count) 块")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button("复制", systemImage: "doc.on.doc") {
-                blocks.copySelection()
-                blocks.endSelecting()
+    private var panel: some View {
+        HStack(spacing: 8) {
+            Menu {
+                ForEach(Self.kinds) { item in
+                    Button(item.title, systemImage: item.symbol) {
+                        if let kind = item.action.kind { blocks.turnSelection(into: kind) }
+                    }
+                }
+            } label: {
+                DocSelectionTile(title: "样式", symbol: "textformat", color: Color(red: 0.42, green: 0.13, blue: 0.78))
             }
-            Button("删除", systemImage: "trash", role: .destructive) { blocks.deleteSelection() }
-            Button("完成") { blocks.endSelecting() }
-                .fontWeight(.semibold)
+            Menu {
+                Button("复制", systemImage: "doc.on.doc") {
+                    blocks.copySelection()
+                    blocks.endSelecting()
+                }
+                Button("创建副本", systemImage: "plus.square.on.square") { blocks.duplicateSelection() }
+            } label: {
+                DocSelectionTile(title: "操作", symbol: "square.and.arrow.up", color: Color(red: 0.2, green: 0.27, blue: 0.36))
+            }
+            Button {
+                blocks.deleteSelection()
+            } label: {
+                DocSelectionTile(title: "删除", symbol: "trash", color: Color(red: 0.82, green: 0.06, blue: 0.13))
+            }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(.regularMaterial, in: .rect(cornerRadius: 16))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .buttonStyle(.plain)
+        .padding(8)
+        .background(.regularMaterial, in: .rect(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(.white.opacity(0.6), lineWidth: 1))
+        .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
+        .padding(.bottom, 12)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    /// What selected text blocks can become.
+    private static let kinds = DocSlashItem.all.filter { $0.action.kind?.carriesText == true }
+}
+
+/// One of the panel's tiles: its color's symbol over its name, on a wash of the color.
+private struct DocSelectionTile: View {
+    let title: String
+    let symbol: String
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Image(systemName: symbol)
+                .font(.system(size: 22, weight: .medium))
+                .frame(height: 26)
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundStyle(color.opacity(0.7))
+        }
+        .foregroundStyle(color)
+        .frame(width: 64, height: 66)
+        .background(color.opacity(0.08), in: .rect(cornerRadius: 16, style: .continuous))
+        .contentShape(.rect(cornerRadius: 16, style: .continuous))
     }
 }

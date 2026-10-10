@@ -1077,6 +1077,32 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(group.compactMap { self.demo.doc.block($0)?.indent } == indents, "undo left indents")
         }
+        await test("a copy of the selection goes right after it, a table's with a database of its own") {
+            let paragraph = try self.block("Loading older")
+            let table = try self.expectValue(self.demo.doc.blocks.first { $0.kind.databaseID != nil }, "no table")
+            blocks.select([paragraph.id, table.id])
+            let before = self.demo.doc.blocks.count
+            blocks.duplicateSelection()
+            let ids = self.demo.doc.blocks.map(\.id)
+            try self.expect(ids.count == before + 2, "blocks \(ids.count), had \(before)")
+            let at = try self.expectValue(ids.firstIndex(of: table.id), "table gone")
+            let copies = ids[(at + 1)...(at + 2)].compactMap { self.demo.doc.block($0) }
+            try self.expect(copies.first?.text.string == paragraph.text.string, "first copy \(String(describing: copies.first?.text.string.prefix(12)))")
+            let copied = try self.expectValue(copies.last?.kind.databaseID, "second copy isn't a table")
+            try self.expect(copied != table.kind.databaseID && self.demo.doc.databases[copied] != nil, "copy shares or lacks its database")
+            try self.expect(blocks.selected == copies.map(\.id), "selection isn't the copies")
+            try await self.undo()
+            try self.expect(self.demo.doc.blocks.count == before && self.demo.doc.databases[copied] == nil, "undo left the copies")
+        }
+        await test("styling the selection turns its text blocks, and leaves the rest") {
+            let paragraph = try self.block("Loading older")
+            let table = try self.expectValue(self.demo.doc.blocks.first { $0.kind.databaseID != nil }, "no table")
+            blocks.select([paragraph.id, table.id])
+            blocks.turnSelection(into: .quote)
+            try self.expect(self.demo.doc.block(paragraph.id)?.kind == .quote, "paragraph is \(String(describing: self.demo.doc.block(paragraph.id)?.kind))")
+            try self.expect(self.demo.doc.block(table.id)?.kind == table.kind, "table changed")
+            blocks.clear()
+        }
         await test("several selected blocks move together, in order") {
             let first = try self.block("Loading older")
             let heading = try self.block("第 2 节")
