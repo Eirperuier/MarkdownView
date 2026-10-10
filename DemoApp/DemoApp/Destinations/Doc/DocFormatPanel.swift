@@ -90,15 +90,15 @@ struct DocFormatPanel: View {
             })
             DocSegments(items: Self.lists.map { item in
                 .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: !targets.isEmpty) {
-                    editor.setKind(item.kind, of: targets.map(\.id))
+                    editor.blocks.transition { editor.setKind(item.kind, of: targets.map(\.id)) }
                 }
             })
             DocSegments(items: [
                 .init(id: "outdent", symbol: "decrease.indent", title: "减少缩进", isOn: false, isEnabled: canIndent(-1)) {
-                    editor.indent(targets.map(\.id), by: -1)
+                    editor.blocks.transition { editor.indent(targets.map(\.id), by: -1) }
                 },
                 .init(id: "indent", symbol: "increase.indent", title: "增加缩进", isOn: false, isEnabled: canIndent(1)) {
-                    editor.indent(targets.map(\.id), by: 1)
+                    editor.blocks.transition { editor.indent(targets.map(\.id), by: 1) }
                 },
             ])
         }
@@ -212,7 +212,7 @@ struct DocFormatPanel: View {
     private func tile(_ title: String, weight: Font.Weight, kind: BlockKind) -> some View {
         let isOn = kindIsOn(kind)
         return Button {
-            editor.setKind(kind, of: targets.map(\.id))
+            editor.blocks.transition { editor.setKind(kind, of: targets.map(\.id)) }
         } label: {
             Text(title)
                 .font(.system(size: 15, weight: weight))

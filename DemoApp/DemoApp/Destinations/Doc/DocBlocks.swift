@@ -80,6 +80,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     @ObservationIgnored var opensURL: (URL) -> Void = { UIApplication.shared.open($0) }
     /// The image Quick Look shows.
     @ObservationIgnored private var previewing: URL?
+    /// What covers the list while a change reshapes it (transition(_:)).
+    @ObservationIgnored private var transitionCover: UIView?
     /// Pieces flying to their rows: the selection shows once they're down.
     @ObservationIgnored private var landings = 0
 
@@ -981,6 +983,104 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         return image.cgImage.map { ($0, list.bounds, image.scale) }
     }
 
+    // MARK: Transitions
+
+    /// Makes a change the way Craft does, without a jump: every block on screen goes
+    /// from where it was, at its old size, to where the change puts it, its old look
+    /// fading into its new one; blocks that come or go fade. Snapshots do it, over a
+    /// cover the colour of the page, while the list lays itself out underneath.
+    func transition(_ change: () -> Void) {
+        guard let list, let container = list.superview, let reader, transitionCover == nil,
+            !UIAccessibility.isReduceMotionEnabled, let old = snapshot()
+        else { return change() }
+        let before = visibleBlocks()
+        let version = reader.version
+        let cover = UIView(frame: list.frame)
+        cover.backgroundColor = .systemBackground
+        cover.isUserInteractionEnabled = false
+        container.insertSubview(cover, aboveSubview: list)
+        transitionCover = cover
+        var olds: [DocBlockID: UIImageView] = [:]
+        for (id, frame) in before {
+            guard let piece = piece(of: old, at: frame) else { continue }
+            cover.addSubview(piece)
+            olds[id] = piece
+        }
+        change()
+        Task { [weak self] in
+            // The list takes the change on a later pass; then one more frame to draw it.
+            for _ in 0..<20 where reader.version == version {
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            try? await Task.sleep(for: .milliseconds(16))
+            guard let self, let list = self.list else { return cover.removeFromSuperview() }
+            list.layoutIfNeeded()
+            let after = self.visibleBlocks()
+            cover.isHidden = true
+            let new = self.snapshot()
+            cover.isHidden = false
+            // A block that only moves is its old picture moving; one that changes shape
+            // gets its new picture too, from where it was.
+            func reshapes(_ id: DocBlockID) -> Bool {
+                guard let from = before[id], let to = after[id] else { return before[id] == nil }
+                return abs(from.width - to.width) > 0.5 || abs(from.height - to.height) > 0.5
+            }
+            let place = { (frame: CGRect) in frame.offsetBy(dx: -list.bounds.minX, dy: -list.bounds.minY) }
+            var news: [DocBlockID: UIImageView] = [:]
+            for (id, frame) in after where reshapes(id) {
+                guard let new, let piece = self.piece(of: new, at: frame) else { continue }
+                piece.frame = place(before[id] ?? frame)
+                piece.alpha = 0
+                cover.addSubview(piece)
+                news[id] = piece
+            }
+            // The new look comes in quickly, the old one goes just after it: the stretched
+            // old picture is there only a moment, and nothing washes out between them.
+            UIView.animate(withDuration: 0.14, delay: 0, options: [.curveEaseOut]) {
+                for piece in news.values { piece.alpha = 1 }
+            }
+            UIView.animate(withDuration: 0.16, delay: 0.06, options: [.curveEaseIn]) {
+                for (id, piece) in olds where after[id] == nil || news[id] != nil { piece.alpha = 0 }
+            }
+            UIView.animate(withDuration: 0.36, delay: 0, usingSpringWithDamping: 0.92, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
+                for (id, piece) in olds {
+                    if let to = after[id] { piece.frame = place(to) }
+                }
+                for (id, piece) in news {
+                    piece.frame = place(after[id]!)
+                }
+            } completion: { _ in
+                cover.removeFromSuperview()
+                if self.transitionCover === cover { self.transitionCover = nil }
+            }
+        }
+    }
+
+    /// The committed blocks on screen and their boxes, outline included (list coordinates).
+    private func visibleBlocks() -> [DocBlockID: CGRect] {
+        guard let list, let reader else { return [:] }
+        let shown = Set(reader.contentFrames(intersecting: list.bounds).keys)
+        var frames: [DocBlockID: CGRect] = [:]
+        for row in demo.rows where shown.contains(row.id) {
+            let ids = row.members.isEmpty ? row.block.map { [$0] } ?? [] : row.members.map(\.id)
+            // With room for what's drawn around a block: its selection's outline.
+            for id in ids {
+                if let frame = contentFrame(id) { frames[id] = frame.insetBy(dx: -6, dy: -4) }
+            }
+        }
+        return frames
+    }
+
+    /// A snapshot's part at a frame (list coordinates), as a view placed there.
+    private func piece(of shot: (image: CGImage, bounds: CGRect, scale: CGFloat), at frame: CGRect) -> UIImageView? {
+        let local = frame.offsetBy(dx: -shot.bounds.minX, dy: -shot.bounds.minY)
+        let pixels = local.applying(CGAffineTransform(scaleX: shot.scale, y: shot.scale)).integral
+        guard local.width > 0, local.height > 0, let image = shot.image.cropping(to: pixels) else { return nil }
+        let view = UIImageView(image: UIImage(cgImage: image, scale: shot.scale, orientation: .up))
+        view.frame = local
+        return view
+    }
+
     // MARK: Model
 
     /// Each block with the items nested under it (a list item's deeper items), in
@@ -1095,22 +1195,22 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// Links and files among these blocks (the selection by default) take `layout`,
     /// in one transaction.
     func setLayout(_ layout: DocLayout, of ids: [DocBlockID]? = nil) {
-        change(ids ?? selected) { kind in
+        transition { change(ids ?? selected) { kind in
             switch kind {
             case .link(var link): link.layout = layout; return .link(link: link)
             case .file(var file): file.layout = layout; return .file(file: file)
             default: return nil
             }
-        }
+        } }
     }
 
     func setImage(fit: DocImage.Fit? = nil, size: DocImage.Size? = nil, of ids: [DocBlockID]? = nil) {
-        change(ids ?? selected) { kind in
+        transition { change(ids ?? selected) { kind in
             guard case .image(var image) = kind else { return nil }
             image.fit = fit ?? image.fit
             image.size = size ?? image.size
             return .image(image: image)
-        }
+        } }
     }
 
     private func change(_ ids: [DocBlockID], _ transform: (BlockKind) -> BlockKind?) {
@@ -1126,7 +1226,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// The selected blocks of text become `kind` (as the slash menu turns one), in one
     /// transaction; the rest stay as they are.
     func turnSelection(into kind: BlockKind) {
-        editor.setKind(kind, of: selected)
+        transition { editor.setKind(kind, of: selected) }
     }
 
     /// A copy of the selected blocks right after the last of them, in order; a table's
