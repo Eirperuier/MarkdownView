@@ -190,6 +190,48 @@ struct MarkdownImportTests {
     }
 
     @Test
+    func bookmarksAndFilesAreTitledLinks() {
+        let fragment = parse("""
+            [Craft](https://www.craft.do "bookmark")
+
+            [https://example.com/a](https://example.com/a "bookmark")
+
+            [路线.pdf](blob:7f3a "file")
+
+            [Craft](https://www.craft.do)
+            """)
+        #expect(fragment.blocks.map(\.kind) == [
+            .link(link: DocLink(url: "https://www.craft.do", title: "Craft")),
+            .link(link: DocLink(url: "https://example.com/a")),
+            .file(file: DocFile(source: "blob:7f3a", name: "路线.pdf")),
+            .paragraph,
+        ])
+    }
+
+    @Test
+    func bookmarksAndFilesExportAsTitledLinks() {
+        let doc = Doc(id: fixedID(0), blocks: [
+            block(1, .link(link: DocLink(url: "https://a.com/x", title: "A", summary: "s", image: "https://a.com/i.png", layout: .card))),
+            block(2, .link(link: DocLink(url: "https://a.com/y"))),
+            block(3, .file(file: DocFile(source: "blob:1", name: "plan.docx", size: 9216, layout: .small))),
+        ])
+        #expect(doc.markdown == """
+            [A](https://a.com/x "bookmark")
+
+            [https://a.com/y](https://a.com/y "bookmark")
+
+            [plan.docx](blob:1 "file")
+            """)
+    }
+
+    @Test
+    func imagesWrittenBeforeFitAndSizeRead() throws {
+        let image = try JSONDecoder().decode(DocImage.self, from: Data(#"{"source":"a.png","alt":""}"#.utf8))
+        #expect(image == DocImage(source: "a.png"))
+        #expect(image.fit == .fit && image.size == .auto)
+    }
+
+    @Test
     func tablesBecomeDatabases() throws {
         let fragment = parse("| A | B |\n| - | - |\n| 1 | x\\|y |\n|  | z |")
         guard case .database(let id, _) = fragment.blocks.first?.kind else {

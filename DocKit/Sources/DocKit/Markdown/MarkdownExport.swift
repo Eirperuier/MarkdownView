@@ -84,6 +84,13 @@ extension Doc {
             return "---"
         case .image(let image):
             return "![\(InlineEscaping.escaped(image.alt, inLink: true))](\(InlineEscaping.destination(image.source)))"
+        case .link(let link):
+            // A bookmark is a link titled "bookmark" (a paragraph that is only a link
+            // stays a paragraph); with no title, the URL is its text.
+            let text = link.title.isEmpty ? link.url : link.title
+            return "[\(InlineEscaping.escaped(text, inLink: true))](\(InlineEscaping.destination(link.url)) \"bookmark\")"
+        case .file(let file):
+            return "[\(InlineEscaping.escaped(file.name, inLink: true))](\(InlineEscaping.destination(file.source)) \"file\")"
         case .card(let card):
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]

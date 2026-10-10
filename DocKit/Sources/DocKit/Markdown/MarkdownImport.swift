@@ -111,6 +111,17 @@ private struct MarkdownImporter<Generator: RandomNumberGenerator> {
             append(.image(image: DocImage(source: image.source ?? "", alt: alt)), indent: indent)
             return
         }
+        // A link titled "bookmark" or "file", on a line of its own.
+        if children.count == 1, let link = children[0] as? Link, let destination = link.destination,
+           link.title == "bookmark" || link.title == "file" {
+            let text = link.plainText
+            if link.title == "file" {
+                append(.file(file: DocFile(source: destination, name: text)), indent: indent)
+            } else {
+                append(.link(link: DocLink(url: destination, title: text == destination ? "" : text)), indent: indent)
+            }
+            return
+        }
         if let latex = math.displayLatex(paragraph.plainText) {
             append(.math, indent: indent, text: DocText(string: latex))
             return

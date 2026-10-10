@@ -85,7 +85,11 @@ private enum CanonicalDoc {
             case 8:
                 blocks.append(DocBlock(id: id, kind: .math, text: DocText(string: pick(latex, &rng))))
             case 9:
-                blocks.append(DocBlock(id: id, kind: pick([.divider, .image(image: DocImage(source: "a b.png", alt: "pic [1]"))], &rng)))
+                blocks.append(DocBlock(id: id, kind: pick([
+                    .divider, .image(image: DocImage(source: "a b.png", alt: "pic [1]")),
+                    .link(link: DocLink(url: "https://a.com/p?q=1", title: pick(["", "Page [1]", "标题"], &rng))),
+                    .file(file: DocFile(source: "blob:9", name: "a (1).docx")),
+                ], &rng)))
             case 10:
                 let card = DocCard(size: "m", view: pick([nil, "chart"], &rng), source: pick([nil, "<svg/>"], &rng), data: ["n": 1, "s": "x"])
                 blocks.append(DocBlock(id: id, kind: .card(card: card)))

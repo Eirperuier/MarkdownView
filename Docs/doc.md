@@ -75,7 +75,9 @@ enum BlockKind: Hashable, Sendable, Codable {
     case code(language: String?)
     case math                                  // 显示公式,text 是 LaTeX
     case divider
-    case image(BlobRef, caption…)
+    case image(DocImage)                       // source、alt;适应/填充、自动/大图
+    case link(DocLink)                         // 书签:url、标题、摘要、预览图、布局
+    case file(DocFile)                         // 附件:blob、文件名、大小、布局
     case card(DocCard)                         // §3.4
     case database(DatabaseID, DatabaseView)    // §3.5
 }
@@ -112,6 +114,8 @@ enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mentio
   - 粘贴的流水线借 Composer 的:HTML 表格 → TSV → markdown。
 - **黄金用例**:导入再导出必须等于规范化后的原文,用例和 Web 共用(§10)。
 
+- **书签和附件**写成带 title 的链接,单独一行:书签 `[标题](url "bookmark")`,附件 `[文件名](blob:… "file")`,和引用的 `"cite"` 同一种写法。只有一条普通链接的段落仍是段落。摘要、预览图、文件大小和布局是展示信息,不进 Markdown(和高亮颜色一样)。
+
 ### 3.4 卡片块【定】
 
 `DocCard{size, view?, source?, data: JSONValue?}`,和 `Wire.AnswerCard` 去掉 fence/item 之后的部分相同。
@@ -119,6 +123,10 @@ enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mentio
 - 渲染用 `CardView`,和聊天里画出来的卡片是同一个组件,生成中同样用 shimmer。
 - agent 可以重画一张卡(替换 source),也可以只更新 data。
 - 用户能把聊天里的卡片直接拖进或复制进文档。
+
+### 3.4.1 链接、附件、图片的布局【定】
+
+照 Craft:书签和附件共用一套布局 `DocLayout`——小(和名字一样宽的胶囊)、常规(整行:缩略图、标题、详情)、卡片(半页宽:预览在上,文字在下)。图片另有两项:适应 / 填充,自动 / 大图。改布局是 `setBlock` 换一个 kind,一次撤销退回;多选时一起改,是一个事务。连续的卡片并排、连续的图片成排是下一步。
 
 ### 3.5 数据库块:多维表格和看板【定】
 
