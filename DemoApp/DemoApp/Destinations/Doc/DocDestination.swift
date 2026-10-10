@@ -61,11 +61,18 @@ struct DocDestination: View {
             if let first = demo.rows.first?.id { reader.scrollTo(id: first, anchor: .top, animated: false) }
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
             editor.blocks.attach(reader)
-            // -docShow code|math: open at the first code or math block; -docEdit YES edits it.
+            // -docShow code|math|media: open at the first code, math or link/file/image
+            // block (the top of the first media); -docEdit YES edits code or math.
             if let kind = UserDefaults.standard.string(forKey: "docShow"),
-               let row = demo.rows.first(where: { kind == "code" ? { if case .code = $0.sourceKind { true } else { false } }($0) : $0.sourceKind == .math }),
+               let row = demo.rows.first(where: { row in
+                   switch kind {
+                   case "code": if case .code = row.sourceKind { true } else { false }
+                   case "media": row.media != nil
+                   default: row.sourceKind == .math
+                   }
+               }),
                let block = row.block {
-                reader.scrollTo(id: row.id, anchor: .center, animated: false)
+                reader.scrollTo(id: row.id, anchor: kind == "media" ? .top : .center, animated: false)
                 if UserDefaults.standard.bool(forKey: "docEdit") {
                     try? await Task.sleep(for: .milliseconds(400))
                     editor.sources.focus(block)
@@ -108,6 +115,13 @@ struct DocDestination: View {
                     try? await Task.sleep(for: .milliseconds(300))
                     editor.insert(.kind(.paragraph), at: block)
                 }
+            }
+            // -docMediaLayouts YES: the links, files and images selected, their layouts shown.
+            if UserDefaults.standard.bool(forKey: "docMediaLayouts"),
+               let first = demo.doc.blocks.first(where: { DocMediaView.draws($0.kind) }) {
+                editor.blocks.beginSelecting(first.id)
+                editor.blocks.select(demo.doc.blocks.filter { DocMediaView.draws($0.kind) }.map(\.id))
+                editor.blocks.isChoosingLayout = true
             }
             // -docShot <path>: what the options above show, drawn to a PNG there
             // (screenshots without screen recording).
@@ -177,12 +191,8 @@ struct DocRowCell: TiledCellContent {
 
     func body(context: CellContext<Void>) -> some View {
         let hooks = MainActor.assumeIsolated { [item, editor] in item.block.map { editor.hooks(for: $0) } }
-        let (tables, sources) = MainActor.assumeIsolated { (editor.tables, editor.sources) }
-        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks, tables: tables, sources: sources) { [item, editor] point in
-            MainActor.assumeIsolated {
-                if let block = item.block { editor.click(block, at: point) }
-            }
-        }
+        let (tables, sources, blocks) = MainActor.assumeIsolated { (editor.tables, editor.sources, editor.blocks) }
+        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks, tables: tables, sources: sources, blocks: blocks)
     }
 }
 
@@ -192,8 +202,7 @@ private struct DocRowView: View {
     let hooks: MarkdownSelectableTextHooks?
     let tables: DocTableController
     let sources: DocSourceController
-    /// A click in the row, in window coordinates.
-    let onClick: (CGPoint) -> Void
+    let blocks: DocBlockController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -201,6 +210,31 @@ private struct DocRowView: View {
             // with a new id, and the text view being typed in must stay the same view.
             if let table = row.table, !row.isStreaming {
                 DocTableRowView(table: table, blocks: row.blocks, controller: tables)
+            } else if let media = row.media, !row.isStreaming {
+                let isSelected = row.block.map(blocks.selected.contains) ?? false
+                DocMediaView(kind: media, reservesDot: blocks.isSelecting)
+                    .overlay(alignment: .trailing) {
+                        // Selecting: a dot inside the box, at its right (Craft's).
+                        if blocks.isSelecting {
+                            DocSelectionDot(isOn: isSelected)
+                                .padding(.trailing, 10)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.2), value: blocks.isSelecting)
+                    .overlay {
+                        // Selected: a tinted outline around its box (Craft's).
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5)
+                                .padding(-3)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    #if targetEnvironment(macCatalyst)
+                    // Right-click: its layout (the selection's, when it is in it).
+                    .contextMenu { if let block = row.block { DocMediaMenu(kind: media, block: block, blocks: blocks) } }
+                    #endif
             } else if let block = row.block, case .code(let language) = row.sourceKind, !row.isStreaming {
                 DocCodeRowView(block: block, language: language, blocks: row.blocks, controller: sources)
             } else if let block = row.block, row.sourceKind == .math, !row.isStreaming {
@@ -217,7 +251,8 @@ private struct DocRowView: View {
         .padding(.leading, DocBlockController.leadingGutter)
         .padding(.trailing, DocBlockController.trailingGutter)
         .frame(maxWidth: .infinity)
-        // Tables and code change height when an editor comes or goes.
+        // Tables and code change height when an editor comes or goes (links, files and
+        // images are as tall as their layout says).
         .modifier(DocRowHeightReporter(isOn: row.table != nil || row.sourceKind != nil))
         .codeHighlighter(DocDestination.highlighter)
         // Wide tables scroll sideways instead of squeezing their columns.
@@ -227,12 +262,6 @@ private struct DocRowView: View {
         .markdownStreamBlockEdgeInsets(false)
         // Code at the text's size, monospaced (the editor uses the same font).
         .font(Font(docCodeFont), for: .codeBlock)
-        // The whole row takes the caret, not only its text: beside a short line, the
-        // space around a list item, the row's padding. Behind the text view, so only
-        // clicks that miss it land here.
-        .background {
-            if hooks != nil { RowClickArea(onClick: onClick) }
-        }
     }
 
     @ViewBuilder
@@ -257,31 +286,6 @@ private struct DocRowView: View {
     }
 }
 
-/// A click in a row, in window coordinates (SwiftUI's global space is the cell's host).
-private struct RowClickArea: UIViewRepresentable {
-    let onClick: (CGPoint) -> Void
-
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.backgroundColor = .clear
-        view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.click(_:))))
-        return view
-    }
-
-    func updateUIView(_ view: UIView, context: Context) {
-        context.coordinator.onClick = onClick
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(onClick: onClick) }
-
-    final class Coordinator: NSObject {
-        var onClick: (CGPoint) -> Void
-        init(onClick: @escaping (CGPoint) -> Void) { self.onClick = onClick }
-        @objc func click(_ recognizer: UITapGestureRecognizer) {
-            onClick(recognizer.location(in: nil))
-        }
-    }
-}
 
 /// Rows changed (an edit, a measured height): the handle and the selection follow.
 private struct DocBlockOverlays: ViewModifier {
@@ -293,5 +297,55 @@ private struct DocBlockOverlays: ViewModifier {
             blocks.attach(reader)
             blocks.layoutOverlays()
         }
+    }
+}
+
+/// A link, file or image's layouts, as a menu (the Mac's right-click).
+private struct DocMediaMenu: View {
+    let kind: BlockKind
+    let block: DocBlockID
+    let blocks: DocBlockController
+
+    var body: some View {
+        let ids = blocks.selected.contains(block) ? blocks.selected : [block]
+        switch kind {
+        case .link(let link): layouts(link.layout, ids)
+        case .file(let file): layouts(file.layout, ids)
+        case .image(let image):
+            Section("图片显示") {
+                Toggle("适应", isOn: binding(image.fit == .fit) { blocks.setImage(fit: .fit, of: ids) })
+                Toggle("填充", isOn: binding(image.fit == .fill) { blocks.setImage(fit: .fill, of: ids) })
+            }
+            Section("图片大小") {
+                Toggle("自动", isOn: binding(image.size == .auto) { blocks.setImage(size: .auto, of: ids) })
+                Toggle("大图", isOn: binding(image.size == .large) { blocks.setImage(size: .large, of: ids) })
+            }
+        default: EmptyView()
+        }
+    }
+
+    private func layouts(_ current: DocLayout, _ ids: [DocBlockID]) -> some View {
+        Section("布局") {
+            ForEach(DocLayout.allCases, id: \.self) { layout in
+                Toggle(layout.title, isOn: binding(current == layout) { blocks.setLayout(layout, of: ids) })
+            }
+        }
+    }
+
+    private func binding(_ isOn: Bool, choose: @escaping () -> Void) -> Binding<Bool> {
+        Binding(get: { isOn }, set: { if $0 { choose() } })
+    }
+}
+
+/// The dot inside a selected link, file or image: a ring, filled with the tint when
+/// the block is selected.
+private struct DocSelectionDot: View {
+    let isOn: Bool
+
+    var body: some View {
+        Circle()
+            .fill(isOn ? Color.accentColor : Color(.systemBackground))
+            .overlay { if !isOn { Circle().strokeBorder(Color(.systemGray3), lineWidth: 1.5) } }
+            .frame(width: 14, height: 14)
     }
 }

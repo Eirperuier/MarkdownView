@@ -203,6 +203,11 @@ final class DocEditor {
     /// place in the text, as a click beside a line does in a text editor. Clicks on the
     /// text view itself are the text view's.
     func click(_ id: DocBlockID, at point: CGPoint) {
+        // A link opens (not while blocks are being selected: a click picks it then).
+        if case .link(let link)? = demo.doc.block(id)?.kind {
+            if !blocks.isSelecting, let url = URL(string: link.url) { UIApplication.shared.open(url) }
+            return
+        }
         guard isEditable, let block = demo.doc.block(id), block.kind.carriesText,
             let textView = textView(for: id), let start = textStart(in: textView, block: block)
         else { return }

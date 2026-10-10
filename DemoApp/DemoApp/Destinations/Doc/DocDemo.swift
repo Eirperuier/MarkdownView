@@ -23,6 +23,8 @@ struct DocRow: Identifiable, Equatable {
     let isStreaming: Bool
     /// A database block shown as an editable table (instead of `blocks`).
     let table: DocTableSnapshot?
+    /// A link, file or image block, drawn as itself (DocMedia).
+    let media: BlockKind?
     /// A code or math block, edited as its source (and whether it's empty).
     let sourceKind: DocSourceKind?
     let sourceIsEmpty: Bool
@@ -36,12 +38,13 @@ struct DocRow: Identifiable, Equatable {
     private let depth: Int?
 
     init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock], isStreaming: Bool = false, table: DocTableSnapshot? = nil,
-         sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
+         media: BlockKind? = nil, sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
         self.id = id
         self.block = block
         self.blocks = blocks
         self.isStreaming = isStreaming
         self.table = table
+        self.media = media
         self.sourceKind = sourceKind
         self.sourceIsEmpty = sourceIsEmpty
         source = blocks.map(\.source).joined(separator: "\n\n")
@@ -49,7 +52,7 @@ struct DocRow: Identifiable, Equatable {
     }
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
-        lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.table == rhs.table
+        lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.table == rhs.table && lhs.media == rhs.media
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
             && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role
@@ -99,7 +102,7 @@ final class DocDemo {
     }
 
     init() {
-        doc = Doc(id: Identifier(rawValue: UUID()), markdown: DocDemoCorpus.document)
+        doc = DocDemoCorpus.doc(id: Identifier(rawValue: UUID()))
         publish()
     }
 
@@ -107,7 +110,7 @@ final class DocDemo {
 
     func reset() {
         stop()
-        doc = Doc(id: doc.id, markdown: DocDemoCorpus.document)
+        doc = DocDemoCorpus.doc(id: doc.id)
         history = DocHistory()
         publish()
     }
@@ -184,6 +187,7 @@ final class DocDemo {
                 // Outside a list a block's markdown is its own: no neighbour changes it.
                 let markdown = Doc(id: doc.id, blocks: [block]).markdown(of: block.id, style: .editing) ?? ""
                 let row = DocRow(id: block.id.description, block: block.id, blocks: split(markdown),
+                                 media: DocMediaView.draws(block.kind) ? block.kind : nil,
                                  sourceKind: DocSourceKind(block.kind), sourceIsEmpty: block.text.isEmpty)
                 rowCache[block.id] = (block, nil, row)
                 result.append(row)
@@ -485,6 +489,7 @@ extension DocRow {
         let source = blocks.map(\.source).joined(separator: "\n")
         let lines = CGFloat(source.split(separator: "\n", omittingEmptySubsequences: false).count)
         let spacing = spacingAbove + spacingBelow
+        if let media, let height = DocMediaLayout.estimatedHeight(media) { return height + spacing }
         if source.hasPrefix("```") { return lines * 18 + 46 + spacing }
         if source.hasPrefix("|") { return (lines - 1) * 44 + spacing }
         if source.hasPrefix("$$") || source.hasPrefix("\\begin") { return 80 + spacing }

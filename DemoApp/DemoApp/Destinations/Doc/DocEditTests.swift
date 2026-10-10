@@ -393,15 +393,13 @@ final class DocEditTests {
                 var point = view.convert(inView, to: nil)
                 // On a narrow screen the line can reach the edge: stay inside the window.
                 point.x = min(point.x, (view.window?.bounds.maxX ?? point.x) - 8)
-                var hit = view.window?.hitTest(point, with: nil)
-                var chain: [String] = []
-                while let current = hit, chain.count < 3 { chain.append("\(Swift.type(of: current))"); hit = current.superview }
-                let catcher = chain.contains { $0.contains("RowClickArea") }
-                let textViewHit = chain.contains { $0.contains("TextView") }
-                try self.expect(catcher || textViewHit, "click lands on \(chain)")
-                // What the row's click area does (a text view hit is the text view's own click).
-                if catcher { self.editor.click(block.id, at: point) } else {
+                // Outside the text the click is the list's (DocBlockController.rowClick);
+                // on the text view, the text view's own.
+                let hit = sequence(first: view.window?.hitTest(point, with: nil), next: { $0?.superview })
+                if hit.contains(where: { $0 is UITextView }) {
                     try await self.focus(block.id, at: block.text.length)
+                } else {
+                    self.editor.blocks.click(atWindowPoint: point)
                 }
                 try await self.settle()
                 try self.expectCursor(block.id, block.text.length)
@@ -1101,6 +1099,38 @@ final class DocEditTests {
             blocks.turnSelection(into: .quote)
             try self.expect(self.demo.doc.block(paragraph.id)?.kind == .quote, "paragraph is \(String(describing: self.demo.doc.block(paragraph.id)?.kind))")
             try self.expect(self.demo.doc.block(table.id)?.kind == table.kind, "table changed")
+            blocks.clear()
+        }
+        await test("the selected links and files take the chosen layout together; one undo puts them back") {
+            let media = self.demo.doc.blocks.filter { if case .link = $0.kind { true } else if case .file = $0.kind { true } else { false } }
+            try self.expect(media.count >= 3, "only \(media.count) links and files")
+            let before = media.map(\.kind)
+            blocks.select(media.map(\.id))
+            blocks.setLayout(.card)
+            let layouts = media.compactMap { block -> DocLayout? in
+                switch self.demo.doc.block(block.id)?.kind {
+                case .link(let link)?: link.layout
+                case .file(let file)?: file.layout
+                default: nil
+                }
+            }
+            try self.expect(layouts == Array(repeating: .card, count: media.count), "layouts \(layouts)")
+            try self.expect(blocks.selectedLayouts == [.card], "selected layouts \(blocks.selectedLayouts)")
+            try await self.undo()
+            try self.expect(media.map { self.demo.doc.block($0.id)?.kind } == before, "undo didn't restore the layouts")
+            blocks.clear()
+        }
+        await test("a selected image fills and goes large, and draws at the page's width") {
+            let image = try self.expectValue(self.demo.doc.blocks.first { if case .image = $0.kind { true } else { false } }, "no image")
+            await show(image.id)
+            blocks.select([image.id])
+            blocks.setImage(fit: .fill, size: .large)
+            guard case .image(let changed)? = self.demo.doc.block(image.id)?.kind else { throw Failure(description: "not an image") }
+            try self.expect(changed.fit == .fill && changed.size == .large, "image \(changed)")
+            try? await Task.sleep(for: .milliseconds(400))
+            let row = try self.expectValue(blocks.testRowFrame(image.id), "no row")
+            let height = DocMediaLayout.imageHeight(changed, width: DocMediaLayout.pageWidth)
+            try self.expect(abs(row.height - (height + (self.demo.spacingAbove[image.id.description] ?? 0))) < 2, "row \(row.height), image \(height)")
             blocks.clear()
         }
         await test("several selected blocks move together, in order") {

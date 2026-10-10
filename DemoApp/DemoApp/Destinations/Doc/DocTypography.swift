@@ -47,7 +47,7 @@ enum DocRowRole: Equatable {
         case .heading(let level): self = .heading(level: level)
         case .paragraph: self = .paragraph
         case .listItem: self = .listItem
-        case .quote, .code, .math, .divider, .image, .card, .database: self = .boxed
+        case .quote, .code, .math, .divider, .image, .link, .file, .card, .database: self = .boxed
         }
     }
 

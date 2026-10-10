@@ -37,6 +37,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     /// The phone's selection mode (Composer's batch editing): taps select, the text
     /// isn't edited, a bar offers what to do with the blocks.
     private(set) var isSelecting = false
+    /// The panel shows the selected media's layouts instead of the actions.
+    var isChoosingLayout = false
 
     @ObservationIgnored private var anchor: DocBlockID?
     @ObservationIgnored private var head: DocBlockID?
@@ -67,6 +69,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var press: (block: DocBlockID, start: CGPoint)?
     @ObservationIgnored private var drag: Drag?
     @ObservationIgnored private var link: CADisplayLink?
+    /// A click on a row outside its text (DocEditor.click), and the phone's tap that
+    /// picks blocks while selecting.
+    @ObservationIgnored private var rowClick: UITapGestureRecognizer?
+    @ObservationIgnored private var selectTap: UITapGestureRecognizer?
     /// Pieces flying to their rows: the selection shows once they're down.
     @ObservationIgnored private var landings = 0
 
@@ -131,7 +137,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
             let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
             tap.delegate = self
             list.addGestureRecognizer(tap)
+            selectTap = tap
         }
+        // On the list, not in the rows: SwiftUI's hit testing doesn't always pass a click
+        // through a row's content to a view behind it.
+        let click = UITapGestureRecognizer(target: self, action: #selector(rowClicked(_:)))
+        click.delegate = self
+        list.addGestureRecognizer(click)
+        rowClick = click
         observations = [
             list.observe(\.contentSize) { [weak self] _, _ in MainActor.assumeIsolated { self?.layoutOverlays() } },
             list.observe(\.contentOffset) { [weak self] _, _ in MainActor.assumeIsolated { self?.followHover() } },
@@ -192,7 +205,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
             if selected.isEmpty, isSelecting { endSelecting() }
         }
         // Craft's: a light tint with a tinted outline, a little outside the blocks.
-        highlights = place(landings > 0 ? [] : runs(of: selected).map { $0.insetBy(dx: 0, dy: -4) }, in: highlights, outset: 6) {
+        // Links, files and images outline themselves, hugging their box (DocMediaView).
+        let text = selected.filter { demo.doc.block($0).map { !DocMediaView.draws($0.kind) } ?? false }
+        highlights = place(landings > 0 ? [] : runs(of: text).map { $0.insetBy(dx: 0, dy: -4) }, in: highlights, outset: 6) {
             let view = UIView()
             view.backgroundColor = UIColor.tintColor.withAlphaComponent(0.08)
             view.layer.borderColor = UIColor.tintColor.withAlphaComponent(0.45).cgColor
@@ -217,7 +232,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     /// A circle at the right edge of every block, level with its middle, while selecting.
     private func layoutChecks() {
         guard let list else { return }
-        let ids = isSelecting || checksLeaving ? demo.doc.blocks.map(\.id) : []
+        // Links, files and images draw theirs inside their box (DocMediaView).
+        let ids = isSelecting || checksLeaving ? demo.doc.blocks.filter { !DocMediaView.draws($0.kind) }.map(\.id) : []
         let chosen = Set(selected)
         let frames = reader?.contentFrames(forItems: ids.map(\.description)) ?? [:]
         while checks.count < ids.count {
@@ -445,7 +461,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     // MARK: Phone: lift, select
 
     func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        if recognizer is UITapGestureRecognizer { return isSelecting }
+        if recognizer === selectTap { return isSelecting }
+        if recognizer === rowClick {
+            // Text views and controls take their own clicks.
+            guard !isSelecting, drag == nil else { return false }
+            return !sequence(first: touch.view, next: { $0?.superview }).contains { $0 is UITextView || $0 is UIControl }
+        }
         guard !demo.isAgentWriting, drag == nil else { return false }
         var view = touch.view
         while let current = view, current !== list {
@@ -487,6 +508,23 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        // A table cell's own tap and the row's click both happen.
+        recognizer === rowClick
+    }
+
+    @objc private func rowClicked(_ recognizer: UITapGestureRecognizer) {
+        guard let list else { return }
+        click(atWindowPoint: list.convert(recognizer.location(in: list), to: nil))
+    }
+
+    /// A click at a point of the window outside any text: the block whose row it is in
+    /// takes it.
+    func click(atWindowPoint point: CGPoint) {
+        guard let list, let id = block(atY: list.convert(point, from: nil).y) else { return }
+        editor.click(id, at: point)
+    }
+
     @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
         guard isSelecting, let list, let id = block(atY: recognizer.location(in: list).y) else { return }
         let group = Set(groups([id]).flatMap { $0 })
@@ -508,6 +546,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
 
     func endSelecting() {
         isSelecting = false
+        isChoosingLayout = false
         editor.isEditable = !demo.isAgentWriting
         anchor = nil
         head = nil
@@ -944,6 +983,56 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         if let after, !wasSelecting { editor.place(after) }
     }
 
+    // MARK: Media
+
+    /// What the selected links, files and images are set to (several values: mixed).
+    var selectedLayouts: Set<DocLayout> { Set(media(selected).compactMap(\.layout)) }
+    var selectedImageFits: Set<DocImage.Fit> { Set(media(selected).compactMap(\.image?.fit)) }
+    var selectedImageSizes: Set<DocImage.Size> { Set(media(selected).compactMap(\.image?.size)) }
+
+    private func media(_ ids: [DocBlockID]) -> [(layout: DocLayout?, image: DocImage?)] {
+        let chosen = Set(ids)
+        return demo.doc.blocks.filter { chosen.contains($0.id) }.compactMap { block in
+            switch block.kind {
+            case .link(let link): (link.layout, nil)
+            case .file(let file): (file.layout, nil)
+            case .image(let image): (nil, image)
+            default: nil
+            }
+        }
+    }
+
+    /// Links and files among these blocks (the selection by default) take `layout`,
+    /// in one transaction.
+    func setLayout(_ layout: DocLayout, of ids: [DocBlockID]? = nil) {
+        change(ids ?? selected) { kind in
+            switch kind {
+            case .link(var link): link.layout = layout; return .link(link: link)
+            case .file(var file): file.layout = layout; return .file(file: file)
+            default: return nil
+            }
+        }
+    }
+
+    func setImage(fit: DocImage.Fit? = nil, size: DocImage.Size? = nil, of ids: [DocBlockID]? = nil) {
+        change(ids ?? selected) { kind in
+            guard case .image(var image) = kind else { return nil }
+            image.fit = fit ?? image.fit
+            image.size = size ?? image.size
+            return .image(image: image)
+        }
+    }
+
+    private func change(_ ids: [DocBlockID], _ transform: (BlockKind) -> BlockKind?) {
+        let chosen = Set(ids)
+        let steps: [DocStep] = demo.doc.blocks.filter { chosen.contains($0.id) }.compactMap { block in
+            guard let kind = transform(block.kind), kind != block.kind else { return nil }
+            return .setBlock(block: block.id, kind: kind, indent: block.indent, previousKind: block.kind, previousIndent: block.indent)
+        }
+        guard !steps.isEmpty else { return }
+        demo.edit(steps, before: editor.selection, after: editor.selection)
+    }
+
     /// The selected blocks of text become `kind` (as the slash menu turns one), in one
     /// transaction; the rest stay as they are.
     func turnSelection(into kind: BlockKind) {
@@ -1177,18 +1266,35 @@ final class DocBlockKeyView: UIView {
 }
 
 /// The phone's actions on the selected blocks, as Craft's panel: a floating glass
-/// panel of tiles, each its own color, its symbol over its name.
+/// panel of tiles, each its own color, its symbol over its name. Layout turns it into
+/// the layouts of the selected links, files and images.
 struct DocBlockSelectionBar: View {
     let blocks: DocBlockController
 
     var body: some View {
         VStack {
-            if blocks.isSelecting { panel }
+            if blocks.isSelecting {
+                Group {
+                    if blocks.isChoosingLayout { layouts } else { actions }
+                }
+                .padding(8)
+                .background(.regularMaterial, in: .rect(cornerRadius: 26, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(.white.opacity(0.6), lineWidth: 1))
+                .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .animation(.smooth(duration: 0.25), value: blocks.isSelecting)
+        .animation(.smooth(duration: 0.25), value: blocks.isChoosingLayout)
     }
 
-    private var panel: some View {
+    private var hasMedia: Bool {
+        !blocks.selectedLayouts.isEmpty || !blocks.selectedImageFits.isEmpty
+    }
+
+    private var actions: some View {
         HStack(spacing: 8) {
             Menu {
                 ForEach(Self.kinds) { item in
@@ -1198,6 +1304,13 @@ struct DocBlockSelectionBar: View {
                 }
             } label: {
                 DocSelectionTile(title: "样式", symbol: "textformat", color: Color(red: 0.42, green: 0.13, blue: 0.78))
+            }
+            if hasMedia {
+                Button {
+                    blocks.isChoosingLayout = true
+                } label: {
+                    DocSelectionTile(title: "布局", symbol: "rectangle.split.2x1", color: Color(red: 0.2, green: 0.27, blue: 0.36))
+                }
             }
             Menu {
                 Button("复制", systemImage: "doc.on.doc") {
@@ -1215,16 +1328,149 @@ struct DocBlockSelectionBar: View {
             }
         }
         .buttonStyle(.plain)
-        .padding(8)
-        .background(.regularMaterial, in: .rect(cornerRadius: 26, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(.white.opacity(0.6), lineWidth: 1))
-        .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
-        .padding(.bottom, 12)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    /// Craft's layout sheet: a grabber (tap or pull down to go back), then the options.
+    private var layouts: some View {
+        VStack(spacing: 10) {
+            Capsule()
+                .fill(Color(.tertiaryLabel))
+                .frame(width: 36, height: 5)
+                .frame(maxWidth: .infinity, minHeight: 14)
+                .contentShape(Rectangle())
+                .onTapGesture { blocks.isChoosingLayout = false }
+            if !blocks.selectedImageFits.isEmpty {
+                HStack(spacing: 8) {
+                    DocLayoutSection(title: "图片显示") {
+                        option("适应", symbol: "arrow.down.and.line.horizontal.and.arrow.up", on: blocks.selectedImageFits == [.fit]) { blocks.setImage(fit: .fit) }
+                        option("填充", symbol: "square.arrowtriangle.4.outward", on: blocks.selectedImageFits == [.fill]) { blocks.setImage(fit: .fill) }
+                    }
+                    DocLayoutSection(title: "图片大小") {
+                        option("自动", symbol: "rectangle.center.inset.filled", on: blocks.selectedImageSizes == [.auto]) { blocks.setImage(size: .auto) }
+                        option("大图", symbol: "rectangle", on: blocks.selectedImageSizes == [.large]) { blocks.setImage(size: .large) }
+                    }
+                }
+            }
+            if !blocks.selectedLayouts.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(DocLayout.allCases, id: \.self) { layout in
+                        Button {
+                            blocks.setLayout(layout)
+                        } label: {
+                            DocLayoutOption(title: layout.title, isOn: blocks.selectedLayouts == [layout]) {
+                                DocLayoutIllustration(layout: layout)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .gesture(DragGesture(minimumDistance: 12).onEnded { if $0.translation.height > 30 { blocks.isChoosingLayout = false } })
+    }
+
+    private func option(_ title: String, symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            DocLayoutOption(title: title, isOn: on) {
+                Image(systemName: symbol).font(.system(size: 18))
+            }
+        }
     }
 
     /// What selected text blocks can become.
     private static let kinds = DocSlashItem.all.filter { $0.action.kind?.carriesText == true }
+}
+
+extension DocLayout {
+    var title: String {
+        switch self {
+        case .small: "小"
+        case .regular: "常规"
+        case .card: "卡片"
+        }
+    }
+}
+
+/// A titled group of options (the image's fit, its size).
+private struct DocLayoutSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 6) { content() }
+        }
+    }
+}
+
+/// One layout option: its picture over its name, outlined in the tint when chosen.
+private struct DocLayoutOption<Picture: View>: View {
+    let title: String
+    let isOn: Bool
+    @ViewBuilder let picture: () -> Picture
+
+    var body: some View {
+        VStack(spacing: 6) {
+            picture()
+                .frame(height: 30)
+            Text(title)
+                .font(.system(size: 13))
+        }
+        .foregroundStyle(isOn ? Color.accentColor : .primary)
+        .frame(maxWidth: .infinity, minHeight: 70)
+        .padding(.horizontal, 6)
+        .background(isOn ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.05), in: .rect(cornerRadius: 14, style: .continuous))
+        .overlay {
+            if isOn { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5) }
+        }
+        .contentShape(.rect(cornerRadius: 14, style: .continuous))
+    }
+}
+
+/// Craft's little pictures of the layouts: a warm thumbnail and lines of text.
+private struct DocLayoutIllustration: View {
+    let layout: DocLayout
+
+    var body: some View {
+        switch layout {
+        case .small:
+            HStack(spacing: 3) {
+                thumbnail.frame(width: 12, height: 9)
+                line(width: 18)
+            }
+            .padding(4)
+            .background(.background, in: .rect(cornerRadius: 3))
+        case .regular:
+            HStack(spacing: 4) {
+                thumbnail.frame(width: 18, height: 16)
+                VStack(alignment: .leading, spacing: 3) {
+                    line(width: 22)
+                    line(width: 14)
+                }
+            }
+            .padding(4)
+            .background(.background, in: .rect(cornerRadius: 3))
+        case .card:
+            VStack(alignment: .leading, spacing: 3) {
+                thumbnail.frame(width: 34, height: 14)
+                line(width: 22).padding(.leading, 2)
+            }
+            .padding(.bottom, 3)
+            .background(.background, in: .rect(cornerRadius: 3))
+        }
+    }
+
+    private var thumbnail: some View {
+        LinearGradient(colors: [Color(red: 0.98, green: 0.62, blue: 0.3), Color(red: 0.62, green: 0.36, blue: 0.3)], startPoint: .top, endPoint: .bottom)
+            .clipShape(.rect(cornerRadius: 2))
+    }
+
+    private func line(width: CGFloat) -> some View {
+        Capsule().fill(Color(.systemGray3)).frame(width: width, height: 2.5)
+    }
 }
 
 /// One of the panel's tiles: its color's symbol over its name, on a wash of the color.
