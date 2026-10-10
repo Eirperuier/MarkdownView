@@ -89,6 +89,10 @@ final class DocDemo {
     @ObservationIgnored private var history = DocHistory()
     let person = DocAuthor.person(client: Identifier(rawValue: UUID(uuidString: "00000000-0000-7000-8000-0000000000E1")!))
     private let agent = DocAuthor.agent(client: Identifier(rawValue: UUID(uuidString: "00000000-0000-7000-8000-00000000A6E7")!))
+    /// Pages' previews for bookmarks that say little about their page, filled in as the
+    /// app's own steps: like the agent's, not the person's to undo.
+    @ObservationIgnored private let previews = DocLinkPreviews()
+    private let previewer = DocAuthor.agent(client: Identifier(rawValue: UUID(uuidString: "00000000-0000-7000-8000-0000000B00C0")!))
 
     /// The agent's writing in progress: shown in the list, not in the doc.
     private struct Layer {
@@ -105,6 +109,7 @@ final class DocDemo {
 
     init() {
         doc = DocDemoCorpus.doc(id: Identifier(rawValue: UUID()))
+        previews.onPreview = { [weak self] url, preview in self?.fill(url, with: preview) }
         publish()
     }
 
@@ -217,6 +222,7 @@ final class DocDemo {
         }
         canUndo = history.canUndo
         canRedo = history.canRedo
+        askForPreviews()
     }
 
     /// Each row's space above by what it is and what comes before it; the last row
@@ -473,6 +479,34 @@ final class DocDemo {
     /// A fresh row, column or database id.
     func newID<Tag>() -> Identifier<Tag> {
         Identifier.generate(at: .now, using: &rng)
+    }
+
+    // MARK: Link previews
+
+    /// Asks for the pages of the bookmarks that say little about them; one undone back
+    /// to before its preview gets it again.
+    private func askForPreviews() {
+        for block in doc.blocks {
+            guard case .link(let link) = block.kind, DocLinkPreviews.wants(link) else { continue }
+            if let preview = previews.previews[link.url] {
+                DispatchQueue.main.async { [weak self] in self?.fill(link.url, with: preview) }
+            } else {
+                previews.ask(link.url)
+            }
+        }
+    }
+
+    /// The bookmarks of `url` with what they leave empty filled in from its page.
+    private func fill(_ url: String, with preview: DocLinkPreviews.Preview) {
+        let steps: [DocStep] = doc.blocks.compactMap { block in
+            guard case .link(let link) = block.kind, link.url == url, DocLinkPreviews.wants(link) else { return nil }
+            let filled = preview.filling(link)
+            guard filled != link else { return nil }
+            return .setBlock(block: block.id, kind: .link(link: filled), indent: block.indent, previousKind: block.kind, previousIndent: block.indent)
+        }
+        guard !steps.isEmpty, let resolved = try? doc.apply(DocTransaction(steps: steps, author: previewer, time: .now)) else { return }
+        for step in resolved.steps { history.map(through: step) }
+        publish()
     }
 
     /// One agent operation is one transaction (§9.2); the person's history maps

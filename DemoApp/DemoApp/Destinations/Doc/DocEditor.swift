@@ -347,6 +347,17 @@ final class DocEditor {
             setLink(url, over: modelRange, in: id)
             return
         }
+        // A web page's address pasted on an empty line is its bookmark (Craft's); the
+        // cursor goes on to a new line under it.
+        if block.kind == .paragraph, block.text.isEmpty, let url = Self.webAddress(replacement), !url.lowercased().hasPrefix("mailto:") {
+            let next = demo.newBlockID()
+            let start = DocPosition(block: block.id, offset: 0), after = DocPosition(block: next, offset: 0)
+            commit([.setBlock(block: block.id, kind: .link(link: DocLink(url: url)), indent: block.indent, previousKind: block.kind, previousIndent: block.indent),
+                    .insertBlock(block: DocBlock(id: next, kind: .paragraph, indent: block.indent), after: block.id)],
+                   from: DocSelection(anchor: start, head: start), to: DocSelection(anchor: after, head: after))
+            session &+= 1
+            return
+        }
         insert(replacement, replacing: modelRange, in: block)
     }
 

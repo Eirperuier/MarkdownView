@@ -952,6 +952,37 @@ final class DocEditTests {
             try self.expect(text?.marks.contains(MarkSpan(range: 0..<2, mark: .bold)) == true, "marks \(String(describing: text?.marks))")
             try self.expectCursor(block.id, 2)
         }
+        await test("A web address pasted on an empty line is its bookmark; the cursor goes under it; one undo") {
+            let line = try await emptyLine()
+            // An address that can't be reached: no preview comes in the middle of the test.
+            try self.key("https://example.invalid/page")
+            try await self.settle()
+            let block = try self.expectValue(self.demo.doc.block(line.id), "block gone")
+            try self.expect(block.kind == .link(link: DocLink(url: "https://example.invalid/page")), "kind \(block.kind)")
+            let next = try self.blockAfter(line.id)
+            try self.expect(next.kind == .paragraph && next.text.isEmpty, "next \(next.kind)")
+            try self.expectCursor(next.id, 0)
+            try await self.undo()
+            try self.expect(self.demo.doc.block(line.id)?.kind == .paragraph && self.demo.doc.block(next.id) == nil, "undo left \(String(describing: self.demo.doc.block(line.id)?.kind))")
+        }
+        await test("A page's preview: Open Graph tags, else its title and description; entities, relative images, its charset") {
+            let html = """
+                <html><head><meta charset="utf-8"><title>  Page
+                  title </title>
+                <meta name="description" content="Plain">
+                <meta property="og:description" content="Tom &amp; Jerry&#39;s &#x4E2D;">
+                <meta content='/img/a.png' property='og:image'>
+                </head></html>
+                """
+            let preview = DocLinkPreviews.parse(html, base: URL(string: "https://a.com/x/y")!)
+            try self.expect(preview == .init(title: "Page title", summary: "Tom & Jerry's 中", image: "https://a.com/img/a.png"), "preview \(preview)")
+            let filled = preview.filling(DocLink(url: "https://a.com/x/y", title: "Mine"))
+            try self.expect(filled.title == "Mine" && filled.summary == "Tom & Jerry's 中", "filled \(filled)")
+            let gbk = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
+            let data = try self.expectValue("<meta charset=\"gbk\"><title>拙政园</title>".data(using: String.Encoding(rawValue: gbk)), "no gbk")
+            let text = DocLinkPreviews.decode(data, contentType: "text/html")
+            try self.expect(text?.contains("拙政园") == true, "decoded \(String(describing: text))")
+        }
         await blockTests()
         await keyboardBarTests()
         print("DOCTEST DONE pass=\(passed) fail=\(failed)")

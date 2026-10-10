@@ -77,7 +77,7 @@ struct DocLinkView: View {
                         Text(title)
                             .font(.system(size: 17))
                             .lineLimit(1)
-                        Text(link.summary.isEmpty ? link.url : link.summary)
+                        Text(link.summary.isEmpty ? address : link.summary)
                             .font(.system(size: 15))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -118,7 +118,9 @@ struct DocLinkView: View {
         }
     }
 
-    private var title: String { link.title.isEmpty ? link.url : link.title }
+    private var title: String { link.title.isEmpty ? address : link.title }
+    /// The address as it reads (not percent-encoded).
+    private var address: String { link.url.removingPercentEncoding ?? link.url }
 }
 
 /// The strip under a link: where it goes.
@@ -331,14 +333,11 @@ private struct DocMediaPreview<Placeholder: View>: View {
             Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: fill ? .fill : .fit)
-        } else if let source, let url = URL(string: source), url.scheme?.hasPrefix("http") == true {
-            AsyncImage(url: url) { phase in
-                if let loaded = phase.image {
-                    loaded.resizable().aspectRatio(contentMode: fill ? .fill : .fit)
-                } else {
-                    placeholder()
-                }
-            }
+        } else if let source, let url = URL(string: source), url.scheme?.hasPrefix("http") == true,
+                  let image = DocImageCache.shared.image(url) {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: fill ? .fill : .fit)
         } else {
             placeholder()
         }
