@@ -44,8 +44,11 @@ final class DocEditor {
             guard selection != oldValue else { return }
             updateSlash()
             keyboardBar.update()
+            cursor.selection = selection
         }
     }
+    /// The selection, observable (the Mac's format panel follows it).
+    let cursor = DocCursor()
     /// The slash menu, and where its "/" is while it's open.
     let slash = DocSlashMenu()
     /// The tables' cells (database blocks).
@@ -787,6 +790,55 @@ final class DocEditor {
     static func covers(_ text: DocText, _ range: Range<Int>, with kind: MarkKind) -> Bool {
         let spans = text.marks.filter { $0.mark.kind == kind }
         return range.allSatisfy { offset in spans.contains { $0.range.contains(offset) } }
+    }
+
+    /// Blocks of text become `kind` in one transaction (a list keeps its items' levels).
+    /// A block with the cursor in it goes the slash menu's way, the cursor kept.
+    func setKind(_ kind: BlockKind, of ids: [DocBlockID]) {
+        let chosen = Set(ids)
+        let blocks = demo.doc.blocks.filter { chosen.contains($0.id) && $0.kind.carriesText && $0.kind != kind }
+        if blocks.count == 1, let block = blocks.first, let head = selection?.head, head.block == block.id {
+            return perform(.kind(kind), in: block, replacing: head.offset..<head.offset, from: head)
+        }
+        let steps: [DocStep] = blocks.map { block in
+            let indent = if case .listItem = kind, case .listItem = block.kind { block.indent } else { 0 }
+            return .setBlock(block: block.id, kind: kind, indent: indent, previousKind: block.kind, previousIndent: block.indent)
+        }
+        guard !steps.isEmpty else { return }
+        demo.edit(steps, before: selection, after: selection)
+    }
+
+    /// Marks each range, or clears the mark when all of them already have it, in one
+    /// transaction.
+    func toggle(_ mark: Mark, over ranges: [(block: DocBlockID, range: Range<Int>)]) {
+        let ranges = ranges.filter { !$0.range.isEmpty && demo.doc.block($0.block)?.kind.allowsMarks == true }
+        guard !ranges.isEmpty else { return }
+        let on = !ranges.allSatisfy { Self.covers(demo.doc.block($0.block)!.text, $0.range, with: mark.kind) }
+        let steps: [DocStep] = ranges.map {
+            .setMarks(block: $0.block, range: $0.range, kind: mark.kind, spans: on ? [MarkSpan(range: $0.range, mark: mark)] : [], previous: [])
+        }
+        demo.edit(steps, before: selection, after: selection)
+    }
+
+    /// List items nest one level deeper or come out one, in one transaction; an item
+    /// goes no deeper than one below the item before it.
+    func indent(_ ids: [DocBlockID], by delta: Int) {
+        let chosen = Set(ids)
+        var steps: [DocStep] = []
+        var previous: (kind: BlockKind, indent: Int)?
+        for block in demo.doc.blocks {
+            var indent = block.indent
+            if chosen.contains(block.id), case .listItem = block.kind {
+                let ceiling: Int = if let previous, case .listItem = previous.kind { previous.indent + 1 } else { 0 }
+                indent = min(max(0, block.indent + delta), ceiling)
+                if indent != block.indent {
+                    steps.append(.setBlock(block: block.id, kind: block.kind, indent: indent, previousKind: block.kind, previousIndent: block.indent))
+                }
+            }
+            previous = (block.kind, indent)
+        }
+        guard !steps.isEmpty else { return }
+        demo.edit(steps, before: selection, after: selection)
     }
 
     /// Marks the range, or clears the mark when all of it already has one.

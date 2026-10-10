@@ -19,6 +19,8 @@ struct DocDestination: View {
     @State private var editor: DocEditor
     @State private var scrollPosition = TiledScrollPosition()
     @State private var reader = TiledViewReader<String>()
+    /// The Mac's format panel is up (-docFormat YES opens with it).
+    @State private var showsFormat = UserDefaults.standard.bool(forKey: "docFormat")
 
     static var autoruns: Bool { UserDefaults.standard.bool(forKey: "docAgent") }
 
@@ -172,6 +174,21 @@ struct DocDestination: View {
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                     .disabled(!demo.canRedo)
                 Spacer()
+                #if targetEnvironment(macCatalyst)
+                Button("格式", systemImage: "textformat") { showsFormat.toggle() }
+                    .foregroundStyle(showsFormat ? Color.accentColor : .primary)
+                    .frame(width: 32, height: 28)
+                    .background(showsFormat ? Color.accentColor.opacity(0.12) : .clear, in: .rect(cornerRadius: 7))
+                    .buttonStyle(.plain)
+                    .help("格式")
+                    .docAnchoredPanel(isPresented: showsFormat,
+                                      configuration: .init(horizontalAlignment: .trailing),
+                                      onDismiss: { showsFormat = false }) {
+                        DocFloatingPanelSurface(contentInset: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)) {
+                            DocFormatPanel(editor: editor, demo: demo)
+                        }
+                    }
+                #endif
                 Button("重置") {
                     demo.reset()
                     editor.resetHistory()

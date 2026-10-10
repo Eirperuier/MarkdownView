@@ -1159,6 +1159,26 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(order() == ids, "undo didn't restore the order")
         }
+        await test("the format panel's edits act on all the selected blocks, one undo each") {
+            let first = try self.block("Loading older")
+            let second = try self.block("The trap is timing")
+            let before = self.demo.doc.blocks
+            blocks.select([first.id, second.id])
+            self.editor.setKind(.heading(level: 2), of: blocks.selected)
+            try self.expect([first.id, second.id].allSatisfy { self.demo.doc.block($0)?.kind == .heading(level: 2) }, "not both headings")
+            try await self.undo()
+            try self.expect(self.demo.doc.blocks == before, "undo left the kinds changed")
+            self.editor.toggle(.bold, over: [(first.id, 0..<first.text.length), (second.id, 0..<second.text.length)])
+            try self.expect([first, second].allSatisfy { DocEditor.covers(self.demo.doc.block($0.id)!.text, 0..<$0.text.length, with: .bold) }, "not both bold")
+            self.editor.toggle(.bold, over: [(first.id, 0..<first.text.length), (second.id, 0..<second.text.length)])
+            try self.expect([first, second].allSatisfy { !(self.demo.doc.block($0.id)!.text.marks.contains { $0.mark == .bold }) }, "bold not cleared")
+            let items = self.demo.doc.blocks.filter { if case .listItem(.numbered) = $0.kind { $0.indent == 0 } else { false } }.prefix(3).map(\.id)
+            self.editor.indent(Array(items.dropFirst()), by: 1)
+            try self.expect(items.dropFirst().allSatisfy { self.demo.doc.block($0)?.indent == 1 }, "items didn't nest")
+            try await self.undo()
+            try self.expect(items.allSatisfy { self.demo.doc.block($0)?.indent == 0 }, "one undo didn't take both back")
+            blocks.clear()
+        }
         await test("several selected blocks move together, in order") {
             let first = try self.block("Loading older")
             let heading = try self.block("第 2 节")

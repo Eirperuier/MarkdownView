@@ -1058,13 +1058,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
     /// The selected blocks of text become `kind` (as the slash menu turns one), in one
     /// transaction; the rest stay as they are.
     func turnSelection(into kind: BlockKind) {
-        let ids = Set(selected)
-        let steps: [DocStep] = demo.doc.blocks.filter { ids.contains($0.id) && $0.kind.carriesText && $0.kind != kind }.map { block in
-            let indent = if case .listItem = kind, case .listItem = block.kind { block.indent } else { 0 }
-            return .setBlock(block: block.id, kind: kind, indent: indent, previousKind: block.kind, previousIndent: block.indent)
-        }
-        guard !steps.isEmpty else { return }
-        demo.edit(steps, before: editor.selection, after: editor.selection)
+        editor.setKind(kind, of: selected)
     }
 
     /// A copy of the selected blocks right after the last of them, in order; a table's
