@@ -49,15 +49,19 @@ struct DocLinkView: View {
     var body: some View {
         switch link.layout {
         case .small:
-            HStack(spacing: 8) {
-                DocLinkIcon(link: link, size: 20)
+            // Craft's: the thumbnail at the left edge, as tall as the row (in a
+            // transition, as tall as the box).
+            let thumbnail = layer?.height ?? 36
+            HStack(spacing: 10) {
+                DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 20) }
+                    .frame(width: (thumbnail * 1.4).rounded(), height: thumbnail)
+                    .clipped()
                 Text(title)
                     .font(.system(size: 15))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .padding(.leading, 10)
-            .padding(.trailing, reservesDot ? 34 : 10)
+            .padding(.trailing, reservesDot ? 34 : 12)
             .docSized(height: 36, alignment: .leading)
             .docMediaFrame()
         case .regular:

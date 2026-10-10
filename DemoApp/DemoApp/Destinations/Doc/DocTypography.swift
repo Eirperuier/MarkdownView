@@ -5,7 +5,8 @@
 //  The document's own type and rhythm, not a chat answer's: its fonts and line height,
 //  and the space above each block by what it is and what comes before it. Headings
 //  stand apart from the section before and hug what they lead; list items stay close;
-//  code, math, tables, quotes and media get room around them.
+//  code, math, tables, quotes and media get room around them; links and files
+//  follow one another closely.
 //
 
 import SwiftUI
@@ -41,13 +42,16 @@ enum DocRowRole: Equatable {
     case listItem
     /// Code, math, a table, a quote, a divider, an image, a card: set apart.
     case boxed
+    /// A link or a file: set apart, but close to the next one (Craft's).
+    case media
 
     init(_ kind: BlockKind) {
         switch kind {
         case .heading(let level): self = .heading(level: level)
         case .paragraph: self = .paragraph
         case .listItem: self = .listItem
-        case .quote, .code, .math, .divider, .image, .link, .file, .card, .database: self = .boxed
+        case .link, .file: self = .media
+        case .quote, .code, .math, .divider, .image, .card, .database: self = .boxed
         }
     }
 
@@ -79,7 +83,8 @@ enum DocRowRole: Equatable {
         case (_, .heading(let level)): return [44, 34, 28][safe: level - 1] ?? 22
         case (.heading, _): return 14
         case (.listItem, .listItem): return 12
-        case (.boxed, _), (_, .boxed): return 22
+        case (.media, .media): return 8
+        case (.boxed, _), (_, .boxed), (.media, _), (_, .media): return 22
         default: return 16
         }
     }
