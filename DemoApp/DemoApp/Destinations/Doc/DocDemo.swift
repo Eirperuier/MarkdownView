@@ -11,7 +11,18 @@
 
 import SwiftUI
 import DocKit
+import Markdown
 import MarkdownView
+
+/// A text block's content as its row shows it: the tree DocKit builds from the model and
+/// MarkdownView renders (no markdown written or parsed in between), how deep a list item
+/// sits, whether it's a quote; its text, for the row's first height.
+struct DocTextRow: Equatable {
+    let tree: MarkdownTree
+    let depth: Int
+    let isQuote: Bool
+    let plain: String
+}
 
 /// One list row: a committed block, or a block of what the agent is writing.
 struct DocRow: Identifiable, Equatable {
@@ -23,6 +34,8 @@ struct DocRow: Identifiable, Equatable {
     let isStreaming: Bool
     /// A database block shown as an editable table (instead of `blocks`).
     let table: DocTableSnapshot?
+    /// A paragraph, heading, list item or quote, from the model (DocTextRow).
+    let text: DocTextRow?
     /// A link, file or image block, drawn as itself (DocMedia).
     let media: BlockKind?
     /// Several of them in one row (cards side by side, a gallery); `block` is the first.
@@ -39,22 +52,24 @@ struct DocRow: Identifiable, Equatable {
     private let source: String
     private let depth: Int?
 
-    init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock], isStreaming: Bool = false, table: DocTableSnapshot? = nil,
-         media: BlockKind? = nil, sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
+    init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock] = [], text: DocTextRow? = nil, isStreaming: Bool = false,
+         table: DocTableSnapshot? = nil, media: BlockKind? = nil, sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
         self.id = id
         self.block = block
         self.blocks = blocks
+        self.text = text
         self.isStreaming = isStreaming
         self.table = table
         self.media = media
         self.sourceKind = sourceKind
         self.sourceIsEmpty = sourceIsEmpty
-        source = blocks.map(\.source).joined(separator: "\n\n")
-        depth = blocks.first?.descriptor.listItemContext?.depth
+        source = text?.plain ?? blocks.map(\.source).joined(separator: "\n\n")
+        depth = text?.depth ?? blocks.first?.descriptor.listItemContext?.depth
     }
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
-        lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.table == rhs.table && lhs.media == rhs.media && lhs.members == rhs.members
+        lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.text == rhs.text
+            && lhs.table == rhs.table && lhs.media == rhs.media && lhs.members == rhs.members
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
             && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role
@@ -206,11 +221,16 @@ final class DocDemo {
             if let cached = rowCache[block.id], cached.block == block, cached.database == nil {
                 result.append(cached.row)
             } else {
-                // Outside a list a block's markdown is its own: no neighbour changes it.
-                let markdown = Doc(id: doc.id, blocks: [block]).markdown(of: block.id, style: .editing) ?? ""
-                let row = DocRow(id: block.id.description, block: block.id, blocks: split(markdown),
-                                 media: DocMediaView.draws(block.kind) ? block.kind : nil,
-                                 sourceKind: DocSourceKind(block.kind), sourceIsEmpty: block.text.isEmpty)
+                // Outside a list a block is its own: no neighbour changes it. Text is drawn
+                // from the model; code, maths and the rest from their markdown.
+                let alone = Doc(id: doc.id, blocks: [block])
+                let row = if let text = Self.textRow(block, in: alone) {
+                    DocRow(id: block.id.description, block: block.id, text: text)
+                } else {
+                    DocRow(id: block.id.description, block: block.id, blocks: split(alone.markdown(of: block.id, style: .editing) ?? ""),
+                           media: DocMediaView.draws(block.kind) ? block.kind : nil,
+                           sourceKind: DocSourceKind(block.kind), sourceIsEmpty: block.text.isEmpty)
+                }
                 rowCache[block.id] = (block, nil, row)
                 result.append(row)
             }
@@ -249,15 +269,21 @@ final class DocDemo {
     /// The space above each row (by row id), for laying things over the rows.
     @ObservationIgnored private(set) var spacingAbove: [String: CGFloat] = [:]
 
-    /// A run of list items is split as one list, so each item gets MarkdownView's
-    /// marker, numbering and depth indentation; one descriptor per item.
+    /// A run of list items: each item's tree is numbered and nested as it is in the run.
     private func listRows(_ run: [DocBlock]) -> [DocRow] {
-        let markdown = Doc(id: doc.id, blocks: run).markdown(style: .editing)
-        let blocks = split(markdown)
-        guard blocks.count == run.count else {
-            return run.map { DocRow(id: $0.id.description, block: $0.id, blocks: split(doc.markdown(of: $0.id, style: .editing) ?? "")) }
+        let list = Doc(id: doc.id, blocks: run)
+        return run.map { DocRow(id: $0.id.description, block: $0.id, text: Self.textRow($0, in: list)) }
+    }
+
+    /// A paragraph, heading, list item or quote as its row shows it; nil for other kinds.
+    private static func textRow(_ block: DocBlock, in doc: Doc) -> DocTextRow? {
+        guard let (document, depth) = doc.markupTree(of: block.id) else { return nil }
+        // A quote's row draws the quote around what it holds (SelectableBlockQuote).
+        if case .quote = block.kind, let quote = document.child(at: 0) {
+            let content = Markdown.Document(quote.children.compactMap { $0 as? any BlockMarkup })
+            return DocTextRow(tree: MarkdownTree(content), depth: 0, isQuote: true, plain: block.text.string)
         }
-        return zip(run, blocks).map { DocRow(id: $0.id.description, block: $0.id, blocks: [$1]) }
+        return DocTextRow(tree: MarkdownTree(document), depth: depth, isQuote: false, plain: block.text.string)
     }
 
     private func split(_ markdown: String) -> [MarkdownStreamBlock] {

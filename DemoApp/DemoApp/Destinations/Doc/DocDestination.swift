@@ -264,6 +264,8 @@ private struct DocRowView: View {
                 DocCodeRowView(block: block, language: language, blocks: row.blocks, controller: sources)
             } else if let block = row.block, row.sourceKind == .math, !row.isStreaming {
                 DocMathRowView(block: block, blocks: row.blocks, isEmpty: row.sourceIsEmpty, controller: sources)
+            } else if let text = row.text, !row.isStreaming {
+                textView(text)
             } else {
                 ForEach(Array(row.blocks.enumerated()), id: \.offset) { _, block in
                     blockView(block)
@@ -287,6 +289,24 @@ private struct DocRowView: View {
         .markdownStreamBlockEdgeInsets(false)
         // Code at the text's size, monospaced (the editor uses the same font).
         .font(Font(docCodeFont), for: .codeBlock)
+    }
+
+    /// A paragraph, heading, list item or quote, from its tree (as MarkdownStreamBlockView
+    /// lays out a stream block of that kind).
+    private func textView(_ text: DocTextRow) -> some View {
+        Group {
+            if text.isQuote {
+                SelectableBlockQuote(content: text.tree)
+            } else {
+                MarkdownSelectableText(tree: text.tree, listDepthOffset: text.depth, applyEdgeInsets: false)
+                    // 20 pt a level, as MarkdownStreamBlockView indents a nested item.
+                    .padding(.leading, CGFloat(text.depth) * 20)
+            }
+        }
+        .lineSpacing(row.role.isHeading ? DocTypography.headingLineSpacing : DocTypography.lineSpacing)
+        .markdownDisplayMathRendersSynchronously()
+        .environment(\.markdownSelectableTextHooks, hooks)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder

@@ -236,7 +236,7 @@ create table floo.doc_step (
 - 文档是一个 TiledView,一块一行,行 id 就是 `BlockID`。块身份的问题就此解决:插入一块只是插入一行。
 - 锚定在顶部:`autoScrollsToBottomOnAppend` 和 `scrollsToBottomOnReplace` 都关掉,这两个开关默认就是关的。
 - 每块的视图 `DocBlockView`:
-  - 文字类块(段落、标题、列表项、引用)用 `MarkdownSelectableText`,输入是这一块导出的 markdown(§3.3)。渲染器原样复用:设计、缓存、`RichTextViewPool`、数学公式高度缓存都不变。
+  - 文字类块(段落、标题、列表项、引用)用 `MarkdownSelectableText`,输入是 DocKit 直接从模型建的节点树(`Doc.markupTree(of:)` → `MarkdownTree`),不写成 markdown 也不解析:用户打的字原样显示,不会被当成语法(`==`、`$`、`:circle[`);颜色、高亮、笔迹、行内公式是树里的节点。这棵树和这一块的编辑用 markdown 解析出来的结构相同(DocKit 测试逐块比对),渲染器原样复用:设计、缓存、`RichTextViewPool`、数学公式高度缓存、reveal 都不变。agent 写作中的临时层是模型流出来的 markdown,照旧按 markdown 渲染;代码、公式、表格块暂时也还走 markdown。
   - 代码、公式、表格沿用 MarkdownView 的 SwiftUI 路径;编辑时换成各自的编辑器。代码借 Composer 的做法用 Runestone 编辑器,公式是源码加实时预览。
   - 卡片、数据库是 App 自己的视图,和现在 `floo.draw`/`floo.card` 走 `customFence` 一样。
 - 性能沿用聊天里调好的那些手段:只测量视口内的行、按长度估高、后台解析、行 Equatable。行的比较改成按 `(BlockID, 块的修订号)`。
@@ -249,7 +249,7 @@ create table floo.doc_step (
   2. step 应用到模型;
   3. 先让 TextKit 自己改 storage(快);
   4. 再用模型重新渲染这一块,和 storage 比较:一样就什么都不做;不一样(比如触发了 markdown 快捷键)就替换 storage,并按 step 映射还原光标。
-- **偏移换算**:渲染器已经有 storage → plain 的映射(`storageToPlain`)。由于 plain 文本就是模型的 `string` 去掉语法字符,这个映射基本就是 storage ↔ 模型的映射。列表符号、chip 这类占 storage 但不占 plain 的区段,光标要跳过。
+- **偏移换算**:storage 是列表符号加上模型的文字(空块和空的末行补一个零宽空格),偏移按这个前缀换算;不在同步状态时不信任 storage。
 - **IME**:有 marked text 时不生成 step,上屏后一次提交。这一点借 Composer。
 - **快捷操作**:
   - 回车拆块,在空列表项上回车退出列表;

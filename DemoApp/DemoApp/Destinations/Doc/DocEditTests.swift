@@ -462,6 +462,14 @@ final class DocEditTests {
             try await self.enter()
             return try self.blockAfter(block.id)
         }
+        await test("Text that looks like syntax shows as typed: ==this==, $5 and $6, :circle[x]") {
+            let line = try await emptyLine()
+            try await self.type("==hi== $5 and $6 :circle[x]")
+            try self.expect(self.text(line.id) == "==hi== $5 and $6 :circle[x]", "model \(self.text(line.id).debugDescription)")
+            try await self.showsModelSoon(line.id)
+            let view = try self.expectValue(self.editor.textView(for: line.id), "no text view")
+            try self.expect((view.text ?? "").contains("==hi== $5 and $6 :circle[x]"), "shows \((view.text ?? "").debugDescription)")
+        }
         await test("Quotes, dashes and dots stay as typed (no smart punctuation)") {
             let line = try await emptyLine()
             try await self.type("don't say \"no\" -- wait...")
