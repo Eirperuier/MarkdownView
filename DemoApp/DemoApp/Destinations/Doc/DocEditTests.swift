@@ -966,30 +966,33 @@ final class DocEditTests {
         await test("the keyboard bar offers marks for selected text; bold applies and shows on") {
             let block = try self.block("Loading older")
             try await self.select(block.id, 0..<7)
-            try self.expect(bar.testItems.map(\.id) == ["highlight", "bold", "italic", "strike", "code", "link"], "items \(bar.testItems.map(\.id))")
+            try self.expect(bar.testItems.map(\.id) == ["highlight", "bold", "italic", "strike", "code", "link", "dismiss"], "keys \(bar.testItems.map(\.id))")
             bar.testTap("bold")
             try await self.settle()
             let marks = self.demo.doc.block(block.id)?.text.marks ?? []
             try self.expect(marks.contains(MarkSpan(range: 0..<7, mark: .bold)), "marks \(marks)")
             try self.expect(bar.testItems.first { $0.id == "bold" }?.isOn == true, "bold not shown on")
         }
-        await test("the keyboard bar turns the block into a heading, and inserts a divider after it") {
+        await test("the keyboard bar turns the block into a heading, and inserts code after it") {
             let block = try self.block("Loading older")
             try await self.focus(block.id, at: block.text.length)
-            try self.expect(bar.testItems.map(\.id) == ["turn", "insert", "undo"], "items \(bar.testItems.map(\.id))")
-            bar.testTap("turn", choosing: "二级标题")
+            try self.expect(bar.testItems.map(\.id) == ["lists", "styles", "more", "insert", "dismiss"], "keys \(bar.testItems.map(\.id))")
+            bar.testTap("styles", choosing: "二级标题")
             try await self.settle()
             try self.expect(self.demo.doc.block(block.id)?.kind == .heading(level: 2), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
-            bar.testTap("insert", choosing: "分割线")
-            try await self.settle()
-            try self.expect(try self.blockAfter(block.id).kind == .divider, "after \(String(describing: try? self.blockAfter(block.id).kind))")
+            bar.testTap("insert", choosing: "代码块")
+            try? await Task.sleep(for: .milliseconds(300))
+            try self.expect(try self.blockAfter(block.id).kind == .code(language: nil), "after \(String(describing: try? self.blockAfter(block.id).kind))")
         }
-        await test("on an empty line the keyboard bar puts inserting first") {
+        await test("on an empty line the keyboard bar's divider key makes it a divider") {
             let block = try self.block("Loading older")
             try await self.focus(block.id, at: block.text.length)
             try await self.enter()
-            let first = bar.testItems.first
-            try self.expect(first?.id == "insert" && first?.isOn == true, "first \(String(describing: first))")
+            let line = try self.blockAfter(block.id)
+            try self.expect(bar.testItems.map(\.id) == ["lists", "styles", "more", "divider", "insert", "dismiss"], "keys \(bar.testItems.map(\.id))")
+            bar.testTap("divider")
+            try await self.settle()
+            try self.expect(self.demo.doc.block(line.id)?.kind == .divider, "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
         }
     }
 
