@@ -146,11 +146,17 @@ extension DocEditor {
             let selection, let block = demo.doc.block(origin.block)
         else { return dismissSlash() }
         dismissSlash()
-        let typed = origin.offset..<selection.head.offset
-        let here = DocPosition(block: block.id, offset: origin.offset)
-        var steps: [DocStep] = [.deleteText(block: block.id, range: typed, removed: DocText())]
+        perform(item.action, in: block, replacing: origin.offset..<selection.head.offset, from: selection.head)
+    }
+
+    /// Applies a menu item to a block: what `typed` covers (the "/query") goes, then the
+    /// block becomes the item's kind (its text stays), or a divider or table goes in.
+    /// The slash menu and the keyboard bar's menus both come here.
+    func perform(_ action: DocSlashItem.Action, in block: DocBlock, replacing typed: Range<Int>, from head: DocPosition) {
+        let here = DocPosition(block: block.id, offset: typed.lowerBound)
+        var steps: [DocStep] = typed.isEmpty ? [] : [.deleteText(block: block.id, range: typed, removed: DocText())]
         var caret = here
-        switch item.action {
+        switch action {
         case .kind(let kind):
             if kind != block.kind {
                 let indent = if case .listItem = kind, case .listItem = block.kind { block.indent } else { 0 }
@@ -159,7 +165,7 @@ extension DocEditor {
         case .divider:
             let next = demo.newBlockID()
             if block.text.length == typed.count {
-                // Only the slash was in the block: it becomes the divider.
+                // Only the slash was in the block (or nothing): it becomes the divider.
                 steps.append(.setBlock(block: block.id, kind: .divider, indent: 0, previousKind: block.kind, previousIndent: block.indent))
                 steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph), after: block.id))
             } else {
@@ -171,9 +177,10 @@ extension DocEditor {
         case .table(let rows, let columns):
             let keep = block.text.length > typed.count
             steps += tables.insertTable(rows: rows, columns: columns, replacing: block, keep: keep)
-            return commitLeavingText(steps, from: DocSelection(anchor: selection.head, head: selection.head))
+            return commitLeavingText(steps, from: DocSelection(anchor: head, head: head))
         }
-        commitSlash(steps, from: DocSelection(anchor: selection.head, head: selection.head), to: DocSelection(anchor: caret, head: caret))
+        guard !steps.isEmpty else { return }
+        commitSlash(steps, from: DocSelection(anchor: head, head: head), to: DocSelection(anchor: caret, head: caret))
     }
 
     private func slashAnchor(_ origin: DocPosition) -> CGRect? {

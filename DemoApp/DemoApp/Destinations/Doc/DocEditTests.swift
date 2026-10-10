@@ -955,7 +955,42 @@ final class DocEditTests {
             try self.expectCursor(block.id, 2)
         }
         await blockTests()
+        await keyboardBarTests()
         print("DOCTEST DONE pass=\(passed) fail=\(failed)")
+    }
+
+    /// The bar over a phone's keyboard (DocKeyboardBar.swift). It exists on the Mac too,
+    /// only not over a keyboard, so it is driven directly.
+    private func keyboardBarTests() async {
+        let bar = editor.keyboardBar
+        await test("the keyboard bar offers marks for selected text; bold applies and shows on") {
+            let block = try self.block("Loading older")
+            try await self.select(block.id, 0..<7)
+            try self.expect(bar.testItems.map(\.id) == ["highlight", "bold", "italic", "strike", "code", "link"], "items \(bar.testItems.map(\.id))")
+            bar.testTap("bold")
+            try await self.settle()
+            let marks = self.demo.doc.block(block.id)?.text.marks ?? []
+            try self.expect(marks.contains(MarkSpan(range: 0..<7, mark: .bold)), "marks \(marks)")
+            try self.expect(bar.testItems.first { $0.id == "bold" }?.isOn == true, "bold not shown on")
+        }
+        await test("the keyboard bar turns the block into a heading, and inserts a divider after it") {
+            let block = try self.block("Loading older")
+            try await self.focus(block.id, at: block.text.length)
+            try self.expect(bar.testItems.map(\.id) == ["turn", "insert", "undo"], "items \(bar.testItems.map(\.id))")
+            bar.testTap("turn", choosing: "二级标题")
+            try await self.settle()
+            try self.expect(self.demo.doc.block(block.id)?.kind == .heading(level: 2), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
+            bar.testTap("insert", choosing: "分割线")
+            try await self.settle()
+            try self.expect(try self.blockAfter(block.id).kind == .divider, "after \(String(describing: try? self.blockAfter(block.id).kind))")
+        }
+        await test("on an empty line the keyboard bar puts inserting first") {
+            let block = try self.block("Loading older")
+            try await self.focus(block.id, at: block.text.length)
+            try await self.enter()
+            let first = bar.testItems.first
+            try self.expect(first?.id == "insert" && first?.isOn == true, "first \(String(describing: first))")
+        }
     }
 
     /// Blocks as wholes: the handle, selecting, moving (DocBlocks.swift).

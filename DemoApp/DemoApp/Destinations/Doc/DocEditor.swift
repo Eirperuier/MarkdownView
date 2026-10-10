@@ -40,7 +40,11 @@ final class DocEditor {
     private var rendered: [ObjectIdentifier: String] = [:]
     /// Where the cursor is, in the model.
     private(set) var selection: DocSelection? {
-        didSet { if selection != oldValue { updateSlash() } }
+        didSet {
+            guard selection != oldValue else { return }
+            updateSlash()
+            keyboardBar.update()
+        }
     }
     /// The slash menu, and where its "/" is while it's open.
     let slash = DocSlashMenu()
@@ -48,6 +52,8 @@ final class DocEditor {
     lazy var tables = DocTableController(demo: demo, editor: self)
     /// Code and math blocks, edited as their source.
     lazy var sources = DocSourceController(demo: demo, editor: self)
+    /// The bar over a phone's keyboard: marks, block kinds, inserting (Craft's).
+    lazy var keyboardBar = DocKeyboardBar(editor: self)
     /// Blocks as wholes: the handle, selecting blocks, moving them.
     lazy var blocks = DocBlockController(demo: demo, editor: self)
     var slashOrigin: DocPosition?
@@ -105,6 +111,9 @@ final class DocEditor {
         textView.smartDashesType = .no
         textView.smartInsertDeleteType = .no
         textView.spellCheckingType = .no
+        #if !targetEnvironment(macCatalyst)
+        textView.inputAccessoryView = keyboardBar
+        #endif
         let original = (textView.delegate as? DocTextDelegate)?.original ?? textView.delegate
         let delegate = DocTextDelegate(original: original, block: id, editor: self)
         delegates[ObjectIdentifier(textView)] = delegate
@@ -681,7 +690,7 @@ final class DocEditor {
     }
 
     /// Tab nests a list item under the one before it (one level at most).
-    private func indent(_ block: DocBlock, by delta: Int) {
+    func indent(_ block: DocBlock, by delta: Int) {
         guard case .listItem = block.kind, let index = demo.doc.blocks.firstIndex(where: { $0.id == block.id }) else { return }
         let ceiling: Int = if index > 0, case .listItem = demo.doc.blocks[index - 1].kind { demo.doc.blocks[index - 1].indent + 1 } else { 0 }
         let indent = min(max(0, block.indent + delta), ceiling)
@@ -770,7 +779,7 @@ final class DocEditor {
         return UIMenu(children: [format] + suggested)
     }
 
-    private static func covers(_ text: DocText, _ range: Range<Int>, with kind: MarkKind) -> Bool {
+    static func covers(_ text: DocText, _ range: Range<Int>, with kind: MarkKind) -> Bool {
         let spans = text.marks.filter { $0.mark.kind == kind }
         return range.allSatisfy { offset in spans.contains { $0.range.contains(offset) } }
     }

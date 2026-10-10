@@ -9,6 +9,7 @@
 import SwiftUI
 import MarkdownView
 import MessagingUI
+import DocKit
 
 struct DocDestination: View {
     /// Code blocks are coloured by Highlightr, read and edited alike.
@@ -91,6 +92,22 @@ struct DocDestination: View {
                     editor.blocks.beginSelecting(blocks[index + 3].id)
                 }
                 editor.blocks.testHover(blocks[index].id)
+            }
+            // -docFocus <text>: the cursor at the end of the first block starting with it,
+            // keyboard up; -docSelect N selects its first N characters, -docFocusNewLine YES
+            // opens an empty line after it (the keyboard bar's states).
+            if let prefix = UserDefaults.standard.string(forKey: "docFocus"),
+               let block = demo.doc.blocks.first(where: { $0.text.string.hasPrefix(prefix) }) {
+                demo.bringIntoView(block.id)
+                try? await Task.sleep(for: .milliseconds(400))
+                let selected = UserDefaults.standard.integer(forKey: "docSelect")
+                let end = DocPosition(block: block.id, offset: block.text.length)
+                editor.place(selected > 0 ? DocSelection(anchor: .init(block: block.id, offset: 0), head: .init(block: block.id, offset: selected))
+                                          : DocSelection(anchor: end, head: end))
+                if UserDefaults.standard.bool(forKey: "docFocusNewLine") {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    editor.insert(.kind(.paragraph), at: block)
+                }
             }
             // -docShot <path>: what the options above show, drawn to a PNG there
             // (screenshots without screen recording).
