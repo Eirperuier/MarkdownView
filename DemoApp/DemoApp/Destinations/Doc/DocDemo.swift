@@ -26,6 +26,12 @@ struct DocRow: Identifiable, Equatable {
     /// A code or math block, edited as its source (and whether it's empty).
     let sourceKind: DocSourceKind?
     let sourceIsEmpty: Bool
+    /// Space above the row and below it (the page's bottom, on the last row): the
+    /// document's rhythm, set when the rows are published (DocTypography).
+    var spacingAbove: CGFloat = 0
+    var spacingBelow: CGFloat = 0
+    /// What the row is, for its spacing and line height.
+    var role: DocRowRole = .paragraph
     private let source: String
     private let depth: Int?
 
@@ -46,6 +52,7 @@ struct DocRow: Identifiable, Equatable {
         lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.table == rhs.table
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
+            && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role
             && lhs.blocks.map(\.revealPlainTextCount) == rhs.blocks.map(\.revealPlainTextCount)
     }
 }
@@ -183,10 +190,30 @@ final class DocDemo {
             }
             if let live, live.after == block.id { emitLayer() }
         }
+        space(&result)
         rows = result
         canUndo = history.canUndo
         canRedo = history.canRedo
     }
+
+    /// Each row's space above by what it is and what comes before it; the last row
+    /// carries the page's bottom.
+    private func space(_ rows: inout [DocRow]) {
+        let kinds = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.kind) })
+        var previous: DocRowRole?
+        for index in rows.indices {
+            let row = rows[index]
+            let role = row.block.flatMap { kinds[$0] }.map(DocRowRole.init) ?? DocRowRole(markdown: row.blocks.first?.source ?? "")
+            rows[index].role = role
+            rows[index].spacingAbove = role.spacing(after: previous)
+            rows[index].spacingBelow = index == rows.count - 1 ? DocTypography.pageBottom : 0
+            previous = role
+        }
+        spacingAbove = Dictionary(rows.map { ($0.id, $0.spacingAbove) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The space above each row (by row id), for laying things over the rows.
+    @ObservationIgnored private(set) var spacingAbove: [String: CGFloat] = [:]
 
     /// A run of list items is split as one list, so each item gets MarkdownView's
     /// marker, numbering and depth indentation; one descriptor per item.
@@ -457,12 +484,13 @@ extension DocRow {
         let textWidth = max(100, min(width - 2 * DocBlockController.gutter, 720))
         let source = blocks.map(\.source).joined(separator: "\n")
         let lines = CGFloat(source.split(separator: "\n", omittingEmptySubsequences: false).count)
-        if source.hasPrefix("```") { return lines * 18 + 56 }
-        if source.hasPrefix("|") { return (lines - 1) * 44 + 10 }
-        if source.hasPrefix("$$") || source.hasPrefix("\\begin") { return 90 }
+        let spacing = spacingAbove + spacingBelow
+        if source.hasPrefix("```") { return lines * 18 + 46 + spacing }
+        if source.hasPrefix("|") { return (lines - 1) * 44 + spacing }
+        if source.hasPrefix("$$") || source.hasPrefix("\\begin") { return 80 + spacing }
         let perLine = max(1, Int(textWidth / 8.5))
         let wrapped = source.split(separator: "\n", omittingEmptySubsequences: false)
             .reduce(0) { $0 + max(1, ($1.count + perLine - 1) / perLine) }
-        return CGFloat(wrapped) * 24 + 10
+        return CGFloat(wrapped) * (22 + DocTypography.lineSpacing) + spacing
     }
 }

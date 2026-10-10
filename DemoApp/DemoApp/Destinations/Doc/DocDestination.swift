@@ -184,7 +184,8 @@ private struct DocRowView: View {
                 }
             }
         }
-        .padding(.vertical, 5)
+        .padding(.top, row.spacingAbove)
+        .padding(.bottom, row.spacingBelow)
         .frame(maxWidth: 720, alignment: .leading)
         .padding(.horizontal, DocBlockController.gutter)
         .frame(maxWidth: .infinity)
@@ -193,6 +194,9 @@ private struct DocRowView: View {
         .codeHighlighter(DocDestination.highlighter)
         // Wide tables scroll sideways instead of squeezing their columns.
         .markdownTableScrollable()
+        // The document's type, and its own spacing between blocks (not a stream block's).
+        .markdownPlatformTypography(DocTypography.fonts)
+        .markdownStreamBlockEdgeInsets(false)
         // Code at the text's size, monospaced (the editor uses the same font).
         .font(Font(docCodeFont), for: .codeBlock)
         // The whole row takes the caret, not only its text: beside a short line, the
@@ -206,6 +210,7 @@ private struct DocRowView: View {
     @ViewBuilder
     private func blockView(_ block: MarkdownStreamBlock) -> some View {
         let view = MarkdownStreamBlockView(block)
+            .lineSpacing(row.role.isHeading ? DocTypography.headingLineSpacing : DocTypography.lineSpacing)
             // Rows are measured off screen before they show; math needs its real height then.
             .markdownDisplayMathRendersSynchronously()
             .environment(\.markdownSelectableTextHooks, hooks)

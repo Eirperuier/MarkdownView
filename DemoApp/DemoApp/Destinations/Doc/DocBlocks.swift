@@ -146,11 +146,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         reader?.frame(forItem: id.description)
     }
 
-    /// The row less its margins: the page is at most 720 wide, centred.
+    /// The block in its row: less the page's margins (at most 720 wide, centred) and
+    /// the space above and below it.
     private func contentFrame(_ id: DocBlockID) -> CGRect? {
         guard let row = rowFrame(id) else { return nil }
         let width = max(0, min(720, row.width - 2 * Self.gutter))
-        return CGRect(x: row.midX - width / 2, y: row.minY, width: width, height: row.height)
+        let above = demo.spacingAbove[id.description] ?? 0
+        let below = demo.rows.last?.block == id ? DocTypography.pageBottom : 0
+        return CGRect(x: row.midX - width / 2, y: row.minY + above, width: width, height: max(0, row.height - above - below))
     }
 
     /// The committed block whose row is at `y` (list coordinates).
@@ -243,13 +246,13 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
 
     private func layoutHandle() {
         guard Self.usesHandles else { return }
-        guard drag == nil, !demo.isAgentWriting, let hovered, let row = rowFrame(hovered), let content = contentFrame(hovered) else {
+        guard drag == nil, !demo.isAgentWriting, let hovered, let content = contentFrame(hovered) else {
             handle.isHidden = true
             return
         }
         let size = DocBlockHandleView.size
         // One column for every block, nested or not: the handles line up.
-        handle.frame = CGRect(x: content.minX - size.width - 6, y: firstLineMidY(hovered, row: row) - size.height / 2,
+        handle.frame = CGRect(x: content.minX - size.width - 6, y: firstLineMidY(hovered, row: content) - size.height / 2,
                               width: size.width, height: size.height)
         handle.layer.zPosition = 8
         handle.isHidden = false
@@ -561,10 +564,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate {
         return last.0 + 1
     }
 
+    /// The drop line: halfway through the space above the block after the gap, or under
+    /// the last block.
     private func lineY(gap: Int) -> CGFloat? {
         let blocks = demo.doc.blocks
-        if blocks.indices.contains(gap), let frame = rowFrame(blocks[gap].id) { return frame.minY }
-        if blocks.indices.contains(gap - 1), let frame = rowFrame(blocks[gap - 1].id) { return frame.maxY }
+        if blocks.indices.contains(gap), let frame = rowFrame(blocks[gap].id) {
+            return frame.minY + (demo.spacingAbove[blocks[gap].id.description] ?? 0) / 2
+        }
+        if blocks.indices.contains(gap - 1), let frame = contentFrame(blocks[gap - 1].id) { return frame.maxY + 6 }
         return nil
     }
 
