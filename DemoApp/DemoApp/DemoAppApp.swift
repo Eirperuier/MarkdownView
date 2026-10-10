@@ -14,6 +14,10 @@ struct DemoAppApp: App {
     init() {
         prewarmMarkdownMathRenderer()
         TrackpadScrollMomentum.install()
+        // `==highlight==` and `:circle[…]` pen marks, on as the app does at launch.
+        MarkdownHighlightSyntax.isEnabled = true
+        MarkdownHighlightSyntax.backgroundColor = MarkdownColorToken.highlight("yellow")
+        MarkdownPenMarkSyntax.isEnabled = true
     }
 
     var body: some Scene {

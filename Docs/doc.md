@@ -98,11 +98,13 @@ struct RichText: Hashable, Sendable, Codable {
     var marks: [MarkSpan]          // 按起点排序,同种标记不重叠
 }
 struct MarkSpan { var range: Range<Int>; var mark: Mark }
-enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mention(EntityRef), inlineMath }
+enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mention(EntityRef), inlineMath, cite, color(token), pen(kind, color) }
 ```
 
+- 颜色是 MarkdownView 的颜色 token(`MarkdownColorToken`):Craft 色板的名字(gray、slate、purple、blue、cyan、mint、green、lemon、yellow、red)或 `#hex`,深浅色各有可读的色值。文字颜色、高亮颜色、笔迹(`circle` / `wavy`,MarkdownView 的笔迹注记)的墨色都用它。
+
 - 行内原子(提及、行内公式、链接 chip)在 `string` 里占一个 U+FFFC,内容放在这个位置的 mark 上。光标不能停在原子中间。
-- **标记在边界处要不要延伸**(在粗体末尾打字,新字是否还是粗体),按标记种类写死:粗体、斜体、高亮延伸;代码、链接不延伸。
+- **标记在边界处要不要延伸**(在粗体末尾打字,新字是否还是粗体),按标记种类写死:粗体、斜体、高亮、文字颜色延伸;代码、链接、笔迹不延伸。
 
 ### 3.3 Markdown 互转【定】
 
@@ -114,7 +116,9 @@ enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mentio
   - 粘贴的流水线借 Composer 的:HTML 表格 → TSV → markdown。
 - **黄金用例**:导入再导出必须等于规范化后的原文,用例和 Web 共用(§10)。
 
-- **书签和附件**写成带 title 的链接,单独一行:书签 `[标题](url "bookmark")`,附件 `[文件名](blob:… "file")`,和引用的 `"cite"` 同一种写法。只有一条普通链接的段落仍是段落。摘要、预览图、文件大小和布局是展示信息,不进 Markdown(和高亮颜色一样)。
+- **书签和附件**写成带 title 的链接,单独一行:书签 `[标题](url "bookmark")`,附件 `[文件名](blob:… "file")`,和引用的 `"cite"` 同一种写法。只有一条普通链接的段落仍是段落。摘要、预览图、文件大小和布局是展示信息,不进 Markdown。
+
+- **颜色和笔迹**写成行内属性(swift-markdown 的 InlineAttributes,cmark 原生解析,内容可以嵌套加粗、链接等):`^[文字](color: red)`、`^[文字](highlight: yellow)`、`^[文字](pen: circle, ink: blue)`;默认颜色的高亮仍是 `==文字==`。导入也认 MarkdownView 的笔迹文本语法 `:circle[文字]{color=blue}`。文字里的 `^[` 转义成 `\^[`。
 
 ### 3.4 卡片块【定】
 

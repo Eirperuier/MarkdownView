@@ -952,6 +952,38 @@ final class DocEditTests {
             try self.expect(text?.marks.contains(MarkSpan(range: 0..<2, mark: .bold)) == true, "marks \(String(describing: text?.marks))")
             try self.expectCursor(block.id, 2)
         }
+        await test("A colour on text shows in it; typing at its end goes on in it, at a pen mark's it doesn't; one undo each") {
+            let block = try self.block("Loading older")
+            self.editor.set(.color, to: .color("red"), over: [(block.id, 0..<7)])
+            func rgb(_ color: UIColor?) -> [Int] {
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                color?.getRed(&r, green: &g, blue: &b, alpha: &a)
+                return [r, g, b].map { Int(($0 * 255).rounded()) }
+            }
+            // Only the colour changed: the row redraws a moment later.
+            var shown: [Int] = [], red: [Int] = [1]
+            for _ in 0..<40 where shown != red {
+                try? await Task.sleep(for: .milliseconds(25))
+                guard let view = self.editor.textView(for: block.id),
+                    let start = self.editor.textStart(in: view, block: self.demo.doc.block(block.id)!)
+                else { continue }
+                shown = rgb((view.textStorage.attribute(.foregroundColor, at: start, effectiveRange: nil) as? UIColor)?.resolvedColor(with: view.traitCollection))
+                red = rgb(UIColor(MarkdownColorToken.text("red")!).resolvedColor(with: view.traitCollection))
+            }
+            try self.expect(shown == red, "shown in \(shown), red is \(red)")
+            try await self.focus(block.id, at: 7)
+            try await self.type("s")
+            try self.expect(self.editor.common(.color, over: [(block.id, 0..<8)]) == .color("red"), "the typed letter isn't red")
+            self.editor.set(.pen, to: .pen(kind: "circle", color: "blue"), over: [(block.id, 9..<15)])
+            try await self.focus(block.id, at: 15)
+            try await self.type("x")
+            try self.expect(self.editor.common(.pen, over: [(block.id, 9..<15)]) == .pen(kind: "circle", color: "blue"), "pen mark lost")
+            try self.expect(self.editor.common(.pen, over: [(block.id, 15..<16)]) == nil, "the pen mark grew")
+            try await self.showsModelSoon(block.id)
+            try await self.undo()
+            try await self.undo()
+            try self.expect(self.editor.common(.pen, over: [(block.id, 9..<15)]) == nil, "undo left the pen mark")
+        }
         await test("A web address pasted on an empty line is its bookmark; the cursor goes under it; one undo") {
             let line = try await emptyLine()
             // An address that can't be reached: no preview comes in the middle of the test.

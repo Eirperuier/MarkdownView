@@ -776,7 +776,7 @@ final class DocEditor {
         guard !modelRange.isEmpty else { return nil }
         let items: [(String, String, Mark)] = [
             ("加粗", "bold", .bold), ("斜体", "italic", .italic), ("删除线", "strikethrough", .strike),
-            ("代码", "chevron.left.forwardslash.chevron.right", .code), ("高亮", "highlighter", .highlight(color: nil)),
+            ("代码", "chevron.left.forwardslash.chevron.right", .code),
         ]
         let actions = items.map { (title, image, mark) in
             let on = Self.covers(block.text, modelRange, with: mark.kind)
@@ -789,7 +789,25 @@ final class DocEditor {
             guard let self, let textView else { return }
             self.promptLink(over: modelRange, in: id, from: textView)
         }
-        let format = UIMenu(title: "格式", image: UIImage(systemName: "textformat"), children: actions + [link])
+        let ranges = [(block: id, range: modelRange)]
+        // A colour, a highlight's colour, a pen mark: the one in use is ticked.
+        func choices(_ kind: MarkKind, none: String, _ marks: [(String, UIImage?, Mark)]) -> [UIMenuElement] {
+            let current = common(kind, over: ranges)
+            let off = UIAction(title: none, state: current == nil ? .on : .off) { [weak self] _ in self?.set(kind, to: nil, over: ranges) }
+            return [off] + marks.map { title, image, mark in
+                UIAction(title: title, image: image, state: current == mark ? .on : .off) { [weak self] _ in self?.set(kind, to: mark, over: ranges) }
+            }
+        }
+        let colors = UIMenu(title: "文字颜色", image: UIImage(systemName: "paintpalette"), children: choices(.color, none: "默认",
+            DocColors.palette.map { ($0.title, DocColors.dot($0.token), Mark.color($0.token)) }))
+        let highlights = UIMenu(title: "高亮", image: UIImage(systemName: "highlighter"), children: choices(.highlight, none: "无",
+            [("高亮", UIImage(systemName: "highlighter"), Mark.highlight(color: nil))]
+                + DocColors.palette.map { ($0.title, DocColors.dot($0.token), Mark.highlight(color: $0.token)) }))
+        let pens = UIMenu(title: "笔迹", image: UIImage(systemName: "pencil.tip.crop.circle"), children: choices(.pen, none: "无", [
+            ("圈出", UIImage(systemName: "circle.dashed"), Mark.pen(kind: "circle", color: nil)),
+            ("波浪线", UIImage(systemName: "water.waves"), Mark.pen(kind: "wavy", color: nil)),
+        ]))
+        let format = UIMenu(title: "格式", image: UIImage(systemName: "textformat"), children: actions + [link, colors, highlights, pens])
         return UIMenu(children: [format] + suggested)
     }
 
@@ -845,6 +863,43 @@ final class DocEditor {
         }
         guard !steps.isEmpty else { return }
         demo.edit(steps, before: selection, after: selection)
+    }
+
+    /// Gives the ranges `mark` in place of their marks of its kind, or clears that
+    /// kind (`mark` nil), one undo step: a colour, a highlight's colour, a pen mark.
+    /// `merge` joins a run of changes into one step (a colour being picked).
+    func set(_ kind: MarkKind, to mark: Mark?, over ranges: [(block: DocBlockID, range: Range<Int>)], merge: DocHistory.MergeKey? = nil) {
+        let ranges = ranges.filter { !$0.range.isEmpty && demo.doc.block($0.block)?.kind.allowsMarks == true }
+        guard !ranges.isEmpty else { return }
+        let steps: [DocStep] = ranges.map { target in
+            .setMarks(block: target.block, range: target.range, kind: kind,
+                      spans: mark.map { [MarkSpan(range: target.range, mark: $0)] } ?? [], previous: [])
+        }
+        demo.edit(steps, before: selection, after: selection, merge: merge)
+    }
+
+    /// The mark of `kind` that covers all of the ranges, if one does (the same one throughout).
+    func common(_ kind: MarkKind, over ranges: [(block: DocBlockID, range: Range<Int>)]) -> Mark? {
+        var found: Mark?
+        for target in ranges where !target.range.isEmpty {
+            guard let text = demo.doc.block(target.block)?.text else { return nil }
+            let spans = text.marks.filter { $0.mark.kind == kind }
+            for offset in target.range {
+                guard let mark = spans.first(where: { $0.range.contains(offset) })?.mark, found == nil || found == mark else { return nil }
+                found = mark
+            }
+        }
+        return found
+    }
+
+    /// A key for one run of colour changes (a picker being dragged): one undo step.
+    func colorMergeKey(over ranges: [(block: DocBlockID, range: Range<Int>)]) -> DocHistory.MergeKey? {
+        ranges.first.map { DocHistory.MergeKey(block: $0.block, session: session) }
+    }
+
+    /// Ends a run of colour changes: the next one is a step of its own.
+    func endColorChanges() {
+        session &+= 1
     }
 
     /// Marks the range, or clears the mark when all of it already has one.

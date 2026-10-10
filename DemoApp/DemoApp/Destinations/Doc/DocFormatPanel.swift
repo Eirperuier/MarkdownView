@@ -5,8 +5,8 @@
 //  The Mac's format panel: Craft's sections (titles and content as tiles, marks,
 //  lists and indent as segments) in the anchored panel the math editor uses, opened
 //  from the bar's Aa. It acts on the selected blocks, or the block the cursor is in; marks
-//  on the selected text, or on the selected blocks' text. What DocKit can't carry yet
-//  (alignment, colour, fonts, decorations) isn't offered.
+//  on the selected text, or on the selected blocks' text, and so does the colour. What
+//  DocKit can't carry yet (alignment, fonts, decorations) isn't offered.
 //
 
 import SwiftUI
@@ -77,8 +77,71 @@ struct DocFormatPanel: View {
                     }
                 }
             }
+            if !markRanges.isEmpty {
+                section("颜色") { colors }
+                    .padding(.top, 18)
+            }
         }
         .frame(width: 246)
+    }
+
+    // MARK: Colour
+
+    /// Craft's colours: none, the palette, and any colour (the system's picker); the
+    /// one the text has is ringed.
+    private var colors: some View {
+        let ranges = markRanges
+        let current = editor.common(.color, over: ranges)
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
+            swatch(nil, title: "默认", isOn: current == nil, ranges: ranges)
+            ForEach(DocColors.palette, id: \.token) { item in
+                swatch(item.token, title: item.title, isOn: current == .color(item.token), ranges: ranges)
+            }
+            custom(current, ranges: ranges)
+        }
+    }
+
+    /// Any colour: Craft's rainbow ring, the colour inside it once one is picked. The
+    /// system's picker lies over it, clear, and takes the click.
+    private func custom(_ current: Mark?, ranges: [(block: DocBlockID, range: Range<Int>)]) -> some View {
+        let picked: String? = if case .color(let token)? = current, token.hasPrefix("#") { token } else { nil }
+        return ZStack {
+            Circle()
+                .strokeBorder(AngularGradient(colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red], center: .center), lineWidth: 3.5)
+            Circle()
+                .fill(picked.map(DocColors.swatch) ?? Color(.systemBackground))
+                .padding(6)
+            ColorPicker("其他颜色", selection: Binding {
+                picked.map(DocColors.swatch) ?? .primary
+            } set: { color in
+                editor.set(.color, to: .color(DocColors.hex(color)), over: ranges, merge: editor.colorMergeKey(over: ranges))
+            }, supportsOpacity: false)
+            .labelsHidden()
+            .opacity(0.02)
+        }
+        .frame(width: 32, height: 32)
+        .clipShape(Circle())
+        .help("其他颜色")
+        .accessibilityIdentifier("color-custom")
+    }
+
+    private func swatch(_ token: String?, title: String, isOn: Bool, ranges: [(block: DocBlockID, range: Range<Int>)]) -> some View {
+        Button {
+            editor.endColorChanges()
+            editor.set(.color, to: token.map(Mark.color), over: ranges)
+        } label: {
+            Circle()
+                .fill(token.map(DocColors.swatch) ?? Color(.systemBackground))
+                .overlay { Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 1) }
+                .padding(isOn ? 4 : 0)
+                .overlay { if isOn { Circle().strokeBorder(Color.primary, lineWidth: 2.5) } }
+                .frame(width: 32, height: 32)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("color-\(token ?? "none")")
     }
 
     private var segments: some View {

@@ -111,6 +111,21 @@ struct DocDestination: View {
                 }
                 editor.blocks.testHover(blocks[index].id)
             }
+            // -docColors YES: a colour, highlights and pen marks on the first paragraph
+            // of section 1 (screenshots of them).
+            if UserDefaults.standard.bool(forKey: "docColors"),
+               let block = demo.doc.blocks.first(where: { $0.text.string.hasPrefix("Loading older") }) {
+                func range(_ words: String) -> [(block: DocBlockID, range: Range<Int>)] {
+                    guard let found = block.text.string.range(of: words) else { return [] }
+                    let start = block.text.string.utf16.distance(from: block.text.string.startIndex, to: found.lowerBound)
+                    return [(block.id, start..<(start + words.utf16.count))]
+                }
+                editor.set(.color, to: .color("red"), over: range("Loading older messages"))
+                editor.set(.highlight, to: .highlight(color: nil), over: range("everything"))
+                editor.set(.highlight, to: .highlight(color: "blue"), over: range("below them"))
+                editor.set(.pen, to: .pen(kind: "circle", color: nil), over: range("list"))
+                editor.set(.pen, to: .pen(kind: "wavy", color: "blue"), over: range("across the update"))
+            }
             // -docFocus <text>: the cursor at the end of the first block starting with it,
             // keyboard up; -docSelect N selects its first N characters, -docFocusNewLine YES
             // opens an empty line after it (the keyboard bar's states).
