@@ -159,11 +159,29 @@ struct FlooServiceSources {
 
 // MARK: - You and a service
 
-/// One of its pushes (the Feed, agent-kernel §10.7, for this service).
+/// One of its pushes (the Feed, agent-kernel §10.7, for this service): its words, and the
+/// card (`floo.card`) or the thing it points at (`floo.mention`) it came with.
 struct FlooPush: Hashable {
+    /// "今天", "昨天", or a date: the album groups by it.
+    let day: String
     let time: String
     let text: String
     var card: String? = nil
+    var mention: FlooMention? = nil
+}
+
+/// What a `floo.mention` points at, as the App previews it: like a link shared in Moments.
+struct FlooMention: Hashable {
+    let symbol: String
+    let title: String
+    let detail: String
+}
+
+/// Something it took on for you: a commitment or a watch it wrote (agent-kernel §22), and
+/// where in the conversation it was asked.
+struct FlooDoing: Hashable {
+    let text: String
+    let asked: String
 }
 
 /// You and a service you follow: all from records floo keeps.
@@ -175,9 +193,11 @@ struct FlooFollowing: Hashable {
     var devices: Set<String> = []
     /// Devices asked to set it up, not yet reporting.
     var asked: Set<String> = []
-    /// Its commitments and watches (agent-kernel §22), as it wrote them.
-    var doing: [String] = []
+    var doing: [FlooDoing] = []
+    /// Newest first.
     var pushes: [FlooPush] = []
+    /// Cards it drew in your conversation, newest first.
+    var shared: [String] = []
     var quiet = false
     var pinned = false
 }
@@ -194,12 +214,20 @@ enum FlooContactsRoute: Hashable {
     case chat(String)
     case operations(String)
     case hooks(String)
+    case moments(String)
+    case post(String, Int)
 
     static var launchPath: [FlooContactsRoute] {
         (UserDefaults.standard.string(forKey: "flooContactsPath") ?? "").split(separator: " ").compactMap { step in
             let parts = step.split(separator: ":").map(String.init)
-            guard parts.count == 2 else { return nil }
-            return parts[0] == "service" ? .service(parts[1]) : parts[0] == "chat" ? .chat(parts[1]) : nil
+            guard parts.count >= 2 else { return nil }
+            switch parts[0] {
+            case "service": return .service(parts[1])
+            case "chat": return .chat(parts[1])
+            case "moments": return .moments(parts[1])
+            case "post": return .post(parts[1], Int(parts.count > 2 ? parts[2] : "0") ?? 0)
+            default: return nil
+            }
         }
     }
 }
@@ -219,18 +247,39 @@ final class FlooContactsDemo {
     static let start: [String: FlooFollowing] = [
         "health": FlooFollowing(
             devices: ["iphone"],
-            doing: ["睡得不好的早上，8 点说一声"],
-            pushes: [FlooPush(time: "今天 8:02", text: "这周有三天睡不到 6 小时，都是开完晚会的那几天。", card: "sleep")]
+            doing: [FlooDoing(text: "睡得不好的早上，8 点说一声", asked: "10月3日 你在对话里说的")],
+            pushes: [
+                FlooPush(day: "今天", time: "8:02", text: "这周有三天睡不到 6 小时，都是开完晚会的那几天。", card: "sleep"),
+                FlooPush(day: "昨天", time: "21:30", text: "今天走了一万两千步，比你平时多一半。", card: "steps"),
+                FlooPush(day: "10月6日", time: "9:15", text: "静息心率这周回到 58 了，和上个月差不多。", card: "heart"),
+                FlooPush(day: "10月3日", time: "8:00", text: "最近三晚都是一点以后才睡着。"),
+            ],
+            shared: ["heart", "steps", "sleep"]
         ),
         "calendar": FlooFollowing(
             devices: ["iphone", "imac"],
-            doing: ["日程撞车时提前告诉你"],
-            pushes: [FlooPush(time: "周三 18:20", text: "周五 3 点的评审和牙医撞了，要挪哪个？")]
+            doing: [FlooDoing(text: "日程撞车时提前告诉你", asked: "9月28日 你在对话里说的")],
+            pushes: [
+                FlooPush(
+                    day: "今天", time: "18:20", text: "周五 3 点的评审和牙医撞了，要挪哪个？",
+                    mention: FlooMention(symbol: "calendar", title: "设计评审", detail: "周五 15:00–16:00 · 会议室 B")
+                ),
+                FlooPush(day: "10月5日", time: "20:40", text: "下周三全天没有安排。"),
+            ]
         ),
         "github": FlooFollowing(
             account: "linxiao",
-            doing: ["盯着 floo-sandbox 上等你 review 的 PR"],
-            pushes: [FlooPush(time: "昨天 16:05", text: "floo-sandbox #14 在等你 review，作者催了一次。")]
+            doing: [FlooDoing(text: "盯着 floo-sandbox 上等你 review 的 PR", asked: "10月2日 你在对话里说的")],
+            pushes: [
+                FlooPush(
+                    day: "昨天", time: "16:05", text: "#14 在等你 review，作者催了一次。",
+                    mention: FlooMention(symbol: "arrow.triangle.pull", title: "Fix flaky sync test", detail: "floo-sandbox #14 · 3 个文件")
+                ),
+                FlooPush(
+                    day: "10月6日", time: "11:20", text: "main 上的 CI 连着挂了两次，都是 SyncTests 超时。",
+                    mention: FlooMention(symbol: "xmark.octagon", title: "CI · main", detail: "floo-sandbox · 2 次失败")
+                ),
+            ]
         ),
     ]
 
@@ -312,6 +361,8 @@ struct FlooContactsDestination: View {
                     case .chat(let id): FlooServiceChat(demo: demo, service: FlooService.named(id)!)
                     case .operations(let id): FlooOperationsPage(service: FlooService.named(id)!)
                     case .hooks(let id): FlooHooksPage(service: FlooService.named(id)!)
+                    case .moments(let id): FlooMomentsPage(demo: demo, service: FlooService.named(id)!)
+                    case .post(let id, let index): FlooPostPage(demo: demo, service: FlooService.named(id)!, index: index)
                     }
                 }
         }
@@ -411,34 +462,36 @@ private struct FlooServiceList: View {
 private struct FlooServicePage: View {
     let demo: FlooContactsDemo
     let service: FlooService
+    @State private var tint = Color(white: 0.45)
 
     var body: some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 14) {
-                        FlooServiceIcon(url: service.icon, name: service.name, tint: service.tint, size: 72)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(service.name).font(.title2.weight(.bold))
-                            if let short = service.shortDescription {
-                                Text(short).font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            if let here = onYourDevices {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                    Text(here)
-                                }
-                                .font(.caption).foregroundStyle(.green)
-                            }
+                VStack(spacing: 8) {
+                    FlooServiceIcon(url: service.icon, name: service.name, tint: tint, size: 104)
+                        .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+                    Text(service.name).font(.system(size: 30, weight: .bold, design: .rounded))
+                    if let short = service.shortDescription {
+                        Text(short).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    if let here = onYourDevices {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                            Text(here)
                         }
+                        .font(.caption).foregroundStyle(.green)
                     }
                     Button { demo.follow(service) } label: {
-                        Text("关注").font(.body.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 4)
+                        Text("关注").font(.body.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 6)
                     }
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
+                    .tint(tint)
+                    .padding(.top, 8)
                 }
-                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+                .listRowBackground(Color.clear)
             }
 
             if !service.prompts.isEmpty {
@@ -487,7 +540,11 @@ private struct FlooServicePage: View {
 
             FlooInfoSection(service: service)
         }
+        .scrollContentBackground(.hidden)
+        .background { FlooBackdrop(tint: tint) }
+        .background(Color(uiColor: .systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
+        .task { tint = await service.backdrop() }
     }
 
     /// From devices' reports: which online devices could provide it now.
@@ -724,224 +781,6 @@ private struct FlooSignInSheet: View {
                     Button("关闭") { dismiss(); done(.closed) }
                 }
             }
-        }
-    }
-}
-
-// MARK: - After following
-
-/// Like a WeChat contact's page: how it is connected, on which devices, what it is doing for
-/// you, its settings and what it has sent. What it can do isn't repeated; you ask it.
-private struct FlooContactPage: View {
-    let demo: FlooContactsDemo
-    let service: FlooService
-    @State private var showsInfo = false
-    @State private var confirmsUnfollow = false
-
-    private var following: FlooFollowing { demo.following[service.id] ?? FlooFollowing() }
-
-    var body: some View {
-        List {
-            Section {
-                VStack(spacing: 10) {
-                    FlooServiceIcon(url: service.icon, name: service.name, tint: service.tint, size: 72)
-                    Text(service.name).font(.title2.weight(.bold))
-                    Label(status.text, systemImage: "circle.fill")
-                        .labelStyle(FlooDotLabel(color: status.color))
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    Button { demo.path.append(.chat(service.id)) } label: {
-                        Label("发消息", systemImage: "message.fill")
-                            .font(.body.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 4)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .padding(.top, 4)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-            }
-
-            Section("连接状态") { connections }
-
-            if !others.isEmpty {
-                Section {
-                    ForEach(others) { device in otherDevice(device) }
-                } header: {
-                    Text("在其他设备上")
-                } footer: {
-                    Text("选一台在线的设备，那台设备上会打开「\(service.name)」的设置。")
-                }
-            }
-
-            if !following.doing.isEmpty {
-                Section {
-                    ForEach(following.doing, id: \.self) { item in
-                        Button { demo.path.append(.chat(service.id)) } label: {
-                            Label(item, systemImage: "checklist").foregroundStyle(.primary)
-                        }
-                    }
-                } header: {
-                    Text("它在为你做的")
-                } footer: {
-                    Text("这些是它在对话里答应你的。要改，在对话里跟它说。")
-                }
-            }
-
-            Section("设置") {
-                Toggle("少打扰", isOn: binding(\.quiet))
-                Toggle("置顶对话", isOn: binding(\.pinned))
-            }
-
-            if !following.pushes.isEmpty {
-                Section("历史动态") {
-                    ForEach(following.pushes, id: \.self) { push in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(push.time).font(.caption).foregroundStyle(.secondary)
-                            Text(push.text).font(.subheadline)
-                            if let name = push.card, let session = demo.card(name) {
-                                CardView(tree: session.tree).frame(maxWidth: 280, alignment: .leading)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-
-            Section {
-                DisclosureGroup("关于 \(service.name)", isExpanded: $showsInfo) {
-                    if let description = service.description { Text(description).font(.subheadline) }
-                    if let developer = service.presentation.developer { LabeledContent("提供方", value: developer) }
-                    if let website = service.presentation.website, let url = URL(string: website) {
-                        Link("网站", destination: url)
-                    }
-                    if let privacy = service.presentation.privacyPolicy, let url = URL(string: privacy) {
-                        Link("隐私政策", destination: url)
-                    }
-                }
-            }
-
-            Section {
-                Button("不再关注", role: .destructive) { confirmsUnfollow = true }
-                    .frame(maxWidth: .infinity)
-            } footer: {
-                Text("和它的对话、它发过的动态都会留着。")
-            }
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("不再关注 \(service.name)？", isPresented: $confirmsUnfollow, titleVisibility: .visible) {
-            Button("不再关注", role: .destructive) {
-                demo.following[service.id] = nil
-                demo.path.removeAll()
-            }
-        } message: {
-            Text("它会停下在为你做的事，断开连接。")
-        }
-    }
-
-    // MARK: Connection
-
-    /// From the providers' reports: computed, never stored (services.md §10.1).
-    private var status: (text: String, color: Color) {
-        if following.expired { return ("需要重新登录", .orange) }
-        let set = following.devices.compactMap(demo.device)
-        if following.account != nil || set.contains(where: \.online) { return ("已连接", .green) }
-        if !set.isEmpty { return ("提供它的设备都不在线", .gray) }
-        if !following.asked.isEmpty { return ("等你在另一台设备上设置", .orange) }
-        return ("还没连接", .orange)
-    }
-
-    @ViewBuilder private var connections: some View {
-        if let provider = service.sources.account, let account = following.account {
-            HStack {
-                Label {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("\(provider) 账号")
-                        Text(account).font(.caption).foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "person.crop.circle")
-                }
-                Spacer()
-                if following.expired {
-                    Button("重新登录") {
-                        demo.following[service.id]?.expired = false
-                        demo.show("已重新登录 \(provider)")
-                    }
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(.orange)
-                } else {
-                    Text("已连接").foregroundStyle(.secondary)
-                }
-            }
-        }
-        ForEach(demo.devices.filter { following.devices.contains($0.id) || following.asked.contains($0.id) }) { device in
-            HStack {
-                Label(device.name, systemImage: device.symbol)
-                Spacer()
-                Text(deviceState(device)).foregroundStyle(.secondary)
-            }
-        }
-        if let here = demo.device(FlooDevice.this), service.sources.provides(on: here),
-           !following.devices.contains(here.id), let need = service.sources.devices[here.kind] {
-            HStack {
-                Label(here.name, systemImage: here.symbol)
-                Spacer()
-                Button("去\(need)") {
-                    demo.following[service.id]?.devices.insert(here.id)
-                }
-                .buttonStyle(.bordered).buttonBorderShape(.capsule)
-            }
-        }
-        if service.sources.account != nil && following.account == nil {
-            Button("连接 \(service.sources.account!) 账号") { demo.follow(service) }
-        }
-    }
-
-    private func deviceState(_ device: FlooDevice) -> String {
-        if following.asked.contains(device.id) { return "等你在那边设置" }
-        guard device.online else { return "\(device.lastSeen ?? "")在线" }
-        return device.kind == .mac && service.id == "github" ? "gh 已登录" : "已允许"
-    }
-
-    // MARK: Other devices
-
-    /// The person's devices online now, other than this one, that could provide it.
-    private var others: [FlooDevice] {
-        guard !service.sources.devices.isEmpty else { return [] }
-        return demo.devices.filter { $0.online && $0.id != FlooDevice.this }
-    }
-
-    @ViewBuilder private func otherDevice(_ device: FlooDevice) -> some View {
-        let provides = following.devices.contains(device.id)
-        let asked = following.asked.contains(device.id)
-        let can = service.sources.provides(on: device)
-        Button {
-            demo.setUp(service, on: device)
-        } label: {
-            HStack {
-                Label(device.name, systemImage: device.symbol).foregroundStyle(.primary)
-                Spacer()
-                Text(provides ? "已提供" : asked ? "已打开设置" : can ? "去设置" : "提供不了")
-                    .foregroundStyle(can && !provides && !asked ? Color.accentColor : .secondary)
-            }
-        }
-        .disabled(provides || asked || !can)
-    }
-
-    private func binding(_ key: WritableKeyPath<FlooFollowing, Bool>) -> Binding<Bool> {
-        Binding(
-            get: { demo.following[service.id]?[keyPath: key] ?? false },
-            set: { demo.following[service.id]?[keyPath: key] = $0 }
-        )
-    }
-}
-
-private struct FlooDotLabel: LabelStyle {
-    let color: Color
-
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 8, height: 8)
-            configuration.title
         }
     }
 }

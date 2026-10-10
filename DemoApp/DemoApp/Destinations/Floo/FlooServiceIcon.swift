@@ -91,6 +91,9 @@ struct FlooIconImage: @unchecked Sendable {
 
     let image: UIImage
     let kind: Kind
+    /// Its most common vivid colour, for a page's backdrop when the definition gives none;
+    /// nil for a colourless logo.
+    var tint: UIColor? = nil
 
     /// Looks at the image once, at 32 × 32: its four corners' opacity, and its ink's
     /// brightness and colour.
@@ -110,6 +113,7 @@ struct FlooIconImage: @unchecked Sendable {
         func alpha(_ x: Int, _ y: Int) -> UInt8 { pixels[(y * side + x) * 4 + 3] }
         let corners = [alpha(0, 0), alpha(side - 1, 0), alpha(0, side - 1), alpha(side - 1, side - 1)]
         self.image = image
+        tint = Self.dominant(pixels)
         if corners.allSatisfy({ $0 > 240 }) {
             kind = .whole
             return
@@ -124,6 +128,25 @@ struct FlooIconImage: @unchecked Sendable {
         }
         let plain = ink > 0 && brightness / ink < 0.3 && colour / ink < 0.12
         kind = .logo(darkAndPlain: plain)
+    }
+
+    /// The vivid pixels' hues in twelve bins; the fullest bin's average colour.
+    private static func dominant(_ pixels: [UInt8]) -> UIColor? {
+        var bins = [(count: Double, r: Double, g: Double, b: Double)](repeating: (0, 0, 0, 0), count: 12)
+        for index in stride(from: 0, to: pixels.count, by: 4) where pixels[index + 3] > 200 {
+            let a = Double(pixels[index + 3])
+            let (r, g, b) = (Double(pixels[index]) / a, Double(pixels[index + 1]) / a, Double(pixels[index + 2]) / a)
+            var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0
+            UIColor(red: r, green: g, blue: b, alpha: 1).getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: nil)
+            guard saturation > 0.35, brightness > 0.3 else { continue }
+            let bin = min(Int(hue * 12), 11)
+            bins[bin].count += 1
+            bins[bin].r += r
+            bins[bin].g += g
+            bins[bin].b += b
+        }
+        guard let best = bins.max(by: { $0.count < $1.count }), best.count >= 8 else { return nil }
+        return UIColor(red: best.r / best.count, green: best.g / best.count, blue: best.b / best.count, alpha: 1)
     }
 }
 
