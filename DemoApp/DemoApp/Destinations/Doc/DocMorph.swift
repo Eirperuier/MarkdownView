@@ -15,6 +15,8 @@ import DocKit
 final class DocMorph {
     struct Item: Identifiable {
         let id: DocBlockID
+        /// Its place in the document: later blocks are drawn over earlier ones.
+        let order: Int
         /// Where it was and is, over the list (nil: it comes, or goes).
         var from: CGRect?
         var to: CGRect?
@@ -24,14 +26,17 @@ final class DocMorph {
         var old: UIImage?
         var new: UIImage?
 
-        init(id: DocBlockID, from: CGRect? = nil, fromKind: BlockKind? = nil, old: UIImage? = nil) {
+        init(id: DocBlockID, order: Int, from: CGRect? = nil, fromKind: BlockKind? = nil, old: UIImage? = nil) {
             self.id = id
+            self.order = order
             self.from = from
             self.fromKind = fromKind
             self.old = old
         }
     }
 
+    /// Their ends are drawn (at the start) before `isDone` changes: set in the same
+    /// update as the animation, a piece may miss it and stay where it was.
     var items: [Item] = []
     var isDone = false
 }
@@ -41,10 +46,12 @@ struct DocMorphView: View {
     let blocks: DocBlockController
 
     var body: some View {
+        let progress: CGFloat = morph.isDone ? 1 : 0
         ZStack(alignment: .topLeading) {
             Color(.systemBackground)
             ForEach(morph.items) { item in
-                DocMorphPiece(item: item, blocks: blocks, progress: morph.isDone ? 1 : 0)
+                DocMorphPiece(item: item, blocks: blocks, progress: progress)
+                    .zIndex(Double(item.order))
             }
         }
         .ignoresSafeArea()
@@ -126,7 +133,7 @@ private struct DocMorphPiece: View, @preconcurrency Animatable {
         }
         if let new = item.new {
             Image(uiImage: new).fixedSize()
-                .opacity(min(1, progress / 0.4))
+                .opacity(item.old == nil ? 1 : min(1, progress / 0.4))
         }
     }
 

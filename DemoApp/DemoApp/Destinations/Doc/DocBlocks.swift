@@ -1003,10 +1003,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         else { return change() }
         let before = visibleBlocks()
         let kinds = Dictionary(uniqueKeysWithValues: demo.doc.blocks.map { ($0.id, $0.kind) })
+        let order = Dictionary(uniqueKeysWithValues: demo.doc.blocks.enumerated().map { ($1.id, $0) })
         let morph = DocMorph()
         morph.items = before.map { id, frame in
             let media = kinds[id].map(DocMediaView.draws) ?? false
-            return DocMorph.Item(id: id, from: shown(frame, media: media, in: list), fromKind: kinds[id],
+            return DocMorph.Item(id: id, order: order[id] ?? .max, from: shown(frame, media: media, in: list), fromKind: kinds[id],
                                  old: media ? nil : picture(of: old, at: outset(frame)))
         }
         let host = UIHostingController(rootView: DocMorphView(morph: morph, blocks: self))
@@ -1036,11 +1037,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             }
             let new = textReshapes ? self.snapshot() : nil
             // In place, in the same order: the views stay the ones on screen.
+            let order = Dictionary(uniqueKeysWithValues: self.demo.doc.blocks.enumerated().map { ($1.id, $0) })
             var items = morph.items
             for (id, frame) in after {
                 let media = kinds[id].map(DocMediaView.draws) ?? false
                 let index = items.firstIndex { $0.id == id } ?? {
-                    items.append(DocMorph.Item(id: id))
+                    items.append(DocMorph.Item(id: id, order: order[id] ?? .max))
                     return items.count - 1
                 }()
                 items[index].to = self.shown(frame, media: media, in: list)
@@ -1049,9 +1051,19 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
                 let reshaped = before[id].map { abs($0.width - frame.width) > 0.5 || abs($0.height - frame.height) > 0.5 } ?? true
                 if !media, reshaped, let new { items[index].new = self.picture(of: new, at: self.outset(frame)) }
             }
-            // Later blocks over earlier ones (Craft's): a box that grows goes under the next.
-            let order = Dictionary(uniqueKeysWithValues: self.demo.doc.blocks.enumerated().map { ($1.id, $0) })
-            morph.items = items.sorted { (order[$0.id] ?? .max, $0.from?.minY ?? 0) < (order[$1.id] ?? .max, $1.from?.minY ?? 0) }
+            // A block that comes onto the screen, or leaves it, goes with the one before it.
+            for index in items.indices where (items[index].from == nil) != (items[index].to == nil) {
+                guard let moved = items.filter({ $0.order < items[index].order && $0.from != nil && $0.to != nil }).max(by: { $0.order < $1.order }),
+                    let from = moved.from, let to = moved.to
+                else { continue }
+                if let end = items[index].to {
+                    items[index].from = end.offsetBy(dx: 0, dy: from.minY - to.minY)
+                } else if let start = items[index].from {
+                    items[index].to = start.offsetBy(dx: 0, dy: to.minY - from.minY)
+                }
+            }
+            morph.items = items
+            host.view.layoutIfNeeded()
             // Craft's: about a third of a second, most of the way early.
             withAnimation(.spring(duration: 0.34, bounce: 0)) {
                 morph.isDone = true
