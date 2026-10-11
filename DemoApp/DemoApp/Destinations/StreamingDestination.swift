@@ -19,7 +19,11 @@ struct StreamingDestination: View {
     @State private var streamTask: Task<Void, Never>?
     @State private var selectable = true
     @State private var layout = BlockSelectionScrollLayout()
-    @State private var selection = MarkdownBlockSelectionController()
+    @State private var selection = {
+        let selection = MarkdownBlockSelectionController()
+        selection.motion = FlooDesignTokens.Motion.markdown
+        return selection
+    }()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

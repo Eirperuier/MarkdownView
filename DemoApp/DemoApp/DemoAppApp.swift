@@ -23,6 +23,8 @@ struct DemoAppApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .markdownMotion(FlooDesignTokens.Motion.markdown)
+                .tiledMotion(FlooDesignTokens.Motion.tiled)
         }
     }
 }

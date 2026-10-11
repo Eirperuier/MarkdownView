@@ -194,13 +194,13 @@ struct FlooDestination: View {
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 6)
-        .animation(.snappy, value: demo.openAsks.count)
-        .animation(.snappy, value: demo.showsAsks)
-        .animation(.snappy, value: demo.approval)
-        .animation(.snappy, value: demo.answering)
-        .animation(.snappy, value: demo.queued.map(\.id))
-        .animation(.snappy, value: demo.showsErrands)
-        .animation(.snappy, value: demo.presence.isEmpty)
+        .animation(FlooDesignTokens.Motion.layout, value: demo.openAsks.count)
+        .animation(FlooDesignTokens.Motion.layout, value: demo.showsAsks)
+        .animation(FlooDesignTokens.Motion.layout, value: demo.approval)
+        .animation(FlooDesignTokens.Motion.layout, value: demo.answering)
+        .animation(FlooDesignTokens.Motion.layout, value: demo.queued.map(\.id))
+        .animation(FlooDesignTokens.Motion.layout, value: demo.showsErrands)
+        .animation(FlooDesignTokens.Motion.layout, value: demo.presence.isEmpty)
     }
 
     private func play() {
@@ -442,7 +442,7 @@ private struct FlooApprovalBar: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(approval.agent.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .animation(.snappy, value: details)
+        .animation(FlooDesignTokens.Motion.layout, value: details)
     }
 }
 
@@ -1115,8 +1115,9 @@ private struct FlooDrawnCard: View {
             guard measuring != nil, !shown else { return }
             // Settled when a few frames pass with no new height.
             guard (try? await Task.sleep(for: .milliseconds(100))) != nil else { return }
-            withAnimation(.smooth(duration: 0.3)) { shown = true }
-            updateSelfSizing(.smooth(duration: 0.3))
+            withAnimation(FlooDesignTokens.Motion.layout) { shown = true }
+            // The rows after it follow with the list's layout motion.
+            updateSelfSizing()
         }
     }
 }

@@ -80,8 +80,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     @ObservationIgnored var opensURL: (URL) -> Void = { UIApplication.shared.open($0) }
     /// The image Quick Look shows.
     @ObservationIgnored private var previewing: URL?
-    /// What's drawn over the list while a change reshapes it (transition(_:)).
-    @ObservationIgnored private var morphHost: UIViewController?
     /// Pieces flying to their rows: the selection shows once they're down.
     @ObservationIgnored private var landings = 0
     /// Members of a row of several whose pieces are landing: hidden until they're down.
@@ -674,9 +672,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// The circles come and go with the mode, faded.
     private func fadeChecks(in showing: Bool) {
         if showing { checks.forEach { $0.alpha = 0 } } else { checksLeaving = true }
-        UIView.animate(withDuration: 0.2) { [checks] in
+        UIView.animate(FlooDesignTokens.Motion.feedbackCurve) { [checks] in
             checks.forEach { $0.alpha = showing ? 1 : 0 }
-        } completion: { [weak self] _ in
+        } completion: { [weak self] in
             guard let self, !showing, !self.isSelecting else { return }
             self.checksLeaving = false
             self.layoutChecks()
@@ -703,11 +701,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         // Each piece starts on its own row and goes to its place on the card.
         let scattered = pieces.contains { $0.view.frame != $0.slot }
         if scattered { card.clipsToBounds = false }
-        UIView.animate(withDuration: 0.28, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0,
-                       options: [.beginFromCurrentState, .allowUserInteraction]) {
+        UIView.animate(.spring(FlooDesignTokens.Motion.layoutSpring)) {
             for piece in pieces { piece.view.frame = piece.slot }
             if !Self.usesHandles { preview.transform = CGAffineTransform(translationX: 0, y: -6).scaledBy(x: 1.03, y: 1.03) }
-        } completion: { _ in
+        } completion: {
             card.clipsToBounds = true
         }
     }
@@ -719,7 +716,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         editor.tables.endEditing()
         editor.sources.endEditing()
         let preview = drag.preview
-        UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
+        UIView.animate(FlooDesignTokens.Motion.feedbackCurve) {
             // On a phone the finger covers the block: it shrinks so the line where it
             // will go stays in sight (Composer's).
             preview.transform = Self.usesHandles ? .identity : CGAffineTransform(translationX: 0, y: -2).scaledBy(x: 0.5, y: 0.5)
@@ -918,12 +915,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
                 return
             }
             let origin = CGPoint(x: anchor.1!.minX - anchor.0.slot.minX, y: anchor.1!.minY - anchor.0.slot.minY)
-            let duration = 0.36
             card.clipsToBounds = false
-            Self.animate(preview.layer, "shadowOpacity", to: 0, duration: duration)
-            Self.animate(card.layer, "borderColor", to: UIColor.clear.cgColor, duration: duration)
-            UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0,
-                           options: [.beginFromCurrentState, .allowUserInteraction]) {
+            Self.animate(preview.layer, "shadowOpacity", to: 0)
+            Self.animate(card.layer, "borderColor", to: UIColor.clear.cgColor)
+            UIView.animate(.spring(FlooDesignTokens.Motion.layoutSpring)) {
                 preview.transform = .identity
                 preview.center = CGPoint(x: origin.x + preview.bounds.width / 2, y: origin.y + preview.bounds.height / 2)
                 preview.alpha = 1
@@ -936,7 +931,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
                     }
                 }
                 for view in preview.subviews where view !== card { view.alpha = 0 }
-            } completion: { _ in
+            } completion: {
                 preview.removeFromSuperview()
                 show()
             }
@@ -944,12 +939,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         }
     }
 
-    private static func animate(_ layer: CALayer, _ keyPath: String, to value: Any, duration: TimeInterval) {
-        let animation = CABasicAnimation(keyPath: keyPath)
+    /// A layer's own property (UIKit's animations don't reach it) with the layout spring.
+    private static func animate(_ layer: CALayer, _ keyPath: String, to value: Any) {
+        let spring = FlooDesignTokens.Motion.layoutSpring
+        let animation = CASpringAnimation(perceptualDuration: spring.duration, bounce: spring.bounce)
+        animation.keyPath = keyPath
         animation.fromValue = layer.presentation()?.value(forKeyPath: keyPath) ?? layer.value(forKeyPath: keyPath)
         animation.toValue = value
-        animation.duration = duration
-        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        animation.duration = animation.settlingDuration
         layer.setValue(value, forKeyPath: keyPath)
         layer.add(animation, forKey: keyPath)
     }
@@ -1039,130 +1036,24 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     }
 
     /// What the list shows now, as an image to cut the rows out of: a preview's pieces
-    /// are the rows themselves, so they land on them without a seam.
-    /// - Parameter updated: after pending screen updates (a selection made just now is
-    /// in the picture); slower than what's on screen already.
-    private func snapshot(updated: Bool = true) -> (image: CGImage, bounds: CGRect, scale: CGFloat)? {
+    /// are the rows themselves, so they land on them without a seam. After pending screen
+    /// updates: a selection made just now is in the picture.
+    private func snapshot() -> (image: CGImage, bounds: CGRect, scale: CGFloat)? {
         guard let list, list.bounds.width > 0, list.bounds.height > 0 else { return nil }
         let renderer = UIGraphicsImageRenderer(size: list.bounds.size)
         let image = renderer.image { _ in
-            list.drawHierarchy(in: CGRect(origin: .zero, size: list.bounds.size), afterScreenUpdates: updated)
+            list.drawHierarchy(in: CGRect(origin: .zero, size: list.bounds.size), afterScreenUpdates: true)
         }
         return image.cgImage.map { ($0, list.bounds, image.scale) }
     }
 
-    // MARK: Transitions
+    // MARK: Reshaping
 
-    /// Makes a change that reshapes blocks without a jump (DocMorph): every block on
-    /// screen goes from where it was to where the change puts it, over the list while
-    /// the list takes the change underneath. Reduce Motion skips it.
-    func transition(_ change: () -> Void) {
-        guard let list, let container = list.superview, let reader, morphHost == nil,
-            !UIAccessibility.isReduceMotionEnabled, let old = snapshot(updated: false)
-        else { return change() }
-        let before = visibleBlocks()
-        let kinds = Dictionary(uniqueKeysWithValues: demo.doc.blocks.map { ($0.id, $0.kind) })
-        let order = Dictionary(uniqueKeysWithValues: demo.doc.blocks.enumerated().map { ($1.id, $0) })
-        let morph = DocMorph()
-        morph.items = before.map { id, frame in
-            let media = kinds[id].map(DocMediaView.draws) ?? false
-            return DocMorph.Item(id: id, order: order[id] ?? .max, from: shown(frame, media: media, in: list), fromKind: kinds[id],
-                                 old: media ? nil : picture(of: old, at: outset(frame)))
-        }
-        let host = UIHostingController(rootView: DocMorphView(morph: morph, blocks: self))
-        host.view.backgroundColor = .clear
-        host.view.isUserInteractionEnabled = false
-        host.view.frame = list.frame
-        container.insertSubview(host.view, aboveSubview: list)
-        // Drawn now, before the list takes the change under it.
-        host.view.layoutIfNeeded()
-        morphHost = host
-        let version = reader.version
-        change()
-        Task { [weak self] in
-            // The list takes the change on a later pass (the sooner the animation starts,
-            // the more it feels like the click did it).
-            for _ in 0..<60 where reader.version == version {
-                try? await Task.sleep(for: .milliseconds(5))
-            }
-            guard let self, let list = self.list else { return host.view.removeFromSuperview() }
-            list.layoutIfNeeded()
-            let after = self.visibleBlocks()
-            let kinds = Dictionary(uniqueKeysWithValues: self.demo.doc.blocks.map { ($0.id, $0.kind) })
-            // A second picture only for text that changes shape or comes.
-            let textReshapes = after.contains { id, frame in
-                !(kinds[id].map(DocMediaView.draws) ?? false)
-                    && (before[id].map { abs($0.width - frame.width) > 0.5 || abs($0.height - frame.height) > 0.5 } ?? true)
-            }
-            let new = textReshapes ? self.snapshot() : nil
-            // In place, in the same order: the views stay the ones on screen.
-            let order = Dictionary(uniqueKeysWithValues: self.demo.doc.blocks.enumerated().map { ($1.id, $0) })
-            var items = morph.items
-            for (id, frame) in after {
-                let media = kinds[id].map(DocMediaView.draws) ?? false
-                let index = items.firstIndex { $0.id == id } ?? {
-                    items.append(DocMorph.Item(id: id, order: order[id] ?? .max))
-                    return items.count - 1
-                }()
-                items[index].to = self.shown(frame, media: media, in: list)
-                items[index].toKind = kinds[id]
-                // Text that changes shape, or comes, needs its picture after.
-                let reshaped = before[id].map { abs($0.width - frame.width) > 0.5 || abs($0.height - frame.height) > 0.5 } ?? true
-                if !media, reshaped, let new { items[index].new = self.picture(of: new, at: self.outset(frame)) }
-            }
-            // A block that comes onto the screen, or leaves it, goes with the one before it.
-            for index in items.indices where (items[index].from == nil) != (items[index].to == nil) {
-                guard let moved = items.filter({ $0.order < items[index].order && $0.from != nil && $0.to != nil }).max(by: { $0.order < $1.order }),
-                    let from = moved.from, let to = moved.to
-                else { continue }
-                if let end = items[index].to {
-                    items[index].from = end.offsetBy(dx: 0, dy: from.minY - to.minY)
-                } else if let start = items[index].from {
-                    items[index].to = start.offsetBy(dx: 0, dy: to.minY - from.minY)
-                }
-            }
-            morph.items = items
-            host.view.layoutIfNeeded()
-            // Craft's: about a third of a second, most of the way early.
-            withAnimation(.spring(duration: 0.34, bounce: 0)) {
-                morph.isDone = true
-            } completion: {
-                host.view.removeFromSuperview()
-                if self.morphHost === host { self.morphHost = nil }
-            }
-        }
-    }
-
-    /// The committed blocks on screen and their boxes (list coordinates).
-    private func visibleBlocks() -> [DocBlockID: CGRect] {
-        guard let list, let reader else { return [:] }
-        let shown = Set(reader.contentFrames(intersecting: list.bounds).keys)
-        var frames: [DocBlockID: CGRect] = [:]
-        for row in demo.rows where shown.contains(row.id) {
-            let ids = row.members.isEmpty ? row.block.map { [$0] } ?? [] : row.members.map(\.id)
-            for id in ids {
-                if let frame = contentFrame(id) { frames[id] = frame }
-            }
-        }
-        return frames
-    }
-
-    private func outset(_ frame: CGRect) -> CGRect {
-        frame.insetBy(dx: -Self.morphOutset.width, dy: -Self.morphOutset.height)
-    }
-
-    /// Where a block shows over the list: a live view at its box, a picture with room
-    /// for its outline.
-    private func shown(_ frame: CGRect, media: Bool, in list: UIScrollView) -> CGRect {
-        (media ? frame : outset(frame)).offsetBy(dx: -list.bounds.minX, dy: -list.bounds.minY)
-    }
-
-    /// A snapshot's part at a frame (list coordinates).
-    private func picture(of shot: (image: CGImage, bounds: CGRect, scale: CGFloat), at frame: CGRect) -> UIImage? {
-        let local = frame.offsetBy(dx: -shot.bounds.minX, dy: -shot.bounds.minY)
-        let pixels = local.applying(CGAffineTransform(scaleX: shot.scale, y: shot.scale)).integral
-        guard local.width > 0, local.height > 0, let image = shot.image.cropping(to: pixels) else { return nil }
-        return UIImage(cgImage: image, scale: shot.scale, orientation: .up)
+    /// Makes a change that reshapes blocks (a layout, an image's size, a kind): each block
+    /// changes to its new shape and the rows around it go to their new places together,
+    /// with the layout motion (the rows are TiledView's to move, a block's content its own).
+    func reshape(_ change: () -> Void) {
+        withAnimation(FlooDesignTokens.Motion.layout) { change() }
     }
 
     // MARK: Model
@@ -1279,7 +1170,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// Links and files among these blocks (the selection by default) take `layout`,
     /// in one transaction.
     func setLayout(_ layout: DocLayout, of ids: [DocBlockID]? = nil) {
-        transition { change(ids ?? selected) { kind in
+        reshape { change(ids ?? selected) { kind in
             switch kind {
             case .link(var link): link.layout = layout; return .link(link: link)
             case .file(var file): file.layout = layout; return .file(file: file)
@@ -1289,7 +1180,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     }
 
     func setImage(fit: DocImage.Fit? = nil, size: DocImage.Size? = nil, of ids: [DocBlockID]? = nil) {
-        transition { change(ids ?? selected) { kind in
+        reshape { change(ids ?? selected) { kind in
             guard case .image(var image) = kind else { return nil }
             image.fit = fit ?? image.fit
             image.size = size ?? image.size
@@ -1310,7 +1201,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// The selected blocks of text become `kind` (as the slash menu turns one), in one
     /// transaction; the rest stay as they are.
     func turnSelection(into kind: BlockKind) {
-        transition { editor.setKind(kind, of: selected) }
+        reshape { editor.setKind(kind, of: selected) }
     }
 
     /// A copy of the selected blocks right after the last of them, in order; a table's
@@ -1370,6 +1261,43 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     func testBlock(at point: CGPoint) -> DocBlockID? { block(at: point) }
 
     var testRowFrame: (DocBlockID) -> CGRect? { { [weak self] in self?.rowFrame($0) } }
+
+    /// Scrolls a block's row to the middle of the list.
+    func testCenter(_ id: DocBlockID) {
+        reader?.scrollTo(id: demo.places[id]?.row ?? id.description, anchor: .center, animated: false)
+    }
+
+    /// Where a block's row shows right now, moving included (list coordinates).
+    func testShownRowFrame(_ id: DocBlockID) -> CGRect? {
+        guard let list, let frame = rowFrame(id) else { return nil }
+        // Its place without its transform (a row on its way has one).
+        let cell = list.visibleCells.first { abs($0.center.y - $0.bounds.height / 2 - frame.minY) < 0.5 && abs($0.bounds.height - frame.height) < 0.5 }
+        // A row on its way shows its contents shifted (TiledView's row moves).
+        return cell.map { cell in
+            let shown = cell.layer.presentation() ?? cell.layer
+            return shown.frame.offsetBy(dx: 0, dy: shown.sublayerTransform.m42)
+        }
+    }
+
+    /// How far down a block's row draws its box right now, moving included (list
+    /// coordinates): the bottom of the lowest layer in it that clips or has a border (a
+    /// card's box, an image's frame), as SwiftUI lays them out frame by frame.
+    func testShownBoxBottom(_ id: DocBlockID) -> CGFloat? {
+        guard let list, let frame = rowFrame(id),
+              let cell = list.visibleCells.first(where: { abs($0.center.y - $0.bounds.height / 2 - frame.minY) < 0.5 }) else { return nil }
+        let root = cell.layer.presentation() ?? cell.layer
+        var bottom: CGFloat?
+        func visit(_ layer: CALayer, depth: Int) {
+            let shown = layer.presentation() ?? layer
+            if depth > 0, shown.masksToBounds || shown.borderWidth > 0, shown.bounds.width < cell.bounds.width - 1 {
+                let box = shown.convert(shown.bounds, to: root)
+                bottom = max(bottom ?? -.infinity, root.frame.minY + root.sublayerTransform.m42 + box.maxY)
+            }
+            for sublayer in layer.sublayers ?? [] { visit(sublayer, depth: depth + 1) }
+        }
+        visit(cell.layer, depth: 0)
+        return bottom
+    }
     var testHighlightFrames: [CGRect] { highlights.filter { !$0.isHidden }.map(\.frame) }
     var testHandleFrame: CGRect? { Self.usesHandles && !handle.isHidden ? handle.frame : nil }
 
@@ -1575,9 +1503,9 @@ struct DocBlockSelectionBar: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.smooth(duration: 0.25), value: blocks.isSelecting)
-        .animation(.smooth(duration: 0.25), value: blocks.isChoosingLayout)
-        .animation(.smooth(duration: 0.25), value: blocks.editor.panels.sheetPage == nil)
+        .animation(FlooDesignTokens.Motion.layout, value: blocks.isSelecting)
+        .animation(FlooDesignTokens.Motion.layout, value: blocks.isChoosingLayout)
+        .animation(FlooDesignTokens.Motion.layout, value: blocks.editor.panels.sheetPage == nil)
     }
 
     private var hasMedia: Bool {

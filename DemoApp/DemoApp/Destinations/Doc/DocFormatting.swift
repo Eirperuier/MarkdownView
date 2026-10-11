@@ -92,7 +92,7 @@ struct DocFormatting {
 
     func setStyle(_ kind: BlockKind) {
         let ids = targets.map(\.id)
-        editor.blocks.transition { editor.setKind(kind, of: ids) }
+        editor.blocks.reshape { editor.setKind(kind, of: ids) }
     }
 
     /// Pressed again, a list goes back to text (Craft's); items already in the style
@@ -102,13 +102,13 @@ struct DocFormatting {
             setStyle(.paragraph)
         } else {
             let ids = targets.filter { !Self.same($0.kind, kind) }.map(\.id)
-            editor.blocks.transition { editor.setKind(kind, of: ids) }
+            editor.blocks.reshape { editor.setKind(kind, of: ids) }
         }
     }
 
     func indent(by delta: Int) {
         let ids = targets.map(\.id)
-        editor.blocks.transition { editor.indent(ids, by: delta) }
+        editor.blocks.reshape { editor.indent(ids, by: delta) }
     }
 
     func toggleQuote() {
@@ -118,7 +118,7 @@ struct DocFormatting {
     func toggleBox() {
         let boxed = isBoxed
         let ids = decorated.map(\.id)
-        editor.blocks.transition { editor.setDecoration(boxed ? nil : .block, of: ids) }
+        editor.blocks.reshape { editor.setDecoration(boxed ? nil : .block, of: ids) }
     }
 
     func toggle(_ mark: Mark) {
@@ -156,7 +156,7 @@ struct DocFormatting {
 
     func paste(_ format: DocCopiedFormat) {
         let ids = Set(decorated.map(\.id))
-        editor.blocks.transition { editor.apply(format, to: ids) }
+        editor.blocks.reshape { editor.apply(format, to: ids) }
     }
 
     // MARK: Pieces

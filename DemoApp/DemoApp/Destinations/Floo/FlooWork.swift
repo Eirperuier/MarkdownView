@@ -58,7 +58,7 @@ struct FlooWorkView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 6)
-        .animation(.snappy, value: process)
+        .animation(FlooDesignTokens.Motion.layout, value: process)
     }
 }
 

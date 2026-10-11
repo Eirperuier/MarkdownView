@@ -25,7 +25,11 @@ struct ChatDestination: View {
         scrollsToBottomOnReplace: true
     )
     @State private var reader = TiledViewReader<String>()
-    @State private var selection = MarkdownBlockSelectionController()
+    @State private var selection = {
+        let selection = MarkdownBlockSelectionController()
+        selection.motion = FlooDesignTokens.Motion.markdown
+        return selection
+    }()
     @State private var heightCache = ChatHeightCache()
     @State private var renderedHeights = ChatRenderedHeights()
     @State private var benchmark = ChatBenchmark()

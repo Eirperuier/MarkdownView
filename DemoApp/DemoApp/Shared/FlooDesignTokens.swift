@@ -20,6 +20,8 @@
 
 import SwiftUI
 import UIKit
+import MarkdownView
+import MessagingUI
 
 enum FlooDesignTokens {
     enum Platform {
@@ -165,15 +167,37 @@ enum FlooDesignTokens {
 
     // MARK: Motion
 
+    /// Every animation is one of these roles; the packages get theirs from here
+    /// (`markdown`, `tiled`, applied at the app's root). Reduce Motion drops what moves
+    /// things (feedback, layout); fades stay.
     enum Motion {
-        /// A control answering (a key, a mode switch).
-        @MainActor static var feedback: Animation? { Accessibility.reduceMotion ? nil : .snappy(duration: 0.18) }
-        /// Something moving to a new place.
-        @MainActor static var transition: Animation? { Accessibility.reduceMotion ? nil : .spring(duration: 0.34, bounce: 0) }
+        /// A control answering: a key, a mode switch, a selection's marks.
+        static let feedbackCurve: Animation = .snappy(duration: 0.18)
+        /// Something taking a new size or place, and what it moves: a block's layout,
+        /// the rows after it, a block dropped. Craft's: about a third of a second, most
+        /// of the way early.
+        static let layoutSpring = Spring(duration: 0.34, bounce: 0)
+        /// A list scrolling itself (to a block, to the caret).
+        static let scrollSpring = Spring(duration: 0.5, bounce: 0)
+        /// Something appearing (a panel, streamed text), and going.
         static let revealDuration: TimeInterval = 0.20
         static let dismissDuration: TimeInterval = 0.13
         /// A floating surface grows from this scale toward its trigger.
         static let revealScale: CGFloat = 0.975
+
+        @MainActor static var feedback: Animation? { Accessibility.reduceMotion ? nil : feedbackCurve }
+        @MainActor static var layout: Animation? { Accessibility.reduceMotion ? nil : .spring(layoutSpring) }
+        static var reveal: Animation { .easeOut(duration: revealDuration) }
+        static var dismiss: Animation { .easeIn(duration: dismissDuration) }
+
+        static var markdown: MarkdownMotion {
+            MarkdownMotion(feedback: feedbackCurve, layout: .spring(layoutSpring), revealCurve: .easeOut, revealDuration: revealDuration)
+        }
+
+        static var tiled: TiledMotion {
+            TiledMotion(layout: TiledSelfSizingAnimation(.spring(layoutSpring)), scroll: scrollSpring, feedback: feedbackCurve,
+                        revealDuration: revealDuration)
+        }
     }
 
     // MARK: Components

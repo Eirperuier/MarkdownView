@@ -42,80 +42,82 @@ struct DocMediaView: View {
 struct DocLinkView: View {
     let link: DocLink
     var reservesDot = false
-    /// Laid out at a transition's box size: pictures follow the box, text keeps its size.
-    @Environment(\.docLayerSize) private var layer
 
-    @ViewBuilder
     var body: some View {
-        switch link.layout {
-        case .small:
-            // Craft's: the thumbnail at the left edge, as tall as the row (in a
-            // transition, as tall as the box).
-            let thumbnail = layer?.height ?? 36
-            HStack(spacing: 10) {
-                DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 20) }
-                    .frame(width: (thumbnail * 1.4).rounded(), height: thumbnail)
-                    .clipped()
-                Text(title)
-                    .font(.system(size: 15))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+        DocMediaBox(shown: link.layout) {
+            switch link.layout {
+            case .small: small
+            case .regular: regular
+            case .card: card
             }
-            .padding(.trailing, reservesDot ? 34 : 12)
-            .docSized(height: 36, alignment: .leading)
-            .docMediaFrame()
-        case .regular:
-            VStack(spacing: 0) {
-                // In a transition the thumbnail is as tall as the row (Craft's); the text
-                // keeps to the band it has on the page.
-                let thumbnail = max(62, (layer?.height ?? 88) - 26)
-                HStack(alignment: .top, spacing: 12) {
-                    DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 28) }
-                        .frame(width: thumbnail * 82 / 62, height: thumbnail)
-                        .clipped()
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title)
-                            .font(.system(size: 17))
-                            .lineLimit(1)
-                        Text(link.summary.isEmpty ? address : link.summary)
-                            .font(.system(size: 15))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.trailing, reservesDot ? 34 : 12)
-                    .frame(height: 62)
-                }
-                DocLinkFooter(link: link)
-            }
-            .docSized()
-            .docMediaFrame()
-        case .card:
-            VStack(alignment: .leading, spacing: 0) {
-                DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 36) }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: max(0, 104 + (layer?.height ?? 222) - 222))
-                    .clipped()
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 15, weight: .medium))
-                        .lineLimit(2)
-                    if !link.summary.isEmpty {
-                        Text(link.summary)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Spacer(minLength: 0)
-                DocLinkFooter(link: link)
-            }
-            .docSized(width: DocMediaLayout.cardWidth, height: 222)
-            .docMediaFrame()
         }
+    }
+
+    private var small: some View {
+        // Craft's: the thumbnail at the left edge, as tall as the row.
+        HStack(spacing: 10) {
+            DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 20) }
+                .frame(width: (36 * 1.4).rounded(), height: 36)
+                .clipped()
+            Text(title)
+                .font(.system(size: 15))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.trailing, reservesDot ? 34 : 12)
+        .frame(height: 36)
+        .docLayout(.small)
+    }
+
+    private var regular: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 28) }
+                    .frame(width: 82, height: 62)
+                    .clipped()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 17))
+                        .lineLimit(1)
+                    Text(link.summary.isEmpty ? address : link.summary)
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.trailing, reservesDot ? 34 : 12)
+                .frame(height: 62)
+            }
+            DocLinkFooter(link: link)
+        }
+        .docLayout(.regular)
+    }
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 36) }
+                .frame(maxWidth: .infinity)
+                .frame(height: 104)
+                .clipped()
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 15, weight: .medium))
+                    .lineLimit(2)
+                if !link.summary.isEmpty {
+                    Text(link.summary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+            DocLinkFooter(link: link)
+        }
+        .frame(width: DocMediaLayout.cardWidth, height: 222)
+        .docLayout(.card)
     }
 
     private var title: String { link.title.isEmpty ? address : link.title }
@@ -164,71 +166,80 @@ private struct DocLinkIcon: View {
 struct DocFileView: View {
     let file: DocFile
     var reservesDot = false
-    @Environment(\.docLayerSize) private var layer
 
     var body: some View {
-        switch file.layout {
-        case .small:
-            HStack(spacing: 8) {
-                DocFileIcon(name: file.name, height: 26)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(file.name)
-                        .font(.system(size: 15))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(DocMediaLayout.kind(of: file.name))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
+        DocMediaBox(shown: file.layout) {
+            switch file.layout {
+            case .small: small
+            case .regular: regular
+            case .card: card
             }
-            .padding(.leading, 10)
-            .padding(.trailing, reservesDot ? 34 : 10)
-            .docSized(height: 42, alignment: .leading)
-            .docMediaFrame()
-        case .regular:
-            HStack(spacing: 14) {
-                DocFileIcon(name: file.name, height: 52)
-                    .frame(width: 52)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(file.name)
-                        .font(.system(size: 17))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(details.joined(separator: "\n"))
-                        .font(.system(size: 15))
-                        .foregroundStyle(.secondary)
-                        .lineSpacing(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.leading, 14)
-            .padding(.trailing, reservesDot ? 34 : 14)
-            .padding(.vertical, 10)
-            .docSized(alignment: .leading)
-            .docMediaFrame()
-        case .card:
-            VStack(spacing: 0) {
-                DocFileIcon(name: file.name, height: 72)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: max(0, 104 + (layer?.height ?? 182) - 182))
-                    .background(Color(.secondarySystemBackground))
-                VStack(spacing: 2) {
-                    Text(file.name)
-                        .font(.system(size: 15, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(details.joined(separator: "\n"))
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 10)
-                Spacer(minLength: 0)
-            }
-            .docSized(width: DocMediaLayout.cardWidth, height: 182)
-            .docMediaFrame()
         }
+    }
+
+    private var small: some View {
+        HStack(spacing: 8) {
+            DocFileIcon(name: file.name, height: 26)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(file.name)
+                    .font(.system(size: 15))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(DocMediaLayout.kind(of: file.name))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, reservesDot ? 34 : 10)
+        .frame(height: 42)
+        .docLayout(.small)
+    }
+
+    private var regular: some View {
+        HStack(spacing: 14) {
+            DocFileIcon(name: file.name, height: 52)
+                .frame(width: 52)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.name)
+                    .font(.system(size: 17))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(details.joined(separator: "\n"))
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, reservesDot ? 34 : 14)
+        .padding(.vertical, 10)
+        .docLayout(.regular)
+    }
+
+    private var card: some View {
+        VStack(spacing: 0) {
+            DocFileIcon(name: file.name, height: 72)
+                .frame(maxWidth: .infinity)
+                .frame(height: 104)
+                .background(Color(.secondarySystemBackground))
+            VStack(spacing: 2) {
+                Text(file.name)
+                    .font(.system(size: 15, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(details.joined(separator: "\n"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
+            Spacer(minLength: 0)
+        }
+        .frame(width: DocMediaLayout.cardWidth, height: 182)
+        .docLayout(.card)
     }
 
     private var details: [String] {
@@ -432,13 +443,45 @@ enum DocMediaLayout {
     }
 }
 
-/// A link or file's box: white, a light border, rounded corners. In a transition the
-/// transition draws it, around the frame it moves (DocMorphView).
-private struct DocMediaBox: ViewModifier {
-    @Environment(\.docFillsFrame) private var fills
+/// A link or file's box (white, a light border, rounded corners) around its layout, as
+/// big as the layout it shows. A new layout is the box going from the old one's size to
+/// the new one's, with the change's animation (Craft's): the new layout fades in at its
+/// own size and the old one out at its own, both cut to the box as it goes.
+private struct DocMediaBox<Content: View>: View {
+    let shown: DocLayout
+    @ViewBuilder let content: () -> Content
 
-    func body(content: Content) -> some View {
-        if fills { content } else { content.docMediaBox() }
+    var body: some View {
+        DocMediaBoxLayout(shown: shown) { content() }
+            .docMediaBox()
+    }
+}
+
+/// Sized by the layout shown; one going away keeps its own size under it.
+private struct DocMediaBoxLayout: Layout {
+    let shown: DocLayout
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let current = subviews.first { $0[DocLayoutKey.self] == shown } ?? subviews.last
+        return current?.sizeThatFits(proposal) ?? .zero
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for subview in subviews {
+            subview.place(at: bounds.origin, anchor: .topLeading, proposal: proposal)
+        }
+    }
+}
+
+private struct DocLayoutKey: LayoutValueKey {
+    static let defaultValue: DocLayout? = nil
+}
+
+private extension View {
+    /// A layout's content in its box: it fades as the box changes to or from it.
+    func docLayout(_ layout: DocLayout) -> some View {
+        layoutValue(key: DocLayoutKey.self, value: layout)
+            .transition(.opacity)
     }
 }
 
@@ -447,12 +490,6 @@ extension View {
         background(Color(.systemBackground))
             .clipShape(.rect(cornerRadius: 8, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(DocMediaLayout.border, lineWidth: 1))
-    }
-}
-
-private extension View {
-    func docMediaFrame() -> some View {
-        modifier(DocMediaBox())
     }
 }
 
@@ -547,7 +584,7 @@ struct DocMediaGroupView: View {
         }
         .frame(width: width, height: DocMediaLayout.groupHeight(members.map(\.kind), width: width), alignment: .topLeading)
         // Reordered (a member dropped beside another), the others slide to their places.
-        .animation(.spring(duration: 0.34, bounce: 0), value: members.map(\.id))
+        .animation(FlooDesignTokens.Motion.layout, value: members.map(\.id))
     }
 }
 
@@ -559,11 +596,6 @@ struct DocMediaCell: View {
     let kind: BlockKind
     let blocks: DocBlockController
     var size: CGSize?
-    /// A layer of a change's transition (DocMorph): its content at `size`, without the
-    /// box and outline the transition draws around it.
-    var isLayer = false
-    /// Off in a transition, where it is a picture of the page.
-    var isInteractive = true
 
     var body: some View {
         let isSelected = blocks.selected.contains(id)
@@ -575,16 +607,15 @@ struct DocMediaCell: View {
                         .transition(.opacity)
                 }
             }
-            .animation(.easeOut(duration: 0.2), value: blocks.isSelecting)
+            .animation(FlooDesignTokens.Motion.feedback, value: blocks.isSelecting)
             .overlay {
-                if isSelected, !isLayer {
+                if isSelected {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5)
                         .padding(-3)
                 }
             }
-            .modifier(DocMediaContextMenu(kind: kind, block: id, blocks: blocks, isOn: isInteractive && !isLayer))
-            .environment(\.docLayerSize, isLayer ? size : nil)
+            .modifier(DocMediaContextMenu(kind: kind, block: id, blocks: blocks))
     }
 
     @ViewBuilder
@@ -594,9 +625,6 @@ struct DocMediaCell: View {
                 .frame(width: size.width, height: size.height)
                 .clipShape(.rect(cornerRadius: 8, style: .continuous))
                 .accessibilityLabel(image.alt)
-        } else if isLayer, let size {
-            DocMediaView(kind: kind, reservesDot: blocks.isSelecting)
-                .frame(width: size.width, height: size.height, alignment: .topLeading)
         } else {
             DocMediaView(kind: kind, reservesDot: blocks.isSelecting)
         }
@@ -616,54 +644,15 @@ private struct DocSelectionDot: View {
     }
 }
 
-// MARK: Transitions
-
-extension EnvironmentValues {
-    /// Drawn in a change's transition at this size (DocMorph): a link or file lays itself
-    /// out at each size the transition passes through. Its picture takes what the box
-    /// gains or loses over its own size, the rest stays as it is, so at its own size it
-    /// is exactly as on the page.
-    @Entry var docLayerSize: CGSize?
-    var docFillsFrame: Bool { docLayerSize != nil }
-}
-
-/// Its fixed size on the page; in a transition, the frame the transition gives it.
-private struct DocSized: ViewModifier {
-    let width: CGFloat?
-    let height: CGFloat?
-    let alignment: Alignment
-    @Environment(\.docFillsFrame) private var fills
-
-    func body(content: Content) -> some View {
-        if fills {
-            content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
-        } else {
-            content.frame(width: width, height: height)
-        }
-    }
-}
-
-extension View {
-    func docSized(width: CGFloat? = nil, height: CGFloat? = nil, alignment: Alignment = .topLeading) -> some View {
-        modifier(DocSized(width: width, height: height, alignment: alignment))
-    }
-}
-
-/// On the Mac a right-click offers a link, file or image's layouts. Not in a
-/// transition: the menu's interaction hosts the content in UIKit.
+/// On the Mac a right-click offers a link, file or image's layouts.
 private struct DocMediaContextMenu: ViewModifier {
     let kind: BlockKind
     let block: DocBlockID
     let blocks: DocBlockController
-    let isOn: Bool
 
     func body(content: Content) -> some View {
         #if targetEnvironment(macCatalyst)
-        if isOn {
-            content.contextMenu { DocMediaMenu(kind: kind, block: block, blocks: blocks) }
-        } else {
-            content
-        }
+        content.contextMenu { DocMediaMenu(kind: kind, block: block, blocks: blocks) }
         #else
         content
         #endif

@@ -478,7 +478,7 @@ final class DocEditor {
             promptLink(over: range, in: block.id, from: view)
         case .style(let kind):
             guard block.kind.allowsMarks else { return }
-            blocks.transition { setKind(kind, of: [block.id]) }
+            blocks.reshape { setKind(kind, of: [block.id]) }
         }
     }
 

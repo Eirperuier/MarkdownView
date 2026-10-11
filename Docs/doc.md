@@ -140,6 +140,8 @@ enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mentio
 
 书签只带地址和标题(markdown 里是 `[标题](url "bookmark")`);摘要和预览图由 app 从网页的 Open Graph 标签(没有就用 `<title>` 和 description)取来,只填书签空着的项。填写是 app 自己的事务,和 agent 的一样不进人的撤销栈,只让历史映射过去;每个地址只取一次。在空行里粘贴一个网址,这一行变成它的书签,光标到下面的新行(Craft 的做法),一次撤销退回。
 
+改布局、改图片的大小或填充、改块的类型,都在 `withAnimation(Motion.layout)` 里做(`DocBlockController.reshape`),不另画覆盖层:块自己变成新的样子,后面的行跟着走到新位置。书签和附件画在一个"盒子"里,盒子的大小只按当前布局算,换布局时盒子从旧尺寸变到新尺寸,旧布局淡出、新布局淡入,都按各自的尺寸裁在盒子里;图片的框直接插值。后面的行由 TiledView 移动:带动画的 transaction 里来的 `.update`,被改的行在同一个动画里重绘内容,其它行每一帧跟着它的动画进度走(同一个 SwiftUI 时钟,所以内容的底边和下一行始终贴着,不会差一帧)。撤销重做不带动画。
+
 单击选中,双击打开:书签在浏览器里打开,图片用 Quick Look;附件的来源是网址的在浏览器打开、本地文件用 Quick Look。`blob:` 附件还没有存储,双击不响应——附件放在哪里(本机、floo 服务端)待定。
 
 ### 3.5 数据库块:多维表格和看板【定】
@@ -384,6 +386,8 @@ agent 写一段新内容或改写一块要花几秒,各端都要看到它在原�
 | 之后 | 移植进 floo:DocKit 进 Core,服务端加 `doc_step` 和端点,App 接入;再做 Web | 走 floo 的流程 |
 
 界面上的尺寸、颜色、动效集中在 `FlooDesignTokens`(仿 Matrix HQ 的 `MatrixDesignTokens`:先按家族——状态、颜色角色、间距、控件、圆角、描边、阴影、动效——再按组件),iOS 和 Mac 共用一份:颜色用 UIKit 的语义色,字用文字样式,只在指针和手指确实不同的地方分开。文档内容自己的字体和行距仍在 `DocTypography`。
+
+动效只有几种角色:`feedback`(控件的回应,snappy 0.18 秒)、`layout`(东西换尺寸、换位置,以及被它带动的行:无回弹弹簧 0.34 秒)、`scroll`(列表自己滚动:无回弹弹簧 0.5 秒)、出现和消失(easeOut 0.20 / easeIn 0.13 秒)。系统"减弱动态效果"打开时 feedback 和 layout 不动,淡入淡出保留。两个包各自暴露同样的角色:MarkdownView 的 `MarkdownMotion`(feedback、layout、reveal 曲线和时长,`.markdownMotion(_:)`),MessagingUI 的 `TiledMotion`(layout、scroll、feedback、reveal 时长,`.tiledMotion(_:)`);默认值取包原来最常用的值(原先各处零散的 0.15–0.4 秒归到这几个角色上),app 在根上用 `Motion.markdown` 和 `Motion.tiled` 把自己的 token 交给它们。代码里不写动画的数字,只写角色。
 
 界面文字也照 Matrix HQ 的做法本地化:一个 `Localizable.xcstrings`,英文原文当 key,简体中文手写,快捷键符号原样保留(「Highlight · ⌘⇧B」→「高亮 · ⌘⇧B」),格式占位符两边一致。文档内容和示例语料不翻译。目前覆盖文档页和侧栏的 floo 三项;floo 对话 demo 的界面文字和它的中文剧本混在一起,还没拆。
 

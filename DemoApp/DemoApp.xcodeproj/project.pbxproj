@@ -118,7 +118,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				8C21E5AE2D9E7FB20097554E /* XCLocalSwiftPackageReference "../../MarkdownView" */,
-				8C21E5C02D9E7FB20097554E /* XCRemoteSwiftPackageReference "swiftui-messaging-ui" */,
+				8C21E5C02D9E7FB20097554E /* XCLocalSwiftPackageReference "floo-swiftui-messaging-ui" */,
 				F100C0DE2E00000000000001 /* XCLocalSwiftPackageReference "Cards" */,
 				F100C0DE2E00000000000010 /* XCLocalSwiftPackageReference "DocKit" */,
 			);
@@ -385,18 +385,11 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../DocKit;
 		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		8C21E5C02D9E7FB20097554E /* XCRemoteSwiftPackageReference "swiftui-messaging-ui" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/techx-academy/floo-swiftui-messaging-ui.git";
-			requirement = {
-				kind = revision;
-				revision = 54fe9f96288d692df333cc9f21856431edf0facc;
-			};
+		8C21E5C02D9E7FB20097554E /* XCLocalSwiftPackageReference "floo-swiftui-messaging-ui" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../floo-swiftui-messaging-ui";
 		};
-/* End XCRemoteSwiftPackageReference section */
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		8C21E5AF2D9E7FB20097554E /* MarkdownView */ = {
@@ -405,7 +398,7 @@
 		};
 		8C21E5C12D9E7FB20097554E /* MessagingUI */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 8C21E5C02D9E7FB20097554E /* XCRemoteSwiftPackageReference "swiftui-messaging-ui" */;
+			package = 8C21E5C02D9E7FB20097554E /* XCLocalSwiftPackageReference "floo-swiftui-messaging-ui" */;
 			productName = MessagingUI;
 		};
 		F100C0DE2E00000000000002 /* CardUI */ = {

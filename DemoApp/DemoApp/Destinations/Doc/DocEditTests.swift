@@ -1332,6 +1332,37 @@ final class DocEditTests {
             try self.expect(media.map { self.demo.doc.block($0.id)?.kind } == before, "undo didn't restore the layouts")
             blocks.clear()
         }
+        await test("an image's new size changes in place; the rows after it follow in step and come to rest") {
+            // The demo's images share a row: a line after the first stands it alone.
+            let first = try self.expectValue(self.demo.doc.blocks.first { if case .image = $0.kind { true } else { false } }, "no image")
+            _ = self.demo.edit([.insertBlock(block: DocBlock(id: self.demo.newBlockID(), kind: .paragraph, text: DocText(string: "·")), after: first.id)],
+                               before: nil, after: nil)
+            try? await Task.sleep(for: .milliseconds(300))
+            let (image, next) = try self.expectValue(self.mediaAlone { if case .image = $0 { true } else { false } }, "no image alone before a row")
+            guard case .image(let old) = image.kind else { throw Failure(description: "not an image") }
+            // The change that moves its bottom most: its size or its fit.
+            var sized = old, fitted = old
+            sized.size = old.size == .large ? .auto : .large
+            fitted.fit = old.fit == .fill ? .fit : .fill
+            let width = DocMediaLayout.pageWidth
+            let height = { (image: DocImage) in DocMediaLayout.imageHeight(image, width: width) }
+            let new = abs(height(sized) - height(old)) > abs(height(fitted) - height(old)) ? sized : fitted
+            try self.expect(abs(height(new) - height(old)) > 30, "no change moves the image's bottom")
+            await show(image.id)
+            try await self.expectReshape(image.id, next: next) {
+                blocks.setImage(fit: new.fit, size: new.size, of: [image.id])
+            }
+        }
+        await test("a file's new layout: its box goes from one size to the other; the rows after it follow in step and come to rest") {
+            let (file, next) = try self.expectValue(self.mediaAlone {
+                if case .file(let file) = $0 { file.layout != .card } else { false }
+            }, "no small or regular file alone before a row")
+            guard case .file(let old) = file.kind else { throw Failure(description: "not a file") }
+            await show(file.id)
+            try await self.expectReshape(file.id, next: next) {
+                blocks.setLayout(old.layout == .small ? .regular : .small, of: [file.id])
+            }
+        }
         await test("a selected image fills and goes large, and draws at the page's width") {
             let image = try self.expectValue(self.demo.doc.blocks.first { if case .image = $0.kind { true } else { false } }, "no image")
             await show(image.id)
@@ -1468,6 +1499,66 @@ final class DocEditTests {
             failed += 1
             print("DOCTEST FAIL \(name): \(error)")
         }
+    }
+
+    // MARK: Reshaping
+
+    /// A link, file or image alone in its row, with a row of its own right after it.
+    private func mediaAlone(_ matches: (BlockKind) -> Bool) -> (block: DocBlock, next: DocBlockID)? {
+        let rows = demo.rows
+        for (index, row) in rows.enumerated() where row.members.isEmpty && index + 1 < rows.count {
+            guard let id = row.block, let block = demo.doc.block(id), matches(block.kind),
+                  rows[index + 1].members.isEmpty, let next = rows[index + 1].block else { continue }
+            return (block, next)
+        }
+        return nil
+    }
+
+    /// Makes `change` to the block and watches the screen while it lands: its box (a
+    /// card's, an image's frame) goes from its old bottom to its new one, the row after it
+    /// from its old place to its new one, the two together, the row before stays put, and
+    /// all of it comes to rest where the layout says.
+    private func expectReshape(_ id: DocBlockID, next: DocBlockID, change: () -> Void) async throws {
+        let blocks = editor.blocks
+        blocks.testCenter(id)
+        try? await Task.sleep(for: .milliseconds(300))
+        let before = demo.rows.firstIndex { $0.block == id }.flatMap { $0 > 0 ? demo.rows[$0 - 1].block : nil }
+        let beforeTop = before.flatMap { blocks.testShownRowFrame($0)?.minY }
+        func sample() throws -> (bottom: CGFloat, next: CGFloat, before: CGFloat?) {
+            (try expectValue(blocks.testShownBoxBottom(id), "no box drawn"),
+             try expectValue(blocks.testShownRowFrame(next)?.minY, "next row not on screen"),
+             before.flatMap { blocks.testShownRowFrame($0)?.minY })
+        }
+        let start = try sample()
+        let began = CACurrentMediaTime()
+        change()
+        var samples: [(time: Double, bottom: CGFloat, next: CGFloat, before: CGFloat?)] = []
+        while CACurrentMediaTime() - began < 0.7 {
+            try? await Task.sleep(for: .milliseconds(8))
+            let shown = try sample()
+            samples.append((CACurrentMediaTime() - began, shown.bottom, shown.next, shown.before))
+        }
+        let end = try expectValue(samples.last, "no samples")
+        let trace = samples.map { String(format: "%.3f:%.1f/%.1f", $0.time, $0.bottom - start.bottom, $0.next - start.next) }.joined(separator: " ")
+        print("DOCTEST TRACE reshape \(start.bottom)/\(start.next) → \(trace)")
+        func between(_ value: CGFloat, _ a: CGFloat, _ b: CGFloat) -> Bool { value > min(a, b) + 3 && value < max(a, b) - 3 }
+        // On its way: some frames show both partway, not one jump.
+        let partway = samples.filter { between($0.bottom, start.bottom, end.bottom) && between($0.next, start.next, end.next) }
+        try expect(partway.count >= 3, "only \(partway.count) frames partway: \(trace)")
+        // Together: the gap between what it draws and the next row stays the gap it ends with.
+        let gap = end.next - end.bottom
+        let apart = samples.filter { abs(($0.next - $0.bottom) - gap) > 3 }
+        try expect(apart.isEmpty, "\(apart.count) frames out of step: \(trace)")
+        // Toward the end, never back, and slowing down into its place (no sudden stop).
+        let steps = zip(samples, samples.dropFirst()).map { $1.next - $0.next }
+        let direction: CGFloat = end.next >= start.next ? 1 : -1
+        try expect(steps.allSatisfy { $0 * direction >= -1 }, "the next row went back: \(trace)")
+        let lastMove = samples.lastIndex { abs($0.next - end.next) > 0.5 } ?? 0
+        if lastMove > 0 { try expect(abs(steps[lastMove - 1]) < 3, "stopped from \(steps[lastMove - 1]) a frame: \(trace)") }
+        // At rest where the layout says; the row before never moved.
+        let next = try expectValue(blocks.testRowFrame(next), "no next row")
+        try expect(abs(end.next - next.minY) < 0.5, "next row rests at \(end.next), its place is \(next.minY)")
+        if let beforeTop { try expect(samples.allSatisfy { $0.before.map { abs($0 - beforeTop) < 0.5 } ?? true }, "the row before moved") }
     }
 
     // MARK: Helpers

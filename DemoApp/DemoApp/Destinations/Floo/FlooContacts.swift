@@ -313,7 +313,7 @@ final class FlooContactsDemo {
         show("已在\(device.name)上打开「\(service.name)」的设置")
         Task {
             try? await Task.sleep(for: .seconds(3))  // try?: cancelled, no matter
-            withAnimation(.snappy) {
+            withAnimation(FlooDesignTokens.Motion.feedback) {
                 following[service.id]?.asked.remove(device.id)
                 following[service.id]?.devices.insert(device.id)
             }
@@ -321,10 +321,10 @@ final class FlooContactsDemo {
     }
 
     func show(_ text: String) {
-        withAnimation(.snappy) { toast = text }
+        withAnimation(FlooDesignTokens.Motion.layout) { toast = text }
         Task {
             try? await Task.sleep(for: .seconds(2.5))  // try?: cancelled, no matter
-            withAnimation(.snappy) { if toast == text { toast = nil } }
+            withAnimation(FlooDesignTokens.Motion.layout) { if toast == text { toast = nil } }
         }
     }
 
