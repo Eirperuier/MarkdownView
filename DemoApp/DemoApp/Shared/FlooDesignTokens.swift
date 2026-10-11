@@ -257,6 +257,42 @@ enum FlooDesignTokens {
             static let quoteBar = CGSize(width: 3.5, height: 18)
         }
 
+        /// The phone's format sheet (Craft's): over the selected blocks, or in the
+        /// keyboard's place. Pages of rows the same height, so it doesn't jump.
+        enum FormatSheet {
+            static let cornerRadius: CGFloat = 28
+            static let margin = Space.sm
+            static let inset = Space.md
+            static let grabber = CGSize(width: 36, height: 5)
+            static let grabberArea: CGFloat = 18
+            static let rowSpacing: CGFloat = 6
+            /// A row of tiles (lists, indent, decorations) and the style chips.
+            static let row: CGFloat = 50
+            /// Every page's height (the main page's three rows), so the sheet doesn't jump.
+            static let page: CGFloat = row * 3 + rowSpacing * 2
+            static let tileSpacing: CGFloat = 5
+            /// Between the list tiles and the indent tiles.
+            static let groupGap: CGFloat = 11
+            static let tileRadius = Radius.md
+            static let outline: CGFloat = 1.5
+            static let colorRing: CGFloat = 40
+            static let swatchHeight: CGFloat = 76
+            static let swatchRadius = Radius.lg
+            static let swatchSpacing = Space.md
+            static let swatchColumns = 6
+            static let chosenRing: CGFloat = 3
+            static let label = Font.system(size: 17)
+            static let shadow = Elevation.high
+        }
+
+        /// The colours over the phone's highlight key (Craft's): text colours, then highlights.
+        enum ColorsPopover {
+            static let swatch: CGFloat = 34
+            static let spacing: CGFloat = 10
+            static let inset: CGFloat = 14
+            static let cornerRadius: CGFloat = 26
+        }
+
         /// A block's grey box in the document (Craft's Block decoration).
         enum DecorationBox {
             /// Out past the text's edges.

@@ -158,6 +158,19 @@ struct DocDestination: View {
                }) {
                 if DocBlockController.usesHandles { editor.blocks.click(block.id) } else { editor.blocks.beginSelecting(block.id) }
             }
+            // -docSheet main|styles|colors|more: the phone's format sheet at that page, over
+            // the selected blocks (-docShowHandle) or in the keyboard's place (-docFocus);
+            // -docColorsKey YES: the colours over the keyboard bar's highlight key (-docSelect).
+            if let page = UserDefaults.standard.string(forKey: "docSheet") {
+                let pages: [String: DocFormatSheetPage] = ["main": .main, "styles": .styles, "colors": .colors, "more": .more]
+                try? await Task.sleep(for: .milliseconds(500))
+                if !editor.blocks.isSelecting { editor.toggleFormatInput() }
+                editor.panels.sheetPage = pages[page] ?? .main
+            }
+            if UserDefaults.standard.bool(forKey: "docColorsKey") {
+                try? await Task.sleep(for: .milliseconds(500))
+                editor.keyboardBar.testTap("highlight")
+            }
             // -docShot <path>: what the options above show, drawn to a PNG there
             // (screenshots without screen recording).
             if let path = UserDefaults.standard.string(forKey: "docShot") {

@@ -180,6 +180,16 @@
         }
       }
     },
+    "Back" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回"
+          }
+        }
+      }
+    },
     "Block" : {
       "localizations" : {
         "zh-Hans" : {
@@ -320,6 +330,16 @@
         }
       }
     },
+    "Close" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        }
+      }
+    },
     "Close Menu" : {
       "localizations" : {
         "zh-Hans" : {
@@ -406,6 +426,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "复制"
+          }
+        }
+      }
+    },
+    "Copy Format" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拷贝格式"
           }
         }
       }
@@ -893,16 +923,6 @@
         }
       }
     },
-    "List" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "列表"
-          }
-        }
-      }
-    },
     "Math Block" : {
       "localizations" : {
         "zh-Hans" : {
@@ -929,6 +949,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更多"
+          }
+        }
+      }
+    },
+    "More…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更多…"
           }
         }
       }
@@ -1079,6 +1109,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "减少缩进"
+          }
+        }
+      }
+    },
+    "Paste Format" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "粘贴格式"
           }
         }
       }
@@ -1339,16 +1379,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "文字颜色"
-          }
-        }
-      }
-    },
-    "Text Style" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "文字样式"
           }
         }
       }

@@ -654,6 +654,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     func endSelecting() {
         isSelecting = false
         isChoosingLayout = false
+        editor.panels.sheetPage = nil
         editor.isEditable = !demo.isAgentWriting
         anchor = nil
         head = nil
@@ -1542,12 +1543,20 @@ struct DocBlockSelectionBar: View {
     var body: some View {
         VStack {
             if blocks.isSelecting {
+                let formatting = blocks.editor.panels.sheetPage != nil
+                let radius = formatting ? FlooDesignTokens.Component.FormatSheet.cornerRadius : 26
                 Group {
-                    if blocks.isChoosingLayout { layouts } else { actions }
+                    if blocks.isChoosingLayout {
+                        layouts
+                    } else if formatting {
+                        DocFormatSheet(editor: blocks.editor) { blocks.editor.panels.sheetPage = nil }
+                    } else {
+                        actions
+                    }
                 }
-                .padding(8)
-                .background(.regularMaterial, in: .rect(cornerRadius: 26, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(.white.opacity(0.6), lineWidth: 1))
+                .padding(formatting ? 0 : 8)
+                .background(.regularMaterial, in: .rect(cornerRadius: radius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(.white.opacity(0.6), lineWidth: 1))
                 .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
@@ -1556,6 +1565,7 @@ struct DocBlockSelectionBar: View {
         }
         .animation(.smooth(duration: 0.25), value: blocks.isSelecting)
         .animation(.smooth(duration: 0.25), value: blocks.isChoosingLayout)
+        .animation(.smooth(duration: 0.25), value: blocks.editor.panels.sheetPage == nil)
     }
 
     private var hasMedia: Bool {
@@ -1564,15 +1574,12 @@ struct DocBlockSelectionBar: View {
 
     private var actions: some View {
         HStack(spacing: 8) {
-            Menu {
-                ForEach(Self.kinds) { item in
-                    Button(item.title, systemImage: item.symbol) {
-                        if let kind = item.action.kind { blocks.turnSelection(into: kind) }
-                    }
-                }
+            Button {
+                blocks.editor.panels.sheetPage = .main
             } label: {
                 DocSelectionTile(title: String(localized: "Style"), symbol: "textformat", color: Color(red: 0.42, green: 0.13, blue: 0.78))
             }
+            .accessibilityIdentifier("selection-style")
             if hasMedia {
                 Button {
                     blocks.isChoosingLayout = true
@@ -1645,8 +1652,6 @@ struct DocBlockSelectionBar: View {
         }
     }
 
-    /// What selected text blocks can become.
-    private static let kinds = DocSlashItem.all.filter { $0.action.kind?.carriesText == true }
 }
 
 extension DocLayout {

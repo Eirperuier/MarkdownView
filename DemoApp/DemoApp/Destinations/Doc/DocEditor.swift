@@ -50,8 +50,11 @@ final class DocEditor {
     }
     /// The selection, observable (the Mac's format panel follows it).
     let cursor = DocCursor()
-    /// Which of the Mac's panels are up.
+    /// Which format panels are up: the Mac's panel, the phone's sheet and its page.
     let panels = DocPanels()
+    /// The phone's format sheet in the keyboard's place, and the text view it's in.
+    private lazy var formatInput = DocFormatInputView(editor: self)
+    private weak var formatInputOwner: UITextView?
     /// The Mac's toolbar over selected text.
     lazy var selectionToolbar = DocSelectionToolbarController(editor: self)
     /// The slash menu, and where its "/" is while it's open.
@@ -867,6 +870,79 @@ final class DocEditor {
         demo.edit(steps, before: selection, after: selection)
     }
 
+    // MARK: The phone's format sheet in the keyboard's place
+
+    var showsFormatInput: Bool { formatInputOwner != nil }
+
+    /// The keyboard bar's Aa: the sheet takes the keyboard's place, or gives it back.
+    func toggleFormatInput() {
+        if showsFormatInput { return hideFormatInput() }
+        guard let selection, let view = textView(for: selection.head.block), view.isFirstResponder else { return }
+        panels.sheetPage = .main
+        formatInputOwner = view
+        view.inputView = formatInput
+        view.reloadInputViews()
+        keyboardBar.update()
+    }
+
+    func hideFormatInput() {
+        guard let view = formatInputOwner else { return }
+        formatInputOwner = nil
+        if !blocks.isSelecting { panels.sheetPage = nil }
+        view.inputView = nil
+        view.reloadInputViews()
+        keyboardBar.update()
+    }
+
+    /// A text view starts or stops being edited: the sheet stays with the one it's in.
+    fileprivate func editingChanged(_ textView: UITextView) {
+        if let owner = formatInputOwner, owner !== textView || !textView.isFirstResponder { hideFormatInput() }
+    }
+
+    /// The keyboard bar's slash key: a "/" typed, and the slash menu open even where a
+    /// typed one wouldn't open it (after a word).
+    func typeSlash() {
+        guard let selection, let view = textView(for: selection.head.block) else { return }
+        let origin = DocPosition(block: selection.head.block, offset: min(selection.anchor.offset, selection.head.offset))
+        replace(view.selectedRange, with: "/", in: view, block: origin.block)
+        guard slashOrigin == nil, demo.doc.block(origin.block).map({ $0.text.string.utf16.dropFirst(origin.offset).first == 0x2F }) == true else { return }
+        slashOrigin = origin
+        updateSlash()
+    }
+
+    /// What presents a sheet over the document (the system colour picker).
+    func presentingController() -> UIViewController? {
+        let window = allViews.compactMap(\.window).first { $0.isKeyWindow } ?? allViews.compactMap(\.window).first
+        var controller = window?.rootViewController
+        while let presented = controller?.presentedViewController { controller = presented }
+        return controller
+    }
+
+    /// Blocks take a copied format, in one transaction: blocks of text its kind (a
+    /// list keeps its items' levels) and its marks on all their text, any block its
+    /// decoration.
+    func apply(_ format: DocCopiedFormat, to ids: Set<DocBlockID>) {
+        var steps: [DocStep] = []
+        for block in demo.doc.blocks where ids.contains(block.id) {
+            let kind = block.kind.carriesText && format.kind.carriesText ? format.kind : block.kind
+            if !DocFormatting.same(kind, block.kind) {
+                let indent = if case .listItem = format.kind, case .listItem = block.kind { block.indent } else { 0 }
+                steps.append(.setBlock(block: block.id, kind: format.kind, indent: indent, previousKind: block.kind, previousIndent: block.indent))
+            }
+            if block.decoration != format.decoration {
+                steps.append(.setDecoration(block: block.id, decoration: format.decoration, previous: block.decoration))
+            }
+            guard kind.allowsMarks, !block.text.isEmpty else { continue }
+            let whole = 0..<block.text.length
+            for kind in DocCopiedFormat.markKinds {
+                steps.append(.setMarks(block: block.id, range: whole, kind: kind,
+                                       spans: format.marks[kind].map { [MarkSpan(range: whole, mark: $0)] } ?? [], previous: []))
+            }
+        }
+        guard !steps.isEmpty else { return }
+        demo.edit(steps, before: selection, after: selection)
+    }
+
     /// Marks each range, or clears the mark when all of them already have it, in one
     /// transaction.
     func toggle(_ mark: Mark, over ranges: [(block: DocBlockID, range: Range<Int>)]) {
@@ -1084,7 +1160,7 @@ final class DocUndoManager: UndoManager {
 
 enum DocKeyCommand: Equatable {
     case outdent, bold, italic, strike, code, highlight, link, lineBreak, slashUp, slashDown, slashClose
-    /// ⌃1–⌃6: the block takes a text style (DocFormatPanel.styles).
+    /// ⌃1–⌃6: the block takes a text style (DocFormatting.styles).
     case style(BlockKind)
 }
 
@@ -1149,8 +1225,14 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
         editor?.tables.endEditing()
         editor?.sources.endEditing()
         editor?.blocks.textEditingBegan()
+        editor?.editingChanged(textView)
         // The selection may have come before the focus: the toolbar waits for both.
         editor?.selectionToolbar.selectionChanged()
+    }
+
+    func textViewDidEndEditing(_ textView: UITextView) {
+        original?.textViewDidEndEditing?(textView)
+        editor?.editingChanged(textView)
     }
 
     /// Letters typed with a Chinese, Japanese or Korean keyboard start marked text.
@@ -1190,7 +1272,7 @@ private enum TextViewHooks {
     /// them; UIKit's own versions would edit the storage, not the model); ⌃1–⌃6 set
     /// the text style (Craft's).
     /// ↑, ↓ and Esc are the slash menu's only while it is open.
-    private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String, slashMenu: Bool)] = DocFormatPanel.styles.map { style in
+    private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String, slashMenu: Bool)] = DocFormatting.styles.map { style in
         (style.key, .control, Selector(("docStyle\(style.key):")), .style(style.kind), style.title, false)
     } + [
         ("\t", .shift, Selector(("docOutdent:")), .outdent, String(localized: "Outdent"), false),

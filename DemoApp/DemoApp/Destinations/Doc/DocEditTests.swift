@@ -1097,26 +1097,77 @@ final class DocEditTests {
             try self.expect(marks.contains(MarkSpan(range: 0..<7, mark: .bold)), "marks \(marks)")
             try self.expect(bar.testItems.first { $0.id == "bold" }?.isOn == true, "bold not shown on")
         }
-        await test("the keyboard bar turns the block into a heading, and inserts code after it") {
+        await test("the keyboard bar's highlight key opens the colours; a second tap closes them") {
+            let block = try self.block("Loading older")
+            try await self.select(block.id, 0..<7)
+            bar.testTap("highlight")
+            try self.expect(bar.showsColors, "no colours")
+            try self.expect(bar.testItems.first { $0.id == "highlight" }?.isOn == false, "the key isn't on for the text")
+            bar.testTap("highlight")
+            try self.expect(!bar.showsColors, "the colours stay")
+        }
+        await test("the keyboard bar's slash types a slash and opens the menu; Aa puts the format sheet in the keyboard's place") {
             let block = try self.block("Loading older")
             try await self.focus(block.id, at: block.text.length)
-            try self.expect(bar.testItems.map(\.id) == ["lists", "styles", "more", "insert", "dismiss"], "keys \(bar.testItems.map(\.id))")
-            bar.testTap("styles", choosing: String(localized: "Heading 2"))
+            try self.expect(bar.testItems.map(\.id) == ["slash", "format", "more", "dismiss"], "keys \(bar.testItems.map(\.id))")
+            if !DocBlockController.usesHandles {
+                bar.testTap("format")
+                try self.expect(self.editor.showsFormatInput && self.editor.panels.sheetPage == .main, "no sheet")
+                try self.expect(bar.testItems.first { $0.id == "format" }?.isOn == true, "Aa not on")
+                // A caret stands for its block: the sheet's style goes on it.
+                DocFormatting(editor: self.editor, caretTakesBlock: true).setStyle(.heading(level: 2))
+                try await self.settle()
+                try self.expect(self.demo.doc.block(block.id)?.kind == .heading(level: 2), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
+                bar.testTap("format")
+                try self.expect(!self.editor.showsFormatInput && self.editor.panels.sheetPage == nil, "the sheet stays")
+            }
+            bar.testTap("slash")
             try await self.settle()
-            try self.expect(self.demo.doc.block(block.id)?.kind == .heading(level: 2), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
-            bar.testTap("insert", choosing: String(localized: "Code Block"))
-            try? await Task.sleep(for: .milliseconds(300))
-            try self.expect(try self.blockAfter(block.id).kind == .code(language: nil), "after \(String(describing: try? self.blockAfter(block.id).kind))")
+            try self.expect(self.text(block.id).hasSuffix("/") && self.editor.slash.isOpen, "text \(self.text(block.id).debugDescription) open \(self.editor.slash.isOpen)")
         }
         await test("on an empty line the keyboard bar's divider key makes it a divider") {
             let block = try self.block("Loading older")
             try await self.focus(block.id, at: block.text.length)
             try await self.enter()
             let line = try self.blockAfter(block.id)
-            try self.expect(bar.testItems.map(\.id) == ["lists", "styles", "more", "divider", "insert", "dismiss"], "keys \(bar.testItems.map(\.id))")
+            try self.expect(bar.testItems.map(\.id) == ["slash", "format", "more", "divider", "dismiss"], "keys \(bar.testItems.map(\.id))")
             bar.testTap("divider")
             try await self.settle()
             try self.expect(self.demo.doc.block(line.id)?.kind == .divider, "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
+        }
+        await test("Copy Format takes a block's kind, box and marks; Paste Format gives them to the selected blocks, one undo") {
+            let source = try self.block("Loading older")
+            let target = try self.block("第 2 节")
+            let blocks = self.editor.blocks
+            self.editor.setKind(.heading(level: 3), of: [source.id])
+            self.editor.setDecoration(.block, of: [source.id])
+            self.editor.toggle(.bold, over: [(source.id, 0..<self.demo.doc.block(source.id)!.text.length)])
+            self.editor.set(.color, to: .color("red"), over: [(source.id, 0..<self.demo.doc.block(source.id)!.text.length)])
+            blocks.beginSelecting(source.id)
+            let copied = try self.expectValue(DocFormatting(editor: self.editor).format, "no format")
+            try self.expect(copied.kind == .heading(level: 3) && copied.decoration == .block && copied.marks == [.bold: .bold, .color: .color("red")], "copied \(copied)")
+            blocks.select([target.id])
+            try self.expect(blocks.selected == [target.id], "selected \(blocks.selected)")
+            DocFormatting(editor: self.editor).paste(copied)
+            let pasted = try self.expectValue(self.demo.doc.block(target.id), "no target")
+            let whole = 0..<pasted.text.length
+            try self.expect(pasted.kind == .heading(level: 3) && pasted.decoration == .block, "pasted \(pasted.kind) \(String(describing: pasted.decoration))")
+            try self.expect(pasted.text.marks.contains(MarkSpan(range: whole, mark: .bold)) && pasted.text.marks.contains(MarkSpan(range: whole, mark: .color("red"))), "marks \(pasted.text.marks)")
+            blocks.endSelecting()
+            try await self.undo()
+            try self.expect(self.demo.doc.block(target.id)?.kind == target.kind && self.demo.doc.block(target.id)?.decoration == nil
+                            && self.demo.doc.block(target.id)?.text.marks == target.text.marks, "undo: \(String(describing: self.demo.doc.block(target.id)))")
+        }
+        await test("the selection bar's Style opens the sheet on the selected blocks; leaving the selection closes it") {
+            let first = try self.block("Loading older")
+            let blocks = self.editor.blocks
+            blocks.beginSelecting(first.id)
+            self.editor.panels.sheetPage = .main
+            try self.expect(DocFormatting(editor: self.editor, caretTakesBlock: true).targets.map(\.id) == [first.id], "targets")
+            DocFormatting(editor: self.editor, caretTakesBlock: true).toggleList(.listItem(style: .task(done: false)))
+            try self.expect(self.demo.doc.block(first.id)?.kind == .listItem(style: .task(done: false)), "kind \(String(describing: self.demo.doc.block(first.id)?.kind))")
+            blocks.endSelecting()
+            try self.expect(self.editor.panels.sheetPage == nil, "the sheet stays")
         }
     }
 

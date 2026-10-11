@@ -6,14 +6,17 @@
 //  on top, the keyboard's own width.
 //
 //  - Text selected: highlight, bold, italic, strikethrough, code, link and the keyboard
-//    key, spread evenly; a mark all of the selection has sits on a light tint.
-//  - A cursor: lists, text styles and more (indent, undo, redo) on the left; insert and
-//    the keyboard key on the right. On an empty line a divider key comes in between.
+//    key, spread evenly; a mark all of the selection has sits on a light tint. The
+//    highlight key opens the colours over it (text colours, highlights).
+//  - A cursor: the slash (the slash menu, as "/" typed), Aa (the format sheet in the
+//    keyboard's place, again for the keyboard) and more (indent, undo, redo) on the
+//    left; the keyboard key on the right. On an empty line a divider key comes in between.
 //
 //  Each action has one place. Menus open from their keys. The Mac has no on-screen
 //  keyboard and no bar.
 //
 
+import SwiftUI
 import UIKit
 import DocKit
 
@@ -28,8 +31,13 @@ final class DocKeyboardBar: UIInputView {
 
     private enum Shown: Equatable {
         case selection(block: DocBlockID, range: Range<Int>, marks: Set<MarkKind>)
-        case cursor(block: DocBlockID, kind: BlockKind, indent: Int, isEmpty: Bool, canUndo: Bool, canRedo: Bool)
+        case cursor(block: DocBlockID, kind: BlockKind, indent: Int, isEmpty: Bool, canUndo: Bool, canRedo: Bool, formatting: Bool)
     }
+
+    /// The colours over the highlight key, in the document's window.
+    private let colors = DocAnchoredPanelPresenter()
+    private let colorsAnchor = UIView()
+    private(set) var showsColors = false
 
     init(editor: DocEditor) {
         self.editor = editor
@@ -76,9 +84,10 @@ final class DocKeyboardBar: UIInputView {
             next = .selection(block: block.id, range: range, marks: marks)
         } else {
             next = .cursor(block: block.id, kind: block.kind, indent: block.indent, isEmpty: block.text.isEmpty,
-                           canUndo: editor.demo.canUndo, canRedo: editor.demo.canRedo)
+                           canUndo: editor.demo.canUndo, canRedo: editor.demo.canRedo, formatting: editor.showsFormatInput)
         }
         guard next != shown else { return }
+        hideColors()
         shown = next
         rebuild(next, block: block)
     }
@@ -94,6 +103,13 @@ final class DocKeyboardBar: UIInputView {
         switch shown {
         case .selection(_, let range, let marks):
             keys.distribution = .equalSpacing
+            let highlight = key("highlight", UIImage(systemName: "highlighter"), String(localized: "Highlight"), isOn: marks.contains(.highlight)) {}
+            highlight.addAction(UIAction { [weak self, weak highlight] _ in
+                guard let self, let highlight else { return }
+                if self.showsColors { return self.hideColors() }
+                self.showColors(from: highlight, block: block.id, range: range)
+            }, for: .touchUpInside)
+            add(highlight)
             for item in Self.marks {
                 add(key(item.id, UIImage(systemName: item.symbol), item.title, isOn: marks.contains(item.mark.kind)) { [weak self] in
                     self?.editor?.toggle(item.mark, over: range, in: block.id)
@@ -105,11 +121,14 @@ final class DocKeyboardBar: UIInputView {
                 editor.promptLink(over: range, in: block.id, from: view)
             })
             add(dismissKey())
-        case .cursor(_, let kind, _, let isEmpty, let canUndo, let canRedo):
+        case .cursor(_, _, _, let isEmpty, let canUndo, let canRedo, let formatting):
             keys.distribution = .fill
-            let isList = if case .listItem = kind { true } else { false }
-            add(menuKey("lists", UIImage(systemName: "list.bullet"), String(localized: "List"), isOn: isList, menu: kindMenu(Self.listKinds, block: block)))
-            add(menuKey("styles", UIImage(systemName: "textformat"), String(localized: "Text Style"), menu: kindMenu(Self.textKinds, block: block)))
+            add(key("slash", Self.slashGlyph, String(localized: "Insert")) { [weak self] in
+                self?.editor?.typeSlash()
+            })
+            add(key("format", Self.formatGlyph, String(localized: "Format"), isOn: formatting) { [weak self] in
+                self?.editor?.toggleFormatInput()
+            })
             add(menuKey("more", Self.verticalEllipsis, String(localized: "More"), menu: moreMenu(block, canUndo: canUndo, canRedo: canRedo)))
             add(UIView())
             if isEmpty {
@@ -118,7 +137,6 @@ final class DocKeyboardBar: UIInputView {
                     self?.refresh()
                 })
             }
-            add(menuKey("insert", UIImage(systemName: "plus"), String(localized: "Insert"), menu: insertMenu(block)))
             add(dismissKey())
         }
     }
@@ -126,27 +144,11 @@ final class DocKeyboardBar: UIInputView {
     // MARK: Menus
 
     private static let marks: [(id: String, symbol: String, title: String, mark: Mark)] = [
-        ("highlight", "highlighter", String(localized: "Highlight"), .highlight(color: nil)),
         ("bold", "bold", String(localized: "Bold"), .bold),
         ("italic", "italic", String(localized: "Italic"), .italic),
         ("strike", "strikethrough", String(localized: "Strikethrough"), .strike),
         ("code", "chevron.left.forwardslash.chevron.right", String(localized: "Code"), .code),
     ]
-
-    private static let listKinds = ["bullet", "numbered", "task", "toggle"]
-    private static let textKinds = ["paragraph", "h1", "h2", "h3", "quote", "code", "math"]
-
-    /// The block becomes one of these kinds (the slash menu's), its text kept.
-    private func kindMenu(_ ids: [String], block: DocBlock) -> UIMenu {
-        UIMenu(children: ids.compactMap { id in DocSlashItem.all.first { $0.id == id } }.map { item in
-            UIAction(title: item.title, image: UIImage(systemName: item.symbol), state: Self.isKind(item, of: block) ? .on : .off) { [weak self] _ in
-                guard let editor = self?.editor, let block = editor.demo.doc.block(block.id) else { return }
-                let caret = editor.selection?.head ?? DocPosition(block: block.id, offset: block.text.length)
-                editor.perform(item.action, in: block, replacing: caret.offset..<caret.offset, from: caret)
-                self?.refresh()
-            }
-        })
-    }
 
     private func moreMenu(_ block: DocBlock, canUndo: Bool, canRedo: Bool) -> UIMenu {
         var indent: [UIMenuElement] = []
@@ -173,30 +175,6 @@ final class DocKeyboardBar: UIInputView {
             },
         ]
         return UIMenu(children: [UIMenu(options: .displayInline, children: indent), UIMenu(options: .displayInline, children: history)])
-    }
-
-    /// Blocks that aren't a kind of text: a table, code, math.
-    private func insertMenu(_ block: DocBlock) -> UIMenu {
-        UIMenu(children: ["table", "code", "math"].compactMap { id in DocSlashItem.all.first { $0.id == id } }.map { item in
-            UIAction(title: item.title, image: UIImage(systemName: item.symbol)) { [weak self] _ in
-                guard let editor = self?.editor, let block = editor.demo.doc.block(block.id) else { return }
-                editor.insert(item.action, at: block)
-                self?.refresh()
-            }
-        })
-    }
-
-    private static func isKind(_ item: DocSlashItem, of block: DocBlock) -> Bool {
-        switch (item.action.kind, block.kind) {
-        case (.listItem(let a)?, .listItem(let b)):
-            switch (a, b) {
-            case (.bullet, .bullet), (.numbered, .numbered), (.task, .task), (.toggle, .toggle): true
-            default: false
-            }
-        case (.code?, .code): true
-        case (let kind?, _): kind == block.kind
-        default: false
-        }
     }
 
     // MARK: Keys
@@ -243,6 +221,68 @@ final class DocKeyboardBar: UIInputView {
         ])
         return button
     }
+
+    // MARK: Colours
+
+    /// The colours over the highlight key. The bar is in the keyboard's window; they go
+    /// in the document's, over the key.
+    private func showColors(from key: UIButton, block: DocBlockID, range: Range<Int>) {
+        guard let editor, let window = editor.textView(for: block)?.window else { return }
+        colorsAnchor.isUserInteractionEnabled = false
+        colorsAnchor.frame = window.convert(key.bounds, from: key)
+        window.addSubview(colorsAnchor)
+        colors.anchorView = colorsAnchor
+        colors.show(
+            configuration: .init(preferredEdge: .above, horizontalAlignment: .leading, windowMargin: FlooDesignTokens.Space.sm),
+            content: AnyView(DocColorsPopover(editor: editor, block: block, range: range) { [weak self] in
+                self?.hideColors()
+                self?.refresh()
+            }),
+            onRequestDismiss: { [weak self] in self?.hideColors() }
+        )
+        showsColors = true
+        setOn(key, true)
+    }
+
+    private func hideColors() {
+        guard showsColors else { return }
+        showsColors = false
+        colors.hide()
+        colorsAnchor.removeFromSuperview()
+        if let key = keys.arrangedSubviews.compactMap({ $0 as? UIButton }).first(where: { $0.accessibilityIdentifier == "highlight" }) {
+            setOn(key, onKeys.contains("highlight"))
+        }
+    }
+
+    private func setOn(_ button: UIButton, _ isOn: Bool) {
+        button.configuration?.baseForegroundColor = isOn ? .tintColor : Self.ink
+        button.configuration?.background.backgroundColor = isOn ? UIColor.tintColor.withAlphaComponent(0.12) : .clear
+    }
+
+    // MARK: Glyphs
+
+    /// Craft's: a slash before a page of lines.
+    private static let slashGlyph: UIImage? = {
+        let config = UIImage.SymbolConfiguration(pointSize: 15, weight: .regular, scale: .medium)
+        guard let page = UIImage(systemName: "doc.plaintext", withConfiguration: config) else { return nil }
+        let size = CGSize(width: page.size.width + 7, height: page.size.height + 2)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            page.draw(at: CGPoint(x: 7, y: 1))
+            let slash = UIBezierPath()
+            slash.move(to: CGPoint(x: 1, y: size.height - 2))
+            slash.addLine(to: CGPoint(x: 11, y: 2))
+            slash.lineWidth = 1.6
+            slash.lineCapStyle = .round
+            slash.stroke()
+        }.withRenderingMode(.alwaysTemplate)
+    }()
+
+    /// "Aa", as Craft's key has it.
+    private static let formatGlyph: UIImage = {
+        let text = NSAttributedString(string: "Aa", attributes: [.font: UIFont.systemFont(ofSize: 21, weight: .regular)])
+        let size = text.size()
+        return UIGraphicsImageRenderer(size: size).image { _ in text.draw(at: .zero) }.withRenderingMode(.alwaysTemplate)
+    }()
 
     /// Three dots stacked (the symbol set has them only side by side).
     private static let verticalEllipsis: UIImage? = {

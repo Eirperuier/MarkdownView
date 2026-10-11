@@ -22,12 +22,17 @@ final class DocCursor {
     var selection: DocSelection?
 }
 
-/// The Mac's panels that are up.
+/// The format panels' state.
 @MainActor
 @Observable
 final class DocPanels {
-    /// The format panel (-docFormat YES opens with it).
+    /// The Mac's format panel (-docFormat YES opens with it).
     var showsFormat = UserDefaults.standard.bool(forKey: "docFormat")
+    /// The phone's format sheet and its page: over the selected blocks, or in the
+    /// keyboard's place.
+    var sheetPage: DocFormatSheetPage?
+    /// What Copy Format took, for Paste Format.
+    var copiedFormat: DocCopiedFormat?
 }
 
 struct DocFormatPanel: View {
@@ -45,12 +50,12 @@ struct DocFormatPanel: View {
             if !targets.isEmpty {
                 section(String(localized: "Titles")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
-                        ForEach(Self.styles.prefix(3), id: \.key) { tile($0) }
+                        ForEach(DocFormatting.styles.prefix(3), id: \.key) { tile($0) }
                     }
                 }
                 section(String(localized: "Content")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
-                        ForEach(Self.styles.suffix(3), id: \.key) { tile($0) }
+                        ForEach(DocFormatting.styles.suffix(3), id: \.key) { tile($0) }
                     }
                 }
             }
@@ -91,8 +96,7 @@ struct DocFormatPanel: View {
                 section(String(localized: "Decorations")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
                         choice(isOn: kindIsOn(.quote), help: String(localized: "Quote")) {
-                            let kind: BlockKind = kindIsOn(.quote) ? .paragraph : .quote
-                            editor.blocks.transition { editor.setKind(kind, of: targets.map(\.id)) }
+                            formatting.toggleQuote()
                         } label: {
                             HStack(spacing: Tokens.Space.md) {
                                 Capsule().frame(width: Metrics.quoteBar.width, height: Metrics.quoteBar.height)
@@ -102,9 +106,8 @@ struct DocFormatPanel: View {
                         }
                         .disabled(targets.isEmpty)
                         .accessibilityIdentifier("format-quote")
-                        let boxed = decorated.allSatisfy { $0.decoration == .block }
-                        choice(isOn: boxed, help: String(localized: "Block")) {
-                            editor.blocks.transition { editor.setDecoration(boxed ? nil : .block, of: decorated.map(\.id)) }
+                        choice(isOn: formatting.isBoxed, help: String(localized: "Block")) {
+                            formatting.toggleBox()
                         } label: {
                             Text("Block")
                                 .font(Metrics.label)
@@ -187,29 +190,22 @@ struct DocFormatPanel: View {
 
     private var segments: some View {
         VStack(spacing: Metrics.segmentGap) {
-            DocSegments(items: Self.marks.map { item in
+            DocSegments(items: DocFormatting.marks.map { item in
                 .init(id: item.id, symbol: item.symbol, title: item.title, isOn: markIsOn(item.mark), isEnabled: !markRanges.isEmpty) {
-                    editor.toggle(item.mark, over: markRanges)
+                    formatting.toggle(item.mark)
                 }
             })
-            DocSegments(items: Self.lists.map { item in
+            DocSegments(items: DocFormatting.lists.map { item in
                 .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: !targets.isEmpty) {
-                    // Pressed again, the list goes back to text (Craft's); items already in
-                    // the style keep their state (a done task stays done).
-                    if kindIsOn(item.kind) {
-                        editor.blocks.transition { editor.setKind(.paragraph, of: targets.map(\.id)) }
-                    } else {
-                        let ids = targets.filter { !Self.same($0.kind, item.kind) }.map(\.id)
-                        editor.blocks.transition { editor.setKind(item.kind, of: ids) }
-                    }
+                    formatting.toggleList(item.kind)
                 }
             })
             DocSegments(items: [
                 .init(id: "outdent", symbol: "decrease.indent", title: String(localized: "Outdent"), isOn: false, isEnabled: canIndent(-1)) {
-                    editor.blocks.transition { editor.indent(targets.map(\.id), by: -1) }
+                    formatting.indent(by: -1)
                 },
                 .init(id: "indent", symbol: "increase.indent", title: String(localized: "Indent"), isOn: false, isEnabled: canIndent(1)) {
-                    editor.blocks.transition { editor.indent(targets.map(\.id), by: 1) }
+                    formatting.indent(by: 1)
                 },
             ])
         }
@@ -217,89 +213,15 @@ struct DocFormatPanel: View {
 
     // MARK: What it acts on
 
-    /// The selected blocks of text, else the one the cursor is in.
-    private var targets: [DocBlock] {
-        let selected = Set(editor.blocks.selected)
-        if !selected.isEmpty {
-            return demo.doc.blocks.filter { selected.contains($0.id) && $0.kind.carriesText }
-        }
-        guard let id = editor.cursor.selection?.head.block, let block = demo.doc.block(id), block.kind.carriesText else { return [] }
-        return [block]
-    }
-
-    /// The selected blocks of any kind, else the one the cursor is in: what a box goes around.
-    private var decorated: [DocBlock] {
-        let selected = Set(editor.blocks.selected)
-        if !selected.isEmpty { return demo.doc.blocks.filter { selected.contains($0.id) } }
-        guard let id = editor.cursor.selection?.head.block, let block = demo.doc.block(id) else { return [] }
-        return [block]
-    }
-
-    /// The selected text, else all the text of the selected blocks.
-    private var markRanges: [(block: DocBlockID, range: Range<Int>)] {
-        if editor.blocks.selected.isEmpty, let selection = editor.cursor.selection, selection.anchor.block == selection.head.block {
-            let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
-            return range.isEmpty ? [] : [(selection.head.block, range)]
-        }
-        return targets.filter { $0.kind.allowsMarks && !$0.text.isEmpty }.map { ($0.id, 0..<$0.text.length) }
-    }
-
-    private func markIsOn(_ mark: Mark) -> Bool {
-        let ranges = markRanges
-        return !ranges.isEmpty && ranges.allSatisfy { range in
-            demo.doc.block(range.block).map { DocEditor.covers($0.text, range.range, with: mark.kind) } ?? false
-        }
-    }
-
-    private func kindIsOn(_ kind: BlockKind) -> Bool {
-        let blocks = targets
-        return !blocks.isEmpty && blocks.allSatisfy { Self.same($0.kind, kind) }
-    }
-
-    private func canIndent(_ delta: Int) -> Bool {
-        targets.contains { block in
-            guard case .listItem = block.kind else { return false }
-            return delta < 0 ? block.indent > 0 : true
-        }
-    }
-
-    /// The same kind, a task's or toggle's state aside.
-    private static func same(_ a: BlockKind, _ b: BlockKind) -> Bool {
-        switch (a, b) {
-        case (.listItem(let x), .listItem(let y)):
-            switch (x, y) {
-            case (.bullet, .bullet), (.numbered, .numbered), (.task, .task), (.toggle, .toggle): true
-            default: false
-            }
-        default: a == b
-        }
-    }
+    private var formatting: DocFormatting { DocFormatting(editor: editor) }
+    private var targets: [DocBlock] { formatting.targets }
+    private var decorated: [DocBlock] { formatting.decorated }
+    private var markRanges: [(block: DocBlockID, range: Range<Int>)] { formatting.markRanges }
+    private func markIsOn(_ mark: Mark) -> Bool { formatting.markIsOn(mark) }
+    private func kindIsOn(_ kind: BlockKind) -> Bool { formatting.kindIsOn(kind) }
+    private func canIndent(_ delta: Int) -> Bool { formatting.canIndent(delta) }
 
     // MARK: Pieces
-
-    private static let marks: [(id: String, symbol: String, title: String, mark: Mark)] = [
-        ("bold", "bold", String(localized: "Bold"), .bold),
-        ("italic", "italic", String(localized: "Italic"), .italic),
-        ("strike", "strikethrough", String(localized: "Strikethrough"), .strike),
-        ("code", "chevron.left.forwardslash.chevron.right", String(localized: "Code"), .code),
-    ]
-
-    /// The text styles, Craft's: titles, then content; each its ⌃ key.
-    static let styles: [(key: String, title: String, size: CGFloat, weight: Font.Weight, kind: BlockKind)] = [
-        ("1", String(localized: "Title"), 15, .bold, .heading(level: 1)),
-        ("2", String(localized: "Subtitle"), 15, .bold, .heading(level: 2)),
-        ("3", String(localized: "Heading"), 15, .semibold, .heading(level: 3)),
-        ("4", String(localized: "Strong"), 15, .semibold, .heading(level: 4)),
-        ("5", String(localized: "Body"), 15, .regular, .paragraph),
-        ("6", String(localized: "Caption"), 13.5, .regular, .caption),
-    ]
-
-    private static let lists: [(id: String, symbol: String, title: String, kind: BlockKind)] = [
-        ("task", "checkmark.square", String(localized: "To-do"), .listItem(style: .task(done: false))),
-        ("toggle", "arrowtriangle.right.fill", String(localized: "Toggle List"), .listItem(style: .toggle(open: true))),
-        ("bullet", "list.bullet", String(localized: "Bulleted List"), .listItem(style: .bullet)),
-        ("numbered", "list.number", String(localized: "Numbered List"), .listItem(style: .numbered)),
-    ]
 
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: Metrics.sectionLabelGap) {
@@ -341,7 +263,7 @@ struct DocFormatPanel: View {
     private func tile(_ style: (key: String, title: String, size: CGFloat, weight: Font.Weight, kind: BlockKind)) -> some View {
         let isOn = kindIsOn(style.kind)
         return Button {
-            editor.blocks.transition { editor.setKind(style.kind, of: targets.map(\.id)) }
+            formatting.setStyle(style.kind)
         } label: {
             Text(style.title)
                 .font(.system(size: style.size, weight: style.weight))
