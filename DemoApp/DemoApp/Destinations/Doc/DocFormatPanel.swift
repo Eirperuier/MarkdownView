@@ -153,7 +153,14 @@ struct DocFormatPanel: View {
             })
             DocSegments(items: Self.lists.map { item in
                 .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: !targets.isEmpty) {
-                    editor.blocks.transition { editor.setKind(item.kind, of: targets.map(\.id)) }
+                    // Pressed again, the list goes back to text (Craft's); items already in
+                    // the style keep their state (a done task stays done).
+                    if kindIsOn(item.kind) {
+                        editor.blocks.transition { editor.setKind(.paragraph, of: targets.map(\.id)) }
+                    } else {
+                        let ids = targets.filter { !Self.same($0.kind, item.kind) }.map(\.id)
+                        editor.blocks.transition { editor.setKind(item.kind, of: ids) }
+                    }
                 }
             })
             DocSegments(items: [
