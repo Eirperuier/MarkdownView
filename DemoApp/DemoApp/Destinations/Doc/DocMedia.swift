@@ -39,90 +39,98 @@ struct DocMediaView: View {
 
 /// A link. A click selects it and a double click opens it (DocBlockController: the
 /// list's taps, not a SwiftUI gesture, which a reused cell carries into later rows).
+/// Its parts are the same views in every layout, placed by the layout (DocLinkLayout): a
+/// new layout is each part going from its place to the new one, its text from one size
+/// to the other (SwiftUI's own animations, in step with the rows the list moves).
 struct DocLinkView: View {
     let link: DocLink
     var reservesDot = false
 
     var body: some View {
-        DocMediaBox(shown: link.layout) {
-            switch link.layout {
-            case .small: small
-            case .regular: regular
-            case .card: card
+        let layout = link.layout
+        DocLinkLayout(layout: layout, reservesDot: reservesDot, hasSummary: !link.summary.isEmpty) {
+            // Craft's: the thumbnail at the left edge, as tall as the row; a card's on top.
+            DocMediaPreview(source: link.image) {
+                DocLinkIcon(link: link, size: 36)
+                    .scaleEffect(layout.pick(20, 28, 36) as CGFloat / 36)
             }
-        }
-    }
-
-    private var small: some View {
-        // Craft's: the thumbnail at the left edge, as tall as the row.
-        HStack(spacing: 10) {
-            DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 20) }
-                .frame(width: (36 * 1.4).rounded(), height: 36)
-                .clipped()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
             Text(title)
-                .font(.system(size: 15))
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .padding(.trailing, reservesDot ? 34 : 12)
-        .frame(height: 36)
-        .docLayout(.small)
-    }
-
-    private var regular: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 28) }
-                    .frame(width: 82, height: 62)
-                    .clipped()
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 17))
-                        .lineLimit(1)
-                    Text(link.summary.isEmpty ? address : link.summary)
-                        .font(.system(size: 15))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, reservesDot ? 34 : 12)
-                .frame(height: 62)
-            }
+                .font(.system(size: layout.pick(15, 17, 15), weight: layout == .card ? .medium : .regular))
+                .lineLimit(layout == .card ? 2 : 1)
+                .truncationMode(layout == .small ? .middle : .tail)
+                .contentTransition(.interpolate)
+            Text(link.summary.isEmpty ? address : link.summary)
+                .font(.system(size: layout.pick(15, 15, 13)))
+                .foregroundStyle(.secondary)
+                .lineLimit(layout == .card ? 2 : 1)
+                .contentTransition(.interpolate)
+                .opacity(layout == .regular || layout == .card && !link.summary.isEmpty ? 1 : 0)
             DocLinkFooter(link: link)
+                .opacity(layout == .small ? 0 : 1)
         }
-        .docLayout(.regular)
-    }
-
-    private var card: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            DocMediaPreview(source: link.image) { DocLinkIcon(link: link, size: 36) }
-                .frame(maxWidth: .infinity)
-                .frame(height: 104)
-                .clipped()
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 15, weight: .medium))
-                    .lineLimit(2)
-                if !link.summary.isEmpty {
-                    Text(link.summary)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 0)
-            DocLinkFooter(link: link)
-        }
-        .frame(width: DocMediaLayout.cardWidth, height: 222)
-        .docLayout(.card)
+        .docMediaBox()
     }
 
     private var title: String { link.title.isEmpty ? address : link.title }
     /// The address as it reads (not percent-encoded).
     private var address: String { link.url.removingPercentEncoding ?? link.url }
+}
+
+/// Where a link's parts (preview, title, summary, footer) go in each layout: small, a
+/// pill (the thumbnail, the title beside it); regular, a row (thumbnail, title and
+/// summary, the footer under them); card, half the page (the preview on top, the text,
+/// the footer at the bottom).
+private struct DocLinkLayout: Layout {
+    let layout: DocLayout
+    let reservesDot: Bool
+    let hasSummary: Bool
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(width: proposal.width ?? DocMediaLayout.pageWidth, subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let frames = arrange(width: proposal.width ?? bounds.width, subviews).frames
+        for (subview, frame) in zip(subviews, frames) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), anchor: .topLeading,
+                          proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    private func arrange(width: CGFloat, _ subviews: Subviews) -> (size: CGSize, frames: [CGRect]) {
+        let (title, summary) = (subviews[1], subviews[2])
+        switch layout {
+        case .small:
+            let trailing: CGFloat = reservesDot ? 34 : 12
+            let text = title.sizeThatFits(ProposedViewSize(width: max(0, width - 60 - trailing), height: nil))
+            let size = CGSize(width: min(width, 60 + text.width + trailing), height: 36)
+            let titleFrame = CGRect(x: 60, y: (36 - text.height) / 2, width: text.width, height: text.height)
+            return (size, [CGRect(x: 0, y: 0, width: 50, height: 36), titleFrame, titleFrame,
+                           CGRect(x: 0, y: 36, width: size.width, height: 26)])
+        case .regular:
+            let room = ProposedViewSize(width: max(0, width - 94 - (reservesDot ? 34 : 12)), height: nil)
+            let (a, b) = (title.sizeThatFits(room), summary.sizeThatFits(room))
+            let top = (62 - a.height - 2 - b.height) / 2
+            return (CGSize(width: width, height: 88), [
+                CGRect(x: 0, y: 0, width: 82, height: 62),
+                CGRect(x: 94, y: top, width: a.width, height: a.height),
+                CGRect(x: 94, y: top + a.height + 2, width: b.width, height: b.height),
+                CGRect(x: 0, y: 62, width: width, height: 26),
+            ])
+        case .card:
+            let card = DocMediaLayout.cardWidth
+            let room = ProposedViewSize(width: card - 20, height: nil)
+            let (a, b) = (title.sizeThatFits(room), summary.sizeThatFits(room))
+            return (CGSize(width: card, height: 222), [
+                CGRect(x: 0, y: 0, width: card, height: 104),
+                CGRect(x: 10, y: 112, width: a.width, height: a.height),
+                CGRect(x: 10, y: 112 + a.height + 4, width: b.width, height: hasSummary ? b.height : 0),
+                CGRect(x: 0, y: 196, width: card, height: 26),
+            ])
+        }
+    }
 }
 
 /// The strip under a link: where it goes.
@@ -163,87 +171,110 @@ private struct DocLinkIcon: View {
 
 // MARK: Files
 
+/// A file, its parts placed by the layout (DocFileLayout) as a link's are.
 struct DocFileView: View {
     let file: DocFile
     var reservesDot = false
 
     var body: some View {
-        DocMediaBox(shown: file.layout) {
-            switch file.layout {
-            case .small: small
-            case .regular: regular
-            case .card: card
-            }
-        }
-    }
-
-    private var small: some View {
-        HStack(spacing: 8) {
-            DocFileIcon(name: file.name, height: 26)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(file.name)
-                    .font(.system(size: 15))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(DocMediaLayout.kind(of: file.name))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.leading, 10)
-        .padding(.trailing, reservesDot ? 34 : 10)
-        .frame(height: 42)
-        .docLayout(.small)
-    }
-
-    private var regular: some View {
-        HStack(spacing: 14) {
-            DocFileIcon(name: file.name, height: 52)
-                .frame(width: 52)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(file.name)
-                    .font(.system(size: 17))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(details.joined(separator: "\n"))
-                    .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
-                    .lineSpacing(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.leading, 14)
-        .padding(.trailing, reservesDot ? 34 : 14)
-        .padding(.vertical, 10)
-        .docLayout(.regular)
-    }
-
-    private var card: some View {
-        VStack(spacing: 0) {
+        let layout = file.layout
+        let icon: CGFloat = layout.pick(26, 52, 72)
+        DocFileLayout(layout: layout, reservesDot: reservesDot, hasSize: file.size != nil) {
+            // A card's panel behind the icon.
+            Color(.secondarySystemBackground)
+                .opacity(layout == .card ? 1 : 0)
+            // Drawn at a card's size and scaled, so it goes from one size to the other.
             DocFileIcon(name: file.name, height: 72)
-                .frame(maxWidth: .infinity)
-                .frame(height: 104)
-                .background(Color(.secondarySystemBackground))
-            VStack(spacing: 2) {
-                Text(file.name)
-                    .font(.system(size: 15, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(details.joined(separator: "\n"))
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-            }
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 10)
-            Spacer(minLength: 0)
+                .scaleEffect(icon / 72, anchor: .topLeading)
+                .frame(width: icon * 0.78, height: icon, alignment: .topLeading)
+            Text(file.name)
+                .font(.system(size: layout.pick(15, 17, 15), weight: layout == .card ? .medium : .regular))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .contentTransition(.interpolate)
+            Text(DocMediaLayout.kind(of: file.name))
+                .font(.system(size: layout.pick(11, 15, 13)))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .contentTransition(.interpolate)
+            Text(file.size.map(DocMediaLayout.bytes) ?? "")
+                .font(.system(size: layout.pick(15, 15, 13)))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .contentTransition(.interpolate)
+                .opacity(layout == .small ? 0 : 1)
         }
-        .frame(width: DocMediaLayout.cardWidth, height: 182)
-        .docLayout(.card)
+        .docMediaBox()
+    }
+}
+
+/// Where a file's parts (a card's panel, the icon, the name, its kind and size) go in
+/// each layout: small, a pill (the icon, the name over its kind); regular, a row (the
+/// icon, then name, kind and size); card, half the page (the icon on the panel, the
+/// text centred under it).
+private struct DocFileLayout: Layout {
+    let layout: DocLayout
+    let reservesDot: Bool
+    let hasSize: Bool
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(width: proposal.width ?? DocMediaLayout.pageWidth, subviews).size
     }
 
-    private var details: [String] {
-        [DocMediaLayout.kind(of: file.name)] + (file.size.map { [DocMediaLayout.bytes($0)] } ?? [])
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let frames = arrange(width: proposal.width ?? bounds.width, subviews).frames
+        for (subview, frame) in zip(subviews, frames) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), anchor: .topLeading,
+                          proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    private func arrange(width: CGFloat, _ subviews: Subviews) -> (size: CGSize, frames: [CGRect]) {
+        let (name, kind, size) = (subviews[2], subviews[3], subviews[4])
+        switch layout {
+        case .small:
+            let icon = CGSize(width: 26 * 0.78, height: 26)
+            let trailing: CGFloat = reservesDot ? 34 : 10
+            let room = ProposedViewSize(width: max(0, width - 18 - icon.width - trailing), height: nil)
+            let (a, b) = (name.sizeThatFits(room), kind.sizeThatFits(room))
+            let top = (42 - a.height - b.height) / 2
+            let iconFrame = CGRect(x: 10, y: 8, width: icon.width, height: icon.height)
+            let kindFrame = CGRect(x: 18 + icon.width, y: top + a.height, width: b.width, height: b.height)
+            return (CGSize(width: min(width, 18 + icon.width + max(a.width, b.width) + trailing), height: 42), [
+                iconFrame, iconFrame,
+                CGRect(x: 18 + icon.width, y: top, width: a.width, height: a.height),
+                kindFrame, kindFrame,
+            ])
+        case .regular:
+            let icon = CGSize(width: 52 * 0.78, height: 52)
+            let room = ProposedViewSize(width: max(0, width - 80 - (reservesDot ? 34 : 14)), height: nil)
+            let (a, b, c) = (name.sizeThatFits(room), kind.sizeThatFits(room), size.sizeThatFits(room))
+            let text = a.height + 2 + b.height + (hasSize ? 1 + c.height : 0)
+            let height = max(52, text) + 20
+            let top = (height - text) / 2
+            let iconFrame = CGRect(x: 14 + (52 - icon.width) / 2, y: (height - 52) / 2, width: icon.width, height: icon.height)
+            return (CGSize(width: width, height: height), [
+                iconFrame, iconFrame,
+                CGRect(x: 80, y: top, width: a.width, height: a.height),
+                CGRect(x: 80, y: top + a.height + 2, width: b.width, height: b.height),
+                CGRect(x: 80, y: top + a.height + 2 + b.height + 1, width: c.width, height: hasSize ? c.height : 0),
+            ])
+        case .card:
+            let card = DocMediaLayout.cardWidth
+            let icon = CGSize(width: 72 * 0.78, height: 72)
+            let room = ProposedViewSize(width: card - 20, height: nil)
+            let (a, b, c) = (name.sizeThatFits(room), kind.sizeThatFits(room), size.sizeThatFits(room))
+            func centred(_ size: CGSize, _ y: CGFloat) -> CGRect {
+                CGRect(x: (card - size.width) / 2, y: y, width: size.width, height: size.height)
+            }
+            return (CGSize(width: card, height: 182), [
+                CGRect(x: 0, y: 0, width: card, height: 104),
+                CGRect(x: (card - icon.width) / 2, y: 16, width: icon.width, height: icon.height),
+                centred(a, 114),
+                centred(b, 114 + a.height + 2),
+                centred(hasSize ? c : CGSize(width: c.width, height: 0), 114 + a.height + 2 + b.height + 2),
+            ])
+        }
     }
 }
 
@@ -443,45 +474,14 @@ enum DocMediaLayout {
     }
 }
 
-/// A link or file's box (white, a light border, rounded corners) around its layout, as
-/// big as the layout it shows. A new layout is the box going from the old one's size to
-/// the new one's, with the change's animation (Craft's): the new layout fades in at its
-/// own size and the old one out at its own, both cut to the box as it goes.
-private struct DocMediaBox<Content: View>: View {
-    let shown: DocLayout
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        DocMediaBoxLayout(shown: shown) { content() }
-            .docMediaBox()
-    }
-}
-
-/// Sized by the layout shown; one going away keeps its own size under it.
-private struct DocMediaBoxLayout: Layout {
-    let shown: DocLayout
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let current = subviews.first { $0[DocLayoutKey.self] == shown } ?? subviews.last
-        return current?.sizeThatFits(proposal) ?? .zero
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for subview in subviews {
-            subview.place(at: bounds.origin, anchor: .topLeading, proposal: proposal)
+extension DocLayout {
+    /// The value for this layout.
+    func pick<Value>(_ small: Value, _ regular: Value, _ card: Value) -> Value {
+        switch self {
+        case .small: small
+        case .regular: regular
+        case .card: card
         }
-    }
-}
-
-private struct DocLayoutKey: LayoutValueKey {
-    static let defaultValue: DocLayout? = nil
-}
-
-private extension View {
-    /// A layout's content in its box: it fades as the box changes to or from it.
-    func docLayout(_ layout: DocLayout) -> some View {
-        layoutValue(key: DocLayoutKey.self, value: layout)
-            .transition(.opacity)
     }
 }
 
