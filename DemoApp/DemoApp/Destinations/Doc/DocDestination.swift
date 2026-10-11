@@ -76,8 +76,8 @@ struct DocDestination: View {
                 if !DocBlockController.usesHandles {
                     MarkdownBlockSelectionOverlay(
                         controller: editor.blocks.selection,
-                        topInset: { [demo] item in demo.rows.first { $0.id == item.id }?.spacingAbove ?? 0 },
-                        bottomInset: { [demo] item in demo.rows.first { $0.id == item.id }?.spacingBelow ?? 0 },
+                        topInset: { [demo] item in (demo.rows.first { $0.id == item.id }?.spacingAbove ?? 0) - DocBlockController.highlightOutset },
+                        bottomInset: { [demo] item in (demo.rows.first { $0.id == item.id }?.spacingBelow ?? 0) - DocBlockController.highlightOutset },
                         highlights: { [demo] item in demo.rows.first { $0.id == item.id }?.media == nil }
                     )
                     .environment(\.markdownMotion, FlooDesignTokens.Motion.markdown)

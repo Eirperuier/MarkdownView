@@ -1667,7 +1667,7 @@ final class DocEditTests {
             if blocks.isSelecting { blocks.endSelecting() } else { blocks.clear() }
         }
         if DocBlockController.usesHandles {
-            await test("blocks selected next to each other are highlighted each on its own") {
+            await test("blocks selected next to each other are highlighted each on its own, a little around their text") {
                 let nested = try self.block("嵌套列表的缩进")
                 let group = blocks.groups([nested.id])[0]
                 await show(nested.id)
@@ -1676,6 +1676,11 @@ final class DocEditTests {
                 let frames = blocks.testHighlightFrames.sorted { $0.minY < $1.minY }
                 try self.expect(frames.count == 2, "highlights \(frames.count)")
                 if frames.count == 2 { try self.expect(frames[0].maxY < frames[1].minY, "the highlights touch: \(frames)") }
+                if let first = frames.first, let content = blocks.testContentFrame(group[0]) {
+                    let outset = DocBlockController.highlightOutset
+                    try self.expect(abs(first.minY - (content.minY - outset)) < 0.5 && abs(first.maxY - (content.maxY + outset)) < 0.5,
+                                    "the highlight \(first) isn't \(outset) points around the text \(content)")
+                }
                 blocks.clear()
             }
         } else {

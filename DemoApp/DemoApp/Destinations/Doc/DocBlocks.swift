@@ -38,6 +38,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     nonisolated static let leadingGutter: CGFloat = usesHandles ? 40 : 20
     nonisolated static let trailingGutter: CGFloat = usesHandles ? 40 : 20
 
+    /// How far a selected block's tint reaches above and below its text (Craft's room
+    /// around a line; the space between blocks keeps neighbours' tints apart).
+    nonisolated static let highlightOutset: CGFloat = 3
+
     /// Where the page starts across a list `width` wide: past the leading gutter, the
     /// page (at most 720 wide) centred in what the gutters leave.
     nonisolated static func pageLeft(inWidth width: CGFloat) -> CGFloat {
@@ -293,10 +297,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             return
         }
         // The Mac's, as the chat's selection (MarkdownBlockSelectionStyle): a tint, one
-        // per block, from a little outside the page's sides. Links, files and images
-        // outline themselves, hugging their box (DocMediaCell).
+        // per block, from a little outside the page's sides and the text's lines.
+        // Links, files and images outline themselves, hugging their box (DocMediaCell).
         let text = Self.usesHandles && landings == 0 ? selected.filter { demo.doc.block($0).map { !DocMediaView.draws($0.kind) } ?? false } : []
-        highlights = place(text.compactMap(pageFrame), in: highlights, outset: 10) {
+        let outset = Self.highlightOutset
+        highlights = place(text.compactMap { pageFrame($0)?.insetBy(dx: 0, dy: -outset) }, in: highlights, outset: 10) {
             let view = UIView()
             view.backgroundColor = UIColor.tintColor.withAlphaComponent(MarkdownBlockSelectionStyle.highlightOpacity)
             view.layer.cornerRadius = MarkdownBlockSelectionStyle.highlightCornerRadius
