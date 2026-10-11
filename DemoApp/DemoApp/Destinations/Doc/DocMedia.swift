@@ -21,7 +21,7 @@ struct DocMediaView: View {
         switch kind {
         case .link(let link): DocLinkView(link: link, reservesDot: reservesDot)
         case .file(let file): DocFileView(file: file, reservesDot: reservesDot)
-        case .image(let image): DocImageView(image: image)
+        case .image(let image): DocImageView(image: image, size: DocMediaLayout.imageBox(image, width: DocMediaLayout.pageWidth))
         default: EmptyView()
         }
     }
@@ -349,40 +349,46 @@ private struct DocPage: Shape {
 
 // MARK: Images
 
+/// An image in its box (`size`: alone, as its fit and size make it on the page; in a
+/// gallery, its place there). The picture is drawn at the size its fit gives it in the
+/// box, covering it or inside it, centred and cut to the box: a new fit, size or place is
+/// the box and the picture each going from one size to the other.
 struct DocImageView: View {
     let image: DocImage
+    let size: CGSize
 
     var body: some View {
-        let natural = DocMediaLayout.naturalSize(image.source)
-        GeometryReader { proxy in
-            let width = image.size == .large ? proxy.size.width : min(proxy.size.width, natural?.width ?? proxy.size.width)
-            DocMediaPreview(source: image.source, fill: image.fit == .fill) { Color(.secondarySystemBackground) }
-                .frame(width: width, height: DocMediaLayout.imageHeight(image, width: proxy.size.width))
-                .clipShape(.rect(cornerRadius: 8, style: .continuous))
-        }
-        .frame(height: DocMediaLayout.imageHeight(image, width: DocMediaLayout.pageWidth))
-        .accessibilityLabel(image.alt)
+        let drawn = DocMediaLayout.drawnSize(image, in: size)
+        Color.clear
+            .frame(width: size.width, height: size.height)
+            .overlay {
+                DocMediaPreview(source: image.source, contentMode: nil) { Color(.secondarySystemBackground) }
+                    .frame(width: drawn.width, height: drawn.height)
+            }
+            .clipShape(.rect(cornerRadius: 8, style: .continuous))
+            .accessibilityLabel(image.alt)
     }
 }
 
 // MARK: Shared
 
-/// A preview image from a source: an asset (`asset:name`, the demo's), or a URL.
+/// A preview image from a source: an asset (`asset:name`, the demo's), or a URL. With no
+/// content mode it takes the frame it's given (its caller keeps its shape).
 private struct DocMediaPreview<Placeholder: View>: View {
     let source: String?
-    var fill = true
+    var contentMode: ContentMode? = .fill
     @ViewBuilder let placeholder: () -> Placeholder
 
     var body: some View {
-        if let source, let image = DocMediaLayout.asset(source) {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: fill ? .fill : .fit)
-        } else if let source, let url = URL(string: source), url.scheme?.hasPrefix("http") == true,
-                  let image = DocImageCache.shared.image(url) {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: fill ? .fill : .fit)
+        if let picture = DocMediaLayout.picture(source) {
+            if let contentMode {
+                Image(uiImage: picture)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+            } else {
+                Image(uiImage: picture)
+                    .resizable()
+            }
         } else {
             placeholder()
         }
@@ -419,11 +425,34 @@ enum DocMediaLayout {
     /// The box a link, file or image alone in its row takes, at the page's `width`:
     /// a card's or a small pill's own size, a regular row's the page's, an image's as
     /// it shows.
+    /// An image alone: large, as wide as the page; else its own width at most.
+    static func imageBox(_ image: DocImage, width: CGFloat) -> CGSize {
+        let shown = image.size == .large ? width : min(width, naturalSize(image.source)?.width ?? width)
+        return CGSize(width: shown, height: imageHeight(image, width: width))
+    }
+
+    /// The picture's size in its box: covering it (fill) or inside it (fit), its shape kept.
+    @MainActor static func drawnSize(_ image: DocImage, in box: CGSize) -> CGSize {
+        guard let natural = picture(image.source)?.size, natural.width > 0, natural.height > 0, box.width > 0, box.height > 0 else {
+            return box
+        }
+        let scales = (box.width / natural.width, box.height / natural.height)
+        let scale = image.fit == .fill ? max(scales.0, scales.1) : min(scales.0, scales.1)
+        return CGSize(width: natural.width * scale, height: natural.height * scale)
+    }
+
+    /// The picture a source has here: an asset, or a URL's once it's loaded.
+    @MainActor static func picture(_ source: String?) -> UIImage? {
+        guard let source else { return nil }
+        if let image = asset(source) { return image }
+        guard let url = URL(string: source), url.scheme?.hasPrefix("http") == true else { return nil }
+        return DocImageCache.shared.image(url)
+    }
+
     @MainActor static func boxSize(_ kind: BlockKind, width: CGFloat) -> CGSize? {
         switch kind {
         case .image(let image):
-            let shown = image.size == .large ? width : min(width, naturalSize(image.source)?.width ?? width)
-            return CGSize(width: shown, height: imageHeight(image, width: width))
+            return imageBox(image, width: width)
         case .link, .file:
             let key = BoxKey(kind: kind, width: width)
             if let size = boxSizes[key] { return size }
@@ -562,7 +591,7 @@ extension DocMediaLayout {
 
 /// A link, file or image with what selecting adds: a dot inside its box at its right,
 /// a tinted outline around it (Craft's); on the Mac a right-click offers its layouts.
-/// `size` sets an image's box in a gallery.
+/// `size` sets an image's box (its place in a gallery, or alone, its own on the page).
 struct DocMediaCell: View {
     let id: DocBlockID
     let kind: BlockKind
@@ -592,11 +621,9 @@ struct DocMediaCell: View {
 
     @ViewBuilder
     private var content: some View {
-        if case .image(let image) = kind, let size {
-            DocMediaPreview(source: image.source, fill: image.fit == .fill) { Color(.secondarySystemBackground) }
-                .frame(width: size.width, height: size.height)
-                .clipShape(.rect(cornerRadius: 8, style: .continuous))
-                .accessibilityLabel(image.alt)
+        // An image is the same view alone or in a gallery: its box goes from one to the other.
+        if case .image(let image) = kind {
+            DocImageView(image: image, size: size ?? DocMediaLayout.imageBox(image, width: DocMediaLayout.pageWidth))
         } else {
             DocMediaView(kind: kind, reservesDot: blocks.isSelecting)
         }

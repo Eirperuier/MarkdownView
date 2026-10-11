@@ -1466,6 +1466,24 @@ final class DocEditTests {
             try await self.undo()
             try await self.undo()
         }
+        await test("an image made large leaves its gallery and made auto goes back: its box goes from place to place, the rows after it follow, nothing fades") {
+            let rows = self.demo.rows
+            let index = try self.expectValue(rows.indices.first { index in
+                guard index > 0, case .image? = rows[index].media else { return false }
+                return rows[index].place?.sharesLine == true
+            }, "no gallery")
+            let (image, before) = try (self.expectValue(rows[index].block, "no image"), self.expectValue(rows[index - 1].block, "no image"))
+            let line = self.line(of: image)
+            let next = try self.expectValue(rows[(index + 1)...].first { $0.place?.sharesLine != true }?.block, "nothing after the gallery")
+            // Large, it's as tall as the page is wide: the row after it stays on screen.
+            blocks.testShowAtTop(before)
+            try await self.expectMove(image, next: next, still: before) { blocks.setImage(size: .large, of: [image]) }
+            try self.expect(self.line(of: image) == [image], "the image didn't leave its gallery: \(self.line(of: image))")
+            try await self.expectMove(image, next: next, still: before) { blocks.setImage(size: .auto, of: [image]) }
+            try self.expect(self.line(of: image) == line, "the image didn't go back: \(self.line(of: image))")
+            try await self.undo()
+            try await self.undo()
+        }
         await test("a file turned into a card after cards joins them, and back: its box goes from place to place, the rows after it follow, nothing fades") {
             let pdf = try self.expectValue(self.demo.doc.blocks.first { if case .file(let file) = $0.kind { file.name.hasSuffix(".pdf") } else { false } }, "no pdf")
             let rows = self.demo.rows
@@ -1632,20 +1650,24 @@ final class DocEditTests {
     /// Makes `change` to a block that gives its box another place or size on the page and
     /// watches the screen while it lands: its box goes from its old frame to its new one
     /// (frames on the way, not a jump) without fading, the row after it goes on its way without going back,
-    /// `still`'s row stays put, and all of it comes to rest where the layout says.
+    /// `still`'s row stays put, and all of it comes to rest where the layout says. (The row
+    /// after it is watched while it's on screen: a large image can push it off.)
     private func expectMove(_ id: DocBlockID, next: DocBlockID, still: DocBlockID, change: () -> Void) async throws {
         let blocks = editor.blocks
         try? await Task.sleep(for: .milliseconds(300))
+        // A doc just loaded is revealed after a moment (the list fading its new rows in).
+        for _ in 0..<50 where (blocks.testShownBox(id)?.opacity ?? 0) < 0.99 {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
         let stays = try expectValue(blocks.testShownRowFrame(still), "no row that stays")
-        func sample() throws -> (box: CGRect, opacity: Float, next: CGFloat, still: CGRect?) {
+        func sample() throws -> (box: CGRect, opacity: Float, next: CGFloat?, still: CGRect?) {
             let box = try expectValue(blocks.testShownBox(id), "no box drawn")
-            return (box.frame, box.opacity, try expectValue(blocks.testShownRowFrame(next)?.minY, "next row not on screen"),
-                    blocks.testShownRowFrame(still))
+            return (box.frame, box.opacity, blocks.testShownRowFrame(next)?.minY, blocks.testShownRowFrame(still))
         }
         let start = try sample()
         let began = CACurrentMediaTime()
         change()
-        var samples: [(time: Double, box: CGRect, opacity: Float, next: CGFloat, still: CGRect?)] = []
+        var samples: [(time: Double, box: CGRect, opacity: Float, next: CGFloat?, still: CGRect?)] = []
         while CACurrentMediaTime() - began < 0.7 {
             try? await Task.sleep(for: .milliseconds(8))
             let shown = try sample()
@@ -1654,7 +1676,7 @@ final class DocEditTests {
         let end = try expectValue(samples.last, "no samples")
         let trace = samples.map {
             String(format: "%.3f:(%.0f,%.0f %.0fx%.0f a%.2f)/%.1f", $0.time, $0.box.minX - start.box.minX, $0.box.minY - start.box.minY,
-                   $0.box.width, $0.box.height, $0.opacity, $0.next - start.next)
+                   $0.box.width, $0.box.height, $0.opacity, ($0.next ?? .nan) - (start.next ?? .nan))
         }.joined(separator: " ")
         print("DOCTEST TRACE move \(start.box) → \(trace)")
         let edges: [(CGRect) -> CGFloat] = [\.minX, \.minY, \.width, \.height]
@@ -1667,11 +1689,12 @@ final class DocEditTests {
         let partway = samples.filter { sample in changing.allSatisfy { between($0(sample.box), $0(start.box), $0(end.box)) } }
         try expect(partway.count >= 3, "only \(partway.count) frames partway: \(trace)")
         // The row after it: toward its place, never back, at rest there.
-        let steps = zip(samples, samples.dropFirst()).map { $1.next - $0.next }
-        let direction: CGFloat = end.next >= start.next ? 1 : -1
-        try expect(steps.allSatisfy { $0 * direction >= -1 }, "the next row went back: \(trace)")
         let place = try expectValue(blocks.testRowFrame(next), "no next row")
-        try expect(abs(end.next - place.minY) < 0.5, "next row rests at \(end.next), its place is \(place.minY)")
+        let shown = samples.compactMap(\.next)
+        let steps = zip(shown, shown.dropFirst()).map { $1 - $0 }
+        let direction: CGFloat = place.minY >= (start.next ?? shown.first ?? place.minY) ? 1 : -1
+        try expect(steps.allSatisfy { $0 * direction >= -1 }, "the next row went back: \(trace)")
+        if let rest = end.next { try expect(abs(rest - place.minY) < 0.5, "next row rests at \(rest), its place is \(place.minY)") }
         // At rest where the layout puts its box; the row that stays never moved.
         let content = try expectValue(blocks.testContentFrame(id), "no frame")
         try expect(abs(end.box.minX - content.minX) < 1 && abs(end.box.minY - content.minY) < 1, "box rests at \(end.box), its place is \(content)")

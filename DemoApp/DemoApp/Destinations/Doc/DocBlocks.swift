@@ -1270,6 +1270,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     var testRowFrame: (DocBlockID) -> CGRect? { { [weak self] in self?.rowFrame($0) } }
 
+    /// Scrolls a block's row to the top of the list.
+    func testShowAtTop(_ id: DocBlockID) {
+        reader?.scrollTo(id: id.description, anchor: .top, animated: false)
+    }
+
     /// Scrolls a block's row to the middle of the list.
     func testCenter(_ id: DocBlockID) {
         reader?.scrollTo(id: id.description, anchor: .center, animated: false)
@@ -1317,16 +1322,20 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         // The cell's, its content view's and what it hosts (a row fading in or out).
         let hosted = cell.contentView.subviews.map { ($0.layer.presentation() ?? $0.layer).opacity }
         let opacity = root.opacity * (cell.contentView.layer.presentation() ?? cell.contentView.layer).opacity * (hosted.min() ?? 1)
-        func visit(_ layer: CALayer, depth: Int) {
+        // Each layer as far as the layers clipping it show it (a picture filling its box is
+        // bigger than the box).
+        func visit(_ layer: CALayer, depth: Int, clip: CGRect) {
             let shown = layer.presentation() ?? layer
-            if depth > 0, shown.masksToBounds || shown.borderWidth > 0, shown.bounds.width < widest {
-                // In the cell's coordinates, its contents' shift included.
-                let box = shown.convert(shown.bounds, to: root).offsetBy(dx: root.frame.minX, dy: root.frame.minY)
-                frame = frame?.union(box) ?? box
+            // In the cell's coordinates, its contents' shift included.
+            let bounds = shown.convert(shown.bounds, to: root).offsetBy(dx: root.frame.minX, dy: root.frame.minY)
+            if depth > 0, shown.masksToBounds || shown.borderWidth > 0, bounds.width < widest {
+                let box = bounds.intersection(clip)
+                if !box.isNull { frame = frame?.union(box) ?? box }
             }
-            for sublayer in layer.sublayers ?? [] { visit(sublayer, depth: depth + 1) }
+            let inner = depth > 0 && shown.masksToBounds ? clip.intersection(bounds) : clip
+            for sublayer in layer.sublayers ?? [] { visit(sublayer, depth: depth + 1, clip: inner) }
         }
-        visit(cell.layer, depth: 0)
+        visit(cell.layer, depth: 0, clip: .infinite)
         return frame.map { ($0, opacity) }
     }
     var testHighlightFrames: [CGRect] { highlights.filter { !$0.isHidden }.map(\.frame) }

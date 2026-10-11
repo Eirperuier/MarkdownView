@@ -275,11 +275,17 @@ private struct DocRowView: View {
 
     var body: some View {
         if let place = row.place, let media = row.media, let block = row.block, !row.isStreaming {
-            placed(DocMediaCell(id: block, kind: media, blocks: blocks, size: place.lineHeight.map { CGSize(width: place.width, height: $0) }),
-                   at: place)
+            placed(DocMediaCell(id: block, kind: media, blocks: blocks, size: imageBox(media, at: place)), at: place)
         } else {
             page
         }
+    }
+
+    /// An image's box: its place in a gallery, or alone, its own in the page's room.
+    private func imageBox(_ kind: BlockKind, at place: DocRowPlace) -> CGSize? {
+        guard case .image(let image) = kind else { return nil }
+        if let height = place.lineHeight { return CGSize(width: place.width, height: height) }
+        return DocMediaLayout.imageBox(image, width: place.room)
     }
 
     /// A link, file or image where the list places its row (DocRowPlace): its content
