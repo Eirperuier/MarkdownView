@@ -149,6 +149,7 @@ struct InlineTextWithMath: View {
     @Environment(\.markdownFontGroup) private var fontGroup
     @Environment(\.markdownTextOffsetBase) private var envOffsetBase
     @Environment(\.markdownTableRevealTextContext) private var tableRevealContext
+    @Environment(\.markdownMotion) private var motion
 
     /// 表格 cell 内的偏移基准由 tableRevealContext 携带(scrollable 路径不设 markdownTextOffsetBase 环境)。
     /// `_MarkdownText` 读它 ✓,这里的数学 token 也必须读 —— 否则 cell 内公式的门槛是 `rc > 0+runOffset`,
@@ -168,11 +169,11 @@ struct InlineTextWithMath: View {
                 if #available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *) {
                     InlineRevealFlow(segments: segments)
                         .contentTransition(.opacity)
-                        .animation(.easeOut(duration: 0.2), value: revealCount)
+                        .animation(motion.reveal(), value: revealCount)
                 } else {
                     revealedText(revealedUnits: localRevealed)
                         .contentTransition(.opacity)
-                        .animation(.easeOut(duration: 0.2), value: revealCount)
+                        .animation(motion.reveal(), value: revealCount)
                 }
             } else {
                 combinedText
@@ -451,6 +452,7 @@ private struct InlineMathRevealToken: View {
     @Environment(\.markdownTextOffsetBase) private var envOffsetBase
     @Environment(\.markdownTableRevealTextContext) private var tableRevealContext
     @Environment(\.markdownFadeReveal) private var fadeConfig
+    @Environment(\.markdownMotion) private var motion
 
     /// 同 InlineTextWithMath:表格 cell 内偏移基准来自 tableRevealContext(.active 携带),
     /// 否则 token 门槛 rc>0+runOffset 挂载即满足 → 表格公式无 reveal。
@@ -465,11 +467,11 @@ private struct InlineMathRevealToken: View {
         // phase 切换重挂安全。阈值 = 公式锚点(offsetBase + run 偏移),经 env 传入。
         StreamingRevealGate { revealManager, visible in
             // fade 时长对齐文字(同 streamingRevealFadeIn):fadeConfig.duration 经 adaptive 缩放。
-            let baseDuration = fadeConfig?.duration ?? 0.3
+            let baseDuration = fadeConfig?.duration ?? motion.revealDuration
             let duration = revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
             renderedMath
                 .opacity(visible ? 1 : 0)
-                .animation(.easeOut(duration: duration), value: visible)
+                .animation(motion.reveal(duration: duration), value: visible)
         }
         .environment(\.markdownTextOffsetBase, offsetBase + blockTextOffset)
     }

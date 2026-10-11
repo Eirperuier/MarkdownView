@@ -1608,12 +1608,13 @@ private struct SelectableTopicBubble: View {
     var openActionTitle: String = "Open"
     var previewProvider: (@MainActor () -> AnyView?)? = nil
     @Environment(\.openURL) private var openURL
+    @Environment(\.markdownMotion) private var motion
 
     var body: some View {
         StreamingRevealGate { _, visible in
             bubble
                 .opacity(visible ? 1 : 0)
-                .animation(.easeOut(duration: 0.2), value: visible)
+                .animation(motion.reveal(), value: visible)
         }
     }
 
@@ -1710,6 +1711,7 @@ private struct TopicBubbleInteractionBridge: UIViewRepresentable {
 private struct SelectableTaskCheckbox: View {
     let checked: Bool
     let size: CGFloat
+    @Environment(\.markdownMotion) private var motion
 
     var body: some View {
         StreamingRevealGate { _, visible in
@@ -1724,7 +1726,7 @@ private struct SelectableTaskCheckbox: View {
             }
             .font(.system(size: size))
             .opacity(visible ? 1 : 0)
-            .animation(.easeOut(duration: 0.2), value: visible)
+            .animation(motion.reveal(), value: visible)
         }
     }
 }
@@ -1735,6 +1737,7 @@ private struct SelectableListSymbolMarker: View {
     let systemName: String
     let diameter: CGFloat
     @Environment(\.markdownRendererConfiguration) private var configuration
+    @Environment(\.markdownMotion) private var motion
 
     var body: some View {
         StreamingRevealGate { _, visible in
@@ -1744,7 +1747,7 @@ private struct SelectableListSymbolMarker: View {
                 .frame(width: diameter, height: diameter)
                 .background(Circle().fill(configuration.preferredColor))
                 .opacity(visible ? 1 : 0)
-                .animation(.easeOut(duration: 0.2), value: visible)
+                .animation(motion.reveal(), value: visible)
         }
     }
 }
@@ -1764,6 +1767,7 @@ private struct SelectableInlineLinkSymbol: View {
     let color: Color
     let url: URL?
     @Environment(\.openURL) private var openURL
+    @Environment(\.markdownMotion) private var motion
 
     var body: some View {
         StreamingRevealGate { _, visible in
@@ -1775,7 +1779,7 @@ private struct SelectableInlineLinkSymbol: View {
                     if let url { openURL(url) }
                 }
                 .opacity(visible ? 1 : 0)
-                .animation(.easeOut(duration: 0.2), value: visible)
+                .animation(motion.reveal(), value: visible)
         }
     }
 }

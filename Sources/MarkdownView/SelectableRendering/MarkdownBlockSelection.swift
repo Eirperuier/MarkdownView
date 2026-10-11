@@ -173,6 +173,9 @@ public final class MarkdownBlockSelectionController: NSObject {
     }
 
     public let state = MarkdownBlockSelectionState()
+    /// How block mode comes and goes (a controller isn't in a view's environment, so
+    /// the owner hands it the motion it renders the Markdown with).
+    public var motion: MarkdownMotion = .default
     /// Called when block mode turns on or off, to swap the input bar for a toolbar.
     public var onModeChanged: ((Bool) -> Void)?
     /// The list's items in order; pulled on demand, not observed.
@@ -399,7 +402,7 @@ public final class MarkdownBlockSelectionController: NSObject {
             }
             // Nothing left selected: leave block mode.
             if state.isActive, state.selectedItemIDs.isEmpty {
-                withAnimation(.smooth(duration: 0.3)) {
+                withAnimation(motion.feedback) {
                     exitMode()
                 }
             }
@@ -439,7 +442,7 @@ public final class MarkdownBlockSelectionController: NSObject {
         anchorItemID = itemID ?? ids.first
         // The overlay fades in: flip isActive inside the animation, or the switch from
         // character selection to block highlight is a hard cut.
-        withAnimation(.easeOut(duration: 0.22)) {
+        withAnimation(motion.feedback) {
             state.isActive = true
             state.selectedItemIDs = Set(ids)
         }
@@ -461,7 +464,7 @@ public final class MarkdownBlockSelectionController: NSObject {
         stopAutoscroll()
         setScrollSuppressed(false)
         if state.isActive {
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(motion.feedback) {
                 state.isActive = false
                 state.selectedItemIDs = []
             }
@@ -748,6 +751,7 @@ public struct MarkdownBlockSelectionOverlay: View {
     let controller: MarkdownBlockSelectionController
     let accent: Color
     let bottomInset: (MarkdownBlockSelectionItem) -> CGFloat
+    @Environment(\.markdownMotion) private var motion
 
     /// - Parameter bottomInset: spacing a cell keeps below its content (its share of the
     ///   gap between blocks), left out of the highlight so adjacent blocks stay apart.
@@ -799,7 +803,7 @@ public struct MarkdownBlockSelectionOverlay: View {
                                 x: frame.maxX - 30,
                                 y: frame.minY - offsetY + contentHeight / 2 - 9
                             )
-                            .animation(.smooth(duration: 0.15), value: selected)
+                            .animation(motion.feedback, value: selected)
                     }
                 }
                 // Group dots: all selected filled, some selected faint, none an empty ring.
@@ -817,7 +821,7 @@ public struct MarkdownBlockSelectionOverlay: View {
                             }
                             .frame(width: 22, height: 22)
                             .offset(x: group.dotAnchorFrame.maxX - 32, y: y - 11)
-                            .animation(.smooth(duration: 0.15), value: selectedCount)
+                            .animation(motion.feedback, value: selectedCount)
                     }
                 }
             }

@@ -882,6 +882,7 @@ struct StreamingRevealGate<Content: View>: View {
 /// Renders a list item's bullet/number marker in sync with the streaming reveal.
 struct StreamingRevealMarker<Content: View>: View {
     private let content: Content
+    @Environment(\.markdownMotion) private var motion
 
     init(@ViewBuilder _ content: () -> Content) {
         self.content = content()
@@ -892,7 +893,7 @@ struct StreamingRevealMarker<Content: View>: View {
         StreamingRevealGate { _, visible in
             content
                 .opacity(visible ? 1 : 0)
-                .animation(.easeOut(duration: 0.2), value: visible)
+                .animation(motion.reveal(), value: visible)
         }
     }
 }
@@ -900,14 +901,15 @@ struct StreamingRevealMarker<Content: View>: View {
 /// Fades a non-text block in once the frontier reaches it. gate 型(只过阈值一次,不逐字)。
 private struct StreamingRevealFadeInModifier: ViewModifier {
     @Environment(\.markdownFadeReveal) private var fadeConfig
+    @Environment(\.markdownMotion) private var motion
 
     func body(content: Content) -> some View {
         StreamingRevealGate { revealManager, visible in
-            let baseDuration = fadeConfig?.duration ?? 0.3
+            let baseDuration = fadeConfig?.duration ?? motion.revealDuration
             let duration = revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
             content
                 .opacity(visible ? 1 : 0)
-                .animation(.easeOut(duration: duration), value: visible)
+                .animation(motion.reveal(duration: duration), value: visible)
         }
     }
 }

@@ -226,6 +226,7 @@ struct MarkdownTableContent: View {
     @Environment(\.markdownRendererConfiguration.table) private var tableConfiguration
     @Environment(\.markdownStreaming) private var revealManager
     @Environment(\.markdownFadeReveal) private var fadeConfig
+    @Environment(\.markdownMotion) private var motion
     @Environment(\.markdownTableCellsSelectable) private var cellsSelectable
     @Environment(\.markdownTableCellHooks) private var cellHooks
     /// 表格 cell 可选中的**惰性升级(逐 cell)**:初载全部走原版 Text(大表逐 cell UITextView
@@ -259,7 +260,7 @@ struct MarkdownTableContent: View {
     fileprivate static let fallbackSettleSlack: Int = 24
 
     private var effectiveFadeDuration: TimeInterval {
-        let baseDuration = fadeConfig?.duration ?? 0.4
+        let baseDuration = fadeConfig?.duration ?? motion.revealDuration
         return revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
     }
 
@@ -1712,13 +1713,14 @@ private struct MarkdownTableRevealVisibilityModifier: ViewModifier {
 
     @Environment(\.markdownFadeReveal) private var fadeConfig
     @Environment(\.markdownStreaming) private var revealManager
+    @Environment(\.markdownMotion) private var motion
 
     func body(content: Content) -> some View {
-        let baseDuration = fadeConfig?.duration ?? 0.3
+        let baseDuration = fadeConfig?.duration ?? motion.revealDuration
         let duration = revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
         content
             .opacity(visible ? 1 : 0)
-            .animation(.easeOut(duration: duration), value: visible)
+            .animation(motion.reveal(duration: duration), value: visible)
     }
 }
 

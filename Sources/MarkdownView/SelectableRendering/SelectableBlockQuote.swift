@@ -40,6 +40,7 @@ public struct SelectableBlockQuote: View {
     private func decorationVisible(revealCount: Int?) -> Bool {
         revealCount.map { $0 > offsetBase } ?? true
     }
+    @Environment(\.markdownMotion) private var motion
 
     public var body: some View {
         StreamingRevealCountReader { _, revealCount in
@@ -66,15 +67,15 @@ public struct SelectableBlockQuote: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: decorationHeight)
                         .opacity(visible ? 1 : 0)
-                        .animation(.smooth(duration: 0.24), value: decorationHeight)
-                        .animation(.easeOut(duration: 0.3), value: visible)
+                        .animation(motion.layout, value: decorationHeight)
+                        .animation(motion.reveal(), value: visible)
                 }
                 .overlay(alignment: .topLeading) {
                     tint
                         .frame(width: 4, height: decorationHeight)
                         .opacity(visible ? 1 : 0)
-                        .animation(.smooth(duration: 0.24), value: decorationHeight)
-                        .animation(.easeOut(duration: 0.3), value: visible)
+                        .animation(motion.layout, value: decorationHeight)
+                        .animation(motion.reveal(), value: visible)
                 }
                 .clipShape(.rect(cornerRadius: 3))
         }

@@ -75,6 +75,7 @@ struct DefaultMarkdownCodeBlock: View {
     @Environment(\.markdownFontGroup) private var fontGroup
     @Environment(\.markdownTextOffsetBase) private var offsetBase
     @Environment(\.markdownFadeReveal) private var fadeConfig
+    @Environment(\.markdownMotion) private var motion
     @Environment(\.markdownRendererConfiguration) private var rendererConfiguration
     @Environment(\.codeHighlighter) private var injectedHighlighter
     @Environment(\.codeBlockContentRenderers) private var customRenderers
@@ -456,7 +457,7 @@ struct DefaultMarkdownCodeBlock: View {
         StreamingRevealCountReader { revealManager, revealCount in
             let height = backgroundHeight(revealCount: revealCount)
             let visible = height > 0
-            let baseDuration = fadeConfig?.duration ?? 0.3
+            let baseDuration = fadeConfig?.duration ?? motion.revealDuration
             let duration = revealManager?.adaptiveFadeDuration(baseDuration: baseDuration) ?? baseDuration
             let isRevealing = revealCount != nil
 
@@ -469,8 +470,8 @@ struct DefaultMarkdownCodeBlock: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: height)
                 .opacity(visible ? 1 : 0)
-                .animation(isRevealing ? .smooth(duration: 0.24) : nil, value: height)
-                .animation(isRevealing ? .easeOut(duration: duration) : nil, value: visible)
+                .animation(isRevealing ? motion.layout : nil, value: height)
+                .animation(isRevealing ? motion.reveal(duration: duration) : nil, value: visible)
         }
     }
 
@@ -545,7 +546,7 @@ struct DefaultMarkdownCodeBlock: View {
     private func modePickerSegment(title: String, mode: DisplayMode) -> some View {
         let isSelected = displayMode == mode
         return Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+            withAnimation(motion.feedback) {
                 displayMode = mode
             }
         } label: {
@@ -619,9 +620,9 @@ struct DefaultMarkdownCodeBlock: View {
                             UIPasteboard.general.string = codeBlockConfiguration.code
 #endif
                             Task {
-                                withAnimation(.spring()) { codeCopied = true }
+                                withAnimation(motion.feedback) { codeCopied = true }
                                 try await Task.sleep(nanoseconds: 2_000_000_000)
-                                withAnimation(.spring()) { codeCopied = false }
+                                withAnimation(motion.feedback) { codeCopied = false }
                             }
                         } label: {
                             if codeCopied {
@@ -828,9 +829,9 @@ struct DefaultMarkdownCodeBlock: View {
             UIPasteboard.general.string = codeBlockConfiguration.code
 #endif
             Task {
-                withAnimation(.spring()) { codeCopied = true }
+                withAnimation(motion.feedback) { codeCopied = true }
                 try await Task.sleep(nanoseconds: 2_000_000_000)
-                withAnimation(.spring()) { codeCopied = false }
+                withAnimation(motion.feedback) { codeCopied = false }
             }
         } label: {
             Group {

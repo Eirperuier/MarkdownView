@@ -34,6 +34,7 @@ public struct MarkdownDisplayMath: View {
     @Environment(\.markdownFontGroup.displayMath) private var font
     @Environment(\.markdownRendererConfiguration.math) private var math
     @Environment(\.markdownMathHeightCache) private var heightCache
+    @Environment(\.markdownMotion) private var motion
 
     private var latexMath: String? {
         switch source {
@@ -100,7 +101,7 @@ public struct MarkdownDisplayMath: View {
             if #available(iOS 17.0, macOS 14.0, tvOS 17.0, watchOS 10.0, *) {
                 LaTeX(latexMath)
                     .renderingStyle(math.rendersDisplayMathSynchronously ? .wait : .empty)
-                    .renderingAnimation(.easeIn)
+                    .renderingAnimation(motion.reveal())
                     .imageRenderingMode(shouldPreserveLatexColors ? .original : .template)
                     .ignoreStringFormatting()
                     .blockMode(.blockText)
@@ -109,14 +110,14 @@ public struct MarkdownDisplayMath: View {
                     .background(latexHeightMeasurer)
                     .frame(maxWidth: .infinity, minHeight: resolvedHeight)
                     .geometryGroup()
-                    .animation(.smooth(duration: 0.25), value: resolvedHeight)
+                    .animation(motion.layout, value: resolvedHeight)
                     .onPreferenceChange(LaTeXRenderedHeightKey.self) { h in
                         commitMeasuredHeight(h, latex: latexMath)
                     }
             } else {
                 LaTeX(latexMath)
                     .renderingStyle(math.rendersDisplayMathSynchronously ? .wait : .empty)
-                    .renderingAnimation(.easeIn)
+                    .renderingAnimation(motion.reveal())
                     .imageRenderingMode(shouldPreserveLatexColors ? .original : .template)
                     .ignoreStringFormatting()
                     .blockMode(.blockText)
@@ -124,7 +125,7 @@ public struct MarkdownDisplayMath: View {
                     .foregroundStyle(.primary)
                     .background(latexHeightMeasurer)
                     .frame(maxWidth: .infinity, minHeight: resolvedHeight)
-                    .animation(.smooth(duration: 0.25), value: resolvedHeight)
+                    .animation(motion.layout, value: resolvedHeight)
                     .onPreferenceChange(LaTeXRenderedHeightKey.self) { h in
                         commitMeasuredHeight(h, latex: latexMath)
                     }

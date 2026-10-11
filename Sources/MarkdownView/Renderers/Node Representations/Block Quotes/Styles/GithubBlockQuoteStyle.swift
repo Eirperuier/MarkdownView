@@ -42,6 +42,7 @@ fileprivate struct GithubBlockQuoteView: View {
     private func decorationVisible(revealCount: Int?) -> Bool {
         revealCount.map { $0 > offsetBase } ?? true
     }
+    @Environment(\.markdownMotion) private var motion
 
     var body: some View {
         StreamingRevealCountReader { _, revealCount in
@@ -57,7 +58,7 @@ fileprivate struct GithubBlockQuoteView: View {
                         .fill(borderColor)
                         .frame(width: 0.25 * fontSize)
                         .opacity(visible ? 1 : 0)
-                        .animation(.easeOut(duration: 0.3), value: visible)
+                        .animation(motion.reveal(), value: visible)
                 }
         }
     }
