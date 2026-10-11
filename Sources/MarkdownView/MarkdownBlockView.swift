@@ -14,6 +14,8 @@ import SwiftUI
 public struct MarkdownBlockView: View {
     private let content: MarkdownContent
     private let descriptor: MarkdownBlockDescriptor
+    /// Blocks handed over as a tree (MarkdownTree) instead of content to parse.
+    private let tree: MarkdownTree?
 
     @Environment(\.markdownRendererConfiguration) private var configuration
     @Environment(\.markdownFontGroup.body) private var bodyFont
@@ -22,6 +24,18 @@ public struct MarkdownBlockView: View {
     public init(_ content: MarkdownContent, block: MarkdownBlockDescriptor) {
         self.content = content
         self.descriptor = block
+        self.tree = nil
+    }
+
+    /// The tree's blocks (code, display maths, a table…), rendered as their markdown
+    /// would be, with nothing parsed and its text taken as it is.
+    public init(tree: MarkdownTree) {
+        self.content = MarkdownContent("")
+        self.descriptor = MarkdownBlockDescriptor(
+            kind: .unknown, topLevelIndex: 0, stableHash: tree.hashValue,
+            sourceText: "", plainText: "", childPlainTexts: [], listItemContext: nil
+        )
+        self.tree = tree
     }
 
     public var body: some View {
@@ -30,6 +44,32 @@ public struct MarkdownBlockView: View {
 
     @ViewBuilder
     private var _renderedBlock: some View {
+        if let tree {
+            _treeBlocks(tree)
+        } else {
+            _contentBlock
+        }
+    }
+
+    private func _treeBlocks(_ tree: MarkdownTree) -> some View {
+        var configuration = configuration
+        configuration.interpretsTextSyntax = false
+        let document = tree.prepared(math: &configuration.math)
+        if configuration.math.displayMathStorage != nil || configuration.math.inlineMathStorage != nil {
+            configuration.allowedBlockDirectiveRenderers.insert("math")
+            BlockDirectiveRenderers.shared.addRenderer(MathBlockDirectiveRenderer(), for: "math")
+        }
+        let children = Array(document.children)
+        return VStack(alignment: .leading, spacing: configuration.componentSpacing) {
+            ForEach(children.indices, id: \.self) { index in
+                _renderChild(children[index], configuration: configuration)
+            }
+        }
+        .environment(\.markdownRendererConfiguration, configuration)
+    }
+
+    @ViewBuilder
+    private var _contentBlock: some View {
         let children = content.topLevelChildren(options: parseOptions)
 
         if let ctx = descriptor.listItemContext {
@@ -256,6 +296,10 @@ public struct MarkdownBlockView: View {
     // TableInfoCache/布局缓存全丢)→ 整表全量重测高 → 主线程 200ms hang。两分支同为 MarkdownNodeView、
     // 同一位置返回,身份才稳定、只做增量更新。
     private func _renderChild(_ child: any Markup) -> MarkdownNodeView {
+        _renderChild(child, configuration: configuration)
+    }
+
+    private func _renderChild(_ child: any Markup, configuration: MarkdownRendererConfiguration) -> MarkdownNodeView {
         let hash = child.stableContentHash
         let configFP = configuration.stableFingerprint
         let cacheKey = NodeCacheKey(contentHash: hash, configurationHash: configFP)
@@ -264,12 +308,12 @@ public struct MarkdownBlockView: View {
         if let cached = nodeCache.get(cacheKey) {
             return cached
         }
-        let rendered = _visitChild(child)
+        let rendered = _visitChild(child, configuration: configuration)
         nodeCache.set(cacheKey, view: rendered)
         return rendered
     }
 
-    private func _visitChild(_ child: any Markup) -> MarkdownNodeView {
+    private func _visitChild(_ child: any Markup, configuration: MarkdownRendererConfiguration) -> MarkdownNodeView {
         var visitor = CmarkNodeVisitor(configuration: configuration)
         return visitor.visit(child)
     }

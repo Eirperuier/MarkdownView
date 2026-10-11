@@ -1280,12 +1280,15 @@ struct _MarkdownText: View {
             }
         }
 
-        // `==高亮==`:给内部文本套底色、删两侧定界符(reveal 计数侧已同样去定界符)。
-        processed = MarkdownHighlightSyntax.applied(to: processed)
+        // A tree's text is taken as it is (MarkdownTree).
+        if configuration.interpretsTextSyntax {
+            // `==高亮==`:给内部文本套底色、删两侧定界符(reveal 计数侧已同样去定界符)。
+            processed = MarkdownHighlightSyntax.applied(to: processed)
 
-        // `:circle[…]` / `:wavy[…]` 笔迹注记:内容打 kind 属性、删定界符
-        // (处理顺序与 reveal 计数侧的 stripped 链一致:先高亮后笔迹)。
-        processed = MarkdownPenMarkSyntax.applied(to: processed)
+            // `:circle[…]` / `:wavy[…]` 笔迹注记:内容打 kind 属性、删定界符
+            // (处理顺序与 reveal 计数侧的 stripped 链一致:先高亮后笔迹)。
+            processed = MarkdownPenMarkSyntax.applied(to: processed)
+        }
 
         return PreparedMarkdownText(
             attributedString: processed,

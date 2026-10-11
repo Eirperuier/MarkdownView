@@ -1445,11 +1445,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
             // 表头保持原渲染(bold/uppercase 样式)。tableBody 默认 Font.body,与可选中路径字体一致;
             // app 改了 tableBody 字号时由 typography.tableBody 对齐(否则点一下 cell 字号会跳)。
             // 注意:Table.Cell 禁止整体 format()(swift-markdown fatalError),逐个 inline 子节点拼接。
-            MarkdownSelectableText(
-                cell.children.map { $0.format() }.joined().trimmingCharacters(in: .whitespacesAndNewlines),
-                plainOffsetBase: blockTextOffset,
-                applyEdgeInsets: false  // cell 内容无竖向 padding(原版 cell 同)
-            )
+            selectableCell
             .transformEnvironment(\.markdownPlatformTypography) { typography in
                 if let cell = typography.tableBody { typography.body = cell }
             }
@@ -1467,6 +1463,25 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
             // 且升级手势会盖住图片自身的点击(要点两次才打开)。保持原渲染,手势不动。
             CmarkNodeVisitor(configuration: configuration)
                 .makeBody(for: cell)
+        }
+    }
+
+    /// A cell of markdown is its source, parsed again on its own; a cell of a tree
+    /// (MarkdownTree) is its nodes, as they are.
+    @ViewBuilder
+    private var selectableCell: some View {
+        if configuration.interpretsTextSyntax {
+            MarkdownSelectableText(
+                cell.children.map { $0.format() }.joined().trimmingCharacters(in: .whitespacesAndNewlines),
+                plainOffsetBase: blockTextOffset,
+                applyEdgeInsets: false  // cell 内容无竖向 padding(原版 cell 同)
+            )
+        } else {
+            MarkdownSelectableText(
+                tree: MarkdownTree(Markdown.Document(Paragraph(cell.inlineChildren))),
+                plainOffsetBase: blockTextOffset,
+                applyEdgeInsets: false
+            )
         }
     }
 

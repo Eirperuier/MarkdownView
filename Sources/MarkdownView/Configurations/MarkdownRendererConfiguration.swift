@@ -41,6 +41,10 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     /// 仅可选中渲染路径(SelectableMarkupVisitor)消费,原版 Text 路径不读它。
     var footnotes: MarkdownFootnotes? = nil
 
+    /// Whether `==highlight==` and `:circle[…]` in text are read as marks. Off for a tree
+    /// (MarkdownTree): its text is text, its marks are nodes.
+    var interpretsTextSyntax = true
+
     /// Lightweight fingerprint for node-level cache keys.
     /// Captures the fields most likely to affect block-level rendering.
     var stableFingerprint: Int {
@@ -69,6 +73,7 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
         hasher.combine(highlightedBackgroundColor)
         // 脚注上下文(编号/URL)入指纹:流式期间定义陆续到达 → 编号表变化必须失效缓存重渲染。
         hasher.combine(footnotes)
+        hasher.combine(interpretsTextSyntax)
         return hasher.finalize()
     }
 }
