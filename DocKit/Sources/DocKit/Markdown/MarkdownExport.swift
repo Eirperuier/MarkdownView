@@ -74,6 +74,9 @@ extension Doc {
             )
         case .quote:
             return prefixed(inline(), first: "> ", rest: "> ")
+        case .caption:
+            // Markdown has no smaller text; HTML's small is what it reads as.
+            return "<small>" + inline() + "</small>"
         case .code(let language):
             let fence = Self.fence(for: block.text.string)
             return "\(fence)\(language ?? "")\n\(block.text.string)\(block.text.isEmpty ? "" : "\n")\(fence)"

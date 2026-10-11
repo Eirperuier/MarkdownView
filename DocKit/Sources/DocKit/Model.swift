@@ -37,6 +37,8 @@ public enum BlockKind: Hashable, Sendable, Codable {
     case heading(level: Int)  // 1...6
     case listItem(style: ListStyle)
     case quote
+    /// Text set smaller and quieter than the body (Craft's Caption).
+    case caption
     case code(language: String?)
     case math
     case divider
@@ -51,7 +53,7 @@ public enum BlockKind: Hashable, Sendable, Codable {
     /// The kinds whose `text` holds content; the rest must be empty.
     public var carriesText: Bool {
         switch self {
-        case .paragraph, .heading, .listItem, .quote, .code, .math: true
+        case .paragraph, .heading, .listItem, .quote, .caption, .code, .math: true
         case .divider, .image, .link, .file, .card, .database: false
         }
     }
@@ -59,7 +61,7 @@ public enum BlockKind: Hashable, Sendable, Codable {
     /// Code and math text never carries marks.
     public var allowsMarks: Bool {
         switch self {
-        case .paragraph, .heading, .listItem, .quote: true
+        case .paragraph, .heading, .listItem, .quote, .caption: true
         case .code, .math, .divider, .image, .link, .file, .card, .database: false
         }
     }

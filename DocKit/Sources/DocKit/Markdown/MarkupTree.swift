@@ -15,7 +15,7 @@
 public import Markdown
 
 extension Doc {
-    /// The block as a tree, with how deep it is: a paragraph, a heading, a quote, a list
+    /// The block as a tree, with how deep it is: a paragraph, a heading, a quote, a caption, a list
     /// item as a list of one (numbered as it is in its list), code, maths, a divider, a
     /// card (its fence) or a table. Nil for an image, a link or a file (no tree holds
     /// what they show) and a database the doc doesn't have.
@@ -32,6 +32,10 @@ extension Doc {
                 return (Document(Heading(level: level, InlineTreeBuilder.inlines(block.text, singleLine: true))), 0)
             case .quote:
                 return (Document(BlockQuote(Paragraph(inlines))), 0)
+            case .caption:
+                // Its text (the markdown's `<small>` tags aren't content): the renderer
+                // sets a caption's type.
+                return (Document(Paragraph(inlines)), 0)
             case .listItem(let style):
                 guard placement != nil else { return nil }
                 let checkbox: Checkbox? = if case .task(let done) = style { done ? .checked : .unchecked } else { nil }

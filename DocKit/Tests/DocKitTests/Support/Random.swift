@@ -120,13 +120,14 @@ enum RandomDoc {
             default: return .card(card: DocCard(size: "medium", view: "chart", source: "floo.chart", data: ["x": 1]))
             }
         } else {
-            switch rng.next() % 8 {
+            switch rng.next() % 9 {
             case 0, 1: return .paragraph
             case 2: return .heading(level: Int(rng.next() % 6) + 1)
             case 3: return .listItem(style: .bullet)
             case 4: return .listItem(style: .task(done: rng.next() % 2 == 0))
             case 5: return .quote
             case 6: return .code(language: rng.next() % 2 == 0 ? "swift" : nil)
+            case 7: return .caption
             default: return .math
             }
         }

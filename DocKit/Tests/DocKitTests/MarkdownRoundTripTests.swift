@@ -43,7 +43,11 @@ struct MarkupTreeTests {
                     !block.text.marks.contains(where: { $0.mark.kind == .inlineMath }),
                     let markdown = doc.markdown(of: block.id, style: .editing)
                 else { continue }
-                let parsed = Document(parsing: markdown)
+                var parsed = Document(parsing: markdown)
+                // A caption's `<small>` tags hold its text; the tree is the text.
+                if block.kind == .caption, let paragraph = parsed.child(at: 0) as? Paragraph {
+                    parsed = Document(Paragraph(Array(paragraph.inlineChildren.dropFirst().dropLast())))
+                }
                 #expect(TreeDump.of(tree.document) == TreeDump.of(parsed), "seed \(seed)\n\(markdown)")
                 compared += 1
             }
@@ -196,7 +200,7 @@ private enum CanonicalDoc {
                 let indent = previousList.map { Int(rng.next() % UInt64(min($0 + 2, 7))) } ?? 0
                 blocks.append(DocBlock(id: id, kind: .listItem(style: style), indent: indent, text: text(lines: 2, &rng)))
             case 6:
-                blocks.append(DocBlock(id: id, kind: .quote, text: text(lines: 2, &rng)))
+                blocks.append(DocBlock(id: id, kind: pick([.quote, .caption], &rng), text: text(lines: 2, &rng)))
             case 7:
                 let body = (0..<(rng.next() % 3)).map { _ in pick(["let a = 1", "```", "  indented", "$x$", "a == b"], &rng) }
                 blocks.append(DocBlock(id: id, kind: .code(language: pick([nil, "swift"], &rng)), text: DocText(string: body.joined(separator: "\n"))))

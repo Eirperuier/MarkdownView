@@ -122,6 +122,14 @@ private struct MarkdownImporter<Generator: RandomNumberGenerator> {
             }
             return
         }
+        // `<small>…</small>`: a caption, what's between the tags its text.
+        if children.count >= 2, let open = children.first as? InlineHTML, let close = children.last as? InlineHTML,
+           open.rawHTML.lowercased() == "<small>", close.rawHTML.lowercased() == "</small>" {
+            var builder = InlineBuilder(inlineMath: math.inline)
+            for child in children.dropFirst().dropLast() { builder.walk(child, marks: []) }
+            append(.caption, indent: indent, text: builder.finish())
+            return
+        }
         if let latex = math.displayLatex(paragraph.plainText) {
             append(.math, indent: indent, text: DocText(string: latex))
             return

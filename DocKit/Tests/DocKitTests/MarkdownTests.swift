@@ -330,6 +330,20 @@ struct MarkdownEditingStyleTests {
     }
 
     @Test
+    func captionsAreSmall() {
+        let doc = Doc(id: fixedID(0), blocks: [
+            block(1, .caption, "Photo by me\nlast year", marks: [span(9, 11, .bold)]), block(2, .caption),
+        ])
+        #expect(doc.markdown(of: fixedID(1), style: .editing) == "<small>Photo by **me**\\\nlast year</small>")
+        #expect(doc.markdown(of: fixedID(2), style: .editing) == "<small>&#8203;</small>")
+        let back = parse(doc.markdown(of: fixedID(1), style: .editing) ?? "").blocks
+        #expect(back.map(\.kind) == [.caption])
+        #expect(back.first?.text == doc.block(fixedID(1))?.text)
+        // Small text inside a paragraph is the paragraph's.
+        #expect(parse("a <small>b</small>").blocks.map(\.kind) == [.paragraph])
+    }
+
+    @Test
     func emptyBlocksKeepALine() {
         let doc = Doc(id: fixedID(0), blocks: [
             block(1, .paragraph), block(2, .heading(level: 2)), block(3, .listItem(style: .bullet)), block(4, .quote),
