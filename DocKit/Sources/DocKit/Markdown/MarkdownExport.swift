@@ -92,10 +92,7 @@ extension Doc {
         case .file(let file):
             return "[\(InlineEscaping.escaped(file.name, inLink: true))](\(InlineEscaping.destination(file.source)) \"file\")"
         case .card(let card):
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-            guard let data = try? encoder.encode(card) else { return "" }
-            let json = String(decoding: data, as: UTF8.self)
+            guard let json = Self.json(of: card) else { return "" }
             let fence = Self.fence(for: json)
             return "\(fence)floo.card\n\(json)\n\(fence)"
         case .database(let id, let view):
@@ -110,6 +107,14 @@ extension Doc {
             let prefix = index == 0 ? first : rest
             return line.isEmpty ? String(prefix.reversed().drop { $0 == " " }.reversed()) : prefix + line
         }.joined(separator: "\n")
+    }
+
+    /// A card as its fence holds it: JSON, keys sorted.
+    static func json(of card: DocCard) -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        guard let data = try? encoder.encode(card) else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// A backtick fence longer than any backtick run inside `content`.
@@ -162,12 +167,22 @@ extension Database {
     /// A GFM table of the view's visible columns, rows in the view's order.
     /// Kanban views export the same table; grouping is a view concern.
     func markdownTable(view: DatabaseView) -> String {
+        guard let table = cells(view: view) else { return "" }
+        func line(_ cells: [String]) -> String { "| " + cells.map(Self.cellMarkdown).joined(separator: " | ") + " |" }
+        let rule = "| " + table.header.map { _ in "---" }.joined(separator: " | ") + " |"
+        return ([line(table.header), rule] + table.rows.map(line)).joined(separator: "\n")
+    }
+
+    /// What the view shows: its visible columns' names, and each row's cells as they
+    /// read (formulas as what they compute), rows in the view's order. Nil when no
+    /// column is visible.
+    func cells(view: DatabaseView) -> (header: [String], rows: [[String]])? {
         let (hidden, sort): ([ColumnID], [DatabaseSort]) = switch view {
         case .table(let hidden, let sort): (hidden, sort)
         case .kanban(_, let hidden, let sort): (hidden, sort)
         }
         let visible = columns.filter { !hidden.contains($0.id) }
-        guard !visible.isEmpty else { return "" }
+        guard !visible.isEmpty else { return nil }
         let ordered = rows.enumerated().sorted { lhs, rhs in
             for key in sort {
                 guard let column = columns.first(where: { $0.id == key.column }) else { continue }
@@ -176,22 +191,17 @@ extension Database {
             }
             return lhs.offset < rhs.offset
         }.map(\.element)
-        func line(_ cells: [String]) -> String { "| " + cells.joined(separator: " | ") + " |" }
-        var lines = [line(visible.map { Self.cellMarkdown($0.name) })]
-        lines.append(line(visible.map { _ in "---" }))
         // Formulas show what they compute, in the database's own order (their references).
         let rowIndex = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0 + 1) })
         let columnIndex = Dictionary(uniqueKeysWithValues: columns.enumerated().map { ($1.id, $0) })
-        for row in ordered {
-            lines.append(line(visible.map { column in
+        return (visible.map(\.name), ordered.map { row in
+            visible.map { column in
                 let text = column.display(row.cells[column.id])
-                let shown = DatabaseFormula.isFormula(text)
+                return DatabaseFormula.isFormula(text)
                     ? DatabaseFormula.displayed(text, in: self, row: rowIndex[row.id] ?? 0, column: columnIndex[column.id] ?? 0)
                     : text
-                return Self.cellMarkdown(shown)
-            }))
-        }
-        return lines.joined(separator: "\n")
+            }
+        })
     }
 
     static func cellMarkdown(_ text: String) -> String {

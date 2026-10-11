@@ -38,7 +38,8 @@ struct MarkupTreeTests {
             var rng = SplitMix64(seed: seed)
             let doc = Self.trimmingMarks(CanonicalDoc.doc(using: &rng))
             for block in doc.blocks {
-                guard let tree = doc.markupTree(of: block.id),
+                // Maths is a node markdown has none for (its `$` delimiters are MarkdownView's).
+                guard block.kind != .math, let tree = doc.markupTree(of: block.id),
                     !block.text.marks.contains(where: { $0.mark.kind == .inlineMath }),
                     let markdown = doc.markdown(of: block.id, style: .editing)
                 else { continue }
@@ -78,6 +79,23 @@ struct MarkupTreeTests {
         let tree = try #require(doc.markupTree(of: fixedID(1)))
         #expect(TreeDump.of(tree.document) == "Document[Paragraph[Text(\(text))]]")
     }
+
+    @Test
+    func mathsIsADirectiveAndCellsAreTakenAsTheyAre() throws {
+        let column = Column(id: fixedID(10), name: "a|b *c*", type: .text)
+        let database = Database(id: fixedID(11), columns: [column], rows: [
+            Row(id: fixedID(12), cells: [column.id: .text(value: "a ==x== $5 and $6\nnext")]),
+            Row(id: fixedID(13), cells: [:]),
+        ])
+        let doc = Doc(id: fixedID(0), blocks: [
+            DocBlock(id: fixedID(1), kind: .math, text: DocText(string: "\\frac{1}{2}\n+ x")),
+            DocBlock(id: fixedID(2), kind: .database(id: database.id, view: .table(hidden: [], sort: []))),
+        ], databases: [database.id: database])
+        let math = try #require(doc.markupTree(of: fixedID(1)))
+        #expect(TreeDump.of(math.document) == "Document[Directive(math)[Paragraph[Text(\\frac{1}{2}\n+ x)]]]")
+        let table = try #require(doc.markupTree(of: fixedID(2)))
+        #expect(TreeDump.of(table.document) == "Document[Table[\"-\"][Head[Cell[Text(a|b *c*)]], Body[Row[Cell[Text(a ==x== $5 and $6 next)]], Row[Cell]]]]")
+    }
 }
 
 /// A tree as a string: node kinds, what they carry, children, adjacent text joined
@@ -114,6 +132,9 @@ enum TreeDump {
         case let link as Link: "Link(\(link.destination ?? "") \(link.title ?? ""))"
         case let attributes as InlineAttributes: "Attributes(\(attributes.attributes))"
         case let code as InlineCode: "Code(\(code.code))"
+        case let code as CodeBlock: "CodeBlock(\(code.language ?? "") \(code.code.debugDescription))"
+        case let directive as BlockDirective: "Directive(\(directive.name))"
+        case let table as Table: "Table\(table.columnAlignments.map { $0.map { "\($0)" } ?? "-" })"
         default: String(describing: type(of: markup))
         }
         return children.isEmpty ? name : "\(name)[\(children.joined(separator: ", "))]"

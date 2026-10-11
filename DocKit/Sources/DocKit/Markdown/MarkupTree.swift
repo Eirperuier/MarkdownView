@@ -2,20 +2,23 @@
 //  MarkupTree.swift
 //  DocKit
 //
-//  A text block as the markdown tree it reads as, built straight from the model: what
-//  the editing markdown (`markdown(of:style: .editing)`) would parse into, without
-//  writing it or parsing it. A renderer that takes trees (MarkdownView's MarkdownTree)
-//  then shows the block's text exactly: nothing escaped, nothing in it read as syntax.
-//  What markdown has no node for is an inline attributes node, as MarkdownView reads
-//  them: a colour, a highlight, a pen mark (`color: red`, `highlight`, `pen: circle,
-//  ink: blue`) and inline maths (`math`, its LaTeX as the text).
+//  A block as the markdown tree it reads as, built straight from the model: what the
+//  editing markdown (`markdown(of:style: .editing)`) would parse into, without writing
+//  it or parsing it. A renderer that takes trees (MarkdownView's MarkdownTree) then
+//  shows the block exactly: nothing escaped, nothing in its text read as syntax. What
+//  markdown has no node for is an inline attributes node, as MarkdownView reads them:
+//  a colour, a highlight, a pen mark (`color: red`, `highlight`, `pen: circle, ink:
+//  blue`) and inline maths (`math`, its LaTeX as the text); display maths is a `math`
+//  directive, its LaTeX as the text inside.
 //
 
 public import Markdown
 
 extension Doc {
-    /// The block as a tree: a paragraph, a heading, a quote, or a list item as a list of
-    /// one (numbered as it is in its list), with how deep it is. Nil for the other kinds.
+    /// The block as a tree, with how deep it is: a paragraph, a heading, a quote, a list
+    /// item as a list of one (numbered as it is in its list), code, maths, a divider, a
+    /// card (its fence) or a table. Nil for an image, a link or a file (no tree holds
+    /// what they show) and a database the doc doesn't have.
     public func markupTree(of id: DocBlockID) -> (document: Document, depth: Int)? {
         var layout = ListLayout()
         for block in blocks {
@@ -39,7 +42,27 @@ extension Doc {
                     return (Document(list), layout.depth)
                 }
                 return (Document(UnorderedList([item])), layout.depth)
-            default:
+            case .code(let language):
+                let code = block.text.string
+                return (Document(CodeBlock(language: language.flatMap { $0.isEmpty ? nil : $0 }, code.isEmpty ? "" : code + "\n")), 0)
+            case .math:
+                return (Document(BlockDirective(name: "math", children: [Paragraph(Text(block.text.string))])), 0)
+            case .divider:
+                return (Document(ThematicBreak()), 0)
+            case .card(let card):
+                guard let json = Self.json(of: card) else { return nil }
+                return (Document(CodeBlock(language: "floo.card", json + "\n")), 0)
+            case .database(let id, let view):
+                guard let table = databases[id]?.cells(view: view) else { return nil }
+                func cell(_ text: String) -> Table.Cell {
+                    text.isEmpty ? Table.Cell() : Table.Cell(Text(text.replacing("\n", with: " ")))
+                }
+                return (Document(Table(
+                    columnAlignments: Array(repeating: nil, count: table.header.count),
+                    header: Table.Head(table.header.map(cell)),
+                    body: Table.Body(table.rows.map { Table.Row($0.map(cell)) })
+                )), 0)
+            case .image, .link, .file:
                 return nil
             }
         }
