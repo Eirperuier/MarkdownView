@@ -169,6 +169,11 @@ final class DocTableController {
         if let pending = pendingFocus, pending.key == key { focusSoon(key, atEnd: pending.atEnd) }
     }
 
+    /// A cell's text view came on screen: the focus waiting for it goes to it.
+    func arrived(_ key: DocCellKey) {
+        if let pending = pendingFocus, pending.key == key, view(for: key) != nil { focus(key, atEnd: pending.atEnd) }
+    }
+
     /// The cell's text view on screen (TiledView also renders rows off screen to measure them).
     func view(for key: DocCellKey) -> DocCellTextView? {
         views[key]?.compactMap(\.view).first { $0.window?.isKeyWindow == true }
@@ -181,8 +186,19 @@ final class DocTableController {
         editor.sources.endEditing()
     }
 
-    func ended(_ key: DocCellKey) {
+    /// A cell's text view let the focus go. If its row was rendered anew (SwiftUI
+    /// took the old view out, which lets the focus go first), the new view takes it;
+    /// a focus that went elsewhere (another cell, the text, the keyboard put away)
+    /// leaves the old view where it was.
+    func ended(_ key: DocCellKey, in view: DocCellTextView) {
         if active == key { active = nil }
+        guard editing == key else { return }
+        pendingFocus = (key, true)
+        Task { @MainActor [weak self, weak view] in
+            guard let self, self.pendingFocus?.key == key else { return }
+            guard view?.window == nil, self.editing == key, self.active == nil else { return self.pendingFocus = nil }
+            if self.view(for: key) != nil { self.focus(key) }
+        }
     }
 
     /// After an undo: the edited cell shows the model's text now (see DocEditor.syncEditors).
@@ -519,6 +535,13 @@ final class DocCellTextView: UITextView, UITextViewDelegate, UIContextMenuIntera
         })
     }
 
+    /// On screen at last (its row rendered late, after the focus was asked for): a
+    /// focus waiting for this cell is taken now.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window?.isKeyWindow == true, let key { controller?.arrived(key) }
+    }
+
     override var undoManager: UndoManager? { controller?.editor.undoManager }
 
     override var keyCommands: [UIKeyCommand]? {
@@ -585,7 +608,7 @@ final class DocCellTextView: UITextView, UITextViewDelegate, UIContextMenuIntera
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {
-        if let key { controller?.ended(key) }
+        if let key { controller?.ended(key, in: self) }
     }
 
     /// Right-click (or the edit menu): the table's actions after the text ones.

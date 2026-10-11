@@ -91,10 +91,21 @@ final class DocEditor {
         self.demo = demo
         undoManager.editor = self
         DocScrolling.trackKeyboard()
+        // The keyboard coming up over the caret (a tap low on the page): the caret's
+        // line rises above it, the least it needs, as the keyboard does. (After
+        // DocScrolling's observer of the same note: it knows the keyboard's new frame.)
+        NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let view = self.allViews.first(where: \.isFirstResponder) else { return }
+                DocScrolling.reveal(view, rect: view.selectedTextRange.map { view.caretRect(for: $0.end) } ?? view.bounds)
+            }
+        }
         slash.choose = { [weak self] item in self?.chooseSlash(item) }
     }
 
     private var allViews: [UITextView] { views.values.flatMap { $0 }.compactMap(\.view) }
+    /// For the edit tests' reports.
+    var allTextViews: [UITextView] { allViews }
 
     /// One hooks object per block, reused so the environment stays equal.
     func hooks(for id: DocBlockID) -> MarkdownSelectableTextHooks {
@@ -897,6 +908,12 @@ final class DocEditor {
     /// A text view starts or stops being edited: the sheet stays with the one it's in.
     fileprivate func editingChanged(_ textView: UITextView) {
         if let owner = formatInputOwner, owner !== textView || !textView.isFirstResponder { hideFormatInput() }
+    }
+
+    /// The keyboard bar's keyboard key: the text being edited lets the focus go.
+    func dismissKeyboard() {
+        hideFormatInput()
+        for view in allViews where view.isFirstResponder { view.resignFirstResponder() }
     }
 
     /// The keyboard bar's slash key: a "/" typed, and the slash menu open even where a

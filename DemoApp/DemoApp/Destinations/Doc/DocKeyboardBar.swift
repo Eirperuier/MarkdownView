@@ -198,7 +198,8 @@ final class DocKeyboardBar: UIInputView {
 
     private func dismissKey() -> UIButton {
         key("dismiss", UIImage(systemName: "keyboard.chevron.compact.down"), String(localized: "Hide Keyboard")) { [weak self] in
-            self?.window?.endEditing(true)
+            // The bar is in the keyboard's window: the text view is in the document's.
+            self?.editor?.dismissKeyboard()
         }
     }
 

@@ -32,6 +32,7 @@ final class DocEditTests {
     /// must stay on screen showing their text, and undo must bring back exactly the
     /// document there was.
     private func sweepReturn() async {
+        if let filter, !"Return at the end of".contains(filter) { return }
         demo.reset()
         editor.resetHistory()
         try? await Task.sleep(for: .milliseconds(300))
@@ -865,7 +866,9 @@ final class DocEditTests {
                 let c = t.database.columns.firstIndex { $0.id == key.column } ?? -1
                 return "(\(r), \(c))"
             }
-            throw Failure(description: "\(step): cell \(position(key)) never got an editor with the focus; editing \(position(self.editor.tables.editing)), active \(position(self.editor.tables.active)), table \(t.database.rows.count + 1)×\(t.database.columns.count)")
+            let row = self.demo.rowFrame(key.block.description)
+            let list = self.editor.allTextViews.compactMap { DocScrolling.list(of: $0) }.first
+            throw Failure(description: "\(step): cell \(position(key)) never got an editor with the focus; editing \(position(self.editor.tables.editing)), active \(position(self.editor.tables.active)), table \(t.database.rows.count + 1)×\(t.database.columns.count); row \(String(describing: row)) visible \(String(describing: list.map { DocScrolling.visible(in: $0) })) bounds \(String(describing: list?.bounds)) view \(self.editor.tables.view(for: key) != nil)")
         }
         /// A key as UIKit sends it: the delegate first (Tab and Return move between cells).
         func press(_ view: DocCellTextView, _ key: String) {
@@ -1124,6 +1127,35 @@ final class DocEditTests {
             bar.testTap("slash")
             try await self.settle()
             try self.expect(self.text(block.id).hasSuffix("/") && self.editor.slash.isOpen, "text \(self.text(block.id).debugDescription) open \(self.editor.slash.isOpen)")
+        }
+        if !DocBlockController.usesHandles {
+            await test("the keyboard comes and goes without the page jumping; its key hides it") {
+                // Two lines: one the keyboard leaves uncovered, one low on the page it covers.
+                for prefix in ["Loading older", "Apply the insert"] {
+                    let block = try self.block(prefix)
+                    if prefix == "Loading older" { self.demo.bringIntoView(block.id) }
+                    try? await Task.sleep(for: .seconds(1))
+                    let view = try self.expectValue(self.editor.textView(for: block.id), "no view for \(prefix)")
+                    func y() -> CGFloat { view.convert(view.bounds, to: nil).minY }
+                    let before = y()
+                    // A tap's way in: the text view takes the focus itself.
+                    view.becomeFirstResponder()
+                    view.selectedRange = NSRange(location: 3, length: 0)
+                    var shown = [before]
+                    for _ in 0..<50 { try? await Task.sleep(for: .milliseconds(20)); shown.append(y()) }
+                    let steps = zip(shown, shown.dropFirst()).map { $1 - $0 }
+                    try self.expect(steps.allSatisfy { $0 <= 0.5 } && steps.allSatisfy { abs($0) < 60 }, "\(prefix) moved \(shown.map { Int($0) })")
+                    let caret = view.convert(view.caretRect(for: view.selectedTextRange!.end), to: nil)
+                    let list = try self.expectValue(DocScrolling.list(of: view), "no list")
+                    let visible = list.convert(DocScrolling.visible(in: list), to: nil)
+                    try self.expect(caret.maxY <= visible.maxY, "\(prefix): caret \(caret.maxY) under the keyboard at \(visible.maxY)")
+                    try self.expect(shown.last == before || before > visible.maxY - 30, "\(prefix) moved from \(before) to \(shown.last!) though it showed")
+                    let settled = y()
+                    bar.testTap("dismiss")
+                    for _ in 0..<40 { try? await Task.sleep(for: .milliseconds(20)); try self.expect(y() == settled, "\(prefix) moved as the keyboard went: \(settled) → \(y())") }
+                    try self.expect(!view.isFirstResponder, "\(prefix): the keyboard stayed")
+                }
+            }
         }
         await test("on an empty line the keyboard bar's divider key makes it a divider") {
             let block = try self.block("Loading older")
@@ -1413,9 +1445,14 @@ final class DocEditTests {
         }
     }
 
+
     private var blockCountAtStart = 0
 
+    /// -docTestFilter <text>: only the tests whose names contain it.
+    private let filter = UserDefaults.standard.string(forKey: "docTestFilter")
+
     private func test(_ name: String, _ body: @MainActor () async throws -> Void) async {
+        if let filter, !name.contains(filter) { return }
         demo.reset()
         editor.resetHistory()
         blockCountAtStart = demo.doc.blocks.count

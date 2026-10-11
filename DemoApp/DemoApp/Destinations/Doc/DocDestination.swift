@@ -51,6 +51,12 @@ struct DocDestination: View {
             .heightEstimate { row, width in
                 row.estimatedHeight(width: width)
             }
+            // A document is anchored at its top: the keyboard (the safe area) adds room
+            // under the page and leaves where it is scrolled alone. By default the
+            // bottom stays pinned, as a chat's does, and the page moves by the
+            // keyboard's height at once. Showing the caret above the keyboard is the
+            // editor's.
+            .keyboardAvoidance(false, preservesContentOffset: true)
             .overlay { DocSlashMenuView(menu: editor.slash) }
             .overlay(alignment: .bottom) { DocBlockSelectionBar(blocks: editor.blocks) }
         }
