@@ -276,7 +276,7 @@ private struct DocRowView: View {
                 }
             }
         }
-        .padding(.top, row.spacingAbove)
+        .modifier(DocRowBoxing(box: row.box, spacingAbove: row.spacingAbove))
         .padding(.bottom, row.spacingBelow)
         .frame(maxWidth: 720, alignment: .leading)
         .padding(.leading, DocBlockController.leadingGutter)
@@ -336,6 +336,39 @@ private struct DocRowView: View {
     }
 }
 
+
+/// The space above a row, and its part of a decoration's box (Craft's Block: a grey box,
+/// out past the text's edges, the text inset in it). Below the box's first row the box
+/// fills the space between rows too.
+private struct DocRowBoxing: ViewModifier {
+    let box: DocRowBox?
+    let spacingAbove: CGFloat
+
+    static let inset: CGFloat = 10
+    static let outset: CGFloat = 10
+    static let padding: CGFloat = 10
+    static let radius: CGFloat = 6
+
+    func body(content: Content) -> some View {
+        if let box {
+            let radius = Self.radius
+            content
+                .padding(.horizontal, Self.inset)
+                .padding(.top, box.isFirst ? Self.padding : spacingAbove)
+                .padding(.bottom, box.isLast ? Self.padding : 0)
+                .background {
+                    UnevenRoundedRectangle(topLeadingRadius: box.isFirst ? radius : 0, bottomLeadingRadius: box.isLast ? radius : 0,
+                                           bottomTrailingRadius: box.isLast ? radius : 0, topTrailingRadius: box.isFirst ? radius : 0,
+                                           style: .continuous)
+                        .fill(Color.primary.opacity(0.04))
+                        .padding(.horizontal, -Self.outset)
+                }
+                .padding(.top, box.isFirst ? spacingAbove : 0)
+        } else {
+            content.padding(.top, spacingAbove)
+        }
+    }
+}
 
 /// A caption's type: smaller, secondary.
 private struct DocCaptionType: ViewModifier {

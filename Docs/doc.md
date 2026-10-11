@@ -65,6 +65,7 @@ struct Block: Hashable, Sendable, Codable, Identifiable {
     var kind: BlockKind
     var indent: Int                // 0…6;列表嵌套、折叠的从属都靠它
     var text: RichText             // 不带文字的块(分隔线、卡片、数据库)为空
+    var decoration: BlockDecoration?  // 装饰(Craft 的 Block:灰底加内边距),任何种类的块都能有;相邻的共用一个框
 }
 
 enum BlockKind: Hashable, Sendable, Codable {
@@ -119,6 +120,8 @@ enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mentio
 
 - **说明**(caption)写成 `<small>文字</small>` 一段;段落中间的 `<small>` 仍属于段落。格式面板的六种文字样式(标题、副标题、小标题、强调、正文、说明,⌃1–⌃6)对应 heading 1–4、paragraph、caption。
 
+- **装饰**不进 Markdown,和布局一样是展示信息;agent 改写一块(删了重插)时装饰会丢,到时候看需要再定。
+
 - **书签和附件**写成带 title 的链接,单独一行:书签 `[标题](url "bookmark")`,附件 `[文件名](blob:… "file")`,和引用的 `"cite"` 同一种写法。只有一条普通链接的段落仍是段落。摘要、预览图、文件大小和布局是展示信息,不进 Markdown。
 
 - **颜色和笔迹**写成行内属性(swift-markdown 的 InlineAttributes,cmark 原生解析,内容可以嵌套加粗、链接等):`^[文字](color: red)`、`^[文字](highlight: yellow)`、`^[文字](pen: circle, ink: blue)`;默认颜色的高亮仍是 `==文字==`。导入也认 MarkdownView 的笔迹文本语法 `:circle[文字]{color=blue}`。文字里的 `^[` 转义成 `\^[`。
@@ -161,12 +164,13 @@ enum DocStep: Hashable, Sendable, Codable {
     case insertText(BlockID, at: Int, String, marks: [Mark])
     case deleteText(BlockID, Range<Int>, removed: RichText)              // 带上被删的内容,才能求逆
     case setMark(BlockID, Range<Int>, Mark, on: Bool, previous: [MarkSpan])
-    case splitBlock(BlockID, at: Int, newID: BlockID, newKind: BlockKind)
+    case splitBlock(BlockID, at: Int, newID: BlockID, newKind: BlockKind, newDecoration: BlockDecoration?)  // 回车:新块留在原块的框里
     case joinBlock(BlockID, into: BlockID, removed: Block)               // 退格把一块并进上一块
     case insertBlocks([Block], after: BlockID?)
     case deleteBlocks([Block], after: BlockID?)                          // 带内容和原位置
     case moveBlocks([BlockID], after: BlockID?, from: BlockID?)
     case setBlock(BlockID, kind: BlockKind, indent: Int, previous: (BlockKind, Int))
+    case setDecoration(BlockID, BlockDecoration?, previous: BlockDecoration?)
     case database(DatabaseID, DatabaseStep)                              // 改格子、加删行、移行、改列、改视图
 }
 ```

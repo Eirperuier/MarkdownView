@@ -24,6 +24,12 @@ struct DocTextRow: Equatable {
     let plain: String
 }
 
+/// A decorated row's part of its box: the box's top and bottom are rounded and padded.
+struct DocRowBox: Equatable {
+    let isFirst: Bool
+    let isLast: Bool
+}
+
 /// One list row: a committed block, or a block of what the agent is writing.
 struct DocRow: Identifiable, Equatable {
     let id: String
@@ -51,6 +57,8 @@ struct DocRow: Identifiable, Equatable {
     var spacingBelow: CGFloat = 0
     /// What the row is, for its spacing and line height.
     var role: DocRowRole = .paragraph
+    /// Its part of a decoration's box: decorated rows next to each other share one.
+    var box: DocRowBox?
     private let source: String
     private let depth: Int?
 
@@ -76,7 +84,7 @@ struct DocRow: Identifiable, Equatable {
             && lhs.table == rhs.table && lhs.media == rhs.media && lhs.members == rhs.members
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
-            && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role
+            && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role && lhs.box == rhs.box
             && lhs.blocks.map(\.revealPlainTextCount) == rhs.blocks.map(\.revealPlainTextCount)
     }
 }
@@ -247,9 +255,19 @@ final class DocDemo {
     }
 
     /// Each row's space above by what it is and what comes before it; the last row
-    /// carries the page's bottom.
+    /// carries the page's bottom. Decorated rows next to each other make one box.
     private func space(_ rows: inout [DocRow]) {
         let kinds = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.kind) })
+        let decorations = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.decoration) })
+        let decorated = rows.map { row in row.block.flatMap { decorations[$0] } ?? nil }
+        for index in rows.indices {
+            guard let decoration = decorated[index] else {
+                rows[index].box = nil
+                continue
+            }
+            rows[index].box = DocRowBox(isFirst: index == 0 || decorated[index - 1] != decoration,
+                                        isLast: index == rows.count - 1 || decorated[index + 1] != decoration)
+        }
         var previous: DocRowRole?
         for index in rows.indices {
             let row = rows[index]
@@ -565,7 +583,7 @@ extension DocRow {
     /// A rough height for the list to use until the row is measured.
     func estimatedHeight(width: CGFloat) -> CGFloat {
         let textWidth = max(100, min(width - DocBlockController.leadingGutter - DocBlockController.trailingGutter, 720))
-        let spacing = spacingAbove + spacingBelow
+        let spacing = spacingAbove + spacingBelow + (box.map { ($0.isFirst ? 10 : 0) + ($0.isLast ? 10 : 0) } ?? 0)
         if !members.isEmpty {
             return DocMediaLayout.groupHeight(members.map(\.kind), width: min(720, width - DocBlockController.leadingGutter - DocBlockController.trailingGutter)) + spacing
         }

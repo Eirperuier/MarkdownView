@@ -560,7 +560,8 @@ final class DocEditor {
         for (index, line) in lines.enumerated() {
             if index > 0 {
                 let next = demo.newBlockID()
-                steps.append(.splitBlock(block: current, at: offset, newID: next, newKind: Self.kindAfterSplit(block.kind), newIndent: block.indent))
+                steps.append(.splitBlock(block: current, at: offset, newID: next, newKind: Self.kindAfterSplit(block.kind), newIndent: block.indent,
+                                         newDecoration: block.decoration))
                 current = next
                 offset = 0
             }
@@ -642,7 +643,7 @@ final class DocEditor {
         let there = DocPosition(block: next, offset: 0)
         commit([
             .deleteText(block: block.id, range: (end - 1)..<end, removed: DocText()),
-            .splitBlock(block: block.id, at: end - 1, newID: next, newKind: .paragraph, newIndent: block.indent),
+            .splitBlock(block: block.id, at: end - 1, newID: next, newKind: .paragraph, newIndent: block.indent, newDecoration: block.decoration),
         ], from: DocSelection(anchor: here, head: here), to: DocSelection(anchor: there, head: there))
         session &+= 1
     }
@@ -658,7 +659,8 @@ final class DocEditor {
         session &+= 1
     }
 
-    /// Return in an empty list item or quote leaves it: out one level, then to a paragraph.
+    /// Return in an empty list item or quote leaves it: out one level, then to a paragraph;
+    /// in an empty decorated paragraph, out of the decoration.
     private func leaveEmptyBlock(_ block: DocBlock) -> Bool {
         switch block.kind {
         case .listItem where block.indent > 0:
@@ -666,7 +668,9 @@ final class DocEditor {
         case .listItem, .quote:
             setKind(block, kind: .paragraph, indent: 0)
         default:
-            return false
+            guard block.decoration != nil else { return false }
+            let here = DocSelection(anchor: .init(block: block.id, offset: 0), head: .init(block: block.id, offset: 0))
+            commit([.setDecoration(block: block.id, decoration: nil, previous: block.decoration)], from: here, to: here)
         }
         return true
     }
@@ -697,7 +701,7 @@ final class DocEditor {
             if previous.kind.carriesText {
                 guard previous.kind.allowsMarks || block.text.marks.isEmpty else { return true }
                 let joined = DocPosition(block: previous.id, offset: previous.text.length)
-                commit([.joinBlock(block: id, into: previous.id, at: 0, kind: block.kind, indent: block.indent)],
+                commit([.joinBlock(block: id, into: previous.id, at: 0, kind: block.kind, indent: block.indent, decoration: block.decoration)],
                        from: here, to: DocSelection(anchor: joined, head: joined))
             } else {
                 commit([.deleteBlock(block: previous, after: nil)], from: here, to: here)
@@ -817,6 +821,21 @@ final class DocEditor {
     static func covers(_ text: DocText, _ range: Range<Int>, with kind: MarkKind) -> Bool {
         let spans = text.marks.filter { $0.mark.kind == kind }
         return range.allSatisfy { offset in spans.contains { $0.range.contains(offset) } }
+    }
+
+    /// Blocks take a decoration, or lose theirs (nil), in one transaction.
+    func setDecoration(_ decoration: BlockDecoration?, of ids: [DocBlockID]) {
+        let chosen = Set(ids)
+        let steps: [DocStep] = demo.doc.blocks.filter { chosen.contains($0.id) && $0.decoration != decoration }.map {
+            .setDecoration(block: $0.id, decoration: decoration, previous: $0.decoration)
+        }
+        guard !steps.isEmpty else { return }
+        // The cursor stays where it is (the row is laid out anew in its box).
+        if let selection {
+            commit(steps, from: selection, to: selection)
+        } else {
+            demo.edit(steps, before: nil, after: nil)
+        }
     }
 
     /// Blocks of text become `kind` in one transaction (a list keeps its items' levels).

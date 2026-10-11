@@ -3,10 +3,10 @@
 //  DemoApp
 //
 //  The Mac's format panel: Craft's sections (the text styles as tiles, marks, lists
-//  and indent as segments, the quote as a decoration) in the anchored panel the math
+//  and indent as segments, the quote and the box as decorations) in the anchored panel the math
 //  editor uses, opened from the bar's Aa. It acts on the selected blocks, or the block the
 //  cursor is in; marks on the selected text, or on the selected blocks' text, and so does
-//  the colour. What DocKit can't carry yet (alignment, the Block decoration) isn't offered.
+//  the colour; the box any blocks. What DocKit can't carry yet (alignment) isn't offered.
 //
 
 import SwiftUI
@@ -74,8 +74,9 @@ struct DocFormatPanel: View {
                     }
                 }
             }
-            // A quote is a block's decoration (Craft's Focus, its bar at the left).
-            if !targets.isEmpty {
+            // Decorations (Craft's): the quote, its bar at the left (Craft's Focus; a kind
+            // of text block here), and the grey box any blocks can sit in.
+            if !decorated.isEmpty {
                 section("装饰") {
                     HStack(spacing: 6) {
                         choice(isOn: kindIsOn(.quote), help: "引用") {
@@ -88,16 +89,26 @@ struct DocFormatPanel: View {
                             }
                             .frame(maxWidth: .infinity, minHeight: 40)
                         }
+                        .disabled(targets.isEmpty)
                         .accessibilityIdentifier("format-引用")
-                        // Craft's Block decoration has no place in the model yet.
-                        Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+                        let boxed = decorated.allSatisfy { $0.decoration == .block }
+                        choice(isOn: boxed, help: "块") {
+                            editor.blocks.transition { editor.setDecoration(boxed ? nil : .block, of: decorated.map(\.id)) }
+                        } label: {
+                            Text("块")
+                                .font(.system(size: 15))
+                                .frame(maxWidth: .infinity, minHeight: 28)
+                                .background(Color.primary.opacity(0.08), in: .rect(cornerRadius: 6, style: .continuous))
+                                .padding(6)
+                        }
+                        .accessibilityIdentifier("format-块")
                     }
                 }
                 .padding(.top, 18)
             }
             if !markRanges.isEmpty {
                 section("颜色") { colors }
-                    .padding(.top, targets.isEmpty ? 18 : 0)
+                    .padding(.top, decorated.isEmpty ? 18 : 0)
             }
         }
         .frame(width: 246)
@@ -201,6 +212,14 @@ struct DocFormatPanel: View {
             return demo.doc.blocks.filter { selected.contains($0.id) && $0.kind.carriesText }
         }
         guard let id = editor.cursor.selection?.head.block, let block = demo.doc.block(id), block.kind.carriesText else { return [] }
+        return [block]
+    }
+
+    /// The selected blocks of any kind, else the one the cursor is in: what a box goes around.
+    private var decorated: [DocBlock] {
+        let selected = Set(editor.blocks.selected)
+        if !selected.isEmpty { return demo.doc.blocks.filter { selected.contains($0.id) } }
+        guard let id = editor.cursor.selection?.head.block, let block = demo.doc.block(id) else { return [] }
         return [block]
     }
 

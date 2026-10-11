@@ -489,6 +489,26 @@ final class DocEditTests {
             try self.expect(self.demo.doc.block(line.id)?.kind == .paragraph && self.text(line.id) == "Photo by me", "back to \(String(describing: self.demo.doc.block(line.id)?.kind))")
             try self.expect(try await fontSize() == body, "body again is not body")
         }
+        await test("A boxed line's Return stays in the box, Return on the empty line leaves it; the box pads the row") {
+            let line = try await emptyLine()
+            try await self.type("Boxed")
+            try await Task.sleep(for: .milliseconds(300))
+            let plain = try self.expectValue(self.demo.rowFrame(line.id.description), "no row").height
+            self.editor.setDecoration(.block, of: [line.id])
+            try await Task.sleep(for: .milliseconds(400))
+            let boxed = try self.expectValue(self.demo.rowFrame(line.id.description), "no row").height
+            try self.expect(boxed >= plain + 15, "row \(plain) → \(boxed) with its box")
+            try self.expectCursor(line.id, 5)
+            try await self.enter()
+            let next = try self.blockAfter(line.id)
+            try self.expect(next.decoration == .block, "the new line is \(String(describing: next.decoration))")
+            try await self.enter()
+            try self.expect(self.demo.doc.block(next.id)?.decoration == nil && self.demo.doc.blocks.contains { $0.id == next.id },
+                            "Return on the empty line: \(String(describing: self.demo.doc.block(next.id)?.decoration)) cursor \(String(describing: self.editor.selection?.head)) line \(line.id) next \(next.id) after: \(self.demo.doc.blocks.drop { $0.id != line.id }.prefix(4).map { "\($0.text.string.debugDescription) \(String(describing: $0.decoration))" })")
+            try self.expect(self.demo.doc.block(line.id)?.decoration == .block, "the line left its box")
+            try await self.undo()
+            try self.expect(self.demo.doc.block(next.id)?.decoration == .block, "undo: \(String(describing: self.demo.doc.block(next.id)?.decoration))")
+        }
         await test("Quotes, dashes and dots stay as typed (no smart punctuation)") {
             let line = try await emptyLine()
             try await self.type("don't say \"no\" -- wait...")
