@@ -585,7 +585,9 @@ final class DocCellTextView: UITextView, UITextViewDelegate, UIContextMenuIntera
     @objc private func cellAbove() { move(.up) }
     @objc private func cellBelow() { move(.down) }
     @objc private func leaveTable() {
-        if let key { controller?.leave(key) }
+        guard let key else { return }
+        controller?.leave(key)
+        controller?.editor.blocks.selectAfterEditing(key.block)
     }
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {

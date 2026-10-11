@@ -546,6 +546,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         }
     }
 
+    /// Esc while editing a block (its text, a cell, code, maths) on the Mac: the editing
+    /// ends and the block is selected, as a click on it would have.
+    func selectAfterEditing(_ id: DocBlockID) {
+        guard Self.usesHandles else { return }
+        select([id])
+        focusKeys()
+    }
+
     /// Return: edit the selected block's text, the cursor at its end.
     func editSelection() {
         guard let first = selected.first, let block = demo.doc.block(first) else { return }

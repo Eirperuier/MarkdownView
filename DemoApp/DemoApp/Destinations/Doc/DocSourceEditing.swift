@@ -353,6 +353,7 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     @objc private func leave() {
         resignFirstResponder()
         controller?.endEditing()
+        if let block { controller?.editor.blocks.selectAfterEditing(block) }
     }
     @objc private func leaveUp() { if let block { controller?.leave(block, .up) } }
     @objc private func leaveDown() { if let block { controller?.leave(block, .down) } }

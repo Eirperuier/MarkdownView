@@ -453,6 +453,8 @@ final class DocEditor {
             slash.move(by: command == .slashUp ? -1 : 1)
         case .slashClose:
             dismissSlash()
+        case .selectBlock:
+            blocks.selectAfterEditing(block.id)
         case .outdent:
             indent(block, by: -1)
         case .lineBreak:
@@ -1176,7 +1178,7 @@ final class DocUndoManager: UndoManager {
 }
 
 enum DocKeyCommand: Equatable {
-    case outdent, bold, italic, strike, code, highlight, link, lineBreak, slashUp, slashDown, slashClose
+    case outdent, bold, italic, strike, code, highlight, link, lineBreak, slashUp, slashDown, slashClose, selectBlock
     /// ⌃1–⌃6: the block takes a text style (DocFormatting.styles).
     case style(BlockKind)
 }
@@ -1289,21 +1291,23 @@ private enum TextViewHooks {
     /// (Craft's), ⌘K links (Composer had
     /// them; UIKit's own versions would edit the storage, not the model); ⌃1–⌃6 set
     /// the text style (Craft's).
-    /// ↑, ↓ and Esc are the slash menu's only while it is open.
-    private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String, slashMenu: Bool)] = DocFormatting.styles.map { style in
-        (style.key, .control, Selector(("docStyle\(style.key):")), .style(style.kind), style.title, false)
+    /// ↑, ↓ and Esc are the slash menu's only while it is open; otherwise Esc selects the
+    /// block (on the Mac: the editing ends, the block it was in selected).
+    private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String, slashMenu: Bool?)] = DocFormatting.styles.map { style in
+        (style.key, .control, Selector(("docStyle\(style.key):")), .style(style.kind), style.title, nil)
     } + [
-        ("\t", .shift, Selector(("docOutdent:")), .outdent, String(localized: "Outdent"), false),
-        ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, String(localized: "Line Break"), false),
-        ("b", .command, Selector(("docBold:")), .bold, String(localized: "Bold"), false),
-        ("i", .command, Selector(("docItalic:")), .italic, String(localized: "Italic"), false),
-        ("x", [.command, .shift], Selector(("docStrike:")), .strike, String(localized: "Strikethrough"), false),
-        ("e", .command, Selector(("docCode:")), .code, String(localized: "Code"), false),
-        ("b", [.command, .shift], Selector(("docHighlight:")), .highlight, String(localized: "Highlight"), false),
-        ("k", .command, Selector(("docLink:")), .link, String(localized: "Link"), false),
+        ("\t", .shift, Selector(("docOutdent:")), .outdent, String(localized: "Outdent"), nil),
+        ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, String(localized: "Line Break"), nil),
+        ("b", .command, Selector(("docBold:")), .bold, String(localized: "Bold"), nil),
+        ("i", .command, Selector(("docItalic:")), .italic, String(localized: "Italic"), nil),
+        ("x", [.command, .shift], Selector(("docStrike:")), .strike, String(localized: "Strikethrough"), nil),
+        ("e", .command, Selector(("docCode:")), .code, String(localized: "Code"), nil),
+        ("b", [.command, .shift], Selector(("docHighlight:")), .highlight, String(localized: "Highlight"), nil),
+        ("k", .command, Selector(("docLink:")), .link, String(localized: "Link"), nil),
         (UIKeyCommand.inputUpArrow, [], Selector(("docSlashUp:")), .slashUp, String(localized: "Previous Item"), true),
         (UIKeyCommand.inputDownArrow, [], Selector(("docSlashDown:")), .slashDown, String(localized: "Next Item"), true),
         (UIKeyCommand.inputEscape, [], Selector(("docSlashClose:")), .slashClose, String(localized: "Close Menu"), true),
+        (UIKeyCommand.inputEscape, [], Selector(("docSelectBlock:")), .selectBlock, String(localized: "Select Block"), false),
     ]
 
     private static func installKeyCommands(on type: AnyClass) {
@@ -1323,7 +1327,10 @@ private enum TextViewHooks {
         let replacement: @convention(block) (AnyObject) -> [UIKeyCommand]? = { object in
             let ours = MainActor.assumeIsolated { () -> [UIKeyCommand] in
                 guard let (_, _, editor) = editor(of: object) else { return [] }
-                return commands.filter { !$0.slashMenu || editor.slash.isOpen }.map { entry in
+                return commands.filter { entry in
+                    entry.slashMenu.map { $0 == editor.slash.isOpen } ?? true
+                        && (entry.command != .selectBlock || DocBlockController.usesHandles)
+                }.map { entry in
                     let command = UIKeyCommand(title: entry.title, action: entry.selector, input: entry.input, modifierFlags: entry.flags)
                     command.wantsPriorityOverSystemBehavior = true
                     return command

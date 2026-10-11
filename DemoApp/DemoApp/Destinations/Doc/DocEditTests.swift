@@ -704,6 +704,15 @@ final class DocEditTests {
             view.selectedRange = NSRange(location: line.location + line.length - 1, length: 0)
         }
 
+        if DocBlockController.usesHandles {
+            await test("Esc in a code block ends the editing and selects the block") {
+                let block = try codeBlock()
+                let view = try await edit(block)
+                try self.expect(self.escape(view), "no Esc command")
+                try self.expect(self.editor.sources.editing == nil, "still editing")
+                try self.expect(self.editor.blocks.selected == [block.id], "selected \(self.editor.blocks.selected.count)")
+            }
+        }
         await test("Code block: clicking edits its source in place; typing is one undo step") {
             let block = try codeBlock()
             let view = try await edit(block)
@@ -889,6 +898,14 @@ final class DocEditTests {
             try self.expectValue(self.editor.tables.active, "no active cell")
         }
 
+        if DocBlockController.usesHandles {
+            await test("Esc in a cell ends the editing and selects the table") {
+                let view = try await click(2, 1)
+                try self.expect(self.escape(view), "no Esc command")
+                try self.expect(self.editor.tables.editing == nil, "still editing")
+                try self.expect(self.editor.blocks.selected == [try table().block], "selected \(self.editor.blocks.selected.count)")
+            }
+        }
         await test("Table: clicking a cell edits it in place; typing changes the cell; one undo takes the typing back") {
             let view = try await click(2, 1)
             try self.expect(view.text == "6:10", "editor shows \(view.text.debugDescription)")
@@ -1268,6 +1285,17 @@ final class DocEditTests {
                 try await self.focus(block.id, at: 3)
                 try self.expect(blocks.selected.isEmpty && blocks.typing == block.id, "typing \(String(describing: blocks.typing)), selected \(blocks.selected.count)")
                 try self.expect(hitsText(), "the text being typed in doesn't take clicks")
+            }
+            await test("Esc in a block's text ends the editing and selects the block") {
+                let block = try self.block("Loading older")
+                await show(block.id)
+                try await self.focus(block.id, at: 3)
+                let view = try self.view()
+                let escapes = (view.keyCommands ?? []).filter { $0.input == UIKeyCommand.inputEscape }.map(\.action)
+                try self.expect(escapes == [Selector(("docSelectBlock:"))], "Esc does \(escapes)")
+                try self.expect(self.escape(view), "no Esc command")
+                try self.expect(blocks.selected == [block.id], "selected \(blocks.selected.count)")
+                try self.expect(blocks.typing == nil && !view.isFirstResponder, "still typing")
             }
             await test("while text is edited, every block's text takes clicks; once it isn't, a click selects again") {
                 let block = try self.block("Loading older")
@@ -1806,6 +1834,15 @@ final class DocEditTests {
     }
 
     /// Waits until the screen shows the model with the cursor where the model says.
+    /// Presses Esc in a responder (its key command); false if it has none.
+    private func escape(_ responder: UIResponder) -> Bool {
+        guard let command = responder.keyCommands?.first(where: { $0.input == UIKeyCommand.inputEscape && $0.modifierFlags.isEmpty }),
+            let action = command.action
+        else { return false }
+        responder.perform(action, with: command)
+        return true
+    }
+
     /// Until a view stops moving on screen (a scroll to it comes to rest).
     private func rest(_ view: UIView) async {
         var shown = view.convert(view.bounds, to: nil)
