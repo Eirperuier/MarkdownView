@@ -1342,7 +1342,8 @@ final class DocEditTests {
             let before = order()
             blocks.click(block.id)
             try self.expect(blocks.selected == [block.id], "selected \(blocks.selected.count)")
-            try self.expect(blocks.testHighlightFrames.count == 1, "highlights \(blocks.testHighlightFrames.count)")
+            // A phone's selection is the selection overlay's to draw.
+            try self.expect(blocks.testHighlightFrames.count == (DocBlockController.usesHandles ? 1 : 0), "highlights \(blocks.testHighlightFrames.count)")
             blocks.deleteSelection()
             try self.expect(self.demo.doc.block(block.id) == nil && blocks.selected.isEmpty, "not deleted")
             try await self.undo()
@@ -1638,7 +1639,7 @@ final class DocEditTests {
             await show(nested.id)
             if DocBlockController.usesHandles { blocks.click(nested.id) } else { blocks.beginSelecting(nested.id) }
             try self.expect(blocks.selected == [nested.id], "selected \(blocks.selected.count)")
-            try self.expect(blocks.testHighlightFrames.count == 1, "highlights \(blocks.testHighlightFrames.count)")
+            try self.expect(blocks.testHighlightFrames.count == (DocBlockController.usesHandles ? 1 : 0), "highlights \(blocks.testHighlightFrames.count)")
             if let highlight = blocks.testHighlightFrames.first, let row = blocks.testContentFrame(nested.id), let child = blocks.testContentFrame(group[1]) {
                 try self.expect(highlight.maxY < child.midY && highlight.minY < row.midY, "the highlight \(highlight) covers the nested item \(child)")
             }
@@ -1664,6 +1665,43 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(order() == before, "undo didn't restore the order")
             if blocks.isSelecting { blocks.endSelecting() } else { blocks.clear() }
+        }
+        if DocBlockController.usesHandles {
+            await test("blocks selected next to each other are highlighted each on its own") {
+                let nested = try self.block("嵌套列表的缩进")
+                let group = blocks.groups([nested.id])[0]
+                await show(nested.id)
+                blocks.click(group[0])
+                blocks.click(group[1], modifiers: .shift)
+                let frames = blocks.testHighlightFrames.sorted { $0.minY < $1.minY }
+                try self.expect(frames.count == 2, "highlights \(frames.count)")
+                if frames.count == 2 { try self.expect(frames[0].maxY < frames[1].minY, "the highlights touch: \(frames)") }
+                blocks.clear()
+            }
+        } else {
+            await test("on a phone the selection's dots lie over the page: its margins are the same on both sides") {
+                let width: CGFloat = 400
+                let left = DocBlockController.pageLeft(inWidth: width)
+                try self.expect(left == DocBlockController.trailingGutter, "page from \(left), right margin \(DocBlockController.trailingGutter)")
+            }
+            await test("on a phone while selecting a tap on a block's text never edits it: the rows take no taps") {
+                let block = try self.block("Loading older")
+                await show(block.id)
+                let view = try self.expectValue(self.editor.textView(for: block.id), "no text view")
+                await self.rest(view)
+                let point = view.convert(CGPoint(x: 30, y: view.caretRect(for: view.beginningOfDocument).midY), to: nil)
+                func hitsText() -> Bool {
+                    sequence(first: view.window?.hitTest(point, with: nil), next: { $0?.superview }).contains { $0 === view }
+                }
+                try self.expect(hitsText(), "the text takes no taps outside selecting")
+                blocks.beginSelecting(block.id)
+                try? await Task.sleep(for: .milliseconds(150))
+                try self.expect(!hitsText(), "the text takes taps while selecting")
+                try self.expect(!view.isEditable || !view.isFirstResponder, "the text is edited while selecting")
+                blocks.endSelecting()
+                try? await Task.sleep(for: .milliseconds(150))
+                try self.expect(hitsText(), "the text takes no taps after selecting")
+            }
         }
         await test("deleting a selected list item takes its nested items; undo brings them back") {
             let nested = try self.block("嵌套列表的缩进")

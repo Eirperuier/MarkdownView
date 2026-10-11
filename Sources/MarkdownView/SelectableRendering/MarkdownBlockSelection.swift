@@ -139,6 +139,25 @@ extension UIApplication {
     }
 }
 
+// MARK: - Style
+
+/// How selected blocks look (Craft's), shared by the overlay and hosts that draw their
+/// own selection (a document on the Mac).
+public enum MarkdownBlockSelectionStyle {
+    /// A selected block's highlight: the accent at this opacity, no border, one per
+    /// block (adjacent ones stay apart).
+    public static let highlightOpacity: Double = 0.10
+    public static let highlightCornerRadius: CGFloat = 10
+    /// How far in from the item's frame the highlight's sides are.
+    public static let highlightInset: CGFloat = 6
+    /// A block's dot: filled with the accent when selected, an empty ring otherwise.
+    public static let dotSize: CGFloat = 18
+    /// From the dot's right edge to the item's.
+    public static let dotTrailing: CGFloat = 12
+    public static let ringOpacity: Double = 0.35
+    public static let ringWidth: CGFloat = 1.5
+}
+
 // MARK: - Observable state (the overlay and the app's toolbar read only this)
 
 @MainActor
@@ -182,6 +201,9 @@ public final class MarkdownBlockSelectionController: NSObject {
     public var itemsProvider: () -> [MarkdownBlockSelectionItem] = { [] }
     /// Per-item hook extensions; set before cells render (hooks are cached per item).
     public var hookExtensions: ((_ itemID: String) -> HookExtensions)?
+    /// Whether candidates of a group get a group dot that selects them all (a chat's
+    /// messages); off where the items are one run (a document's blocks).
+    public var selectsGroups = true
 
     /// The touch session: none, extending from a handle, or sliding along the dot column.
     private enum DragSession {
@@ -472,6 +494,15 @@ public final class MarkdownBlockSelectionController: NSObject {
         onModeChanged?(false)
     }
 
+    /// Sets the selection (in block mode), as the host's own gestures pick blocks.
+    public func setSelection(_ ids: Set<String>) {
+        guard ids != state.selectedItemIDs else { return }
+        withAnimation(motion.feedback) {
+            state.selectedItemIDs = ids
+        }
+        selectionHaptic.selectionChanged()
+    }
+
     /// The selected items in list order.
     public func selectedItems() -> [MarkdownBlockSelectionItem] {
         itemsProvider().filter { state.selectedItemIDs.contains($0.id) }
@@ -586,7 +617,7 @@ public final class MarkdownBlockSelectionController: NSObject {
     /// Groups with their dot anchors (screen coordinates); groups whose anchor isn't in
     /// `frames` are off screen and skipped.
     func groups(frames: [String: CGRect]? = nil) -> [Group] {
-        guard let layout else { return [] }
+        guard let layout, selectsGroups else { return [] }
         let frames = frames ?? viewportFrames()
         let offsetY = layout.contentOffsetY()
         var order: [String] = []
@@ -750,19 +781,29 @@ public final class MarkdownBlockSelectionController: NSObject {
 public struct MarkdownBlockSelectionOverlay: View {
     let controller: MarkdownBlockSelectionController
     let accent: Color
+    let topInset: (MarkdownBlockSelectionItem) -> CGFloat
     let bottomInset: (MarkdownBlockSelectionItem) -> CGFloat
+    let highlights: (MarkdownBlockSelectionItem) -> Bool
     @Environment(\.markdownMotion) private var motion
 
-    /// - Parameter bottomInset: spacing a cell keeps below its content (its share of the
-    ///   gap between blocks), left out of the highlight so adjacent blocks stay apart.
+    /// - Parameters:
+    ///   - topInset: spacing a cell keeps above its content, left out of the highlight.
+    ///   - bottomInset: spacing a cell keeps below its content (its share of the gap
+    ///     between blocks), left out of the highlight so adjacent blocks stay apart.
+    ///   - highlights: whether a selected item is tinted (one that marks itself, a card
+    ///     outlining its box, isn't).
     public init(
         controller: MarkdownBlockSelectionController,
         accent: Color = .accentColor,
-        bottomInset: @escaping (MarkdownBlockSelectionItem) -> CGFloat = { _ in 0 }
+        topInset: @escaping (MarkdownBlockSelectionItem) -> CGFloat = { _ in 0 },
+        bottomInset: @escaping (MarkdownBlockSelectionItem) -> CGFloat = { _ in 0 },
+        highlights: @escaping (MarkdownBlockSelectionItem) -> Bool = { _ in true }
     ) {
         self.controller = controller
         self.accent = accent
+        self.topInset = topInset
         self.bottomInset = bottomInset
+        self.highlights = highlights
     }
 
     public var body: some View {
@@ -778,30 +819,35 @@ public struct MarkdownBlockSelectionOverlay: View {
             let visible = controller.candidateItems().filter { frames[$0.id] != nil }
             ZStack(alignment: .topLeading) {
                 ForEach(visible) { item in
-                    if state.selectedItemIDs.contains(item.id), let frame = frames[item.id] {
-                        let contentHeight = max(0, frame.height - bottomInset(item))
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(accent.opacity(0.10))
-                            .frame(width: max(0, frame.width - 12), height: contentHeight)
-                            .offset(x: frame.minX + 6, y: frame.minY - offsetY)
+                    if state.selectedItemIDs.contains(item.id), highlights(item), let frame = frames[item.id] {
+                        let top = topInset(item)
+                        let contentHeight = max(0, frame.height - top - bottomInset(item))
+                        let inset = MarkdownBlockSelectionStyle.highlightInset
+                        RoundedRectangle(cornerRadius: MarkdownBlockSelectionStyle.highlightCornerRadius, style: .continuous)
+                            .fill(accent.opacity(MarkdownBlockSelectionStyle.highlightOpacity))
+                            .frame(width: max(0, frame.width - inset * 2), height: contentHeight)
+                            .offset(x: frame.minX + inset, y: frame.minY + top - offsetY)
                     }
                 }
                 // Candidate dots: filled when selected, an empty ring otherwise, centered on the content.
                 ForEach(visible) { item in
                     if let frame = frames[item.id] {
                         let selected = state.selectedItemIDs.contains(item.id)
-                        let contentHeight = max(0, frame.height - bottomInset(item))
+                        let top = topInset(item)
+                        let contentHeight = max(0, frame.height - top - bottomInset(item))
+                        let size = MarkdownBlockSelectionStyle.dotSize
                         Circle()
                             .fill(selected ? accent : Color.clear)
                             .overlay {
                                 if !selected {
-                                    Circle().strokeBorder(.secondary.opacity(0.35), lineWidth: 1.5)
+                                    Circle().strokeBorder(.secondary.opacity(MarkdownBlockSelectionStyle.ringOpacity),
+                                                          lineWidth: MarkdownBlockSelectionStyle.ringWidth)
                                 }
                             }
-                            .frame(width: 18, height: 18)
+                            .frame(width: size, height: size)
                             .offset(
-                                x: frame.maxX - 30,
-                                y: frame.minY - offsetY + contentHeight / 2 - 9
+                                x: frame.maxX - MarkdownBlockSelectionStyle.dotTrailing - size,
+                                y: frame.minY + top - offsetY + contentHeight / 2 - size / 2
                             )
                             .animation(motion.feedback, value: selected)
                     }

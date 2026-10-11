@@ -14,13 +14,11 @@ import DocKit
 /// A link, file or image block's view.
 struct DocMediaView: View {
     let kind: BlockKind
-    /// While blocks are selected a small one leaves room for its dot.
-    var reservesDot = false
 
     var body: some View {
         switch kind {
-        case .link(let link): DocLinkView(link: link, reservesDot: reservesDot)
-        case .file(let file): DocFileView(file: file, reservesDot: reservesDot)
+        case .link(let link): DocLinkView(link: link)
+        case .file(let file): DocFileView(file: file)
         case .image(let image): DocImageView(image: image, size: DocMediaLayout.imageBox(image, width: DocMediaLayout.pageWidth))
         default: EmptyView()
         }
@@ -44,11 +42,10 @@ struct DocMediaView: View {
 /// to the other (SwiftUI's own animations, in step with the rows the list moves).
 struct DocLinkView: View {
     let link: DocLink
-    var reservesDot = false
 
     var body: some View {
         let layout = link.layout
-        DocLinkLayout(layout: layout, reservesDot: reservesDot, hasSummary: !link.summary.isEmpty) {
+        DocLinkLayout(layout: layout, hasSummary: !link.summary.isEmpty) {
             // Craft's: the thumbnail at the left edge, as tall as the row; a card's on top.
             // As big as its place, whatever the image's shape (a filling image overflows it).
             Color.clear
@@ -87,7 +84,6 @@ struct DocLinkView: View {
 /// the footer at the bottom).
 private struct DocLinkLayout: Layout {
     let layout: DocLayout
-    let reservesDot: Bool
     let hasSummary: Bool
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -106,14 +102,14 @@ private struct DocLinkLayout: Layout {
         let (title, summary) = (subviews[1], subviews[2])
         switch layout {
         case .small:
-            let trailing: CGFloat = reservesDot ? 34 : 12
+            let trailing: CGFloat = 12
             let text = title.sizeThatFits(ProposedViewSize(width: max(0, width - 60 - trailing), height: nil))
             let size = CGSize(width: min(width, 60 + text.width + trailing), height: 36)
             let titleFrame = CGRect(x: 60, y: (36 - text.height) / 2, width: text.width, height: text.height)
             return (size, [CGRect(x: 0, y: 0, width: 50, height: 36), titleFrame, titleFrame,
                            CGRect(x: 0, y: 36, width: size.width, height: 26)])
         case .regular:
-            let room = ProposedViewSize(width: max(0, width - 94 - (reservesDot ? 34 : 12)), height: nil)
+            let room = ProposedViewSize(width: max(0, width - 94 - 12), height: nil)
             let (a, b) = (title.sizeThatFits(room), summary.sizeThatFits(room))
             let top = (62 - a.height - 2 - b.height) / 2
             return (CGSize(width: width, height: 88), [
@@ -177,12 +173,11 @@ private struct DocLinkIcon: View {
 /// A file, its parts placed by the layout (DocFileLayout) as a link's are.
 struct DocFileView: View {
     let file: DocFile
-    var reservesDot = false
 
     var body: some View {
         let layout = file.layout
         let icon: CGFloat = layout.pick(26, 52, 72)
-        DocFileLayout(layout: layout, reservesDot: reservesDot, hasSize: file.size != nil) {
+        DocFileLayout(layout: layout, hasSize: file.size != nil) {
             // A card's panel behind the icon.
             Color(.secondarySystemBackground)
                 .opacity(layout == .card ? 1 : 0)
@@ -217,7 +212,6 @@ struct DocFileView: View {
 /// text centred under it).
 private struct DocFileLayout: Layout {
     let layout: DocLayout
-    let reservesDot: Bool
     let hasSize: Bool
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -237,7 +231,7 @@ private struct DocFileLayout: Layout {
         switch layout {
         case .small:
             let icon = CGSize(width: 26 * 0.78, height: 26)
-            let trailing: CGFloat = reservesDot ? 34 : 10
+            let trailing: CGFloat = 10
             let room = ProposedViewSize(width: max(0, width - 18 - icon.width - trailing), height: nil)
             let (a, b) = (name.sizeThatFits(room), kind.sizeThatFits(room))
             let top = (42 - a.height - b.height) / 2
@@ -250,7 +244,7 @@ private struct DocFileLayout: Layout {
             ])
         case .regular:
             let icon = CGSize(width: 52 * 0.78, height: 52)
-            let room = ProposedViewSize(width: max(0, width - 80 - (reservesDot ? 34 : 14)), height: nil)
+            let room = ProposedViewSize(width: max(0, width - 80 - 14), height: nil)
             let (a, b, c) = (name.sizeThatFits(room), kind.sizeThatFits(room), size.sizeThatFits(room))
             let text = a.height + 2 + b.height + (hasSize ? 1 + c.height : 0)
             let height = max(52, text) + 20
@@ -589,9 +583,10 @@ extension DocMediaLayout {
     }
 }
 
-/// A link, file or image with what selecting adds: a dot inside its box at its right,
-/// a tinted outline around it (Craft's); on the Mac a right-click offers its layouts.
-/// `size` sets an image's box (its place in a gallery, or alone, its own on the page).
+/// A link, file or image with what selecting adds: a tinted outline around it (Craft's;
+/// its dot is the selection's, over its box); on the Mac a right-click offers its
+/// layouts. `size` sets an image's box (its place in a gallery, or alone, its own on the
+/// page).
 struct DocMediaCell: View {
     let id: DocBlockID
     let kind: BlockKind
@@ -599,18 +594,9 @@ struct DocMediaCell: View {
     var size: CGSize?
 
     var body: some View {
-        let isSelected = blocks.selected.contains(id)
         content
-            .overlay(alignment: .trailing) {
-                if blocks.isSelecting {
-                    DocSelectionDot(isOn: isSelected)
-                        .padding(.trailing, 10)
-                        .transition(.opacity)
-                }
-            }
-            .animation(FlooDesignTokens.Motion.feedback, value: blocks.isSelecting)
             .overlay {
-                if isSelected {
+                if blocks.isSelected(id) {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5)
                         .padding(-3)
@@ -625,21 +611,8 @@ struct DocMediaCell: View {
         if case .image(let image) = kind {
             DocImageView(image: image, size: size ?? DocMediaLayout.imageBox(image, width: DocMediaLayout.pageWidth))
         } else {
-            DocMediaView(kind: kind, reservesDot: blocks.isSelecting)
+            DocMediaView(kind: kind)
         }
-    }
-}
-
-/// The dot inside a selected link, file or image: a ring, filled with the tint when
-/// the block is selected.
-private struct DocSelectionDot: View {
-    let isOn: Bool
-
-    var body: some View {
-        Circle()
-            .fill(isOn ? Color.accentColor : Color(.systemBackground))
-            .overlay { if !isOn { Circle().strokeBorder(Color(.systemGray3), lineWidth: 1.5) } }
-            .frame(width: 14, height: 14)
     }
 }
 

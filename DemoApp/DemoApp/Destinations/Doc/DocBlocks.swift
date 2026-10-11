@@ -21,6 +21,7 @@
 import SwiftUI
 import QuickLook
 import DocKit
+import MarkdownView
 import MessagingUI
 
 @MainActor
@@ -32,10 +33,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     #else
     nonisolated static let usesHandles = false
     #endif
-    /// The page's side margins: on the Mac room for the handle on the left, on a phone
-    /// for the selection's circles on the right (Craft's).
+    /// The page's side margins: on the Mac room for the handle on the left (and as much
+    /// on the right). The selection's dots lie over the page (Craft's): no room for them.
     nonisolated static let leadingGutter: CGFloat = usesHandles ? 40 : 20
-    nonisolated static let trailingGutter: CGFloat = usesHandles ? 40 : 34
+    nonisolated static let trailingGutter: CGFloat = usesHandles ? 40 : 20
 
     /// Where the page starts across a list `width` wide: past the leading gutter, the
     /// page (at most 720 wide) centred in what the gutters leave.
@@ -46,13 +47,32 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     @ObservationIgnored private let demo: DocDemo
     @ObservationIgnored unowned let editor: DocEditor
-    /// The selected blocks, in document order (a list item's nested items included).
-    private(set) var selected: [DocBlockID] = []
+    /// A phone's block selection: the chat's (MarkdownView's block selection mode), its
+    /// dots over the page's right edge, a tap on any block adding or removing it, a
+    /// slide down the dots taking a run; the text isn't edited, a bar offers what to do
+    /// with the blocks.
+    let selection: MarkdownBlockSelectionController = {
+        let selection = MarkdownBlockSelectionController()
+        selection.motion = FlooDesignTokens.Motion.markdown
+        selection.selectsGroups = false
+        return selection
+    }()
+    /// The Mac's selected blocks, in document order.
+    private var macSelection: [DocBlockID] = []
+    /// The selected blocks, in document order (a list item alone, not its nested items).
+    var selected: [DocBlockID] {
+        guard !Self.usesHandles else { return macSelection }
+        let chosen = selection.state.selectedItemIDs
+        guard !chosen.isEmpty else { return [] }
+        return demo.doc.blocks.map(\.id).filter { chosen.contains($0.description) }
+    }
+    func isSelected(_ id: DocBlockID) -> Bool {
+        Self.usesHandles ? macSelection.contains(id) : selection.state.selectedItemIDs.contains(id.description)
+    }
     /// The block being typed in (its text view has the focus).
     private(set) var typing: DocBlockID?
-    /// The phone's selection mode (Composer's batch editing): taps select, the text
-    /// isn't edited, a bar offers what to do with the blocks.
-    private(set) var isSelecting = false
+    /// The phone's selection mode.
+    var isSelecting: Bool { !Self.usesHandles && selection.state.isActive }
     /// The panel shows the selected media's layouts instead of the actions.
     var isChoosingLayout = false
 
@@ -72,11 +92,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         view.isHidden = true
         return view
     }()
+    /// The Mac's selection (a phone's is the selection's overlay).
     @ObservationIgnored private var highlights: [UIView] = []
-    /// The phone's selection mode: a circle beside every block, filled when it's selected.
-    @ObservationIgnored private var checks: [DocBlockCheck] = []
-    /// The circles fading out after the mode ended: laid out until they're gone.
-    @ObservationIgnored private var checksLeaving = false
     @ObservationIgnored private var dimmers: [UIView] = []
     /// The block under the pointer (its handle is shown), and where the pointer is in
     /// the list's frame, to find it again after a scroll.
@@ -97,7 +114,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @ObservationIgnored private var rowClick: UITapGestureRecognizer?
     /// The Mac's click on a block whose content doesn't take it (blockTakes).
     @ObservationIgnored private var blockClick: UITapGestureRecognizer?
-    @ObservationIgnored private var selectTap: UITapGestureRecognizer?
     /// The Mac's double click on a link, image or file opens it (a single one selects it).
     @ObservationIgnored private var mediaOpen: UITapGestureRecognizer?
     /// Where a link opens (the browser; the edit tests catch it).
@@ -129,6 +145,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         self.demo = demo
         self.editor = editor
         super.init()
+        selection.itemsProvider = { [weak self] in
+            self?.demo.rows.compactMap { row in
+                row.block.map { _ in MarkdownBlockSelectionItem(id: row.id, group: "", role: .candidate) }
+            } ?? []
+        }
+        selection.onModeChanged = { [weak self] in self?.selectingChanged($0) }
     }
 
     // MARK: Attaching
@@ -154,10 +176,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             list.addGestureRecognizer(click)
             blockClick = click
         } else {
-            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
-            tap.delegate = self
-            list.addGestureRecognizer(tap)
-            selectTap = tap
+            selection.install(layout: reader)
             let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
             swipe.maximumNumberOfTouches = 1
             swipe.delegate = self
@@ -269,23 +288,22 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         guard let list else { return }
         let existing = Set(demo.doc.blocks.map(\.id))
         if selected.contains(where: { !existing.contains($0) }) {
-            selected.removeAll { !existing.contains($0) }
+            setSelection(selected.filter { existing.contains($0) })
             if selected.isEmpty, isSelecting { endSelecting() }
+            return
         }
-        // Craft's: a light tint with a tinted outline, a little outside the blocks.
-        // Links, files and images outline themselves, hugging their box (DocMediaView).
-        let text = selected.filter { demo.doc.block($0).map { !DocMediaView.draws($0.kind) } ?? false }
-        highlights = place(landings > 0 ? [] : runs(of: text).map { $0.insetBy(dx: 0, dy: -4) }, in: highlights, outset: 6) {
+        // The Mac's, as the chat's selection (MarkdownBlockSelectionStyle): a tint, one
+        // per block, from a little outside the page's sides. Links, files and images
+        // outline themselves, hugging their box (DocMediaCell).
+        let text = Self.usesHandles && landings == 0 ? selected.filter { demo.doc.block($0).map { !DocMediaView.draws($0.kind) } ?? false } : []
+        highlights = place(text.compactMap(pageFrame), in: highlights, outset: 10) {
             let view = UIView()
-            view.backgroundColor = UIColor.tintColor.withAlphaComponent(0.08)
-            view.layer.borderColor = UIColor.tintColor.withAlphaComponent(0.45).cgColor
-            view.layer.borderWidth = 1
-            view.layer.cornerRadius = 10
+            view.backgroundColor = UIColor.tintColor.withAlphaComponent(MarkdownBlockSelectionStyle.highlightOpacity)
+            view.layer.cornerRadius = MarkdownBlockSelectionStyle.highlightCornerRadius
             view.layer.cornerCurve = .continuous
             view.layer.zPosition = 5
             return view
         }
-        layoutChecks()
         let dimmed = (drag.map { $0.isMoving ? $0.moving : [] } ?? []) + landing
         dimmers = place(runs(of: dimmed), in: dimmers, outset: 6) {
             let view = UIView()
@@ -296,31 +314,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         for view in highlights + dimmers where view.superview !== list { list.addSubview(view) }
         layoutHandle()
         if drag?.isMoving == true { updateTarget() }
-    }
-
-    /// A circle at the right edge of every block, level with its middle, while selecting.
-    private func layoutChecks() {
-        guard let list else { return }
-        // Links, files and images draw theirs inside their box (DocMediaView).
-        let ids = isSelecting || checksLeaving ? demo.doc.blocks.filter { !DocMediaView.draws($0.kind) }.map(\.id) : []
-        let chosen = Set(selected)
-        let frames = reader?.contentFrames(forItems: ids.map(\.description)) ?? [:]
-        while checks.count < ids.count {
-            let check = DocBlockCheck()
-            check.layer.zPosition = 9
-            list.addSubview(check)
-            checks.append(check)
-        }
-        for (index, check) in checks.enumerated() {
-            guard index < ids.count, let row = frames[ids[index].description], let content = contentFrame(ids[index]) else {
-                check.isHidden = true
-                continue
-            }
-            let size = DocBlockCheck.size
-            check.frame = CGRect(x: row.maxX - 10 - size, y: content.midY - size / 2, width: size, height: size)
-            check.isOn = chosen.contains(ids[index])
-            check.isHidden = false
-        }
     }
 
     /// The list's cells showing these blocks (by where the layout puts them).
@@ -417,10 +410,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// text, cells, code, math, a link's buttons). On the Mac the selected blocks do
     /// and, while text is edited, every block with text, so a click on any other
     /// selects it and a drag moves it, and the pointer is the I-beam over text only
-    /// where a click would edit it. On a phone, and while the agent writes (the page a
-    /// preview), every row.
+    /// where a click would edit it. On a phone every row does but while selecting,
+    /// when a tap on any block selects it or takes it out, never edits; while the agent
+    /// writes (the page a preview), every row.
     func blockTakes(_ id: DocBlockID, editsText: Bool) -> Bool {
-        guard Self.usesHandles, !demo.isAgentWriting else { return true }
+        guard !demo.isAgentWriting else { return true }
+        guard Self.usesHandles else { return !isSelecting }
         if selected.contains(id) { return true }
         guard let editing = typing ?? editor.sources.editing ?? editor.tables.editing?.block else { return false }
         return editing == id || editsText
@@ -467,8 +462,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     }
 
     private func setSelection(_ ids: [DocBlockID]) {
-        let chosen = Set(ids)
-        selected = demo.doc.blocks.map(\.id).filter { chosen.contains($0) }
+        if Self.usesHandles {
+            let chosen = Set(ids)
+            macSelection = demo.doc.blocks.map(\.id).filter { chosen.contains($0) }
+        } else {
+            selection.setSelection(Set(ids.map(\.description)))
+        }
         layoutOverlays()
     }
 
@@ -568,9 +567,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     // MARK: Phone: tap, swipe, select
 
     func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        if recognizer === selectTap { return isSelecting }
         if recognizer === swipe {
             guard drag == nil, !demo.isAgentWriting, let list, block(at: touch.location(in: list)) != nil else { return false }
+            // Down the dots a touch slides the selection (the selection's own).
+            if isSelecting, touch.location(in: list).x >= list.bounds.width - 64 { return false }
             return !sequence(first: touch.view, next: { $0?.superview }).contains { $0 is UIControl }
         }
         if recognizer === mediaOpen {
@@ -661,7 +661,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         } else {
             setSelection(selected + [id])
         }
-        UISelectionFeedbackGenerator().selectionChanged()
     }
 
     func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
@@ -745,40 +744,35 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         MainActor.assumeIsolated { (previewing ?? URL(fileURLWithPath: "/")) as NSURL }
     }
 
-    @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
-        guard isSelecting, let list, let id = block(at: recognizer.location(in: list)) else { return }
-        toggleSelecting(id)
-    }
-
+    /// Starts a phone's selection mode with `id`; on the Mac (no mode) selects it.
     func beginSelecting(_ id: DocBlockID) {
-        isSelecting = true
-        editor.isEditable = false
-        select([id])
-        fadeChecks(in: true)
+        guard !Self.usesHandles else { return select([id]) }
+        anchor = id
+        head = id
+        selection.activateMode(preselect: [id.description])
     }
 
     func endSelecting() {
-        isSelecting = false
-        isChoosingLayout = false
-        editor.panels.sheetPage = nil
-        editor.isEditable = !demo.isAgentWriting
-        anchor = nil
-        head = nil
-        fadeChecks(in: false)
-        setSelection([])
+        guard !Self.usesHandles else {
+            clear()
+            return selectingChanged(false)
+        }
+        selection.exitMode()
     }
 
-    /// The circles come and go with the mode, faded.
-    private func fadeChecks(in showing: Bool) {
-        if showing { checks.forEach { $0.alpha = 0 } } else { checksLeaving = true }
-        UIView.animate(FlooDesignTokens.Motion.feedbackCurve) { [checks] in
-            checks.forEach { $0.alpha = showing ? 1 : 0 }
-        } completion: { [weak self] in
-            guard let self, !showing, !self.isSelecting else { return }
-            self.checksLeaving = false
-            self.layoutChecks()
-            self.checks.forEach { $0.alpha = 1 }
+    /// The phone's selection mode came or went (the selection's own taps can end it,
+    /// taking the last block out): no text is edited while it's on.
+    private func selectingChanged(_ isOn: Bool) {
+        if isOn {
+            editor.isEditable = false
+        } else {
+            isChoosingLayout = false
+            editor.panels.sheetPage = nil
+            editor.isEditable = !demo.isAgentWriting
+            anchor = nil
+            head = nil
         }
+        layoutOverlays()
     }
 
     // MARK: Dragging
@@ -1483,45 +1477,6 @@ final class DocBlockHandleView: UIView {
     @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
         isHovered = recognizer.state == .began || recognizer.state == .changed
         updateColors()
-    }
-}
-
-/// The circle beside a block while selecting: a gray ring, or a tinted dot when the
-/// block is selected (Craft's).
-final class DocBlockCheck: UIView {
-    static let size: CGFloat = 18
-    private let ring = CAShapeLayer()
-
-    var isOn = false {
-        didSet { if isOn != oldValue { setNeedsLayout() } }
-    }
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        isUserInteractionEnabled = false
-        layer.addSublayer(ring)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        ring.frame = bounds
-        if isOn {
-            ring.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 2, dy: 2)).cgPath
-            ring.fillColor = tintColor.cgColor
-            ring.strokeColor = nil
-        } else {
-            ring.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 0.75, dy: 0.75)).cgPath
-            ring.fillColor = UIColor.systemBackground.resolvedColor(with: traitCollection).cgColor
-            ring.strokeColor = UIColor.systemGray3.resolvedColor(with: traitCollection).cgColor
-            ring.lineWidth = 1.5
-        }
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        setNeedsLayout()
     }
 }
 

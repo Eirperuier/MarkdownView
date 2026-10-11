@@ -47,7 +47,8 @@ struct DocDestination: View {
             TiledView(items: demo.rows, scrollPosition: $scrollPosition) { row in
                 DocRowCell(item: row, demo: demo, editor: editor)
             }
-            .reader(reader)
+            // The phone's block selection is drawn over the rows as they scroll.
+            .reader(reader, invalidatesOnScroll: editor.blocks.isSelecting)
             // A swipe across a block selects it (DocBlockController), not the chat's
             // swipe to show the times.
             .revealConfiguration(.disabled)
@@ -67,6 +68,22 @@ struct DocDestination: View {
             // keyboard's height at once. Showing the caret above the keyboard is the
             // editor's.
             .keyboardAvoidance(false, preservesContentOffset: true)
+            .overlay(alignment: .topLeading) {
+                // A phone's block selection, the chat's (MarkdownBlockSelectionOverlay): a
+                // tint on the blocks (links, files and images outline themselves), a dot
+                // over each one's right edge. TiledView lays out past the top and bottom
+                // safe area; the overlay does the same, to share its origin.
+                if !DocBlockController.usesHandles {
+                    MarkdownBlockSelectionOverlay(
+                        controller: editor.blocks.selection,
+                        topInset: { [demo] item in demo.rows.first { $0.id == item.id }?.spacingAbove ?? 0 },
+                        bottomInset: { [demo] item in demo.rows.first { $0.id == item.id }?.spacingBelow ?? 0 },
+                        highlights: { [demo] item in demo.rows.first { $0.id == item.id }?.media == nil }
+                    )
+                    .environment(\.markdownMotion, FlooDesignTokens.Motion.markdown)
+                    .ignoresSafeArea(edges: .vertical)
+                }
+            }
             .overlay { DocSlashMenuView(menu: editor.slash) }
             .overlay(alignment: .bottom) { DocBlockSelectionBar(blocks: editor.blocks) }
         }
@@ -284,7 +301,8 @@ private struct DocRowView: View {
                 page
             }
         }
-        // On the Mac a click first selects the block (DocBlockController.blockTakes).
+        // On the Mac a click first selects the block; on a phone, while selecting, a tap
+        // selects it (DocBlockController.blockTakes).
         .allowsHitTesting(row.block.map { blocks.blockTakes($0, editsText: row.editsText) } ?? true)
     }
 
