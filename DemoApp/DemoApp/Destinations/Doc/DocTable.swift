@@ -714,7 +714,7 @@ struct DocTableCellEditor: View {
 /// row and a column.
 struct DocTableRowView: View {
     let table: DocTableSnapshot
-    let blocks: [MarkdownStreamBlock]
+    let tree: MarkdownTree
     let controller: DocTableController
     @State private var hovering = false
 
@@ -725,13 +725,12 @@ struct DocTableRowView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 4) {
             VStack(spacing: 2) {
-                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                    MarkdownStreamBlockView(block)
-                        .markdownDisplayMathRendersSynchronously()
-                        .markdownTableCellTap { [table, controller] position in controller.tapped(table, at: position) }
-                        .markdownTableCellReplacement { [table, controller] position in controller.replacement(in: table, at: position) }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                MarkdownBlockView(tree: tree)
+                    .markdownDisplayMathRendersSynchronously()
+                    .markdownTableCellsSelectable()
+                    .markdownTableCellTap { [table, controller] position in controller.tapped(table, at: position) }
+                    .markdownTableCellReplacement { [table, controller] position in controller.replacement(in: table, at: position) }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 DocTableAdder(systemImage: "plus", label: "添加行", isVisible: showsAdders) { controller.appendRow(table.block) }
                     .frame(height: 16)
             }

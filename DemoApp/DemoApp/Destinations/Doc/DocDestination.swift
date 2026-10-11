@@ -253,19 +253,23 @@ private struct DocRowView: View {
         VStack(alignment: .leading, spacing: 0) {
             // By position, not by the rendered block's id: an edit re-renders the block
             // with a new id, and the text view being typed in must stay the same view.
-            if let table = row.table, !row.isStreaming {
-                DocTableRowView(table: table, blocks: row.blocks, controller: tables)
+            if let table = row.table, let tree = row.tree, !row.isStreaming {
+                DocTableRowView(table: table, tree: tree, controller: tables)
             } else if !row.members.isEmpty, !row.isStreaming {
                 DocMediaGroupView(members: row.members, blocks: blocks)
             } else if let media = row.media, let block = row.block, !row.isStreaming {
                 DocMediaCell(id: block, kind: media, blocks: blocks)
                     .frame(maxWidth: .infinity, alignment: .leading)
-            } else if let block = row.block, case .code(let language) = row.sourceKind, !row.isStreaming {
-                DocCodeRowView(block: block, language: language, blocks: row.blocks, controller: sources)
-            } else if let block = row.block, row.sourceKind == .math, !row.isStreaming {
-                DocMathRowView(block: block, blocks: row.blocks, isEmpty: row.sourceIsEmpty, controller: sources)
+            } else if let block = row.block, case .code(let language) = row.sourceKind, let tree = row.tree, !row.isStreaming {
+                DocCodeRowView(block: block, language: language, tree: tree, controller: sources)
+            } else if let block = row.block, row.sourceKind == .math, let tree = row.tree, !row.isStreaming {
+                DocMathRowView(block: block, tree: tree, isEmpty: row.sourceIsEmpty, controller: sources)
             } else if let text = row.text, !row.isStreaming {
                 textView(text)
+            } else if let tree = row.tree, !row.isStreaming {
+                // A divider or a card.
+                MarkdownBlockView(tree: tree)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ForEach(Array(row.blocks.enumerated()), id: \.offset) { _, block in
                     blockView(block)

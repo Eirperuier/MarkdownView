@@ -36,6 +36,8 @@ struct DocRow: Identifiable, Equatable {
     let table: DocTableSnapshot?
     /// A paragraph, heading, list item or quote, from the model (DocTextRow).
     let text: DocTextRow?
+    /// Code, maths, a divider, a card or a table, as the tree DocKit builds from the model.
+    let tree: MarkdownTree?
     /// A link, file or image block, drawn as itself (DocMedia).
     let media: BlockKind?
     /// Several of them in one row (cards side by side, a gallery); `block` is the first.
@@ -52,12 +54,14 @@ struct DocRow: Identifiable, Equatable {
     private let source: String
     private let depth: Int?
 
-    init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock] = [], text: DocTextRow? = nil, isStreaming: Bool = false,
-         table: DocTableSnapshot? = nil, media: BlockKind? = nil, sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
+    init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock] = [], text: DocTextRow? = nil, tree: MarkdownTree? = nil,
+         isStreaming: Bool = false, table: DocTableSnapshot? = nil, media: BlockKind? = nil, sourceKind: DocSourceKind? = nil,
+         sourceIsEmpty: Bool = false) {
         self.id = id
         self.block = block
         self.blocks = blocks
         self.text = text
+        self.tree = tree
         self.isStreaming = isStreaming
         self.table = table
         self.media = media
@@ -68,7 +72,7 @@ struct DocRow: Identifiable, Equatable {
     }
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
-        lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.text == rhs.text
+        lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.text == rhs.text && lhs.tree == rhs.tree
             && lhs.table == rhs.table && lhs.media == rhs.media && lhs.members == rhs.members
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
@@ -93,9 +97,6 @@ final class DocDemo {
     @ObservationIgnored let coordinator = StreamingRevealCoordinator<UUID>()
     /// The laid-out frame of a row, from the list (for the edit tests).
     @ObservationIgnored var rowFrame: (String) -> CGRect? = { _ in nil }
-    /// Rendering per markdown source: a block's own markdown, or a whole run of list
-    /// items (split together so nesting and numbering are MarkdownView's own).
-    @ObservationIgnored private var rendered: [String: [MarkdownStreamBlock]] = [:]
     @ObservationIgnored private var layer: Layer?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var rng = DocDemoRNG(seed: 0xD0C)
@@ -145,10 +146,6 @@ final class DocDemo {
     /// keystroke re-renders its own block's row, not the document's.
     @ObservationIgnored private var rowCache: [DocBlockID: (block: DocBlock, database: Database?, row: DocRow)] = [:]
     @ObservationIgnored private var runCache: [DocBlockID: (run: [DocBlock], rows: [DocRow])] = [:]
-
-    private static func markdown(of block: DocBlock, in database: Database) -> String {
-        Doc(id: Identifier(rawValue: UUID()), blocks: [block], databases: [database.id: database]).markdown(of: block.id, style: .editing) ?? ""
-    }
 
     private func publish() {
         let started = CFAbsoluteTimeGetCurrent()
@@ -210,8 +207,9 @@ final class DocDemo {
                 if let cached = rowCache[block.id], cached.block == block, cached.database == database {
                     result.append(cached.row)
                 } else {
-                    let markdown = Self.markdown(of: block, in: database)
-                    let row = DocRow(id: block.id.description, block: block.id, blocks: split(markdown), table: DocTableSnapshot(block: block.id, database: database))
+                    let alone = Doc(id: doc.id, blocks: [block], databases: [database.id: database])
+                    let row = DocRow(id: block.id.description, block: block.id, tree: Self.tree(block, in: alone),
+                                     table: DocTableSnapshot(block: block.id, database: database))
                     rowCache[block.id] = (block, database, row)
                     result.append(row)
                 }
@@ -221,13 +219,14 @@ final class DocDemo {
             if let cached = rowCache[block.id], cached.block == block, cached.database == nil {
                 result.append(cached.row)
             } else {
-                // Outside a list a block is its own: no neighbour changes it. Text is drawn
-                // from the model; code, maths and the rest from their markdown.
+                // Outside a list a block is its own: no neighbour changes it. Everything is
+                // drawn from the model: text and the rest as their trees, links, files and
+                // images as themselves.
                 let alone = Doc(id: doc.id, blocks: [block])
                 let row = if let text = Self.textRow(block, in: alone) {
                     DocRow(id: block.id.description, block: block.id, text: text)
                 } else {
-                    DocRow(id: block.id.description, block: block.id, blocks: split(alone.markdown(of: block.id, style: .editing) ?? ""),
+                    DocRow(id: block.id.description, block: block.id, tree: Self.tree(block, in: alone),
                            media: DocMediaView.draws(block.kind) ? block.kind : nil,
                            sourceKind: DocSourceKind(block.kind), sourceIsEmpty: block.text.isEmpty)
                 }
@@ -277,7 +276,7 @@ final class DocDemo {
 
     /// A paragraph, heading, list item or quote as its row shows it; nil for other kinds.
     private static func textRow(_ block: DocBlock, in doc: Doc) -> DocTextRow? {
-        guard let (document, depth) = doc.markupTree(of: block.id) else { return nil }
+        guard block.kind.allowsMarks, let (document, depth) = doc.markupTree(of: block.id) else { return nil }
         // A quote's row draws the quote around what it holds (SelectableBlockQuote).
         if case .quote = block.kind, let quote = document.child(at: 0) {
             let content = Markdown.Document(quote.children.compactMap { $0 as? any BlockMarkup })
@@ -286,14 +285,9 @@ final class DocDemo {
         return DocTextRow(tree: MarkdownTree(document), depth: depth, isQuote: false, plain: block.text.string)
     }
 
-    private func split(_ markdown: String) -> [MarkdownStreamBlock] {
-        if let cached = rendered[markdown] { return cached }
-        // Every keystroke makes a new markdown: keep the cache from growing for ever.
-        if rendered.count > 4000 { rendered.removeAll(keepingCapacity: true) }
-        var splitter = MarkdownBlockSplitter()
-        let blocks = splitter.split(markdown)
-        rendered[markdown] = blocks
-        return blocks
+    /// Code, maths, a divider, a card or a table as its tree; nil for what's drawn as itself.
+    private static func tree(_ block: DocBlock, in doc: Doc) -> MarkdownTree? {
+        doc.markupTree(of: block.id).map { MarkdownTree($0.document) }
     }
 
     func bringIntoView(_ id: DocBlockID?) {
@@ -571,16 +565,23 @@ extension DocRow {
     /// A rough height for the list to use until the row is measured.
     func estimatedHeight(width: CGFloat) -> CGFloat {
         let textWidth = max(100, min(width - DocBlockController.leadingGutter - DocBlockController.trailingGutter, 720))
-        let source = blocks.map(\.source).joined(separator: "\n")
-        let lines = CGFloat(source.split(separator: "\n", omittingEmptySubsequences: false).count)
         let spacing = spacingAbove + spacingBelow
         if !members.isEmpty {
             return DocMediaLayout.groupHeight(members.map(\.kind), width: min(720, width - DocBlockController.leadingGutter - DocBlockController.trailingGutter)) + spacing
         }
         if let media, let height = DocMediaLayout.estimatedHeight(media) { return height + spacing }
-        if source.hasPrefix("```") { return lines * 18 + 46 + spacing }
-        if source.hasPrefix("|") { return (lines - 1) * 44 + spacing }
-        if source.hasPrefix("$$") || source.hasPrefix("\\begin") { return 80 + spacing }
+        switch tree?.document.child(at: 0) {
+        case let code as CodeBlock:
+            return CGFloat(max(1, code.code.split(separator: "\n", omittingEmptySubsequences: false).count - 1)) * 18 + 46 + spacing
+        case let table as Markdown.Table:
+            return CGFloat(table.body.childCount + 1) * 44 + spacing
+        case is BlockDirective:
+            return 80 + spacing
+        default:
+            break
+        }
+        // Text, or the agent's markdown while it writes.
+        let source = text?.plain ?? blocks.map(\.source).joined(separator: "\n")
         let perLine = max(1, Int(textWidth / 8.5))
         let wrapped = source.split(separator: "\n", omittingEmptySubsequences: false)
             .reduce(0) { $0 + max(1, ($1.count + perLine - 1) / perLine) }

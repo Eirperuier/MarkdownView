@@ -518,25 +518,23 @@ private var codeFont: UIFont { docCodeFont }
 struct DocCodeRowView: View {
     let block: DocBlockID
     let language: String?
-    let blocks: [MarkdownStreamBlock]
+    let tree: MarkdownTree
     let controller: DocSourceController
 
     var body: some View {
         let editing = controller.editing == block
-        ForEach(Array(blocks.enumerated()), id: \.offset) { _, rendered in
-            MarkdownStreamBlockView(rendered)
-                .markdownCodeBlockReplacement { [block, controller] in
-                    guard controller.editing == block else { return nil }
-                    return AnyView(DocCodeEditor(block: block, text: controller.text(block), language: language, controller: controller))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .overlay(alignment: .topTrailing) {
-                    if editing { DocCodeLanguageMenu(block: block, language: language, controller: controller) }
-                }
-                .simultaneousGesture(TapGesture().onEnded { [block, controller] in
-                    if controller.editing != block { controller.focus(block) }
-                })
-        }
+        MarkdownBlockView(tree: tree)
+            .markdownCodeBlockReplacement { [block, controller] in
+                guard controller.editing == block else { return nil }
+                return AnyView(DocCodeEditor(block: block, text: controller.text(block), language: language, controller: controller))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .topTrailing) {
+                if editing { DocCodeLanguageMenu(block: block, language: language, controller: controller) }
+            }
+            .simultaneousGesture(TapGesture().onEnded { [block, controller] in
+                if controller.editing != block { controller.focus(block) }
+            })
     }
 }
 
@@ -648,7 +646,7 @@ struct DocCodeLanguageMenu: View {
 /// panel under it (Matrix's Composer panel), the formula following the typing.
 struct DocMathRowView: View {
     let block: DocBlockID
-    let blocks: [MarkdownStreamBlock]
+    let tree: MarkdownTree
     let isEmpty: Bool
     let controller: DocSourceController
 
@@ -661,11 +659,9 @@ struct DocMathRowView: View {
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, minHeight: 36)
             } else {
-                ForEach(Array(blocks.enumerated()), id: \.offset) { _, rendered in
-                    MarkdownStreamBlockView(rendered)
-                        .markdownDisplayMathRendersSynchronously()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                MarkdownBlockView(tree: tree)
+                    .markdownDisplayMathRendersSynchronously()
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .background {
