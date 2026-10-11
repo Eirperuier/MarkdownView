@@ -8,6 +8,7 @@
 //  results are printed as `DOCTEST PASS|FAIL <name>` and a `DOCTEST DONE` summary.
 //
 
+import SwiftUI
 import UIKit
 import DocKit
 import MarkdownView
@@ -1429,6 +1430,27 @@ final class DocEditTests {
             try self.expect(self.line(of: second).prefix(2) == [second, first], "line \(self.line(of: second))")
             try await self.undo()
             try self.expect(order() == ids, "undo didn't restore the order")
+        }
+        await test("a card's picture stays in its place: none of it under the preview") {
+            let block = try self.expectValue(self.demo.doc.blocks.first {
+                if case .link(let link) = $0.kind { link.layout == .card && link.image != nil } else { false }
+            }, "no card with a picture")
+            let renderer = ImageRenderer(content: DocMediaView(kind: block.kind).frame(width: DocMediaLayout.pageWidth, alignment: .topLeading))
+            renderer.scale = 1
+            let image = try self.expectValue(renderer.cgImage, "not drawn")
+            let data = try self.expectValue(image.dataProvider?.data.flatMap(CFDataGetBytePtr), "no pixels")
+            let (perRow, step) = (image.bytesPerRow, image.bitsPerPixel / 8)
+            // The text between the preview (104 tall) and the footer: white and greys only.
+            var coloured = 0, all = 0
+            for y in 108..<190 where y < image.height {
+                for x in 0..<min(image.width, Int(DocMediaLayout.cardWidth)) {
+                    let p = y * perRow + x * step
+                    let (a, b, c) = (Int(data[p]), Int(data[p + 1]), Int(data[p + 2]))
+                    all += 1
+                    if max(a, b, c) - min(a, b, c) > 40 { coloured += 1 }
+                }
+            }
+            try self.expect(all > 0 && coloured * 100 < all, "\(coloured) of \(all) pixels under the preview are coloured")
         }
         await test("a card turned regular leaves its line and a card again goes back: its box goes from place to place, the rows after it follow, nothing fades") {
             let line = try self.expectValue(self.linkCards(), "no line of cards")

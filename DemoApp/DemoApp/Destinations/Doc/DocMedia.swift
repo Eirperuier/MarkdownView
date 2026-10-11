@@ -50,12 +50,15 @@ struct DocLinkView: View {
         let layout = link.layout
         DocLinkLayout(layout: layout, reservesDot: reservesDot, hasSummary: !link.summary.isEmpty) {
             // Craft's: the thumbnail at the left edge, as tall as the row; a card's on top.
-            DocMediaPreview(source: link.image) {
-                DocLinkIcon(link: link, size: 36)
-                    .scaleEffect(layout.pick(20, 28, 36) as CGFloat / 36)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
+            // As big as its place, whatever the image's shape (a filling image overflows it).
+            Color.clear
+                .overlay {
+                    DocMediaPreview(source: link.image) {
+                        DocLinkIcon(link: link, size: 36)
+                            .scaleEffect(layout.pick(20, 28, 36) as CGFloat / 36)
+                    }
+                }
+                .clipped()
             Text(title)
                 .font(.system(size: layout.pick(15, 17, 15), weight: layout == .card ? .medium : .regular))
                 .lineLimit(layout == .card ? 2 : 1)
