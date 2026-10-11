@@ -5,7 +5,8 @@
 //  Blocks as wholes, the way Craft handles them. On the Mac a click on a block selects
 //  it (⇧ extends, ⌘ adds) and a drag moves it, from anywhere on it or from the handle
 //  beside the block under the pointer; only a selected block's content takes clicks (a
-//  second click puts the caret in its text, edits a cell, code or math). On a phone, as in flowith's Composer, a long press lifts the block: drag
+//  second click puts the caret in its text, edits a cell, code or math). While text is
+//  edited, every block with text takes them: a click there edits it. On a phone, as in flowith's Composer, a long press lifts the block: drag
 //  it to move it, or let go to start selecting blocks (tap to add or remove). A list
 //  item moves with the items nested under it; a move is one transaction of moveBlock
 //  steps, undone in one go.
@@ -439,14 +440,17 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         }
     }
 
-    /// Whether a block's row takes clicks itself (its text, cells, code, math, a
-    /// link's buttons). On the Mac only the selected blocks and the one being edited
-    /// do, so a click on any other selects it and a drag moves it, and the pointer is
-    /// the I-beam over selected text only. On a phone, and while the agent writes (the
-    /// page a preview), every row.
-    func blockTakes(_ id: DocBlockID) -> Bool {
+    /// Whether a block's row (`editsText`: it has text to edit) takes clicks itself (its
+    /// text, cells, code, math, a link's buttons). On the Mac the selected blocks do
+    /// and, while text is edited, every block with text, so a click on any other
+    /// selects it and a drag moves it, and the pointer is the I-beam over text only
+    /// where a click would edit it. On a phone, and while the agent writes (the page a
+    /// preview), every row.
+    func blockTakes(_ id: DocBlockID, editsText: Bool) -> Bool {
         guard Self.usesHandles, !demo.isAgentWriting else { return true }
-        return selected.contains(id) || typing == id || editor.tables.editing?.block == id || editor.sources.editing == id
+        if selected.contains(id) { return true }
+        guard let editing = typing ?? editor.sources.editing ?? editor.tables.editing?.block else { return false }
+        return editing == id || editsText
     }
 
     /// Whether the Mac's press on the list takes a touch on `view` at `point` (list
@@ -457,8 +461,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         guard Self.usesHandles, !demo.isAgentWriting, drag == nil, let id = block(at: point),
             !sequence(first: view, next: { $0?.superview }).contains(where: { $0 is UIControl || $0 === handle })
         else { return false }
-        guard blockTakes(id), let kind = demo.doc.block(id)?.kind else { return true }
-        return !kind.carriesText && kind.databaseID == nil
+        let editsText = demo.rows.first { $0.block == id }?.editsText ?? false
+        return !(blockTakes(id, editsText: editsText) && editsText)
     }
 
     /// A click on a block (or its handle): it becomes the selection; ⇧ extends the
@@ -640,7 +644,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// the Mac so is any block whose row doesn't take clicks (blockTakes).
     func click(atWindowPoint point: CGPoint) {
         guard let list, let id = block(at: list.convert(point, from: nil)) else { return }
-        if Self.usesHandles, !blockTakes(id) { return click(id) }
+        if Self.usesHandles, !blockTakes(id, editsText: demo.rows.first { $0.block == id }?.editsText ?? false) { return click(id) }
         guard let kind = demo.doc.block(id)?.kind, DocMediaView.draws(kind) else { return editor.click(id, at: point) }
         if Self.usesHandles {
             click(id)

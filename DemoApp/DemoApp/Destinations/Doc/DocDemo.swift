@@ -67,6 +67,8 @@ struct DocRow: Identifiable, Equatable {
     /// A code or math block, edited as its source (and whether it's empty).
     let sourceKind: DocSourceKind?
     let sourceIsEmpty: Bool
+    /// Whether the row has text to edit: a text block's, a cell's, code's or maths'.
+    var editsText: Bool { text != nil || sourceKind != nil || table != nil }
     /// Space above the row and below it (the page's bottom, on the last row): the
     /// document's rhythm, set when the rows are published (DocTypography).
     var spacingAbove: CGFloat = 0

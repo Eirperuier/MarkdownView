@@ -1269,6 +1269,29 @@ final class DocEditTests {
                 try self.expect(blocks.selected.isEmpty && blocks.typing == block.id, "typing \(String(describing: blocks.typing)), selected \(blocks.selected.count)")
                 try self.expect(hitsText(), "the text being typed in doesn't take clicks")
             }
+            await test("while text is edited, every block's text takes clicks; once it isn't, a click selects again") {
+                let block = try self.block("Loading older")
+                await show(block.id)
+                let ids = order()
+                let index = try self.expectValue(ids.firstIndex(of: block.id), "no index")
+                let other = try self.expectValue(ids[(index + 1)...].first { id in
+                    self.demo.rows.first { $0.block == id }?.text != nil && self.editor.textView(for: id) != nil
+                }, "no text block after it on screen")
+                let view = try self.expectValue(self.editor.textView(for: other), "no text view")
+                await self.rest(view)
+                let point = view.convert(CGPoint(x: 30, y: view.caretRect(for: view.beginningOfDocument).midY), to: nil)
+                func hitsText() -> Bool {
+                    sequence(first: view.window?.hitTest(point, with: nil), next: { $0?.superview }).contains { $0 === view }
+                }
+                try await self.focus(block.id, at: 3)
+                try? await Task.sleep(for: .milliseconds(100))
+                try self.expect(hitsText(), "another block's text doesn't take clicks while editing")
+                try self.expect(!blocks.testPress(other), "the press takes another text's click while editing")
+                self.editor.dismissKeyboard()
+                try? await Task.sleep(for: .milliseconds(100))
+                try self.expect(blocks.typing == nil, "still typing in \(String(describing: blocks.typing))")
+                try self.expect(!hitsText(), "a text takes clicks with nothing edited")
+            }
             await test("a drag on a block's text moves the block") {
                 let block = try self.block("Loading older")
                 await show(block.id)

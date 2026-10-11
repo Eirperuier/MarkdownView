@@ -282,7 +282,7 @@ private struct DocRowView: View {
             }
         }
         // On the Mac a click first selects the block (DocBlockController.blockTakes).
-        .allowsHitTesting(row.block.map(blocks.blockTakes) ?? true)
+        .allowsHitTesting(row.block.map { blocks.blockTakes($0, editsText: row.editsText) } ?? true)
     }
 
     /// An image's box: its place in a gallery, or alone, its own in the page's room.
