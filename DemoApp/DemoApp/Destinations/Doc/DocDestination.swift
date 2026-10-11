@@ -274,11 +274,15 @@ private struct DocRowView: View {
     let blocks: DocBlockController
 
     var body: some View {
-        if let place = row.place, let media = row.media, let block = row.block, !row.isStreaming {
-            placed(DocMediaCell(id: block, kind: media, blocks: blocks, size: imageBox(media, at: place)), at: place)
-        } else {
-            page
+        Group {
+            if let place = row.place, let media = row.media, let block = row.block, !row.isStreaming {
+                placed(DocMediaCell(id: block, kind: media, blocks: blocks, size: imageBox(media, at: place)), at: place)
+            } else {
+                page
+            }
         }
+        // On the Mac a click first selects the block (DocBlockController.blockTakes).
+        .allowsHitTesting(row.block.map(blocks.blockTakes) ?? true)
     }
 
     /// An image's box: its place in a gallery, or alone, its own in the page's room.

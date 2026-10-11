@@ -2,9 +2,10 @@
 //  DocBlocks.swift
 //  DemoApp
 //
-//  Blocks as wholes, the way Craft handles them. On the Mac a handle shows beside the
-//  block under the pointer: a click selects the block (⇧ extends, ⌘ adds), a drag
-//  moves it. On a phone, as in flowith's Composer, a long press lifts the block: drag
+//  Blocks as wholes, the way Craft handles them. On the Mac a click on a block selects
+//  it (⇧ extends, ⌘ adds) and a drag moves it, from anywhere on it or from the handle
+//  beside the block under the pointer; only a selected block's content takes clicks (a
+//  second click puts the caret in its text, edits a cell, code or math). On a phone, as in flowith's Composer, a long press lifts the block: drag
 //  it to move it, or let go to start selecting blocks (tap to add or remove). A list
 //  item moves with the items nested under it; a move is one transaction of moveBlock
 //  steps, undone in one go.
@@ -42,6 +43,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     @ObservationIgnored unowned let editor: DocEditor
     /// The selected blocks, in document order (a list item's nested items included).
     private(set) var selected: [DocBlockID] = []
+    /// The block being typed in (its text view has the focus).
+    private(set) var typing: DocBlockID?
     /// The phone's selection mode (Composer's batch editing): taps select, the text
     /// isn't edited, a bar offers what to do with the blocks.
     private(set) var isSelecting = false
@@ -80,6 +83,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// A click on a row outside its text (DocEditor.click), and the phone's tap that
     /// picks blocks while selecting.
     @ObservationIgnored private var rowClick: UITapGestureRecognizer?
+    /// The Mac's click or drag on a block whose content doesn't take it (blockTakes).
+    @ObservationIgnored private var blockPress: UILongPressGestureRecognizer?
     @ObservationIgnored private var selectTap: UITapGestureRecognizer?
     /// A double click on a link, image or file opens it (a single one selects it).
     @ObservationIgnored private var mediaOpen: UITapGestureRecognizer?
@@ -139,10 +144,16 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             handle.isHidden = true
             let hover = UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:)))
             list.addGestureRecognizer(hover)
-            let press = UILongPressGestureRecognizer(target: self, action: #selector(handlePressed(_:)))
-            press.minimumPressDuration = 0
-            press.allowableMovement = .greatestFiniteMagnitude
-            handle.addGestureRecognizer(press)
+            for view in [handle, list] {
+                let press = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
+                press.minimumPressDuration = 0
+                press.allowableMovement = .greatestFiniteMagnitude
+                view.addGestureRecognizer(press)
+                if view === list {
+                    press.delegate = self
+                    blockPress = press
+                }
+            }
         } else {
             let lift = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
             lift.minimumPressDuration = 0.35
@@ -381,38 +392,77 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         layoutHandle()
     }
 
-    @objc private func handlePressed(_ recognizer: UILongPressGestureRecognizer) {
+    /// A press on the handle (the hovered block's) or on a block (blockPress).
+    @objc private func pressed(_ recognizer: UILongPressGestureRecognizer) {
         guard let list else { return }
         let point = recognizer.location(in: list)
         switch recognizer.state {
         case .began:
-            guard let hovered, !demo.isAgentWriting else { return }
-            press = (hovered, point)
+            guard let id = recognizer.view === handle ? hovered : block(at: point) else { return }
+            pressBegan(id, at: point)
         case .changed:
-            guard let press else { return }
-            if drag == nil, hypot(point.x - press.start.x, point.y - press.start.y) > 4 {
-                // Craft selects what it picks up, unless it is already in the selection.
-                if !selected.contains(press.block) { select([press.block]) }
-                lift(press.block, at: point)
-                startMoving()
-            }
-            moveDrag(to: list.convert(point, to: list.superview))
+            pressMoved(to: point)
         case .ended:
-            guard let press else { return }
-            self.press = nil
-            if drag != nil {
-                drop()
-            } else {
-                click(press.block, modifiers: recognizer.modifierFlags)
-            }
+            pressEnded(modifiers: recognizer.modifierFlags)
         default:
             press = nil
             cancelDrag()
         }
     }
 
-    /// A click on a block's handle: it becomes the selection; ⇧ extends the selection
-    /// to it, ⌘ adds or removes it.
+    private func pressBegan(_ id: DocBlockID, at point: CGPoint) {
+        guard !demo.isAgentWriting else { return }
+        press = (id, point)
+    }
+
+    /// The press moved to `point` (list coordinates): past a few points it picks the
+    /// block up.
+    private func pressMoved(to point: CGPoint) {
+        guard let list, let press else { return }
+        if drag == nil, hypot(point.x - press.start.x, point.y - press.start.y) > 4 {
+            // Craft selects what it picks up, unless it is already in the selection.
+            if !selected.contains(press.block) { select([press.block]) }
+            lift(press.block, at: point)
+            startMoving()
+        }
+        if drag != nil { moveDrag(to: list.convert(point, to: list.superview)) }
+    }
+
+    /// Let go: what was picked up drops, a press that didn't move is a click.
+    private func pressEnded(modifiers: UIKeyModifierFlags) {
+        guard let press else { return }
+        self.press = nil
+        if drag != nil {
+            drop()
+        } else {
+            click(press.block, modifiers: modifiers)
+        }
+    }
+
+    /// Whether a block's row takes clicks itself (its text, cells, code, math, a
+    /// link's buttons). On the Mac only the selected blocks and the one being edited
+    /// do, so a click on any other selects it and a drag moves it, and the pointer is
+    /// the I-beam over selected text only. On a phone, and while the agent writes (the
+    /// page a preview), every row.
+    func blockTakes(_ id: DocBlockID) -> Bool {
+        guard Self.usesHandles, !demo.isAgentWriting else { return true }
+        return selected.contains(id) || typing == id || editor.tables.editing?.block == id || editor.sources.editing == id
+    }
+
+    /// Whether the Mac's press on the list takes a touch on `view` at `point` (list
+    /// coordinates): on a block whose row doesn't take clicks, or on a selected one with
+    /// nothing in it to edit (a link, file, image, divider: a click selects it again, a
+    /// drag moves it).
+    private func pressTakes(_ view: UIView?, at point: CGPoint) -> Bool {
+        guard Self.usesHandles, !demo.isAgentWriting, drag == nil, let id = block(at: point),
+            !sequence(first: view, next: { $0?.superview }).contains(where: { $0 is UIControl || $0 === handle })
+        else { return false }
+        guard blockTakes(id), let kind = demo.doc.block(id)?.kind else { return true }
+        return !kind.carriesText && kind.databaseID == nil
+    }
+
+    /// A click on a block (or its handle): it becomes the selection; ⇧ extends the
+    /// selection to it, ⌘ adds or removes it.
     func click(_ id: DocBlockID, modifiers: UIKeyModifierFlags = []) {
         if modifiers.contains(.shift), let anchor {
             extend(from: anchor, to: id)
@@ -464,9 +514,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     }
 
     /// Typing again (a text view took the focus): the blocks aren't selected any more.
-    func textEditingBegan() {
+    func textEditingBegan(_ id: DocBlockID) {
+        typing = id
         guard !isSelecting else { return }
         clear()
+    }
+
+    func textEditingEnded(_ id: DocBlockID) {
+        if typing == id { typing = nil }
     }
 
     /// The block before or after the selection (↑ ↓); with ⇧ the selection grows to it.
@@ -515,9 +570,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             guard drag == nil, let list, let id = block(at: touch.location(in: list)) else { return false }
             return opens(id)
         }
+        if recognizer === blockPress, let list { return pressTakes(touch.view, at: touch.location(in: list)) }
         if recognizer === rowClick {
-            guard !isSelecting, drag == nil else { return false }
-            return rowClickTakes(touch.view)
+            guard !isSelecting, drag == nil, let list else { return false }
+            return rowClickTakes(touch.view) && !pressTakes(touch.view, at: touch.location(in: list))
         }
         guard !demo.isAgentWriting, drag == nil else { return false }
         var view = touch.view
@@ -569,8 +625,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     }
 
     func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        // A table cell's own tap and the row's click both happen.
-        recognizer === rowClick
+        // A table cell's own tap and the row's click both happen; a double click opens
+        // what the press on it selected.
+        recognizer === rowClick || recognizer === mediaOpen
     }
 
     @objc private func rowClicked(_ recognizer: UITapGestureRecognizer) {
@@ -579,9 +636,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     }
 
     /// A click at a point of the window outside any text: the block whose row it is in
-    /// takes it. A link, file or image is selected by it (and opened by a second).
+    /// takes it. A link, file or image is selected by it (and opened by a second); on
+    /// the Mac so is any block whose row doesn't take clicks (blockTakes).
     func click(atWindowPoint point: CGPoint) {
         guard let list, let id = block(at: list.convert(point, from: nil)) else { return }
+        if Self.usesHandles, !blockTakes(id) { return click(id) }
         guard let kind = demo.doc.block(id)?.kind, DocMediaView.draws(kind) else { return editor.click(id, at: point) }
         if Self.usesHandles {
             click(id)
@@ -1260,6 +1319,22 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     var testIndicatorFrame: CGRect? { indicator.isHidden ? nil : indicator.frame }
 
     func testContentFrame(_ id: DocBlockID) -> CGRect? { contentFrame(id) }
+
+    /// A press at the middle of a block's content, moved to `y` (list coordinates) or not
+    /// moved (a click), as the Mac's press on the list takes it; false if it doesn't.
+    @discardableResult
+    func testPress(_ id: DocBlockID, toY y: CGFloat? = nil) -> Bool {
+        guard let list, let frame = contentFrame(id) else { return false }
+        let start = CGPoint(x: frame.midX, y: frame.midY)
+        guard pressTakes(list.window?.hitTest(list.convert(start, to: nil), with: nil), at: start) else { return false }
+        pressBegan(id, at: start)
+        if let y {
+            pressMoved(to: CGPoint(x: start.x, y: start.y + 8))
+            pressMoved(to: CGPoint(x: start.x, y: y))
+        }
+        pressEnded(modifiers: [])
+        return true
+    }
 
     /// A click at the middle of a block, as the list's click takes it.
     func testClick(_ id: DocBlockID) {

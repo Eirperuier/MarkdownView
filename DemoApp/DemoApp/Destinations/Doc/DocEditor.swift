@@ -1241,7 +1241,7 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
         original?.textViewDidBeginEditing?(textView)
         editor?.tables.endEditing()
         editor?.sources.endEditing()
-        editor?.blocks.textEditingBegan()
+        editor?.blocks.textEditingBegan(block)
         editor?.editingChanged(textView)
         // The selection may have come before the focus: the toolbar waits for both.
         editor?.selectionToolbar.selectionChanged()
@@ -1249,6 +1249,7 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
 
     func textViewDidEndEditing(_ textView: UITextView) {
         original?.textViewDidEndEditing?(textView)
+        editor?.blocks.textEditingEnded(block)
         editor?.editingChanged(textView)
     }
 

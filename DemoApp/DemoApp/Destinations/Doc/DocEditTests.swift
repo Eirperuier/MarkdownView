@@ -390,11 +390,18 @@ final class DocEditTests {
                 try? await Task.sleep(for: .milliseconds(400))
                 let view = try self.expectValue(self.editor.textView(for: block.id), "no text view")
                 view.resignFirstResponder()
+                await self.rest(view)
                 let lastLine = view.caretRect(for: view.endOfDocument)
                 let inView = CGPoint(x: max(lastLine.maxX + 40, view.bounds.maxX + 20), y: lastLine.midY)
                 var point = view.convert(inView, to: nil)
                 // On a narrow screen the line can reach the edge: stay inside the window.
                 point.x = min(point.x, (view.window?.bounds.maxX ?? point.x) - 8)
+                // On the Mac the first click selects the block; its row takes the next.
+                if DocBlockController.usesHandles {
+                    self.editor.blocks.click(atWindowPoint: point)
+                    try self.expect(self.editor.blocks.selected.first == block.id, "the first click didn't select the block")
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
                 // Outside the text the click is the list's (DocBlockController.rowClick);
                 // on the text view, the text view's own.
                 let hit = sequence(first: view.window?.hitTest(point, with: nil), next: { $0?.superview })
@@ -1239,6 +1246,44 @@ final class DocEditTests {
                 }
                 try self.expect(xs[0] == xs[1], "handles at \(xs)")
             }
+            await test("a click on a block's text selects the block; only then does the text take clicks") {
+                let block = try self.block("Loading older")
+                await show(block.id)
+                self.editor.dismissKeyboard()
+                blocks.clear()
+                try? await Task.sleep(for: .milliseconds(100))
+                let view = try self.expectValue(self.editor.textView(for: block.id), "no text view")
+                await self.rest(view)
+                let point = view.convert(CGPoint(x: 30, y: view.caretRect(for: view.beginningOfDocument).midY), to: nil)
+                func hitsText() -> Bool {
+                    sequence(first: view.window?.hitTest(point, with: nil), next: { $0?.superview }).contains { $0 === view }
+                }
+                try self.expect(!hitsText(), "the text takes a click before the block is selected")
+                try self.expect(blocks.testPress(block.id), "the press doesn't take the click")
+                try self.expect(blocks.selected == [block.id], "selected \(blocks.selected.count)")
+                try self.expect(self.editor.textView(for: block.id)?.isFirstResponder != true, "the caret went into the text")
+                try? await Task.sleep(for: .milliseconds(100))
+                try self.expect(hitsText(), "the selected block's text doesn't take the next click")
+                try self.expect(!blocks.testPress(block.id), "the press takes the selected text's click")
+                try await self.focus(block.id, at: 3)
+                try self.expect(blocks.selected.isEmpty && blocks.typing == block.id, "typing \(String(describing: blocks.typing)), selected \(blocks.selected.count)")
+                try self.expect(hitsText(), "the text being typed in doesn't take clicks")
+            }
+            await test("a drag on a block's text moves the block") {
+                let block = try self.block("Loading older")
+                await show(block.id)
+                self.editor.dismissKeyboard()
+                blocks.clear()
+                try? await Task.sleep(for: .milliseconds(100))
+                let before = order()
+                let index = try self.expectValue(before.firstIndex(of: block.id), "no index")
+                let target = before[index + 2]
+                let frame = try self.expectValue(blocks.testRowFrame(target), "no row")
+                try self.expect(blocks.testPress(block.id, toY: frame.maxY - 2), "the press doesn't take the drag")
+                try self.expect(order().firstIndex(of: block.id) == index + 2, "at \(String(describing: order().firstIndex(of: block.id))), wanted \(index + 2)")
+                try await self.undo()
+                try self.expect(order() == before, "undo didn't restore the order")
+            }
         }
         await test("a click on the handle selects the block; Delete removes it, undo brings it back") {
             let block = try self.block("Loading older")
@@ -1738,6 +1783,17 @@ final class DocEditTests {
     }
 
     /// Waits until the screen shows the model with the cursor where the model says.
+    /// Until a view stops moving on screen (a scroll to it comes to rest).
+    private func rest(_ view: UIView) async {
+        var shown = view.convert(view.bounds, to: nil)
+        for _ in 0..<40 {
+            try? await Task.sleep(for: .milliseconds(25))
+            let now = view.convert(view.bounds, to: nil)
+            if now == shown { return }
+            shown = now
+        }
+    }
+
     private func settle() async throws {
         // Let the run loop go idle once, as it does between two real key presses (an
         // undo group is one run loop pass: two keys in one pass would undo together).
