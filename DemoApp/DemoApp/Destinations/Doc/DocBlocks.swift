@@ -31,6 +31,13 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     nonisolated static let leadingGutter: CGFloat = usesHandles ? 40 : 20
     nonisolated static let trailingGutter: CGFloat = usesHandles ? 40 : 34
 
+    /// Where the page starts across a list `width` wide: past the leading gutter, the
+    /// page (at most 720 wide) centred in what the gutters leave.
+    nonisolated static func pageLeft(inWidth width: CGFloat) -> CGFloat {
+        let room = max(0, width - leadingGutter - trailingGutter)
+        return leadingGutter + (room - min(720, room)) / 2
+    }
+
     @ObservationIgnored private let demo: DocDemo
     @ObservationIgnored unowned let editor: DocEditor
     /// The selected blocks, in document order (a list item's nested items included).
@@ -82,8 +89,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     @ObservationIgnored private var previewing: URL?
     /// Pieces flying to their rows: the selection shows once they're down.
     @ObservationIgnored private var landings = 0
-    /// Members of a row of several whose pieces are landing: hidden until they're down.
-    private(set) var hiddenMembers: Set<DocBlockID> = []
 
     private struct Drag {
         /// The blocks picked up (the selection, or the one grabbed), and with them the
@@ -180,50 +185,51 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     // MARK: Geometry
 
-    /// The row a block is in (its own, or the row it shares with others).
+    /// A block's row (on a line with others, its part of the line).
     private func rowFrame(_ id: DocBlockID) -> CGRect? {
-        reader?.frame(forItem: demo.places[id]?.row ?? id.description)
+        reader?.frame(forItem: id.description)
     }
 
     /// The page's part of a block's row: less the page's margins (at most 720 wide,
-    /// centred) and the space above and below it.
+    /// centred) and the space above and below it. A row on a line with others has the
+    /// line's page part.
     private func pageFrame(_ id: DocBlockID) -> CGRect? {
-        let rowID = demo.places[id]?.row ?? id.description
+        let rowID = id.description
         guard let row = reader?.frame(forItem: rowID) else { return nil }
-        let room = max(0, row.width - Self.leadingGutter - Self.trailingGutter)
-        let width = min(720, room)
+        let listWidth = demo.places[id] == nil ? row.width : list?.bounds.width ?? row.width
+        let left = Self.pageLeft(inWidth: listWidth)
+        let width = min(720, max(0, listWidth - Self.leadingGutter - Self.trailingGutter))
         let above = demo.spacingAbove[rowID] ?? 0
-        let below = demo.rows.last?.id == rowID ? DocTypography.pageBottom : 0
-        return CGRect(x: row.minX + Self.leadingGutter + (room - width) / 2, y: row.minY + above, width: width, height: max(0, row.height - above - below))
+        let below = demo.lastLine.contains(id) ? DocTypography.pageBottom : 0
+        return CGRect(x: left, y: row.minY + above, width: width, height: max(0, row.height - above - below))
     }
 
-    /// The block itself: its row's page part, or its place among the row's members.
+    /// The block itself: its row's page part, or a link, file or image's box where its
+    /// row is placed (an image in a gallery fills its place).
     private func contentFrame(_ id: DocBlockID) -> CGRect? {
         guard let page = pageFrame(id) else { return nil }
-        guard let place = demo.places[id], let row = demo.rows.first(where: { $0.id == place.row }) else {
-            // A link, file or image alone: its own box, at the page's left.
-            guard let kind = demo.doc.block(id)?.kind, DocMediaView.draws(kind), let box = DocMediaLayout.boxSize(kind, width: page.width) else { return page }
-            return CGRect(x: page.minX, y: page.minY, width: min(box.width, page.width), height: page.height)
+        guard let kind = demo.doc.block(id)?.kind, DocMediaView.draws(kind), let row = rowFrame(id) else { return page }
+        let place = demo.places[id]
+        let left = place == nil ? page.minX : row.minX
+        let width = place?.width ?? page.width
+        if let height = place?.lineHeight, case .image = kind {
+            return CGRect(x: left, y: page.minY, width: width, height: min(height, page.height))
         }
-        let frames = DocMediaLayout.memberFrames(row.members.map(\.kind), width: page.width)
-        guard frames.indices.contains(place.index) else { return page }
-        return frames[place.index].offsetBy(dx: page.minX, dy: page.minY)
+        guard let box = DocMediaLayout.boxSize(kind, width: place?.room ?? page.width) else { return page }
+        return CGRect(x: left, y: page.minY, width: min(box.width, width), height: min(box.height, page.height))
     }
 
-    /// The committed block at a point (list coordinates): the row's block, or in a row
-    /// of several, the member under the point (or nearest it).
+    /// The committed block at a point (list coordinates): the row under it, or on a line
+    /// of several, the one nearest it across.
     private func block(at point: CGPoint) -> DocBlockID? {
         guard let list, let reader else { return nil }
         let hits = reader.contentFrames(intersecting: CGRect(x: 0, y: point.y, width: list.bounds.width, height: 1))
-        guard let id = hits.first(where: { $0.value.minY <= point.y && point.y < $0.value.maxY })?.key ?? hits.first?.key,
+        let level = hits.filter { $0.value.minY <= point.y && point.y < $0.value.maxY }
+        func distance(_ frame: CGRect) -> CGFloat { max(frame.minX - point.x, 0, point.x - frame.maxX) }
+        guard let id = (level.isEmpty ? hits : level).min(by: { distance($0.value) < distance($1.value) })?.key,
             let row = demo.rows.first(where: { $0.id == id })
         else { return nil }
-        guard !row.members.isEmpty else { return row.block }
-        let frames = row.members.compactMap { member in contentFrame(member.id).map { (member.id, $0) } }
-        func distance(_ frame: CGRect) -> CGFloat {
-            hypot(max(frame.minX - point.x, 0, point.x - frame.maxX), max(frame.minY - point.y, 0, point.y - frame.maxY))
-        }
-        return frames.min { distance($0.1) < distance($1.1) }?.0 ?? row.block
+        return row.block
     }
 
     /// Where a block's first line is, for the handle: the text's first line, or near
@@ -301,7 +307,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         guard let list else { return [] }
         let frames = ids.compactMap(rowFrame)
         return list.visibleCells.filter { cell in
-            frames.contains { abs($0.minY - cell.frame.minY) < 0.5 && abs($0.height - cell.frame.height) < 0.5 }
+            frames.contains { abs($0.minY - cell.frame.minY) < 0.5 && abs($0.minX - cell.frame.minX) < 0.5 && abs($0.height - cell.frame.height) < 0.5 }
         }
     }
 
@@ -739,7 +745,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     private func updateTarget() {
         guard var drag, let list else { return }
         let point = list.convert(drag.point, from: list.superview)
-        let gap = memberGap(at: point, moving: drag.moving) ?? gap(atY: point.y).map { ($0, nil as CGRect?) }
+        let gap = runGap(at: point, moving: drag.moving) ?? gap(atY: point.y).map { ($0, nil as CGRect?) }
         let target = gap.flatMap { destination(gap: $0.index, moving: drag.moving) }
         if !Self.usesHandles, target != drag.target, drag.target != nil { UISelectionFeedbackGenerator().selectionChanged() }
         drag.target = target
@@ -759,18 +765,19 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         indicator.isHidden = false
     }
 
-    /// Over a row of cards or a gallery that the moving blocks would join, the gap
-    /// between two of its members nearest the point, shown by an upright line between
+    /// Over a line of cards or a gallery's that the moving blocks would join, the gap
+    /// between two of its blocks nearest the point, shown by an upright line between
     /// them (Craft's). Nil elsewhere, or for blocks that wouldn't join it.
-    private func memberGap(at point: CGPoint, moving: [DocBlockID]) -> (index: Int, line: CGRect?)? {
-        guard let reader,
-            let hit = reader.contentFrames(intersecting: CGRect(x: 0, y: point.y, width: 1, height: 1).insetBy(dx: -10_000, dy: 0)).first,
-            hit.value.minY <= point.y, point.y < hit.value.maxY,
-            let row = demo.rows.first(where: { $0.id == hit.key }), let first = row.members.first,
-            let run = DocMediaLayout.run(first.kind),
+    private func runGap(at point: CGPoint, moving: [DocBlockID]) -> (index: Int, line: CGRect?)? {
+        guard let reader, let list else { return nil }
+        let line = reader.contentFrames(intersecting: CGRect(x: 0, y: point.y, width: list.bounds.width, height: 1))
+            .filter { $0.value.minY <= point.y && point.y < $0.value.maxY }
+            .compactMap { hit in demo.rows.first { $0.id == hit.key }?.block }
+            .filter { demo.places[$0]?.lineHeight != nil }
+        guard let first = line.first.flatMap({ demo.doc.block($0) }), let run = DocMediaLayout.run(first.kind),
             moving.allSatisfy({ id in demo.doc.block(id).map { DocMediaLayout.run($0.kind) == run } ?? false })
         else { return nil }
-        let frames = row.members.compactMap { member in contentFrame(member.id).map { (member.id, $0) } }
+        let frames = line.compactMap { id in contentFrame(id).map { (id, $0) } }
         func distance(_ frame: CGRect) -> CGFloat {
             hypot(max(frame.minX - point.x, 0, point.x - frame.maxX), max(frame.minY - point.y, 0, point.y - frame.maxY))
         }
@@ -785,15 +792,21 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// The gap between blocks (an index into the document's blocks) nearest `y`.
     private func gap(atY y: CGFloat) -> Int? {
         guard let list, let reader else { return nil }
-        // Rows by their first block's place in the document (a row of several has an id
-        // of its own).
+        // Rows by their block's place in the document.
         let places = Dictionary(uniqueKeysWithValues: demo.doc.blocks.enumerated().map { ($1.id, $0) })
         let index = Dictionary(demo.rows.compactMap { row in row.block.flatMap { places[$0] }.map { (row.id, $0) } }, uniquingKeysWith: { a, _ in a })
-        let spans = Dictionary(demo.rows.filter { !$0.members.isEmpty }.map { ($0.id, $0.members.count) }, uniquingKeysWith: { a, _ in a })
-        // A row of several is one gap before it and one after its last member.
-        let frames = reader.contentFrames(intersecting: list.bounds.insetBy(dx: 0, dy: -400))
-            .compactMap { id, frame in index[id].map { (first: $0, end: $0 + (spans[id] ?? 1), frame: frame) } }
+        let rows = reader.contentFrames(intersecting: list.bounds.insetBy(dx: 0, dy: -400))
+            .compactMap { id, frame in index[id].map { (first: $0, end: $0 + 1, frame: frame) } }
             .sorted { $0.first < $1.first }
+        // A line of several is one gap before it and one after its last.
+        var frames: [(first: Int, end: Int, frame: CGRect)] = []
+        for row in rows {
+            if let last = frames.last, last.end == row.first, abs(last.frame.minY - row.frame.minY) < 0.5 {
+                frames[frames.count - 1] = (last.first, row.end, last.frame.union(row.frame))
+            } else {
+                frames.append(row)
+            }
+        }
         guard let first = frames.first, let last = frames.last else { return nil }
         if y < first.frame.minY { return first.first }
         for row in frames where y < row.frame.maxY {
@@ -807,8 +820,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     private func lineY(gap: Int) -> CGFloat? {
         let blocks = demo.doc.blocks
         if blocks.indices.contains(gap), let frame = rowFrame(blocks[gap].id) {
-            let row = demo.places[blocks[gap].id]?.row ?? blocks[gap].id.description
-            return frame.minY + (demo.spacingAbove[row] ?? 0) / 2
+            return frame.minY + (demo.spacingAbove[blocks[gap].id.description] ?? 0) / 2
         }
         if blocks.indices.contains(gap - 1), let frame = contentFrame(blocks[gap - 1].id) { return frame.maxY + 6 }
         return nil
@@ -848,11 +860,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     /// Hides these blocks' rows: what the cells host, not the cells or their content
     /// views, whose alpha the list sets itself (a move is a delete and an insert, faded).
-    /// In a row of several only the member goes (`hiddenMembers`), not its neighbours.
     private func hide(_ ids: [DocBlockID]) -> [UIView] {
-        let members = ids.filter { demo.places[$0] != nil }
-        hiddenMembers.formUnion(members)
-        let rows = cells(of: ids.filter { demo.places[$0] == nil }).flatMap(\.contentView.subviews).filter { $0.alpha != 0 }
+        let rows = cells(of: ids).flatMap(\.contentView.subviews).filter { $0.alpha != 0 }
         for row in rows { row.alpha = 0 }
         return rows
     }
@@ -884,7 +893,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         layoutOverlays()
         func show() {
             for row in hidden { row.alpha = 1 }
-            self.hiddenMembers.subtract(drag.moving)
             self.landings -= 1
             self.layoutOverlays()
         }
@@ -1264,39 +1272,62 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     /// Scrolls a block's row to the middle of the list.
     func testCenter(_ id: DocBlockID) {
-        reader?.scrollTo(id: demo.places[id]?.row ?? id.description, anchor: .center, animated: false)
+        reader?.scrollTo(id: id.description, anchor: .center, animated: false)
     }
 
     /// Where a block's row shows right now, moving included (list coordinates).
     func testShownRowFrame(_ id: DocBlockID) -> CGRect? {
-        guard let list, let frame = rowFrame(id) else { return nil }
-        // Its place without its transform (a row on its way has one).
-        let cell = list.visibleCells.first { abs($0.center.y - $0.bounds.height / 2 - frame.minY) < 0.5 && abs($0.bounds.height - frame.height) < 0.5 }
+        guard let cell = testCell(id) else { return nil }
         // A row on its way shows its contents shifted (TiledView's row moves).
-        return cell.map { cell in
-            let shown = cell.layer.presentation() ?? cell.layer
-            return shown.frame.offsetBy(dx: 0, dy: shown.sublayerTransform.m42)
+        let shown = cell.layer.presentation() ?? cell.layer
+        return shown.frame.offsetBy(dx: shown.sublayerTransform.m41, dy: shown.sublayerTransform.m42)
+    }
+
+    /// The cell at a block's place, without its transform (a row on its way has one).
+    private func testCell(_ id: DocBlockID) -> UICollectionViewCell? {
+        guard let list, let frame = rowFrame(id) else { return nil }
+        return list.visibleCells.first {
+            abs($0.center.y - $0.bounds.height / 2 - frame.minY) < 0.5 && abs($0.center.x - $0.bounds.width / 2 - frame.minX) < 0.5
+                && abs($0.bounds.height - frame.height) < 0.5
         }
+    }
+
+    /// The blocks whose rows are hidden now (a drop landing on them).
+    var testHidden: Set<DocBlockID> {
+        Set(demo.doc.blocks.map(\.id).filter { id in cells(of: [id]).contains { $0.contentView.subviews.contains { $0.alpha == 0 } } })
     }
 
     /// How far down a block's row draws its box right now, moving included (list
     /// coordinates): the bottom of the lowest layer in it that clips or has a border (a
     /// card's box, an image's frame), as SwiftUI lays them out frame by frame.
     func testShownBoxBottom(_ id: DocBlockID) -> CGFloat? {
-        guard let list, let frame = rowFrame(id),
-              let cell = list.visibleCells.first(where: { abs($0.center.y - $0.bounds.height / 2 - frame.minY) < 0.5 }) else { return nil }
+        testShownBox(id)?.frame.maxY
+    }
+
+    /// Where a block's row draws its box right now, moving included (list coordinates):
+    /// the layers in it that clip or have a border (a card's box, an image's frame), and
+    /// how opaque the row is.
+    func testShownBox(_ id: DocBlockID) -> (frame: CGRect, opacity: Float)? {
+        guard let cell = testCell(id) else { return nil }
         let root = cell.layer.presentation() ?? cell.layer
-        var bottom: CGFloat?
+        // Not the row's own layers: a box is at most as wide as the page its content is
+        // laid out in (going from one place to another, wider than its place).
+        let widest = (demo.places[id]?.room ?? cell.bounds.width - 2) + 1
+        var frame: CGRect?
+        // The cell's, its content view's and what it hosts (a row fading in or out).
+        let hosted = cell.contentView.subviews.map { ($0.layer.presentation() ?? $0.layer).opacity }
+        let opacity = root.opacity * (cell.contentView.layer.presentation() ?? cell.contentView.layer).opacity * (hosted.min() ?? 1)
         func visit(_ layer: CALayer, depth: Int) {
             let shown = layer.presentation() ?? layer
-            if depth > 0, shown.masksToBounds || shown.borderWidth > 0, shown.bounds.width < cell.bounds.width - 1 {
-                let box = shown.convert(shown.bounds, to: root)
-                bottom = max(bottom ?? -.infinity, root.frame.minY + root.sublayerTransform.m42 + box.maxY)
+            if depth > 0, shown.masksToBounds || shown.borderWidth > 0, shown.bounds.width < widest {
+                // In the cell's coordinates, its contents' shift included.
+                let box = shown.convert(shown.bounds, to: root).offsetBy(dx: root.frame.minX, dy: root.frame.minY)
+                frame = frame?.union(box) ?? box
             }
             for sublayer in layer.sublayers ?? [] { visit(sublayer, depth: depth + 1) }
         }
         visit(cell.layer, depth: 0)
-        return bottom
+        return frame.map { ($0, opacity) }
     }
     var testHighlightFrames: [CGRect] { highlights.filter { !$0.isHidden }.map(\.frame) }
     var testHandleFrame: CGRect? { Self.usesHandles && !handle.isHidden ? handle.frame : nil }

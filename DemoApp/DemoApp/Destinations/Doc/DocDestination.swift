@@ -51,6 +51,13 @@ struct DocDestination: View {
             .heightEstimate { row, width in
                 row.estimatedHeight(width: width)
             }
+            // Links, files and images where their place says, from the page's left.
+            .itemPlacement { row, width in
+                row.place.map { place in
+                    TiledItemPlacement(x: DocBlockController.pageLeft(inWidth: width) + place.x, width: place.width,
+                                       sharesLine: place.sharesLine)
+                }
+            }
             // A document is anchored at its top: the keyboard (the safe area) adds room
             // under the page and leaves where it is scrolled alone. By default the
             // bottom stays pinned, as a chat's does, and the page moves by the
@@ -82,7 +89,7 @@ struct DocDestination: View {
                let row = demo.rows.first(where: { row in
                    switch kind {
                    case "code": if case .code = row.sourceKind { true } else { false }
-                   case "media": row.media != nil || !row.members.isEmpty
+                   case "media": row.media != nil
                    default: row.sourceKind == .math
                    }
                }),
@@ -267,16 +274,33 @@ private struct DocRowView: View {
     let blocks: DocBlockController
 
     var body: some View {
+        if let place = row.place, let media = row.media, let block = row.block, !row.isStreaming {
+            placed(DocMediaCell(id: block, kind: media, blocks: blocks, size: place.lineHeight.map { CGSize(width: place.width, height: $0) }),
+                   at: place)
+        } else {
+            page
+        }
+    }
+
+    /// A link, file or image where the list places its row (DocRowPlace): its content
+    /// laid out at the page's width whatever its row's (a box going from one layout to
+    /// another goes from one size to the other, not from the row's), the rows on a line
+    /// as tall as it.
+    private func placed(_ content: some View, at place: DocRowPlace) -> some View {
+        content
+            .frame(width: place.room, alignment: .topLeading)
+            .frame(width: place.width, height: place.lineHeight, alignment: .topLeading)
+            .modifier(DocRowBoxing(box: row.box, spacingAbove: row.spacingAbove, place: place))
+            .padding(.bottom, row.spacingBelow)
+            .frame(width: place.width, alignment: .topLeading)
+    }
+
+    private var page: some View {
         VStack(alignment: .leading, spacing: 0) {
             // By position, not by the rendered block's id: an edit re-renders the block
             // with a new id, and the text view being typed in must stay the same view.
             if let table = row.table, let tree = row.tree, !row.isStreaming {
                 DocTableRowView(table: table, tree: tree, controller: tables)
-            } else if !row.members.isEmpty, !row.isStreaming {
-                DocMediaGroupView(members: row.members, blocks: blocks)
-            } else if let media = row.media, let block = row.block, !row.isStreaming {
-                DocMediaCell(id: block, kind: media, blocks: blocks)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             } else if let block = row.block, case .code(let language) = row.sourceKind, let tree = row.tree, !row.isStreaming {
                 DocCodeRowView(block: block, language: language, tree: tree, controller: sources)
             } else if let block = row.block, row.sourceKind == .math, let tree = row.tree, !row.isStreaming {
@@ -356,26 +380,36 @@ private struct DocRowView: View {
 
 /// The space above a row, and its part of a decoration's box (Craft's Block: a grey box,
 /// out past the text's edges, the text inset in it). Below the box's first row the box
-/// fills the space between rows too.
+/// fills the space between rows too. A placed row is inside the inset already; the first
+/// on its line draws the box across the page.
 private struct DocRowBoxing: ViewModifier {
     let box: DocRowBox?
     let spacingAbove: CGFloat
+    var place: DocRowPlace?
 
     private typealias Box = FlooDesignTokens.Component.DecorationBox
 
     func body(content: Content) -> some View {
         if let box {
             let radius = Box.cornerRadius
+            let shape = UnevenRoundedRectangle(topLeadingRadius: box.isFirst ? radius : 0, bottomLeadingRadius: box.isLast ? radius : 0,
+                                               bottomTrailingRadius: box.isLast ? radius : 0, topTrailingRadius: box.isFirst ? radius : 0,
+                                               style: .continuous)
             content
-                .padding(.horizontal, Box.inset)
+                .padding(.horizontal, place == nil ? Box.inset : 0)
                 .padding(.top, box.isFirst ? Box.padding : spacingAbove)
                 .padding(.bottom, box.isLast ? Box.padding : 0)
-                .background {
-                    UnevenRoundedRectangle(topLeadingRadius: box.isFirst ? radius : 0, bottomLeadingRadius: box.isLast ? radius : 0,
-                                           bottomTrailingRadius: box.isLast ? radius : 0, topTrailingRadius: box.isFirst ? radius : 0,
-                                           style: .continuous)
-                        .fill(Box.fill)
-                        .padding(.horizontal, -Box.outset)
+                .background(alignment: .topLeading) {
+                    if let place {
+                        if !place.sharesLine {
+                            shape.fill(Box.fill)
+                                .frame(width: DocMediaLayout.pageWidth + Box.outset * 2)
+                                .offset(x: -place.x - Box.outset)
+                        }
+                    } else {
+                        shape.fill(Box.fill)
+                            .padding(.horizontal, -Box.outset)
+                    }
                 }
                 .padding(.top, box.isFirst ? spacingAbove : 0)
         } else {

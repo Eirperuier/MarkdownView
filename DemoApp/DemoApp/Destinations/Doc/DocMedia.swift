@@ -493,13 +493,7 @@ extension View {
     }
 }
 
-// MARK: Groups
-
-/// A block in a row of several: cards side by side, images in a gallery.
-struct DocMediaMember: Equatable {
-    let id: DocBlockID
-    let kind: BlockKind
-}
+// MARK: Runs
 
 extension DocMediaLayout {
     static let gap: CGFloat = 12
@@ -517,10 +511,10 @@ extension DocMediaLayout {
         }
     }
 
-    /// Where each member sits, from the row's top left, at `width`: cards in as many
+    /// Where each block of a run sits, from the run's top left, at `width`: cards in as many
     /// columns as fit, each line as tall as its tallest; images in lines of up to four,
     /// one height per line, as wide together as the page (no taller than 280).
-    static func memberFrames(_ kinds: [BlockKind], width: CGFloat) -> [CGRect] {
+    static func runFrames(_ kinds: [BlockKind], width: CGFloat) -> [CGRect] {
         guard let first = kinds.first, let run = run(first) else { return [] }
         var frames: [CGRect] = []
         var y: CGFloat = 0
@@ -552,10 +546,6 @@ extension DocMediaLayout {
         return frames
     }
 
-    static func groupHeight(_ kinds: [BlockKind], width: CGFloat) -> CGFloat {
-        memberFrames(kinds, width: width).map(\.maxY).max() ?? 0
-    }
-
     private static func cardHeight(_ kind: BlockKind) -> CGFloat {
         if case .file = kind { 182 } else { 222 }
     }
@@ -564,27 +554,6 @@ extension DocMediaLayout {
     private static func aspect(_ kind: BlockKind) -> CGFloat {
         guard case .image(let image) = kind, image.fit == .fit, let size = naturalSize(image.source), size.height > 0 else { return 4 / 3 }
         return size.width / size.height
-    }
-}
-
-/// A row of several links, files or images, each where memberFrames puts it.
-struct DocMediaGroupView: View {
-    let members: [DocMediaMember]
-    let blocks: DocBlockController
-
-    var body: some View {
-        let width = DocMediaLayout.pageWidth
-        let frames = DocMediaLayout.memberFrames(members.map(\.kind), width: width)
-        ZStack(alignment: .topLeading) {
-            ForEach(Array(zip(members, frames)), id: \.0.id) { member, frame in
-                DocMediaCell(id: member.id, kind: member.kind, blocks: blocks, size: frame.size)
-                    .opacity(blocks.hiddenMembers.contains(member.id) ? 0 : 1)
-                    .offset(x: frame.minX, y: frame.minY)
-            }
-        }
-        .frame(width: width, height: DocMediaLayout.groupHeight(members.map(\.kind), width: width), alignment: .topLeading)
-        // Reordered (a member dropped beside another), the others slide to their places.
-        .animation(FlooDesignTokens.Motion.layout, value: members.map(\.id))
     }
 }
 

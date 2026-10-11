@@ -1376,28 +1376,29 @@ final class DocEditTests {
             try self.expect(abs(row.height - (height + (self.demo.spacingAbove[image.id.description] ?? 0))) < 2, "row \(row.height), image \(height)")
             blocks.clear()
         }
-        await test("cards next to each other share a row; a point on each picks that one") {
-            let row = try self.expectValue(self.demo.rows.first { $0.members.count >= 2 && { if case .link = $0.members[0].kind { true } else { false } }($0) }, "no row of cards")
-            await show(row.members[0].id)
-            let left = try self.expectValue(blocks.testContentFrame(row.members[0].id), "no frame")
-            let right = try self.expectValue(blocks.testContentFrame(row.members[1].id), "no frame")
+        await test("cards next to each other share a line; a point on each picks that one") {
+            let line = try self.expectValue(self.linkCards(), "no line of cards")
+            await show(line[0])
+            let left = try self.expectValue(blocks.testContentFrame(line[0]), "no frame")
+            let right = try self.expectValue(blocks.testContentFrame(line[1]), "no frame")
             try self.expect(left.minY == right.minY && right.minX > left.maxX, "cards at \(left) and \(right)")
-            try self.expect(blocks.testBlock(at: CGPoint(x: left.midX, y: left.midY)) == row.members[0].id, "left point picks another block")
-            try self.expect(blocks.testBlock(at: CGPoint(x: right.midX, y: right.midY)) == row.members[1].id, "right point picks another block")
+            try self.expect(blocks.testBlock(at: CGPoint(x: left.midX, y: left.midY)) == line[0], "left point picks another block")
+            try self.expect(blocks.testBlock(at: CGPoint(x: right.midX, y: right.midY)) == line[1], "right point picks another block")
         }
-        await test("a file turned into a card after cards joins their row, a new row") {
+        await test("a file turned into a card after cards joins their run, its row the same") {
             let pdf = try self.expectValue(self.demo.doc.blocks.first { if case .file(let file) = $0.kind { file.name.hasSuffix(".pdf") } else { false } }, "no pdf")
-            let row = try self.expectValue(self.demo.rows.first { $0.members.count >= 2 }, "no row of cards")
+            let index = try self.expectValue(self.demo.rows.firstIndex { $0.block == pdf.id }, "no pdf row")
+            try self.expect(index > 0 && self.demo.rows[index - 1].place?.lineHeight != nil, "the pdf doesn't follow cards")
             blocks.setLayout(.card, of: [pdf.id])
             try? await Task.sleep(for: .milliseconds(700))
-            let joined = try self.expectValue(self.demo.rows.first { $0.members.contains { $0.id == pdf.id } }, "the pdf didn't join a row")
-            try self.expect(joined.members.count == row.members.count + 1, "row of \(joined.members.count)")
-            // A row whose members change is made anew (one updated in place could grow without redrawing).
-            try self.expect(joined.id != row.id, "the row was updated in place")
+            let row = try self.expectValue(self.demo.rows.first { $0.block == pdf.id }, "no pdf row")
+            try self.expect(row.place.map { $0.lineHeight != nil && !$0.startsRun } == true, "the pdf didn't join the cards: \(String(describing: row.place))")
+            try self.expect(blocks.testRowFrame(pdf.id).map { $0.width < DocMediaLayout.pageWidth / 2 + 1 } == true, "the pdf's row isn't a card's")
+            try await self.undo()
         }
-        await test("a card dragged out of a row of cards stands on its own where it's dropped") {
-            let row = try self.expectValue(self.demo.rows.first { $0.members.count >= 2 && { if case .link = $0.members[0].kind { true } else { false } }($0) }, "no row of cards")
-            let (first, second) = (row.members[0].id, row.members[1].id)
+        await test("a card dragged out of a line of cards stands on its own where it's dropped") {
+            let line = try self.expectValue(self.linkCards(), "no line of cards")
+            let (first, second) = (line[0], line[1])
             let ids = order()
             let at = try self.expectValue(ids.firstIndex(of: second), "no card")
             let below = ids[at + 1]
@@ -1407,28 +1408,53 @@ final class DocEditTests {
             let after = order()
             try self.expect(after.firstIndex(of: second) == at + 1 && after[at] == below, "order \(String(describing: after.firstIndex(of: second))), wanted \(at + 1)")
             try? await Task.sleep(for: .milliseconds(300))
-            try self.expect(self.demo.rows.contains { $0.block == first && $0.members.isEmpty }, "the card left behind isn't on its own")
-            try self.expect(self.demo.rows.contains { $0.block == second && $0.members.isEmpty }, "the dragged card isn't on its own")
+            try self.expect(self.line(of: first) == [first], "the card left behind isn't on its own: \(self.line(of: first))")
+            try self.expect(self.line(of: second) == [second], "the dragged card isn't on its own: \(self.line(of: second))")
             try await self.undo()
             try self.expect(order() == ids, "undo didn't restore the order")
         }
-        await test("a card dropped on the near half of another in its row goes beside it, in the row; only it hides while it lands") {
-            let row = try self.expectValue(self.demo.rows.first { $0.members.count >= 2 && { if case .link = $0.members[0].kind { true } else { false } }($0) }, "no row of cards")
-            let (first, second) = (row.members[0].id, row.members[1].id)
+        await test("a card dropped on the near half of another on its line goes beside it, on the line; only it hides while it lands") {
+            let line = try self.expectValue(self.linkCards(), "no line of cards")
+            let (first, second) = (line[0], line[1])
             let ids = order()
             await show(first)
             let target = try self.expectValue(blocks.testContentFrame(first), "no card")
             blocks.testDrag(second, toY: target.midY, x: target.minX + 20)
-            try self.expect(blocks.hiddenMembers == [second], "hidden while landing \(blocks.hiddenMembers)")
+            try self.expect(blocks.testHidden == [second], "hidden while landing \(blocks.testHidden)")
             let after = order()
             let at = try self.expectValue(ids.firstIndex(of: first), "no card")
             try self.expect(after[at] == second && after[at + 1] == first, "order \(String(describing: after.firstIndex(of: second)))")
             try? await Task.sleep(for: .milliseconds(600))
-            try self.expect(blocks.hiddenMembers.isEmpty, "still hidden \(blocks.hiddenMembers)")
-            let joined = try self.expectValue(self.demo.rows.first { $0.members.contains { $0.id == second } }, "the card left the row")
-            try self.expect(joined.members.map(\.id).prefix(2) == [second, first], "row \(joined.members.map(\.id))")
+            try self.expect(blocks.testHidden.isEmpty, "still hidden \(blocks.testHidden)")
+            try self.expect(self.line(of: second).prefix(2) == [second, first], "line \(self.line(of: second))")
             try await self.undo()
             try self.expect(order() == ids, "undo didn't restore the order")
+        }
+        await test("a card turned regular leaves its line and a card again goes back: its box goes from place to place, the rows after it follow, nothing fades") {
+            let line = try self.expectValue(self.linkCards(), "no line of cards")
+            let card = line[1]
+            let rows = self.demo.rows
+            let index = try self.expectValue(rows.firstIndex { $0.block == card }, "no row")
+            let next = try self.expectValue(rows[(index + 1)...].first { $0.place?.sharesLine != true }?.block, "nothing after the line")
+            blocks.testCenter(card)
+            try await self.expectMove(card, next: next, still: line[0]) { blocks.setLayout(.regular, of: [card]) }
+            try self.expect(self.line(of: card) == [card], "the card didn't leave its line: \(self.line(of: card))")
+            try await self.expectMove(card, next: next, still: line[0]) { blocks.setLayout(.card, of: [card]) }
+            try self.expect(self.line(of: card) == line, "the card didn't go back: \(self.line(of: card))")
+            try await self.undo()
+            try await self.undo()
+        }
+        await test("a file turned into a card after cards joins them, and back: its box goes from place to place, the rows after it follow, nothing fades") {
+            let pdf = try self.expectValue(self.demo.doc.blocks.first { if case .file(let file) = $0.kind { file.name.hasSuffix(".pdf") } else { false } }, "no pdf")
+            let rows = self.demo.rows
+            let index = try self.expectValue(rows.firstIndex { $0.block == pdf.id }, "no pdf row")
+            let card = try self.expectValue(index > 0 ? rows[index - 1].block : nil, "nothing before the pdf")
+            let next = try self.expectValue(index + 1 < rows.count ? rows[index + 1].block : nil, "nothing after the pdf")
+            blocks.testCenter(pdf.id)
+            try await self.expectMove(pdf.id, next: next, still: card) { blocks.setLayout(.card, of: [pdf.id]) }
+            try await self.expectMove(pdf.id, next: next, still: card) { blocks.setLayout(.regular, of: [pdf.id]) }
+            try await self.undo()
+            try await self.undo()
         }
         await test("the format panel's edits act on all the selected blocks, one undo each") {
             let first = try self.block("Loading older")
@@ -1503,13 +1529,33 @@ final class DocEditTests {
 
     // MARK: Reshaping
 
-    /// A link, file or image alone in its row, with a row of its own right after it.
+    /// A link, file or image alone on its line, with a line starting right after it.
     private func mediaAlone(_ matches: (BlockKind) -> Bool) -> (block: DocBlock, next: DocBlockID)? {
         let rows = demo.rows
-        for (index, row) in rows.enumerated() where row.members.isEmpty && index + 1 < rows.count {
+        for (index, row) in rows.enumerated() where row.place?.sharesLine != true && index + 1 < rows.count {
             guard let id = row.block, let block = demo.doc.block(id), matches(block.kind),
-                  rows[index + 1].members.isEmpty, let next = rows[index + 1].block else { continue }
+                  rows[index + 1].place?.sharesLine != true, let next = rows[index + 1].block else { continue }
             return (block, next)
+        }
+        return nil
+    }
+
+    /// The blocks on the line a block's row is on, in order.
+    private func line(of id: DocBlockID) -> [DocBlockID] {
+        let rows = demo.rows
+        guard var start = rows.firstIndex(where: { $0.block == id }) else { return [] }
+        while start > 0, rows[start].place?.sharesLine == true { start -= 1 }
+        var end = start + 1
+        while end < rows.count, rows[end].place?.sharesLine == true { end += 1 }
+        return rows[start..<end].compactMap(\.block)
+    }
+
+    /// The first line of two or more link cards.
+    private func linkCards() -> [DocBlockID]? {
+        let rows = demo.rows
+        for (index, row) in rows.enumerated() where index + 1 < rows.count && rows[index + 1].place?.sharesLine == true {
+            guard case .link? = row.media, row.place?.sharesLine != true, let id = row.block else { continue }
+            return line(of: id)
         }
         return nil
     }
@@ -1559,6 +1605,56 @@ final class DocEditTests {
         let next = try expectValue(blocks.testRowFrame(next), "no next row")
         try expect(abs(end.next - next.minY) < 0.5, "next row rests at \(end.next), its place is \(next.minY)")
         if let beforeTop { try expect(samples.allSatisfy { $0.before.map { abs($0 - beforeTop) < 0.5 } ?? true }, "the row before moved") }
+    }
+
+    /// Makes `change` to a block that gives its box another place or size on the page and
+    /// watches the screen while it lands: its box goes from its old frame to its new one
+    /// (frames on the way, not a jump) without fading, the row after it goes on its way without going back,
+    /// `still`'s row stays put, and all of it comes to rest where the layout says.
+    private func expectMove(_ id: DocBlockID, next: DocBlockID, still: DocBlockID, change: () -> Void) async throws {
+        let blocks = editor.blocks
+        try? await Task.sleep(for: .milliseconds(300))
+        let stays = try expectValue(blocks.testShownRowFrame(still), "no row that stays")
+        func sample() throws -> (box: CGRect, opacity: Float, next: CGFloat, still: CGRect?) {
+            let box = try expectValue(blocks.testShownBox(id), "no box drawn")
+            return (box.frame, box.opacity, try expectValue(blocks.testShownRowFrame(next)?.minY, "next row not on screen"),
+                    blocks.testShownRowFrame(still))
+        }
+        let start = try sample()
+        let began = CACurrentMediaTime()
+        change()
+        var samples: [(time: Double, box: CGRect, opacity: Float, next: CGFloat, still: CGRect?)] = []
+        while CACurrentMediaTime() - began < 0.7 {
+            try? await Task.sleep(for: .milliseconds(8))
+            let shown = try sample()
+            samples.append((CACurrentMediaTime() - began, shown.box, shown.opacity, shown.next, shown.still))
+        }
+        let end = try expectValue(samples.last, "no samples")
+        let trace = samples.map {
+            String(format: "%.3f:(%.0f,%.0f %.0fx%.0f a%.2f)/%.1f", $0.time, $0.box.minX - start.box.minX, $0.box.minY - start.box.minY,
+                   $0.box.width, $0.box.height, $0.opacity, $0.next - start.next)
+        }.joined(separator: " ")
+        print("DOCTEST TRACE move \(start.box) → \(trace)")
+        let edges: [(CGRect) -> CGFloat] = [\.minX, \.minY, \.width, \.height]
+        let changing = edges.filter { abs($0(end.box) - $0(start.box)) >= 8 }
+        try expect(!changing.isEmpty, "the box didn't change: \(trace)")
+        let faded = samples.filter { $0.opacity < 0.99 }
+        try expect(faded.isEmpty, "\(faded.count) frames faded: \(trace)")
+        // On its way: some frames show it partway in all that changes, not one jump.
+        func between(_ value: CGFloat, _ a: CGFloat, _ b: CGFloat) -> Bool { value > min(a, b) + 3 && value < max(a, b) - 3 }
+        let partway = samples.filter { sample in changing.allSatisfy { between($0(sample.box), $0(start.box), $0(end.box)) } }
+        try expect(partway.count >= 3, "only \(partway.count) frames partway: \(trace)")
+        // The row after it: toward its place, never back, at rest there.
+        let steps = zip(samples, samples.dropFirst()).map { $1.next - $0.next }
+        let direction: CGFloat = end.next >= start.next ? 1 : -1
+        try expect(steps.allSatisfy { $0 * direction >= -1 }, "the next row went back: \(trace)")
+        let place = try expectValue(blocks.testRowFrame(next), "no next row")
+        try expect(abs(end.next - place.minY) < 0.5, "next row rests at \(end.next), its place is \(place.minY)")
+        // At rest where the layout puts its box; the row that stays never moved.
+        let content = try expectValue(blocks.testContentFrame(id), "no frame")
+        try expect(abs(end.box.minX - content.minX) < 1 && abs(end.box.minY - content.minY) < 1, "box rests at \(end.box), its place is \(content)")
+        try expect(samples.allSatisfy { $0.still.map { abs($0.minY - stays.minY) < 0.5 && abs($0.minX - stays.minX) < 0.5 } ?? true },
+                   "the row that stays moved")
     }
 
     // MARK: Helpers

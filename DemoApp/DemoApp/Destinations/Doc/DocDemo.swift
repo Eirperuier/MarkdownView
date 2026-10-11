@@ -30,6 +30,22 @@ struct DocRowBox: Equatable {
     let isLast: Bool
 }
 
+/// Where a link, file or image's row sits across the page: from the page's left, as wide
+/// as its box, on the line of the row before it (cards side by side, a gallery) or on
+/// one of its own. All of them are placed, so one taking another layout goes from one
+/// place to the other.
+struct DocRowPlace: Equatable {
+    var x: CGFloat
+    var width: CGFloat
+    /// The page's width, less a decoration's inset: what its content is laid out in.
+    var room: CGFloat
+    var sharesLine: Bool
+    /// In a run of cards or a gallery: the height of its line (each member is as tall).
+    var lineHeight: CGFloat?
+    /// The first of its run, or not in one.
+    var startsRun = true
+}
+
 /// One list row: a committed block, or a block of what the agent is writing.
 struct DocRow: Identifiable, Equatable {
     let id: String
@@ -46,8 +62,8 @@ struct DocRow: Identifiable, Equatable {
     let tree: MarkdownTree?
     /// A link, file or image block, drawn as itself (DocMedia).
     let media: BlockKind?
-    /// Several of them in one row (cards side by side, a gallery); `block` is the first.
-    var members: [DocMediaMember] = []
+    /// Where a link, file or image sits across the page (nil: a row as wide as the page).
+    var place: DocRowPlace?
     /// A code or math block, edited as its source (and whether it's empty).
     let sourceKind: DocSourceKind?
     let sourceIsEmpty: Bool
@@ -81,7 +97,7 @@ struct DocRow: Identifiable, Equatable {
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
         lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.text == rhs.text && lhs.tree == rhs.tree
-            && lhs.table == rhs.table && lhs.media == rhs.media && lhs.members == rhs.members
+            && lhs.table == rhs.table && lhs.media == rhs.media && lhs.place == rhs.place
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
             && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role && lhs.box == rhs.box
@@ -196,21 +212,6 @@ final class DocDemo {
                 emitLayer()
                 continue
             }
-            // Cards next to each other share a row, as do images (not while the agent writes).
-            if layer == nil, let kind = DocMediaLayout.run(block.kind) {
-                let run = doc.blocks[(index - 1)...].prefix { DocMediaLayout.run($0.kind) == kind && $0.indent == block.indent }
-                if run.count > 1 {
-                    index += run.count - 1
-                    // A new row when the members change: the list makes a row anew at its
-                    // measured height; one updated in place can grow without redrawing. The
-                    // same members in a new order are the same row (reordered in place).
-                    let key = run.map(\.id.description).min() ?? block.id.description
-                    var row = DocRow(id: "\(key)+\(run.count)", block: block.id, blocks: [], media: nil)
-                    row.members = run.map { DocMediaMember(id: $0.id, kind: $0.kind) }
-                    result.append(row)
-                    continue
-                }
-            }
             if case .database(let id, _) = block.kind, let database = doc.databases[id] {
                 if let cached = rowCache[block.id], cached.block == block, cached.database == database {
                     result.append(cached.row)
@@ -243,45 +244,103 @@ final class DocDemo {
             }
             if let live, live.after == block.id { emitLayer() }
         }
+        place(&result)
         space(&result)
         rows = result
-        places = [:]
-        for row in result where !row.members.isEmpty {
-            for (index, member) in row.members.enumerated() { places[member.id] = (row.id, index) }
-        }
         canUndo = history.canUndo
         canRedo = history.canRedo
         askForPreviews()
     }
 
-    /// Each row's space above by what it is and what comes before it; the last row
-    /// carries the page's bottom. Decorated rows next to each other make one box.
+    /// Links, files and images across the page: cards next to each other side by side,
+    /// images in a gallery (not while the agent writes), each in as many lines as
+    /// `runFrames` makes; the rest on lines of their own, a run of one too (an image at
+    /// its own size, not a gallery's). A run doesn't cross a change of indent or
+    /// decoration; in a decoration's box it sits inside the box's inset.
+    private func place(_ rows: inout [DocRow]) {
+        let blocks = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0) })
+        let width = DocMediaLayout.pageWidth
+        func block(_ row: DocRow) -> DocBlock? {
+            guard row.media != nil, !row.isStreaming, let id = row.block else { return nil }
+            return blocks[id]
+        }
+        var index = 0
+        while index < rows.count {
+            guard let first = block(rows[index]) else {
+                rows[index].place = nil
+                index += 1
+                continue
+            }
+            let inset = first.decoration == nil ? 0 : FlooDesignTokens.Component.DecorationBox.inset
+            let room = width - inset * 2
+            let kind = layer == nil ? DocMediaLayout.run(first.kind) : nil
+            var end = index + 1
+            if let kind {
+                while end < rows.count, let next = block(rows[end]), DocMediaLayout.run(next.kind) == kind,
+                      next.indent == first.indent, next.decoration == first.decoration {
+                    end += 1
+                }
+            }
+            if end - index > 1 {
+                let frames = DocMediaLayout.runFrames(rows[index..<end].compactMap(block).map(\.kind), width: room)
+                for (offset, frame) in frames.enumerated() {
+                    let line = frames.filter { $0.minY == frame.minY }
+                    rows[index + offset].place = DocRowPlace(
+                        x: inset + frame.minX, width: frame.width, room: room,
+                        sharesLine: offset > 0 && frames[offset - 1].minY == frame.minY,
+                        lineHeight: line.map(\.height).max(), startsRun: offset == 0)
+                }
+            } else {
+                rows[index].place = DocRowPlace(x: inset, width: room, room: room, sharesLine: false)
+            }
+            index = end
+        }
+    }
+
+    /// Each row's space above by what it is and what comes before it, the rows on a line
+    /// the space of its first, and in a run of cards or a gallery its gap between lines;
+    /// the last line carries the page's bottom. Decorated lines next to each other make
+    /// one box.
     private func space(_ rows: inout [DocRow]) {
         let kinds = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.kind) })
         let decorations = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.decoration) })
-        let decorated = rows.map { row in row.block.flatMap { decorations[$0] } ?? nil }
+        // Lines: a row sharing one goes with the row before it.
+        var lines: [Range<Int>] = []
         for index in rows.indices {
-            guard let decoration = decorated[index] else {
-                rows[index].box = nil
-                continue
+            if rows[index].place?.sharesLine == true, let last = lines.popLast() {
+                lines.append(last.lowerBound..<(index + 1))
+            } else {
+                lines.append(index..<(index + 1))
             }
-            rows[index].box = DocRowBox(isFirst: index == 0 || decorated[index - 1] != decoration,
-                                        isLast: index == rows.count - 1 || decorated[index + 1] != decoration)
         }
+        let decorated = lines.map { line in rows[line.lowerBound].block.flatMap { decorations[$0] } ?? nil }
         var previous: DocRowRole?
-        for index in rows.indices {
-            let row = rows[index]
-            let role = row.block.flatMap { kinds[$0] }.map(DocRowRole.init) ?? DocRowRole(markdown: row.blocks.first?.source ?? "")
-            rows[index].role = role
-            rows[index].spacingAbove = role.spacing(after: previous)
-            rows[index].spacingBelow = index == rows.count - 1 ? DocTypography.pageBottom : 0
+        for (number, line) in lines.enumerated() {
+            let first = rows[line.lowerBound]
+            let role = first.block.flatMap { kinds[$0] }.map(DocRowRole.init) ?? DocRowRole(markdown: first.blocks.first?.source ?? "")
+            let inRun = first.place.map { $0.lineHeight != nil && !$0.startsRun } ?? false
+            let box = decorated[number].map { decoration in
+                DocRowBox(isFirst: number == 0 || decorated[number - 1] != decoration,
+                          isLast: number == lines.count - 1 || decorated[number + 1] != decoration)
+            }
+            for index in line {
+                rows[index].role = role
+                rows[index].spacingAbove = inRun ? DocMediaLayout.gap : role.spacing(after: previous)
+                rows[index].spacingBelow = number == lines.count - 1 ? DocTypography.pageBottom : 0
+                rows[index].box = box
+            }
             previous = role
         }
         spacingAbove = Dictionary(rows.map { ($0.id, $0.spacingAbove) }, uniquingKeysWith: { first, _ in first })
+        places = Dictionary(rows.compactMap { row in row.place.flatMap { place in row.block.map { ($0, place) } } },
+                            uniquingKeysWith: { first, _ in first })
+        lastLine = Set(lines.last.map { rows[$0].compactMap(\.block) } ?? [])
     }
 
-    /// Where a block sits in a row of several: the row and its place among the members.
-    @ObservationIgnored private(set) var places: [DocBlockID: (row: String, index: Int)] = [:]
+    /// Where each placed block's row sits across the page (DocRowPlace).
+    @ObservationIgnored private(set) var places: [DocBlockID: DocRowPlace] = [:]
+    /// The blocks on the last line, whose rows carry the page's bottom.
+    @ObservationIgnored private(set) var lastLine: Set<DocBlockID> = []
 
     /// The space above each row (by row id), for laying things over the rows.
     @ObservationIgnored private(set) var spacingAbove: [String: CGFloat] = [:]
@@ -312,7 +371,7 @@ final class DocDemo {
         guard let id else { return }
         focusSerial += 1
         // The row it is in: its own, or the one it shares with others.
-        focus = (places[id]?.row ?? id.description, focusSerial)
+        focus = (id.description, focusSerial)
     }
 
     // MARK: Editing
@@ -585,9 +644,7 @@ extension DocRow {
         let textWidth = max(100, min(width - DocBlockController.leadingGutter - DocBlockController.trailingGutter, 720))
         let boxPadding = FlooDesignTokens.Component.DecorationBox.padding
         let spacing = spacingAbove + spacingBelow + (box.map { ($0.isFirst ? boxPadding : 0) + ($0.isLast ? boxPadding : 0) } ?? 0)
-        if !members.isEmpty {
-            return DocMediaLayout.groupHeight(members.map(\.kind), width: min(720, width - DocBlockController.leadingGutter - DocBlockController.trailingGutter)) + spacing
-        }
+        if let height = place?.lineHeight { return height + spacing }
         if let media, let height = DocMediaLayout.estimatedHeight(media) { return height + spacing }
         switch tree?.document.child(at: 0) {
         case let code as CodeBlock:
