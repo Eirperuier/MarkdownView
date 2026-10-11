@@ -23,13 +23,22 @@ public struct DocBlock: Hashable, Sendable, Codable, Identifiable {
     public var indent: Int
     /// Empty on the kinds that carry no text.
     public var text: DocText
+    /// Drawn around the block, whatever its kind; neighbours with the same one share it.
+    public var decoration: BlockDecoration?
 
-    public init(id: DocBlockID, kind: BlockKind, indent: Int = 0, text: DocText = DocText()) {
+    public init(id: DocBlockID, kind: BlockKind, indent: Int = 0, text: DocText = DocText(), decoration: BlockDecoration? = nil) {
         self.id = id
         self.kind = kind
         self.indent = indent
         self.text = text
+        self.decoration = decoration
     }
+}
+
+/// What's drawn around a block (Craft's decorations; its Focus is the quote kind).
+public enum BlockDecoration: String, Hashable, Sendable, Codable {
+    /// A grey box with room inside.
+    case block
 }
 
 public enum BlockKind: Hashable, Sendable, Codable {

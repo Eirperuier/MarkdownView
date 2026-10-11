@@ -17,18 +17,18 @@ extension DocStep {
                 return DocPosition(block: block, offset: position.offset - range.count)
             }
             return DocPosition(block: block, offset: range.lowerBound)
-        case .splitBlock(let block, let at, let newID, _, _):
+        case .splitBlock(let block, let at, let newID, _, _, _):
             guard position.block == block else { return position }
             if position.offset > at || (position.offset == at && bias == .after) {
                 return DocPosition(block: newID, offset: position.offset - at)
             }
             return position
-        case .joinBlock(let block, let into, let at, _, _):
+        case .joinBlock(let block, let into, let at, _, _, _):
             guard position.block == block else { return position }
             return DocPosition(block: into, offset: at + position.offset)
         case .deleteBlock(let block, _):
             return position.block == block.id ? nil : position
-        case .setMarks, .insertBlock, .moveBlock, .setBlock,
+        case .setMarks, .insertBlock, .moveBlock, .setBlock, .setDecoration,
             .createDatabase, .deleteDatabase, .database:
             return position
         }
@@ -62,12 +62,12 @@ extension DocStep {
                 }
                 return .setMarks(block: segment.block, range: segment.range, kind: kind, spans: segmentSpans, previous: previous)
             }
-        case .splitBlock(let block, let at, let newID, let newKind, let newIndent):
+        case .splitBlock(let block, let at, let newID, let newKind, let newIndent, let newDecoration):
             guard let mapped = other.map(DocPosition(block: block, offset: at), bias: pointBias) else { return [] }
-            return [.splitBlock(block: mapped.block, at: mapped.offset, newID: newID, newKind: newKind, newIndent: newIndent)]
-        case .joinBlock(let block, let into, let at, let kind, let indent):
+            return [.splitBlock(block: mapped.block, at: mapped.offset, newID: newID, newKind: newKind, newIndent: newIndent, newDecoration: newDecoration)]
+        case .joinBlock(let block, let into, let at, let kind, let indent, let decoration):
             guard !other.removes(block), let into = other.stayingAnchor(into) else { return [] }
-            return [.joinBlock(block: block, into: into, at: at, kind: kind, indent: indent)]
+            return [.joinBlock(block: block, into: into, at: at, kind: kind, indent: indent, decoration: decoration)]
         case .insertBlock(let block, let after):
             // A view of a database that is gone goes with it.
             if let id = block.kind.databaseID, other.deletesDatabase(id) { return [] }
@@ -81,6 +81,9 @@ extension DocStep {
         case .setBlock(let block, let kind, _, _, _):
             guard !other.removes(block) else { return [] }
             if let id = kind.databaseID, other.deletesDatabase(id) { return [] }
+            return [self]
+        case .setDecoration(let block, _, _):
+            guard !other.removes(block) else { return [] }
             return [self]
         case .createDatabase:
             return [self]
@@ -120,7 +123,7 @@ extension DocStep {
     private func removes(_ id: DocBlockID) -> Bool {
         switch self {
         case .deleteBlock(let block, _): return block.id == id
-        case .joinBlock(let block, _, _, _, _): return block == id
+        case .joinBlock(let block, _, _, _, _, _): return block == id
         default: return false
         }
     }
@@ -131,7 +134,7 @@ extension DocStep {
         guard let id else { return nil }
         switch self {
         case .deleteBlock(let block, let after): return block.id == id ? after : id
-        case .joinBlock(let block, let into, _, _, _): return block == id ? into : id
+        case .joinBlock(let block, let into, _, _, _, _): return block == id ? into : id
         default: return id
         }
     }
@@ -142,8 +145,8 @@ extension DocStep {
     private func stayingAnchor(_ id: DocBlockID) -> DocBlockID? {
         switch self {
         case .deleteBlock(let block, _) where block.id == id: return nil
-        case .joinBlock(let block, let into, _, _, _) where block == id: return into
-        case .splitBlock(let block, _, let newID, _, _) where block == id: return newID
+        case .joinBlock(let block, let into, _, _, _, _) where block == id: return into
+        case .splitBlock(let block, _, let newID, _, _, _) where block == id: return newID
         default: return id
         }
     }
@@ -160,7 +163,7 @@ extension Range<Int> {
         if lower.block == upper.block {
             return lower.offset < upper.offset ? [(lower.block, lower.offset..<upper.offset)] : []
         }
-        guard case .splitBlock(let splitBlock, let at, let newID, _, _) = other,
+        guard case .splitBlock(let splitBlock, let at, let newID, _, _, _) = other,
             lower.block == splitBlock, upper.block == newID
         else { return [] }
         var segments: [(block: DocBlockID, range: Range<Int>)] = []

@@ -9,10 +9,10 @@ extension DocStep {
             return .insertText(block: block, at: range.lowerBound, text: removed)
         case .setMarks(let block, let range, let kind, let spans, let previous):
             return .setMarks(block: block, range: range, kind: kind, spans: previous, previous: spans)
-        case .splitBlock(let block, let at, let newID, let newKind, let newIndent):
-            return .joinBlock(block: newID, into: block, at: at, kind: newKind, indent: newIndent)
-        case .joinBlock(let block, let into, let at, let kind, let indent):
-            return .splitBlock(block: into, at: at, newID: block, newKind: kind, newIndent: indent)
+        case .splitBlock(let block, let at, let newID, let newKind, let newIndent, let newDecoration):
+            return .joinBlock(block: newID, into: block, at: at, kind: newKind, indent: newIndent, decoration: newDecoration)
+        case .joinBlock(let block, let into, let at, let kind, let indent, let decoration):
+            return .splitBlock(block: into, at: at, newID: block, newKind: kind, newIndent: indent, newDecoration: decoration)
         case .insertBlock(let block, let after):
             return .deleteBlock(block: block, after: after)
         case .deleteBlock(let block, let after):
@@ -24,6 +24,8 @@ extension DocStep {
                 block: block, kind: previousKind, indent: previousIndent,
                 previousKind: kind, previousIndent: indent
             )
+        case .setDecoration(let block, let decoration, let previous):
+            return .setDecoration(block: block, decoration: previous, previous: decoration)
         case .createDatabase(let database):
             return .deleteDatabase(database: database)
         case .deleteDatabase(let database):

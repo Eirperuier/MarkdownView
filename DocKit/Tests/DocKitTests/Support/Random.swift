@@ -139,7 +139,8 @@ enum RandomDoc {
         let text = kind.carriesText
             ? text(allowAtoms: kind.allowsMarks, allowMarks: kind.allowsMarks, using: &rng)
             : DocText()
-        return DocBlock(id: id ?? Identifier.generate(at: fixedTime(1), using: &rng), kind: kind, indent: Int(rng.next() % 7), text: text)
+        return DocBlock(id: id ?? Identifier.generate(at: fixedTime(1), using: &rng), kind: kind, indent: Int(rng.next() % 7), text: text,
+                        decoration: rng.next() % 4 == 0 ? .block : nil)
     }
 
     static func doc(using rng: inout SplitMix64) -> Doc {
@@ -189,7 +190,11 @@ enum RandomStep {
             guard let block = doc.blocks.randomElement(using: &rng) else { return nil }
             let after = doc.blocks.filter { $0.id != block.id }.randomElement(using: &rng)?.id
             return .moveBlock(block: block.id, after: after, from: nil)
-        case 8: return setBlock(in: doc, using: &rng)
+        case 8:
+            if rng.next() % 3 == 0, let block = doc.blocks.randomElement(using: &rng) {
+                return .setDecoration(block: block.id, decoration: block.decoration == nil ? .block : nil, previous: nil)
+            }
+            return setBlock(in: doc, using: &rng)
         case 9: return .createDatabase(database: RandomDoc.database(using: &rng))
         case 10:
             // Sorted: a dictionary's order changes from run to run, and with it the steps.
@@ -265,7 +270,7 @@ enum RandomStep {
         return .splitBlock(
             block: block.id, at: at,
             newID: Identifier.generate(at: fixedTime(6), using: &rng),
-            newKind: newKind, newIndent: Int(rng.next() % 7)
+            newKind: newKind, newIndent: Int(rng.next() % 7), newDecoration: rng.next() % 2 == 0 ? .block : nil
         )
     }
 

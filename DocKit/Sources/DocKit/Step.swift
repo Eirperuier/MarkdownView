@@ -6,7 +6,7 @@
 /// put there, reads the real values from the doc and returns the resolved
 /// step. That way a step mapped during rebase never needs its recorded
 /// content fixed up. Recorded fields: `removed`, `previous`, join's
-/// `at`/`kind`/`indent`, `setBlock`'s previous values, `deleteBlock`'s
+/// `at`/`kind`/`indent`/`decoration`, `setBlock`'s and `setDecoration`'s previous values, `deleteBlock`'s
 /// content and `after`, `moveBlock`'s `from`, `deleteDatabase`'s content,
 /// and the database steps' equivalents.
 public enum DocStep: Hashable, Sendable, Codable {
@@ -18,15 +18,16 @@ public enum DocStep: Hashable, Sendable, Codable {
     case setMarks(block: DocBlockID, range: Range<Int>, kind: MarkKind, spans: [MarkSpan], previous: [MarkSpan])
     /// The tail of `block` from `at` moves into a new block placed right
     /// after it.
-    case splitBlock(block: DocBlockID, at: Int, newID: DocBlockID, newKind: BlockKind, newIndent: Int)
+    case splitBlock(block: DocBlockID, at: Int, newID: DocBlockID, newKind: BlockKind, newIndent: Int, newDecoration: BlockDecoration? = nil)
     /// `block` is appended onto its predecessor `into` and removed.
-    case joinBlock(block: DocBlockID, into: DocBlockID, at: Int, kind: BlockKind, indent: Int)
+    case joinBlock(block: DocBlockID, into: DocBlockID, at: Int, kind: BlockKind, indent: Int, decoration: BlockDecoration? = nil)
     /// `after` nil inserts at the start of the doc.
     case insertBlock(block: DocBlock, after: DocBlockID?)
     /// Content and predecessor are recorded for undo.
     case deleteBlock(block: DocBlock, after: DocBlockID?)
     case moveBlock(block: DocBlockID, after: DocBlockID?, from: DocBlockID?)
     case setBlock(block: DocBlockID, kind: BlockKind, indent: Int, previousKind: BlockKind, previousIndent: Int)
+    case setDecoration(block: DocBlockID, decoration: BlockDecoration?, previous: BlockDecoration?)
     case createDatabase(database: Database)
     /// Content recorded for undo.
     case deleteDatabase(database: Database)
