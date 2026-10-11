@@ -39,6 +39,7 @@ struct DocSlashItem: Identifiable, Equatable {
         .init(id: "task", title: "待办", subtitle: "可勾选的事项", symbol: "checklist", keywords: ["todo", "task", "check", "daiban"], action: .kind(.listItem(style: .task(done: false)))),
         .init(id: "toggle", title: "折叠列表", subtitle: "可以收起的内容", symbol: "chevron.right", keywords: ["toggle", "collapse", "zhedie"], action: .kind(.listItem(style: .toggle(open: true)))),
         .init(id: "quote", title: "引用", subtitle: "引用一段话", symbol: "text.quote", keywords: ["quote", "blockquote", "yinyong"], action: .kind(.quote)),
+        .init(id: "caption", title: "说明", subtitle: "小号的说明文字", symbol: "text.below.photo", keywords: ["caption", "small", "shuoming"], action: .kind(.caption)),
         .init(id: "code", title: "代码块", subtitle: "等宽字体的代码", symbol: "chevron.left.forwardslash.chevron.right", keywords: ["code", "snippet", "daima"], action: .kind(.code(language: nil))),
         .init(id: "math", title: "公式块", subtitle: "LaTeX 公式", symbol: "function", keywords: ["math", "latex", "equation", "gongshi"], action: .kind(.math)),
         .init(id: "divider", title: "分割线", subtitle: "分开上下内容", symbol: "minus", keywords: ["divider", "line", "hr", "fengexian"], action: .divider),

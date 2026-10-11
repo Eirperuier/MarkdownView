@@ -307,7 +307,8 @@ private struct DocRowView: View {
                     .padding(.leading, CGFloat(text.depth) * 20)
             }
         }
-        .lineSpacing(row.role.isHeading ? DocTypography.headingLineSpacing : DocTypography.lineSpacing)
+        .lineSpacing(row.role.lineSpacing)
+        .modifier(DocCaptionType(isOn: row.role == .caption))
         .markdownDisplayMathRendersSynchronously()
         .environment(\.markdownSelectableTextHooks, hooks)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -335,6 +336,21 @@ private struct DocRowView: View {
     }
 }
 
+
+/// A caption's type: smaller, secondary.
+private struct DocCaptionType: ViewModifier {
+    let isOn: Bool
+
+    func body(content: Content) -> some View {
+        if isOn {
+            content
+                .markdownPlatformTypography(DocTypography.captionFonts)
+                .markdownBaseTextColor(.secondary)
+        } else {
+            content
+        }
+    }
+}
 
 /// Rows changed (an edit, a measured height): the handle and the selection follow.
 private struct DocBlockOverlays: ViewModifier {

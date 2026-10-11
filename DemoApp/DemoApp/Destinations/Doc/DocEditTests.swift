@@ -470,6 +470,25 @@ final class DocEditTests {
             let view = try self.expectValue(self.editor.textView(for: line.id), "no text view")
             try self.expect((view.text ?? "").contains("==hi== $5 and $6 :circle[x]"), "shows \((view.text ?? "").debugDescription)")
         }
+        await test("⌃6 makes the line a caption, drawn smaller; ⌃5 makes it body text again") {
+            let line = try await emptyLine()
+            try await self.type("Photo by me")
+            @MainActor func fontSize() async throws -> CGFloat {
+                try await self.showsModelSoon(line.id)
+                let view = try self.expectValue(self.editor.textView(for: line.id), "no text view")
+                return (view.attributedText.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)?.pointSize ?? 0
+            }
+            let body = try await fontSize()
+            self.editor.keyCommand(.style(.caption), in: line.id)
+            try self.expect(self.demo.doc.block(line.id)?.kind == .caption, "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
+            try await Task.sleep(for: .milliseconds(400))
+            let caption = try await fontSize()
+            try self.expect(caption > 0 && caption < body, "caption \(caption) body \(body)")
+            self.editor.keyCommand(.style(.paragraph), in: line.id)
+            try await Task.sleep(for: .milliseconds(400))
+            try self.expect(self.demo.doc.block(line.id)?.kind == .paragraph && self.text(line.id) == "Photo by me", "back to \(String(describing: self.demo.doc.block(line.id)?.kind))")
+            try self.expect(try await fontSize() == body, "body again is not body")
+        }
         await test("Quotes, dashes and dots stay as typed (no smart punctuation)") {
             let line = try await emptyLine()
             try await self.type("don't say \"no\" -- wait...")

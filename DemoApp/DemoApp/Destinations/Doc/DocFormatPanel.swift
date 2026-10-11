@@ -2,11 +2,11 @@
 //  DocFormatPanel.swift
 //  DemoApp
 //
-//  The Mac's format panel: Craft's sections (titles and content as tiles, marks,
-//  lists and indent as segments) in the anchored panel the math editor uses, opened
-//  from the bar's Aa. It acts on the selected blocks, or the block the cursor is in; marks
-//  on the selected text, or on the selected blocks' text, and so does the colour. What
-//  DocKit can't carry yet (alignment, fonts, decorations) isn't offered.
+//  The Mac's format panel: Craft's sections (the text styles as tiles, marks, lists
+//  and indent as segments, the quote as a decoration) in the anchored panel the math
+//  editor uses, opened from the bar's Aa. It acts on the selected blocks, or the block the
+//  cursor is in; marks on the selected text, or on the selected blocks' text, and so does
+//  the colour. What DocKit can't carry yet (alignment, the Block decoration) isn't offered.
 //
 
 import SwiftUI
@@ -30,19 +30,16 @@ struct DocFormatPanel: View {
                 .padding(.bottom, 14)
             // Text first offers its kinds; a link, file or image its layout, after the
             // segments (as Craft orders them).
+            // Text styles: how big a block's text is (Craft's six, ⌃1–⌃6).
             if !targets.isEmpty {
                 section("标题") {
                     HStack(spacing: 6) {
-                        tile("标题", weight: .bold, kind: .heading(level: 1))
-                        tile("副标题", weight: .bold, kind: .heading(level: 2))
-                        tile("小标题", weight: .bold, kind: .heading(level: 3))
+                        ForEach(Self.styles.prefix(3), id: \.key) { tile($0) }
                     }
                 }
                 section("正文") {
                     HStack(spacing: 6) {
-                        tile("强调", weight: .semibold, kind: .heading(level: 4))
-                        tile("正文", weight: .regular, kind: .paragraph)
-                        tile("引用", weight: .regular, kind: .quote)
+                        ForEach(Self.styles.suffix(3), id: \.key) { tile($0) }
                     }
                 }
             }
@@ -77,9 +74,30 @@ struct DocFormatPanel: View {
                     }
                 }
             }
+            // A quote is a block's decoration (Craft's Focus, its bar at the left).
+            if !targets.isEmpty {
+                section("装饰") {
+                    HStack(spacing: 6) {
+                        choice(isOn: kindIsOn(.quote), help: "引用") {
+                            let kind: BlockKind = kindIsOn(.quote) ? .paragraph : .quote
+                            editor.blocks.transition { editor.setKind(kind, of: targets.map(\.id)) }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Capsule().frame(width: 3.5, height: 18)
+                                Text("引用").font(.system(size: 15))
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 40)
+                        }
+                        .accessibilityIdentifier("format-引用")
+                        // Craft's Block decoration has no place in the model yet.
+                        Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+                    }
+                }
+                .padding(.top, 18)
+            }
             if !markRanges.isEmpty {
                 section("颜色") { colors }
-                    .padding(.top, 18)
+                    .padding(.top, targets.isEmpty ? 18 : 0)
             }
         }
         .frame(width: 246)
@@ -235,6 +253,16 @@ struct DocFormatPanel: View {
         ("code", "chevron.left.forwardslash.chevron.right", "代码", .code),
     ]
 
+    /// The text styles, Craft's: titles, then content; each its ⌃ key.
+    static let styles: [(key: String, title: String, size: CGFloat, weight: Font.Weight, kind: BlockKind)] = [
+        ("1", "标题", 15, .bold, .heading(level: 1)),
+        ("2", "副标题", 15, .bold, .heading(level: 2)),
+        ("3", "小标题", 15, .semibold, .heading(level: 3)),
+        ("4", "强调", 15, .semibold, .heading(level: 4)),
+        ("5", "正文", 15, .regular, .paragraph),
+        ("6", "说明", 13.5, .regular, .caption),
+    ]
+
     private static let lists: [(id: String, symbol: String, title: String, kind: BlockKind)] = [
         ("task", "checkmark.square", "待办", .listItem(style: .task(done: false))),
         ("toggle", "arrowtriangle.right.fill", "折叠列表", .listItem(style: .toggle(open: true))),
@@ -279,13 +307,13 @@ struct DocFormatPanel: View {
         }
     }
 
-    private func tile(_ title: String, weight: Font.Weight, kind: BlockKind) -> some View {
-        let isOn = kindIsOn(kind)
+    private func tile(_ style: (key: String, title: String, size: CGFloat, weight: Font.Weight, kind: BlockKind)) -> some View {
+        let isOn = kindIsOn(style.kind)
         return Button {
-            editor.blocks.transition { editor.setKind(kind, of: targets.map(\.id)) }
+            editor.blocks.transition { editor.setKind(style.kind, of: targets.map(\.id)) }
         } label: {
-            Text(title)
-                .font(.system(size: 15, weight: weight))
+            Text(style.title)
+                .font(.system(size: style.size, weight: style.weight))
                 .frame(maxWidth: .infinity, minHeight: 36)
                 .background(isOn ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06), in: .rect(cornerRadius: 10, style: .continuous))
                 .overlay {
@@ -295,7 +323,8 @@ struct DocFormatPanel: View {
         }
         .buttonStyle(.plain)
         .disabled(targets.isEmpty)
-        .accessibilityIdentifier("format-\(title)")
+        .help("⌃\(style.key)")
+        .accessibilityIdentifier("format-\(style.title)")
     }
 }
 

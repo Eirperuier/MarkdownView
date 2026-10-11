@@ -71,7 +71,8 @@ enum BlockKind: Hashable, Sendable, Codable {
     case paragraph
     case heading(level: Int)                   // 1…6
     case listItem(ListStyle)                   // bullet / numbered / task(done) / toggle(open)
-    case quote
+    case quote                                 // 格式面板里是「装饰」,不是文字大小
+    case caption                               // 说明:比正文小一号、次要色(Craft 的 Caption)
     case code(language: String?)
     case math                                  // 显示公式,text 是 LaTeX
     case divider
@@ -115,6 +116,8 @@ enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mentio
   - 用 swift-markdown 解析,和 MarkdownView 用的是同一个 cjk fork;块 id 新生成。
   - 粘贴的流水线借 Composer 的:HTML 表格 → TSV → markdown。
 - **黄金用例**:导入再导出必须等于规范化后的原文,用例和 Web 共用(§10)。
+
+- **说明**(caption)写成 `<small>文字</small>` 一段;段落中间的 `<small>` 仍属于段落。格式面板的六种文字样式(标题、副标题、小标题、强调、正文、说明,⌃1–⌃6)对应 heading 1–4、paragraph、caption。
 
 - **书签和附件**写成带 title 的链接,单独一行:书签 `[标题](url "bookmark")`,附件 `[文件名](blob:… "file")`,和引用的 `"cite"` 同一种写法。只有一条普通链接的段落仍是段落。摘要、预览图、文件大小和布局是展示信息,不进 Markdown。
 
@@ -236,7 +239,7 @@ create table floo.doc_step (
 - 文档是一个 TiledView,一块一行,行 id 就是 `BlockID`。块身份的问题就此解决:插入一块只是插入一行。
 - 锚定在顶部:`autoScrollsToBottomOnAppend` 和 `scrollsToBottomOnReplace` 都关掉,这两个开关默认就是关的。
 - 每块的视图 `DocBlockView`:
-  - 文字类块(段落、标题、列表项、引用)用 `MarkdownSelectableText`,输入是 DocKit 直接从模型建的节点树(`Doc.markupTree(of:)` → `MarkdownTree`),不写成 markdown 也不解析:用户打的字原样显示,不会被当成语法(`==`、`$`、`:circle[`);颜色、高亮、笔迹、行内公式是树里的节点。这棵树和这一块的编辑用 markdown 解析出来的结构相同(DocKit 测试逐块比对),渲染器原样复用:设计、缓存、`RichTextViewPool`、数学公式高度缓存、reveal 都不变。agent 写作中的临时层是模型流出来的 markdown,照旧按 markdown 渲染,提交成块后就走树。
+  - 文字类块(段落、标题、列表项、引用、说明)用 `MarkdownSelectableText`,输入是 DocKit 直接从模型建的节点树(`Doc.markupTree(of:)` → `MarkdownTree`),不写成 markdown 也不解析:用户打的字原样显示,不会被当成语法(`==`、`$`、`:circle[`);颜色、高亮、笔迹、行内公式是树里的节点。这棵树和这一块的编辑用 markdown 解析出来的结构相同(DocKit 测试逐块比对),渲染器原样复用:设计、缓存、`RichTextViewPool`、数学公式高度缓存、reveal 都不变。agent 写作中的临时层是模型流出来的 markdown,照旧按 markdown 渲染,提交成块后就走树。
   - 代码、公式、分隔线和表格同样由 DocKit 建树(代码块、`math` 指令、分隔线、表格节点),交给 `MarkdownBlockView(tree:)`,走 MarkdownView 原来的 SwiftUI 路径;树的文字不读文本层语法,表格单元格(数据库的值,公式列显示算出来的结果)也原样显示。只有链接、文件、图片是 App 自己画的,没有树。编辑时换成各自的编辑器。代码借 Composer 的做法用 Runestone 编辑器,公式是源码加实时预览。
   - 卡片、数据库是 App 自己的视图,和现在 `floo.draw`/`floo.card` 走 `customFence` 一样。
 - 性能沿用聊天里调好的那些手段:只测量视口内的行、按长度估高、后台解析、行 Equatable。行的比较改成按 `(BlockID, 块的修订号)`。

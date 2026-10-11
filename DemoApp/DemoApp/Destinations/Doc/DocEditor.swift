@@ -449,6 +449,9 @@ final class DocEditor {
             guard let selection, selection.head.block == block.id, let view = textView(for: block.id) else { return }
             let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
             promptLink(over: range, in: block.id, from: view)
+        case .style(let kind):
+            guard block.kind.allowsMarks else { return }
+            blocks.transition { setKind(kind, of: [block.id]) }
         }
     }
 
@@ -678,14 +681,14 @@ final class DocEditor {
     }
 
     /// Backspace with the cursor at the start of a block: a list item steps out a
-    /// level, then becomes a paragraph; a heading or quote becomes a paragraph; a
+    /// level, then becomes a paragraph; a heading, quote or caption becomes a paragraph; a
     /// paragraph joins the block before it (or deletes a divider or image there).
     private func deleteBackward(atStartOf block: DocBlock) -> Bool {
         let id = block.id
         switch block.kind {
         case .listItem where block.indent > 0:
             indent(block, by: -1)
-        case .listItem, .heading, .quote:
+        case .listItem, .heading, .quote, .caption:
             setKind(block, kind: .paragraph, indent: 0)
         default:
             guard let index = demo.doc.blocks.firstIndex(where: { $0.id == id }), index > 0 else { return true }
@@ -1037,8 +1040,10 @@ final class DocUndoManager: UndoManager {
     }
 }
 
-enum DocKeyCommand {
+enum DocKeyCommand: Equatable {
     case outdent, bold, italic, link, lineBreak, slashUp, slashDown, slashClose
+    /// ⌃1–⌃6: the block takes a text style (DocFormatPanel.styles).
+    case style(BlockKind)
 }
 
 struct WeakTextView {
@@ -1130,9 +1135,12 @@ private enum TextViewHooks {
 
     /// Shift-Tab steps a list item out, Shift-Return breaks the line inside the block,
     /// ⌘B and ⌘I toggle bold and italic, ⌘K links (Composer had
-    /// them; UIKit's own versions would edit the storage, not the model).
+    /// them; UIKit's own versions would edit the storage, not the model); ⌃1–⌃6 set
+    /// the text style (Craft's).
     /// ↑, ↓ and Esc are the slash menu's only while it is open.
-    private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String, slashMenu: Bool)] = [
+    private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String, slashMenu: Bool)] = DocFormatPanel.styles.map { style in
+        (style.key, .control, Selector(("docStyle\(style.key):")), .style(style.kind), style.title, false)
+    } + [
         ("\t", .shift, Selector(("docOutdent:")), .outdent, "减少缩进", false),
         ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, "换行", false),
         ("b", .command, Selector(("docBold:")), .bold, "加粗", false),

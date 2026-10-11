@@ -26,10 +26,18 @@ enum DocTypography {
         inlineCode: .init(.callout),
         tableBody: .init(.body)
     )
+    /// A caption's: smaller text, drawn secondary.
+    static var captionFonts: MarkdownPlatformTypography {
+        var fonts = fonts
+        fonts.body = .init(.footnote)
+        fonts.inlineCode = .init(.caption1)
+        return fonts
+    }
     /// Between the lines of a paragraph (body text about 1.7 lines high); a heading's
-    /// lines stay closer.
+    /// and a caption's lines stay closer.
     static let lineSpacing: CGFloat = 8
     static let headingLineSpacing: CGFloat = 3
+    static let captionLineSpacing: CGFloat = 4
     /// Above the first block and below the last.
     static let pageTop: CGFloat = 32
     static let pageBottom: CGFloat = 80
@@ -39,6 +47,7 @@ enum DocTypography {
 enum DocRowRole: Equatable {
     case heading(level: Int)
     case paragraph
+    case caption
     case listItem
     /// Code, math, a table, a quote, a divider, an image, a card: set apart.
     case boxed
@@ -49,6 +58,7 @@ enum DocRowRole: Equatable {
         switch kind {
         case .heading(let level): self = .heading(level: level)
         case .paragraph: self = .paragraph
+        case .caption: self = .caption
         case .listItem: self = .listItem
         case .link, .file: self = .media
         case .quote, .code, .math, .divider, .image, .card, .database: self = .boxed
@@ -73,6 +83,15 @@ enum DocRowRole: Equatable {
 
     var isHeading: Bool {
         if case .heading = self { true } else { false }
+    }
+
+    /// Between a row's lines.
+    var lineSpacing: CGFloat {
+        switch self {
+        case .heading: DocTypography.headingLineSpacing
+        case .caption: DocTypography.captionLineSpacing
+        default: DocTypography.lineSpacing
+        }
     }
 
     /// The space above a row of this role that follows one of `previous` (nil: the page's top).
