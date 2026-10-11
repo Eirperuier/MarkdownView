@@ -583,7 +583,8 @@ extension DocRow {
     /// A rough height for the list to use until the row is measured.
     func estimatedHeight(width: CGFloat) -> CGFloat {
         let textWidth = max(100, min(width - DocBlockController.leadingGutter - DocBlockController.trailingGutter, 720))
-        let spacing = spacingAbove + spacingBelow + (box.map { ($0.isFirst ? 10 : 0) + ($0.isLast ? 10 : 0) } ?? 0)
+        let boxPadding = FlooDesignTokens.Component.DecorationBox.padding
+        let spacing = spacingAbove + spacingBelow + (box.map { ($0.isFirst ? boxPadding : 0) + ($0.isLast ? boxPadding : 0) } ?? 0)
         if !members.isEmpty {
             return DocMediaLayout.groupHeight(members.map(\.kind), width: min(720, width - DocBlockController.leadingGutter - DocBlockController.trailingGutter)) + spacing
         }

@@ -509,6 +509,22 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(self.demo.doc.block(next.id)?.decoration == .block, "undo: \(String(describing: self.demo.doc.block(next.id)?.decoration))")
         }
+        if DocBlockController.usesHandles {
+            await test("Selected text brings the toolbar after a moment; a caret or a read-only page sends it away") {
+                let paragraph = try self.block("这篇文档由 DocKit")
+                let toolbar = self.editor.selectionToolbar
+                try await self.select(paragraph.id, 0..<4)
+                try await Task.sleep(for: .milliseconds(400))
+                try self.expect(toolbar.isShown, "no toolbar over the selection")
+                try await self.focus(paragraph.id, at: 2)
+                try self.expect(!toolbar.isShown, "the toolbar stays over a caret")
+                try await self.select(paragraph.id, 0..<4)
+                try await Task.sleep(for: .milliseconds(400))
+                self.editor.isEditable = false
+                try self.expect(!toolbar.isShown, "the toolbar stays over a read-only page")
+                self.editor.isEditable = true
+            }
+        }
         await test("Quotes, dashes and dots stay as typed (no smart punctuation)") {
             let line = try await emptyLine()
             try await self.type("don't say \"no\" -- wait...")

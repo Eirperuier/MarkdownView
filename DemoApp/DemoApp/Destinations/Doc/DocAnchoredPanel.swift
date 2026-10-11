@@ -26,14 +26,14 @@ struct DocAnchoredPanelConfiguration {
     /// The side it opens toward; it takes the other one when this side has no room.
     var preferredEdge = Edge.below
     var horizontalAlignment = HorizontalAlignment.leading
-    /// Between the trigger and the panel (Matrix: `Space.sm`).
-    var anchorGap: CGFloat = 8
-    /// The least it keeps from the window's edges (and the keyboard) (Matrix: `Space.md`).
-    var windowMargin: CGFloat = 12
-    var revealDuration: TimeInterval = 0.20
-    var dismissDuration: TimeInterval = 0.13
+    /// Between the trigger and the panel.
+    var anchorGap = FlooDesignTokens.Component.FloatingPanel.anchorGap
+    /// The least it keeps from the window's edges (and the keyboard).
+    var windowMargin = FlooDesignTokens.Component.FloatingPanel.windowMargin
+    var revealDuration = FlooDesignTokens.Motion.revealDuration
+    var dismissDuration = FlooDesignTokens.Motion.dismissDuration
     /// A slight scale keeps the panel attached to its trigger instead of reading as a zoom.
-    var transitionScale: CGFloat = 0.975
+    var transitionScale = FlooDesignTokens.Motion.revealScale
     /// A touch outside closes it (a picker's way); a tool panel stays until its trigger.
     var dismissesOnOutsideTouch = true
 }
@@ -118,7 +118,7 @@ private struct DocAnchoredPanelAnchor: UIViewRepresentable {
 /// Not observable: no view reads it, and every anchor write would invalidate the view
 /// that wrote it.
 @MainActor
-private final class DocAnchoredPanelPresenter {
+final class DocAnchoredPanelPresenter {
     weak var anchorView: UIView?
 
     private var container: DocAnchoredPanelContainer?
@@ -405,10 +405,10 @@ private final class DocAnchoredPanelContainer: UIView {
 }
 
 /// The standard surface: glass where the system has it (iOS 26), else the regular
-/// material with a hairline and a soft shadow. 16-point corners, Matrix's insets.
+/// material with a hairline and a soft shadow (FlooDesignTokens.Component.FloatingPanel).
 struct DocFloatingPanelSurface<Content: View>: View {
-    var cornerRadius: CGFloat = 16
-    var contentInset = EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 8)
+    var cornerRadius = FlooDesignTokens.Component.FloatingPanel.cornerRadius
+    var contentInset = FlooDesignTokens.Component.FloatingPanel.contentInset
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -424,8 +424,9 @@ struct DocFloatingPanelSurface<Content: View>: View {
             content
                 .padding(contentInset)
                 .background(.regularMaterial, in: shape)
-                .overlay(shape.strokeBorder(Color(uiColor: .separator), lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
+                .overlay(shape.strokeBorder(FlooDesignTokens.Border.separator, lineWidth: FlooDesignTokens.Component.FloatingPanel.border))
+                .shadow(color: FlooDesignTokens.Component.FloatingPanel.shadow.color,
+                        radius: FlooDesignTokens.Component.FloatingPanel.shadow.radius, y: FlooDesignTokens.Component.FloatingPanel.shadow.y)
         }
     }
 }

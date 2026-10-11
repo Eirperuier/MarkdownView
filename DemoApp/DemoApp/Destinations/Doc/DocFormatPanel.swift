@@ -12,11 +12,22 @@
 import SwiftUI
 import DocKit
 
+private typealias Tokens = FlooDesignTokens
+private typealias Metrics = FlooDesignTokens.Component.FormatPanel
+
 /// The editor's selection, observable.
 @MainActor
 @Observable
 final class DocCursor {
     var selection: DocSelection?
+}
+
+/// The Mac's panels that are up.
+@MainActor
+@Observable
+final class DocPanels {
+    /// The format panel (-docFormat YES opens with it).
+    var showsFormat = UserDefaults.standard.bool(forKey: "docFormat")
 }
 
 struct DocFormatPanel: View {
@@ -26,19 +37,19 @@ struct DocFormatPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("格式")
-                .font(.system(size: 17, weight: .bold))
-                .padding(.bottom, 14)
+                .font(Metrics.title)
+                .padding(.bottom, Metrics.titleGap)
             // Text first offers its kinds; a link, file or image its layout, after the
             // segments (as Craft orders them).
             // Text styles: how big a block's text is (Craft's six, ⌃1–⌃6).
             if !targets.isEmpty {
                 section("标题") {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Tokens.Component.Tile.spacing) {
                         ForEach(Self.styles.prefix(3), id: \.key) { tile($0) }
                     }
                 }
                 section("正文") {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Tokens.Component.Tile.spacing) {
                         ForEach(Self.styles.suffix(3), id: \.key) { tile($0) }
                     }
                 }
@@ -46,29 +57,29 @@ struct DocFormatPanel: View {
             segments
             if !editor.blocks.selectedLayouts.isEmpty {
                 section("布局") {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Tokens.Component.Tile.spacing) {
                         ForEach(DocLayout.allCases, id: \.self) { layout in
                             choice(isOn: editor.blocks.selectedLayouts == [layout], help: layout.title) {
                                 editor.blocks.setLayout(layout)
                             } label: {
                                 DocLayoutIllustration(layout: layout)
-                                    .frame(maxWidth: .infinity, minHeight: 40)
+                                    .frame(maxWidth: .infinity, minHeight: Metrics.tallTile)
                             }
                         }
                     }
                 }
-                .padding(.top, 18)
+                .padding(.top, Metrics.sectionLead)
             }
             if !editor.blocks.selectedImageSizes.isEmpty {
                 section("图片大小") {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Tokens.Component.Tile.spacing) {
                         imageChoice("自动", symbol: "rectangle.center.inset.filled", isOn: editor.blocks.selectedImageSizes == [.auto]) { editor.blocks.setImage(size: .auto) }
                         imageChoice("大图", symbol: "rectangle", isOn: editor.blocks.selectedImageSizes == [.large]) { editor.blocks.setImage(size: .large) }
                     }
                 }
-                .padding(.top, 18)
+                .padding(.top, Metrics.sectionLead)
                 section("图片显示") {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Tokens.Component.Tile.spacing) {
                         imageChoice("填充", symbol: "square.arrowtriangle.4.outward", isOn: editor.blocks.selectedImageFits == [.fill]) { editor.blocks.setImage(fit: .fill) }
                         imageChoice("适应", symbol: "arrow.down.and.line.horizontal.and.arrow.up", isOn: editor.blocks.selectedImageFits == [.fit]) { editor.blocks.setImage(fit: .fit) }
                     }
@@ -78,16 +89,16 @@ struct DocFormatPanel: View {
             // of text block here), and the grey box any blocks can sit in.
             if !decorated.isEmpty {
                 section("装饰") {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Tokens.Component.Tile.spacing) {
                         choice(isOn: kindIsOn(.quote), help: "引用") {
                             let kind: BlockKind = kindIsOn(.quote) ? .paragraph : .quote
                             editor.blocks.transition { editor.setKind(kind, of: targets.map(\.id)) }
                         } label: {
-                            HStack(spacing: 10) {
-                                Capsule().frame(width: 3.5, height: 18)
-                                Text("引用").font(.system(size: 15))
+                            HStack(spacing: Tokens.Space.md) {
+                                Capsule().frame(width: Metrics.quoteBar.width, height: Metrics.quoteBar.height)
+                                Text("引用").font(Metrics.label)
                             }
-                            .frame(maxWidth: .infinity, minHeight: 40)
+                            .frame(maxWidth: .infinity, minHeight: Metrics.tallTile)
                         }
                         .disabled(targets.isEmpty)
                         .accessibilityIdentifier("format-引用")
@@ -96,22 +107,22 @@ struct DocFormatPanel: View {
                             editor.blocks.transition { editor.setDecoration(boxed ? nil : .block, of: decorated.map(\.id)) }
                         } label: {
                             Text("块")
-                                .font(.system(size: 15))
-                                .frame(maxWidth: .infinity, minHeight: 28)
-                                .background(Color.primary.opacity(0.08), in: .rect(cornerRadius: 6, style: .continuous))
+                                .font(Metrics.label)
+                                .frame(maxWidth: .infinity, minHeight: Metrics.tallTile - 12)
+                                .background(Tokens.ColorRole.Surface.pressed.opacity(0.7), in: .rect(cornerRadius: Tokens.Radius.sm, style: .continuous))
                                 .padding(6)
                         }
                         .accessibilityIdentifier("format-块")
                     }
                 }
-                .padding(.top, 18)
+                .padding(.top, Metrics.sectionLead)
             }
             if !markRanges.isEmpty {
                 section("颜色") { colors }
-                    .padding(.top, decorated.isEmpty ? 18 : 0)
+                    .padding(.top, decorated.isEmpty ? Metrics.sectionLead : 0)
             }
         }
-        .frame(width: 246)
+        .frame(width: Metrics.width)
     }
 
     // MARK: Colour
@@ -121,7 +132,8 @@ struct DocFormatPanel: View {
     private var colors: some View {
         let ranges = markRanges
         let current = editor.common(.color, over: ranges)
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Metrics.swatchSpacing), count: Metrics.swatchColumns),
+                         spacing: Metrics.swatchSpacing) {
             swatch(nil, title: "默认", isOn: current == nil, ranges: ranges)
             ForEach(DocColors.palette, id: \.token) { item in
                 swatch(item.token, title: item.title, isOn: current == .color(item.token), ranges: ranges)
@@ -136,7 +148,7 @@ struct DocFormatPanel: View {
         let picked: String? = if case .color(let token)? = current, token.hasPrefix("#") { token } else { nil }
         return ZStack {
             Circle()
-                .strokeBorder(AngularGradient(colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red], center: .center), lineWidth: 3.5)
+                .strokeBorder(DocColors.rainbow, lineWidth: Metrics.rainbowWidth)
             Circle()
                 .fill(picked.map(DocColors.swatch) ?? Color(.systemBackground))
                 .padding(6)
@@ -148,7 +160,7 @@ struct DocFormatPanel: View {
             .labelsHidden()
             .opacity(0.02)
         }
-        .frame(width: 32, height: 32)
+        .frame(width: Metrics.swatch, height: Metrics.swatch)
         .clipShape(Circle())
         .help("其他颜色")
         .accessibilityIdentifier("color-custom")
@@ -161,10 +173,10 @@ struct DocFormatPanel: View {
         } label: {
             Circle()
                 .fill(token.map(DocColors.swatch) ?? Color(.systemBackground))
-                .overlay { Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 1) }
+                .overlay { Circle().strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.standard) }
                 .padding(isOn ? 4 : 0)
-                .overlay { if isOn { Circle().strokeBorder(Color.primary, lineWidth: 2.5) } }
-                .frame(width: 32, height: 32)
+                .overlay { if isOn { Circle().strokeBorder(Tokens.ColorRole.Content.primary, lineWidth: Metrics.chosenRing) } }
+                .frame(width: Metrics.swatch, height: Metrics.swatch)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -174,7 +186,7 @@ struct DocFormatPanel: View {
     }
 
     private var segments: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Metrics.segmentGap) {
             DocSegments(items: Self.marks.map { item in
                 .init(id: item.id, symbol: item.symbol, title: item.title, isOn: markIsOn(item.mark), isEnabled: !markRanges.isEmpty) {
                     editor.toggle(item.mark, over: markRanges)
@@ -290,24 +302,24 @@ struct DocFormatPanel: View {
     ]
 
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Metrics.sectionLabelGap) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(Metrics.sectionLabel)
                 .foregroundStyle(.secondary)
             content()
         }
-        .padding(.bottom, 16)
+        .padding(.bottom, Metrics.sectionGap)
     }
 
     /// A choice on a soft tile, outlined in the tint when it's in use.
     private func choice(isOn: Bool, help: String, action: @escaping () -> Void, @ViewBuilder label: () -> some View) -> some View {
         Button(action: action) {
             label()
-                .background(isOn ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06), in: .rect(cornerRadius: 10, style: .continuous))
+                .background(isOn ? Tokens.ColorRole.Accent.subtle : Tokens.ColorRole.Surface.control, in: .rect(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous))
                 .overlay {
-                    if isOn { RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 1) }
+                    if isOn { RoundedRectangle(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous).strokeBorder(Tokens.ColorRole.Accent.outline, lineWidth: Tokens.Component.Tile.outline) }
                 }
-                .contentShape(.rect(cornerRadius: 10, style: .continuous))
+                .contentShape(.rect(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .help(help)
@@ -317,12 +329,12 @@ struct DocFormatPanel: View {
     private func imageChoice(_ title: String, symbol: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         choice(isOn: isOn, help: title, action: action) {
             HStack {
-                Text(title).font(.system(size: 15))
+                Text(title).font(Metrics.label)
                 Spacer(minLength: 4)
-                Image(systemName: symbol).font(.system(size: 15))
+                Image(systemName: symbol).font(Metrics.label)
             }
             .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 40)
+            .frame(maxWidth: .infinity, minHeight: Metrics.tallTile)
         }
     }
 
@@ -333,12 +345,12 @@ struct DocFormatPanel: View {
         } label: {
             Text(style.title)
                 .font(.system(size: style.size, weight: style.weight))
-                .frame(maxWidth: .infinity, minHeight: 36)
-                .background(isOn ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06), in: .rect(cornerRadius: 10, style: .continuous))
+                .frame(maxWidth: .infinity, minHeight: Tokens.Component.Tile.minHeight)
+                .background(isOn ? Tokens.ColorRole.Accent.subtle : Tokens.ColorRole.Surface.control, in: .rect(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous))
                 .overlay {
-                    if isOn { RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 1) }
+                    if isOn { RoundedRectangle(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous).strokeBorder(Tokens.ColorRole.Accent.outline, lineWidth: Tokens.Component.Tile.outline) }
                 }
-                .contentShape(.rect(cornerRadius: 10, style: .continuous))
+                .contentShape(.rect(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(targets.isEmpty)
@@ -364,22 +376,22 @@ private struct DocSegments: View {
         HStack(spacing: 0) {
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 if index > 0 {
-                    Rectangle().fill(.separator.opacity(0.5)).frame(width: 1, height: 18)
+                    Rectangle().fill(Tokens.Border.separator.opacity(0.5)).frame(width: Tokens.Border.standard, height: Tokens.Component.Segments.dividerHeight)
                 }
                 Button(action: item.action) {
                     Image(systemName: item.symbol)
-                        .font(.system(size: 15, weight: .medium))
-                        .frame(maxWidth: .infinity, minHeight: 32)
-                        .background(item.isOn ? Color.accentColor.opacity(0.14) : .clear)
+                        .font(.system(size: Tokens.Icon.standard, weight: .medium))
+                        .frame(maxWidth: .infinity, minHeight: Tokens.Component.Segments.height)
+                        .background(item.isOn ? Tokens.ColorRole.Accent.subtle : .clear)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(item.isOn ? Color.accentColor : .primary)
+                .foregroundStyle(item.isOn ? Tokens.ColorRole.Accent.primary : Tokens.ColorRole.Content.primary)
                 .disabled(!item.isEnabled)
                 .accessibilityLabel(item.title)
             }
         }
-        .background(Color.primary.opacity(0.06))
-        .clipShape(.rect(cornerRadius: 10, style: .continuous))
+        .background(Tokens.ColorRole.Surface.control)
+        .clipShape(.rect(cornerRadius: Tokens.Component.Segments.cornerRadius, style: .continuous))
     }
 }

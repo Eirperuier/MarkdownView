@@ -98,7 +98,8 @@ public struct MarkdownInlineStyle: Hashable, Sendable {
     }
 }
 
-/// 颜色 token:色板名(Craft 格式面板的颜色,另有笔迹沿用的 orange / accent)或 `#hex`。
+/// 颜色 token:色板名(Craft 格式面板的颜色,另有 Craft 选区工具条的 orange / brown,
+/// 笔迹沿用的 accent)或 `#hex`。
 /// 每个名字有文字色(深浅色各一,保证在页面上可读)、高亮底色、笔色三种用法。
 public enum MarkdownColorToken {
     /// 色板,按 Craft 格式面板的顺序。
@@ -117,6 +118,7 @@ public enum MarkdownColorToken {
         "yellow": (0xC98A00, 0xF8D44E),
         "red": (0xE0484D, 0xEE6E6E),
         "orange": (0xE07A12, 0xF5A04A),
+        "brown": (0x9C6B3C, 0xD4A373),
     ]
 
     /// 文字色;不认识的 token → nil(文字保持原色)。

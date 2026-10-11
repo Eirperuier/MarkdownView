@@ -45,10 +45,15 @@ final class DocEditor {
             updateSlash()
             keyboardBar.update()
             cursor.selection = selection
+            selectionToolbar.selectionChanged()
         }
     }
     /// The selection, observable (the Mac's format panel follows it).
     let cursor = DocCursor()
+    /// Which of the Mac's panels are up.
+    let panels = DocPanels()
+    /// The Mac's toolbar over selected text.
+    lazy var selectionToolbar = DocSelectionToolbarController(editor: self)
     /// The slash menu, and where its "/" is while it's open.
     let slash = DocSlashMenu()
     /// The tables' cells (database blocks).
@@ -75,6 +80,7 @@ final class DocEditor {
                 view.isEditable = isEditable
                 if !isEditable { view.resignFirstResponder() }
             }
+            if !isEditable { selectionToolbar.hide() }
         }
     }
 
@@ -440,11 +446,18 @@ final class DocEditor {
             if case .heading = block.kind { return }
             let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
             lineBreak(replacing: range, in: block)
-        case .bold, .italic:
+        case .bold, .italic, .strike, .code, .highlight:
             guard let selection, selection.head.block == block.id else { return }
             let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
             guard !range.isEmpty else { return }
-            toggle(command == .bold ? .bold : .italic, over: range, in: block.id)
+            let mark: Mark = switch command {
+            case .bold: .bold
+            case .italic: .italic
+            case .strike: .strike
+            case .code: .code
+            default: .highlight(color: nil)
+            }
+            toggle(mark, over: range, in: block.id)
         case .link:
             guard let selection, selection.head.block == block.id, let view = textView(for: block.id) else { return }
             let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
@@ -900,6 +913,16 @@ final class DocEditor {
         demo.edit(steps, before: selection, after: selection, merge: merge)
     }
 
+    /// Takes the ranges' highlight and text colour off, one undo step.
+    func clearColors(over ranges: [(block: DocBlockID, range: Range<Int>)]) {
+        let ranges = ranges.filter { !$0.range.isEmpty && demo.doc.block($0.block)?.kind.allowsMarks == true }
+        let steps: [DocStep] = ranges.flatMap { target in
+            [MarkKind.highlight, .color].map { .setMarks(block: target.block, range: target.range, kind: $0, spans: [], previous: []) }
+        }
+        guard !steps.isEmpty else { return }
+        demo.edit(steps, before: selection, after: selection)
+    }
+
     /// The mark of `kind` that covers all of the ranges, if one does (the same one throughout).
     func common(_ kind: MarkKind, over ranges: [(block: DocBlockID, range: Range<Int>)]) -> Mark? {
         var found: Mark?
@@ -1060,7 +1083,7 @@ final class DocUndoManager: UndoManager {
 }
 
 enum DocKeyCommand: Equatable {
-    case outdent, bold, italic, link, lineBreak, slashUp, slashDown, slashClose
+    case outdent, bold, italic, strike, code, highlight, link, lineBreak, slashUp, slashDown, slashClose
     /// ⌃1–⌃6: the block takes a text style (DocFormatPanel.styles).
     case style(BlockKind)
 }
@@ -1126,6 +1149,8 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
         editor?.tables.endEditing()
         editor?.sources.endEditing()
         editor?.blocks.textEditingBegan()
+        // The selection may have come before the focus: the toolbar waits for both.
+        editor?.selectionToolbar.selectionChanged()
     }
 
     /// Letters typed with a Chinese, Japanese or Korean keyboard start marked text.
@@ -1153,7 +1178,8 @@ private enum TextViewHooks {
     }
 
     /// Shift-Tab steps a list item out, Shift-Return breaks the line inside the block,
-    /// ⌘B and ⌘I toggle bold and italic, ⌘K links (Composer had
+    /// ⌘B and ⌘I toggle bold and italic, ⌘⇧X strikethrough, ⌘E code, ⌘⇧B the highlight
+    /// (Craft's), ⌘K links (Composer had
     /// them; UIKit's own versions would edit the storage, not the model); ⌃1–⌃6 set
     /// the text style (Craft's).
     /// ↑, ↓ and Esc are the slash menu's only while it is open.
@@ -1164,6 +1190,9 @@ private enum TextViewHooks {
         ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, "换行", false),
         ("b", .command, Selector(("docBold:")), .bold, "加粗", false),
         ("i", .command, Selector(("docItalic:")), .italic, "斜体", false),
+        ("x", [.command, .shift], Selector(("docStrike:")), .strike, "删除线", false),
+        ("e", .command, Selector(("docCode:")), .code, "代码", false),
+        ("b", [.command, .shift], Selector(("docHighlight:")), .highlight, "高亮", false),
         ("k", .command, Selector(("docLink:")), .link, "链接", false),
         (UIKeyCommand.inputUpArrow, [], Selector(("docSlashUp:")), .slashUp, "上一项", true),
         (UIKeyCommand.inputDownArrow, [], Selector(("docSlashDown:")), .slashDown, "下一项", true),

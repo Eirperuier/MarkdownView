@@ -19,8 +19,6 @@ struct DocDestination: View {
     @State private var editor: DocEditor
     @State private var scrollPosition = TiledScrollPosition()
     @State private var reader = TiledViewReader<String>()
-    /// The Mac's format panel is up (-docFormat YES opens with it).
-    @State private var showsFormat = UserDefaults.standard.bool(forKey: "docFormat")
 
     static var autoruns: Bool { UserDefaults.standard.bool(forKey: "docAgent") }
 
@@ -38,10 +36,10 @@ struct DocDestination: View {
                 .padding(.vertical, 8)
                 // The Mac's format panel: under the bar at the window's right, open until
                 // its Aa closes it (Craft's).
-                .docAnchoredPanel(isPresented: showsFormat,
+                .docAnchoredPanel(isPresented: editor.panels.showsFormat,
                                   configuration: .init(horizontalAlignment: .trailing, anchorGap: 0, dismissesOnOutsideTouch: false),
-                                  onDismiss: { showsFormat = false }) {
-                    DocFloatingPanelSurface(contentInset: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)) {
+                                  onDismiss: { editor.panels.showsFormat = false }) {
+                    DocFloatingPanelSurface(contentInset: FlooDesignTokens.Component.FloatingPanel.roomyInset) {
                         DocFormatPanel(editor: editor, demo: demo)
                     }
                 }
@@ -210,10 +208,10 @@ struct DocDestination: View {
                     .disabled(!demo.canRedo)
                 Spacer()
                 #if targetEnvironment(macCatalyst)
-                Button("格式", systemImage: "textformat") { showsFormat.toggle() }
-                    .foregroundStyle(showsFormat ? Color.accentColor : .primary)
+                Button("格式", systemImage: "textformat") { editor.panels.showsFormat.toggle() }
+                    .foregroundStyle(editor.panels.showsFormat ? Color.accentColor : .primary)
                     .frame(width: 32, height: 28)
-                    .background(showsFormat ? Color.accentColor.opacity(0.12) : .clear, in: .rect(cornerRadius: 7))
+                    .background(editor.panels.showsFormat ? Color.accentColor.opacity(0.12) : .clear, in: .rect(cornerRadius: 7))
                     .buttonStyle(.plain)
                     .help("格式")
                 #endif
@@ -344,24 +342,21 @@ private struct DocRowBoxing: ViewModifier {
     let box: DocRowBox?
     let spacingAbove: CGFloat
 
-    static let inset: CGFloat = 10
-    static let outset: CGFloat = 10
-    static let padding: CGFloat = 10
-    static let radius: CGFloat = 6
+    private typealias Box = FlooDesignTokens.Component.DecorationBox
 
     func body(content: Content) -> some View {
         if let box {
-            let radius = Self.radius
+            let radius = Box.cornerRadius
             content
-                .padding(.horizontal, Self.inset)
-                .padding(.top, box.isFirst ? Self.padding : spacingAbove)
-                .padding(.bottom, box.isLast ? Self.padding : 0)
+                .padding(.horizontal, Box.inset)
+                .padding(.top, box.isFirst ? Box.padding : spacingAbove)
+                .padding(.bottom, box.isLast ? Box.padding : 0)
                 .background {
                     UnevenRoundedRectangle(topLeadingRadius: box.isFirst ? radius : 0, bottomLeadingRadius: box.isLast ? radius : 0,
                                            bottomTrailingRadius: box.isLast ? radius : 0, topTrailingRadius: box.isFirst ? radius : 0,
                                            style: .continuous)
-                        .fill(Color.primary.opacity(0.04))
-                        .padding(.horizontal, -Self.outset)
+                        .fill(Box.fill)
+                        .padding(.horizontal, -Box.outset)
                 }
                 .padding(.top, box.isFirst ? spacingAbove : 0)
         } else {
