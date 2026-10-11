@@ -407,7 +407,7 @@ final class DocEditor {
         else { return }
         while let presented = presenter.presentedViewController { presenter = presented }
         let current = link(over: range, in: block)
-        let alert = UIAlertController(title: current == nil ? "添加链接" : "编辑链接", message: nil, preferredStyle: .alert)
+        let alert = UIAlertController(title: current == nil ? String(localized: "Add Link") : String(localized: "Edit Link"), message: nil, preferredStyle: .alert)
         alert.addTextField { field in
             field.placeholder = "https://"
             field.text = current ?? UIPasteboard.general.string.flatMap(Self.webAddress)
@@ -416,13 +416,13 @@ final class DocEditor {
             field.autocorrectionType = .no
             field.clearButtonMode = .whileEditing
         }
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
         if current != nil {
-            alert.addAction(UIAlertAction(title: "移除链接", style: .destructive) { [weak self] _ in
+            alert.addAction(UIAlertAction(title: String(localized: "Remove Link"), style: .destructive) { [weak self] _ in
                 self?.setLink(nil, over: range, in: id)
             })
         }
-        alert.addAction(UIAlertAction(title: "完成", style: .default) { [weak self, weak alert] _ in
+        alert.addAction(UIAlertAction(title: String(localized: "Done"), style: .default) { [weak self, weak alert] _ in
             guard let text = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return }
             // A bare address gets https.
             let url = text.contains("://") || text.hasPrefix("mailto:") ? text : "https://" + text
@@ -795,8 +795,8 @@ final class DocEditor {
         let modelRange = modelOffset(range.location, start: start, block: block)..<modelOffset(NSMaxRange(range), start: start, block: block)
         guard !modelRange.isEmpty else { return nil }
         let items: [(String, String, Mark)] = [
-            ("加粗", "bold", .bold), ("斜体", "italic", .italic), ("删除线", "strikethrough", .strike),
-            ("代码", "chevron.left.forwardslash.chevron.right", .code),
+            (String(localized: "Bold"), "bold", .bold), (String(localized: "Italic"), "italic", .italic), (String(localized: "Strikethrough"), "strikethrough", .strike),
+            (String(localized: "Code"), "chevron.left.forwardslash.chevron.right", .code),
         ]
         let actions = items.map { (title, image, mark) in
             let on = Self.covers(block.text, modelRange, with: mark.kind)
@@ -804,7 +804,7 @@ final class DocEditor {
                 self?.toggle(mark, over: modelRange, in: id)
             }
         }
-        let link = UIAction(title: Self.covers(block.text, modelRange, with: .link) ? "编辑链接…" : "链接…",
+        let link = UIAction(title: Self.covers(block.text, modelRange, with: .link) ? String(localized: "Edit Link…") : String(localized: "Link…"),
                             image: UIImage(systemName: "link")) { [weak self, weak textView] _ in
             guard let self, let textView else { return }
             self.promptLink(over: modelRange, in: id, from: textView)
@@ -818,16 +818,16 @@ final class DocEditor {
                 UIAction(title: title, image: image, state: current == mark ? .on : .off) { [weak self] _ in self?.set(kind, to: mark, over: ranges) }
             }
         }
-        let colors = UIMenu(title: "文字颜色", image: UIImage(systemName: "paintpalette"), children: choices(.color, none: "默认",
+        let colors = UIMenu(title: String(localized: "Text Color"), image: UIImage(systemName: "paintpalette"), children: choices(.color, none: String(localized: "Default"),
             DocColors.palette.map { ($0.title, DocColors.dot($0.token), Mark.color($0.token)) }))
-        let highlights = UIMenu(title: "高亮", image: UIImage(systemName: "highlighter"), children: choices(.highlight, none: "无",
-            [("高亮", UIImage(systemName: "highlighter"), Mark.highlight(color: nil))]
+        let highlights = UIMenu(title: String(localized: "Highlight"), image: UIImage(systemName: "highlighter"), children: choices(.highlight, none: String(localized: "None"),
+            [(String(localized: "Highlight"), UIImage(systemName: "highlighter"), Mark.highlight(color: nil))]
                 + DocColors.palette.map { ($0.title, DocColors.dot($0.token), Mark.highlight(color: $0.token)) }))
-        let pens = UIMenu(title: "笔迹", image: UIImage(systemName: "pencil.tip.crop.circle"), children: choices(.pen, none: "无", [
-            ("圈出", UIImage(systemName: "circle.dashed"), Mark.pen(kind: "circle", color: nil)),
-            ("波浪线", UIImage(systemName: "water.waves"), Mark.pen(kind: "wavy", color: nil)),
+        let pens = UIMenu(title: String(localized: "Pen"), image: UIImage(systemName: "pencil.tip.crop.circle"), children: choices(.pen, none: String(localized: "None"), [
+            (String(localized: "Circle"), UIImage(systemName: "circle.dashed"), Mark.pen(kind: "circle", color: nil)),
+            (String(localized: "Wavy Line"), UIImage(systemName: "water.waves"), Mark.pen(kind: "wavy", color: nil)),
         ]))
-        let format = UIMenu(title: "格式", image: UIImage(systemName: "textformat"), children: actions + [link, colors, highlights, pens])
+        let format = UIMenu(title: String(localized: "Format"), image: UIImage(systemName: "textformat"), children: actions + [link, colors, highlights, pens])
         return UIMenu(children: [format] + suggested)
     }
 
@@ -1154,11 +1154,18 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
     }
 
     /// Letters typed with a Chinese, Japanese or Korean keyboard start marked text.
+    /// Not on the Mac: there the input mode is the app's language, not the keyboard's
+    /// (an English keyboard in a Chinese app reads "zh-Hans"), and an input method's
+    /// marked text comes through `setMarkedText`, which doesn't ask the delegate.
     private static func startsComposition(_ text: String, in textView: UITextView) -> Bool {
+        #if targetEnvironment(macCatalyst)
+        return false
+        #else
         guard let language = textView.textInputMode?.primaryLanguage,
             ["zh", "ja", "ko"].contains(where: language.hasPrefix)
         else { return false }
         return !text.isEmpty && text.allSatisfy { $0.isASCII && $0.isLetter }
+        #endif
     }
 }
 
@@ -1186,17 +1193,17 @@ private enum TextViewHooks {
     private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String, slashMenu: Bool)] = DocFormatPanel.styles.map { style in
         (style.key, .control, Selector(("docStyle\(style.key):")), .style(style.kind), style.title, false)
     } + [
-        ("\t", .shift, Selector(("docOutdent:")), .outdent, "减少缩进", false),
-        ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, "换行", false),
-        ("b", .command, Selector(("docBold:")), .bold, "加粗", false),
-        ("i", .command, Selector(("docItalic:")), .italic, "斜体", false),
-        ("x", [.command, .shift], Selector(("docStrike:")), .strike, "删除线", false),
-        ("e", .command, Selector(("docCode:")), .code, "代码", false),
-        ("b", [.command, .shift], Selector(("docHighlight:")), .highlight, "高亮", false),
-        ("k", .command, Selector(("docLink:")), .link, "链接", false),
-        (UIKeyCommand.inputUpArrow, [], Selector(("docSlashUp:")), .slashUp, "上一项", true),
-        (UIKeyCommand.inputDownArrow, [], Selector(("docSlashDown:")), .slashDown, "下一项", true),
-        (UIKeyCommand.inputEscape, [], Selector(("docSlashClose:")), .slashClose, "关闭菜单", true),
+        ("\t", .shift, Selector(("docOutdent:")), .outdent, String(localized: "Outdent"), false),
+        ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, String(localized: "Line Break"), false),
+        ("b", .command, Selector(("docBold:")), .bold, String(localized: "Bold"), false),
+        ("i", .command, Selector(("docItalic:")), .italic, String(localized: "Italic"), false),
+        ("x", [.command, .shift], Selector(("docStrike:")), .strike, String(localized: "Strikethrough"), false),
+        ("e", .command, Selector(("docCode:")), .code, String(localized: "Code"), false),
+        ("b", [.command, .shift], Selector(("docHighlight:")), .highlight, String(localized: "Highlight"), false),
+        ("k", .command, Selector(("docLink:")), .link, String(localized: "Link"), false),
+        (UIKeyCommand.inputUpArrow, [], Selector(("docSlashUp:")), .slashUp, String(localized: "Previous Item"), true),
+        (UIKeyCommand.inputDownArrow, [], Selector(("docSlashDown:")), .slashDown, String(localized: "Next Item"), true),
+        (UIKeyCommand.inputEscape, [], Selector(("docSlashClose:")), .slashClose, String(localized: "Close Menu"), true),
     ]
 
     private static func installKeyCommands(on type: AnyClass) {

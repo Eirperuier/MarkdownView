@@ -11,16 +11,16 @@ import MarkdownView
 
 enum DocColors {
     static let palette: [(token: String, title: String)] = [
-        ("gray", "灰色"), ("slate", "深灰"), ("purple", "紫色"), ("blue", "蓝色"), ("cyan", "青色"),
-        ("mint", "薄荷"), ("green", "绿色"), ("lemon", "浅黄"), ("yellow", "黄色"), ("red", "红色"),
+        ("gray", String(localized: "Gray")), ("slate", String(localized: "Slate")), ("purple", String(localized: "Purple")), ("blue", String(localized: "Blue")), ("cyan", String(localized: "Cyan")),
+        ("mint", String(localized: "Mint")), ("green", String(localized: "Green")), ("lemon", String(localized: "Lemon")), ("yellow", String(localized: "Yellow")), ("red", String(localized: "Red")),
     ]
 
     /// The selection toolbar's highlights and text colours, in Craft's order.
     static let highlights: [(token: String, title: String)] = [
-        ("yellow", "黄色"), ("green", "绿色"), ("mint", "薄荷"), ("blue", "蓝色"), ("purple", "紫色"), ("red", "红色"), ("orange", "橙色"),
+        ("yellow", String(localized: "Yellow")), ("green", String(localized: "Green")), ("mint", String(localized: "Mint")), ("blue", String(localized: "Blue")), ("purple", String(localized: "Purple")), ("red", String(localized: "Red")), ("orange", String(localized: "Orange")),
     ]
     static let texts: [(token: String, title: String)] = [
-        ("blue", "蓝色"), ("purple", "紫色"), ("red", "红色"), ("orange", "橙色"), ("slate", "深灰"), ("brown", "棕色"),
+        ("blue", String(localized: "Blue")), ("purple", String(localized: "Purple")), ("red", String(localized: "Red")), ("orange", String(localized: "Orange")), ("slate", String(localized: "Slate")), ("brown", String(localized: "Brown")),
     ]
 
     static func swatch(_ token: String) -> Color {

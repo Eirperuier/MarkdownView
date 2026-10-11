@@ -620,13 +620,13 @@ struct DocCodeLanguageMenu: View {
 
     var body: some View {
         Menu {
-            Button("无") { controller.setLanguage(nil, of: block) }
+            Button("None") { controller.setLanguage(nil, of: block) }
             ForEach(DocSourceController.languages, id: \.self) { name in
                 Button(name) { controller.setLanguage(name, of: block) }
             }
         } label: {
             HStack(spacing: 3) {
-                Text(language ?? "语言")
+                Text(language ?? String(localized: "Language"))
                 Image(systemName: "chevron.up.chevron.down")
             }
             .font(.caption)
@@ -654,7 +654,7 @@ struct DocMathRowView: View {
         let editing = controller.editing == block
         Group {
             if isEmpty {
-                Text("空公式，点按输入 LaTeX")
+                Text("Empty formula. Enter LaTeX.")
                     .font(.callout)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, minHeight: 36)
@@ -702,7 +702,7 @@ struct DocMathPanel: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("完成") { controller.dismiss(block) }
+                    Button("Done") { controller.dismiss(block) }
                         .font(.caption.weight(.semibold))
                         .buttonStyle(.borderless)
                 }

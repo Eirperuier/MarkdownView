@@ -595,7 +595,7 @@ final class DocEditTests {
         }
         await test("Slash menu: “/分割” or a click on 分割线 puts a divider in, the caret below it") {
             let line = try await emptyLine()
-            try await self.type("/分割")
+            try await self.type("/divider")
             try self.expect(self.editor.slash.items.map(\.id) == ["divider"], "items \(self.editor.slash.items.map(\.id))")
             self.editor.slash.choose(self.editor.slash.items[0])
             try await self.settle()
@@ -817,7 +817,7 @@ final class DocEditTests {
         }
         await test("Math block: “/公式” makes one; its LaTeX is edited above the rendered formula") {
             let line = try await emptyLine()
-            try await self.type("/公式")
+            try await self.type("/math")
             try self.expect(self.editor.slash.highlightedItem?.id == "math", "highlighted \(String(describing: self.editor.slash.highlightedItem?.id))")
             try await self.enter()
             try self.expect(self.demo.doc.block(line.id)?.kind == .math, "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
@@ -1101,10 +1101,10 @@ final class DocEditTests {
             let block = try self.block("Loading older")
             try await self.focus(block.id, at: block.text.length)
             try self.expect(bar.testItems.map(\.id) == ["lists", "styles", "more", "insert", "dismiss"], "keys \(bar.testItems.map(\.id))")
-            bar.testTap("styles", choosing: "二级标题")
+            bar.testTap("styles", choosing: String(localized: "Heading 2"))
             try await self.settle()
             try self.expect(self.demo.doc.block(block.id)?.kind == .heading(level: 2), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
-            bar.testTap("insert", choosing: "代码块")
+            bar.testTap("insert", choosing: String(localized: "Code Block"))
             try? await Task.sleep(for: .milliseconds(300))
             try self.expect(try self.blockAfter(block.id).kind == .code(language: nil), "after \(String(describing: try? self.blockAfter(block.id).kind))")
         }

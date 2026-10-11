@@ -139,7 +139,7 @@ struct DocSelectionToolbar: View {
     private var marks: some View {
         HStack(spacing: 0) {
             let highlighted = editor.common(.highlight, over: model.ranges) != nil
-            key("highlighter", label: "高亮", help: "高亮 · ⌘⇧B", isOn: highlighted) {
+            key("highlighter", label: String(localized: "Highlight"), help: String(localized: "Highlight · ⌘⇧B"), isOn: highlighted) {
                 editor.set(.highlight, to: highlighted ? nil : .highlight(color: nil), over: model.ranges)
             }
             Button { model.mode = .colors } label: {
@@ -150,29 +150,29 @@ struct DocSelectionToolbar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("颜色")
-            .accessibilityLabel("颜色")
+            .help("Colors")
+            .accessibilityLabel("Colors")
             ForEach(Self.marks, id: \.symbol) { item in
                 key(item.symbol, label: item.title, help: item.shortcut, isOn: covers(item.mark.kind)) {
                     editor.toggle(item.mark, over: model.ranges)
                 }
             }
-            key("link", label: "链接", help: "⌘K", isOn: covers(.link)) {
+            key("link", label: String(localized: "Link"), help: "⌘K", isOn: covers(.link)) {
                 guard let block = model.block, let view = editor.textView(for: block) else { return }
                 editor.promptLink(over: model.range, in: block, from: view)
             }
             divider
-            key("slider.horizontal.3", label: "格式", help: "格式", isOn: editor.panels.showsFormat) {
+            key("slider.horizontal.3", label: String(localized: "Format"), help: String(localized: "Format"), isOn: editor.panels.showsFormat) {
                 editor.panels.showsFormat.toggle()
             }
         }
     }
 
     private static let marks: [(symbol: String, title: String, shortcut: String, mark: Mark)] = [
-        ("bold", "加粗", "⌘B", .bold),
-        ("italic", "斜体", "⌘I", .italic),
-        ("strikethrough", "删除线", "⌘⇧X", .strike),
-        ("chevron.left.forwardslash.chevron.right", "代码", "⌘E", .code),
+        ("bold", String(localized: "Bold"), "⌘B", .bold),
+        ("italic", String(localized: "Italic"), "⌘I", .italic),
+        ("strikethrough", String(localized: "Strikethrough"), "⌘⇧X", .strike),
+        ("chevron.left.forwardslash.chevron.right", String(localized: "Code"), "⌘E", .code),
     ]
 
     private func covers(_ kind: MarkKind) -> Bool {
@@ -221,8 +221,8 @@ struct DocSelectionToolbar: View {
                     .frame(width: Metrics.swatch, height: Metrics.swatch)
             }
             .buttonStyle(.plain)
-            .help("无颜色")
-            .accessibilityLabel("无颜色")
+            .help("No Color")
+            .accessibilityLabel("No Color")
             divider
             ForEach(DocColors.highlights, id: \.token) { item in
                 swatch(Self.square, fill: DocColors.highlightSwatch(item.token), title: item.title,
@@ -232,7 +232,7 @@ struct DocSelectionToolbar: View {
                 }
             }
             let customHighlight: String? = if case .highlight(let token?)? = highlight, token.hasPrefix("#") { token } else { nil }
-            swatch(Self.square, fill: customHighlight.map(DocColors.highlightSwatch) ?? .clear, title: "其他高亮颜色",
+            swatch(Self.square, fill: customHighlight.map(DocColors.highlightSwatch) ?? .clear, title: String(localized: "Other Highlight Color"),
                    isOn: customHighlight != nil, rainbow: true) {
                 model.mode = .customHighlight
             }
@@ -280,10 +280,10 @@ struct DocSelectionToolbar: View {
     /// Any text colour: the system's picker, clear over the rainbow circle, takes the click.
     private func customTextColor(_ current: Mark?) -> some View {
         let picked: String? = if case .color(let token)? = current, token.hasPrefix("#") { token } else { nil }
-        return swatch(Self.circle, fill: picked.map(DocColors.swatch) ?? .clear, title: "其他文字颜色", isOn: picked != nil,
+        return swatch(Self.circle, fill: picked.map(DocColors.swatch) ?? .clear, title: String(localized: "Other Text Color"), isOn: picked != nil,
                       rainbow: true) {}
             .overlay {
-                ColorPicker("其他文字颜色", selection: Binding {
+                ColorPicker("Other Text Color", selection: Binding {
                     picked.map(DocColors.swatch) ?? .primary
                 } set: { color in
                     editor.set(.color, to: .color(DocColors.hex(color)), over: model.ranges, merge: editor.colorMergeKey(over: model.ranges))
@@ -318,8 +318,8 @@ struct DocSelectionToolbar: View {
                     .background(Circle().fill(Color.primary.opacity(Tokens.Opacity.strong)))
             }
             .buttonStyle(.plain)
-            .help("完成")
-            .accessibilityLabel("完成")
+            .help("Done")
+            .accessibilityLabel("Done")
         }
         .padding(.horizontal, Tokens.Space.md)
     }
@@ -352,7 +352,7 @@ private struct DocHueSlider: View {
         }
         .frame(height: Tokens.Control.minimumHitTarget)
         .accessibilityElement()
-        .accessibilityLabel("高亮颜色")
+        .accessibilityLabel("Highlight Color")
         .accessibilityValue("\(Int(hue * 360))°")
         .accessibilityAdjustableAction { direction in
             hue = min(max(0, hue + (direction == .increment ? 0.05 : -0.05)), 1)

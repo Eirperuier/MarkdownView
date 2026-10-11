@@ -24,9 +24,9 @@ enum Tab: String, CaseIterable {
         case .math: "Math Rendering"
         case .streaming: "Streaming"
         case .chat: "Chat"
-        case .floo: "floo 对话"
-        case .contacts: "floo 加服务"
-        case .doc: "floo 文档"
+        case .floo: String(localized: "floo Chat")
+        case .contacts: String(localized: "floo Services")
+        case .doc: String(localized: "floo Docs")
         }
     }
 }

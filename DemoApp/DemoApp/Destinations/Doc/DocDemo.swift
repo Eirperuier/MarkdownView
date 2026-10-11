@@ -388,22 +388,22 @@ final class DocDemo {
         let pause = Duration.milliseconds(900)
 
         if let anchor = block(containing: "the list has to") {
-            agentStatus = "正在插入一段"
+            agentStatus = String(localized: "Inserting a paragraph")
             await insert(DocDemoCorpus.inserted, after: anchor.id)
         }
         try? await Task.sleep(for: pause)
         if let target = block(containing: "self-sizing cells can change height"), !Task.isCancelled {
-            agentStatus = "正在改一句话"
+            agentStatus = String(localized: "Changing a sentence")
             await edit(target.id, find: "self-sizing cells can change height after the insert", replace: "a cell can still grow once it has been inserted")
         }
         try? await Task.sleep(for: pause)
         if let target = block(containing: "这周你的睡眠整体"), !Task.isCancelled {
-            agentStatus = "正在改写一块"
+            agentStatus = String(localized: "Rewriting a block")
             await rewrite(target.id, with: DocDemoCorpus.rewritten)
         }
         try? await Task.sleep(for: pause)
         if let target = block(containing: "Never set the offset"), !Task.isCancelled {
-            agentStatus = "正在删除一块"
+            agentStatus = String(localized: "Deleting a block")
             bringIntoView(target.id)
             try? await Task.sleep(for: .milliseconds(500))
             apply([.deleteBlock(block: target, after: nil)])
@@ -412,7 +412,7 @@ final class DocDemo {
         if let moving = block(containing: "Apply the insert without animation"),
             let after = block(containing: "Move the content offset"), !Task.isCancelled
         {
-            agentStatus = "正在移动一块"
+            agentStatus = String(localized: "Moving a block")
             bringIntoView(moving.id)
             try? await Task.sleep(for: .milliseconds(500))
             apply([.moveBlock(block: moving.id, after: after.id, from: nil)])

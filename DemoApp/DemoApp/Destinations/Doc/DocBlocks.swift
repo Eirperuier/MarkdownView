@@ -599,7 +599,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             if let url = URL(string: link.url) { opensURL(url) }
         case .image(let image)?:
             if let picture = DocMediaLayout.asset(image.source), let data = picture.jpegData(compressionQuality: 0.95) {
-                let file = FileManager.default.temporaryDirectory.appendingPathComponent((image.alt.isEmpty ? "图片" : image.alt) + ".jpg")
+                let file = FileManager.default.temporaryDirectory.appendingPathComponent((image.alt.isEmpty ? String(localized: "Image") : image.alt) + ".jpg")
                 guard (try? data.write(to: file)) != nil else { return }
                 quickLook(file)
             } else if let url = URL(string: image.source), url.scheme?.hasPrefix("http") == true {
@@ -1391,9 +1391,9 @@ final class DocBlockHandleView: UIView {
         layer.cornerCurve = .continuous
         layer.addSublayer(dots)
         addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:))))
-        addInteraction(UIToolTipInteraction(defaultToolTip: "点击选中，拖动移动"))
+        addInteraction(UIToolTipInteraction(defaultToolTip: String(localized: "Click to select, drag to move")))
         isAccessibilityElement = true
-        accessibilityLabel = "块把手"
+        accessibilityLabel = String(localized: "Block handle")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -1571,28 +1571,28 @@ struct DocBlockSelectionBar: View {
                     }
                 }
             } label: {
-                DocSelectionTile(title: "样式", symbol: "textformat", color: Color(red: 0.42, green: 0.13, blue: 0.78))
+                DocSelectionTile(title: String(localized: "Style"), symbol: "textformat", color: Color(red: 0.42, green: 0.13, blue: 0.78))
             }
             if hasMedia {
                 Button {
                     blocks.isChoosingLayout = true
                 } label: {
-                    DocSelectionTile(title: "布局", symbol: "rectangle.split.2x1", color: Color(red: 0.2, green: 0.27, blue: 0.36))
+                    DocSelectionTile(title: String(localized: "Layout"), symbol: "rectangle.split.2x1", color: Color(red: 0.2, green: 0.27, blue: 0.36))
                 }
             }
             Menu {
-                Button("复制", systemImage: "doc.on.doc") {
+                Button("Copy", systemImage: "doc.on.doc") {
                     blocks.copySelection()
                     blocks.endSelecting()
                 }
-                Button("创建副本", systemImage: "plus.square.on.square") { blocks.duplicateSelection() }
+                Button("Duplicate", systemImage: "plus.square.on.square") { blocks.duplicateSelection() }
             } label: {
-                DocSelectionTile(title: "操作", symbol: "square.and.arrow.up", color: Color(red: 0.2, green: 0.27, blue: 0.36))
+                DocSelectionTile(title: String(localized: "Actions"), symbol: "square.and.arrow.up", color: Color(red: 0.2, green: 0.27, blue: 0.36))
             }
             Button {
                 blocks.deleteSelection()
             } label: {
-                DocSelectionTile(title: "删除", symbol: "trash", color: Color(red: 0.82, green: 0.06, blue: 0.13))
+                DocSelectionTile(title: String(localized: "Delete"), symbol: "trash", color: Color(red: 0.82, green: 0.06, blue: 0.13))
             }
         }
         .buttonStyle(.plain)
@@ -1609,13 +1609,13 @@ struct DocBlockSelectionBar: View {
                 .onTapGesture { blocks.isChoosingLayout = false }
             if !blocks.selectedImageFits.isEmpty {
                 HStack(spacing: 8) {
-                    DocLayoutSection(title: "图片显示") {
-                        option("适应", symbol: "arrow.down.and.line.horizontal.and.arrow.up", on: blocks.selectedImageFits == [.fit]) { blocks.setImage(fit: .fit) }
-                        option("填充", symbol: "square.arrowtriangle.4.outward", on: blocks.selectedImageFits == [.fill]) { blocks.setImage(fit: .fill) }
+                    DocLayoutSection(title: String(localized: "Image Display")) {
+                        option(String(localized: "Fit"), symbol: "arrow.down.and.line.horizontal.and.arrow.up", on: blocks.selectedImageFits == [.fit]) { blocks.setImage(fit: .fit) }
+                        option(String(localized: "Fill"), symbol: "square.arrowtriangle.4.outward", on: blocks.selectedImageFits == [.fill]) { blocks.setImage(fit: .fill) }
                     }
-                    DocLayoutSection(title: "图片大小") {
-                        option("自动", symbol: "rectangle.center.inset.filled", on: blocks.selectedImageSizes == [.auto]) { blocks.setImage(size: .auto) }
-                        option("大图", symbol: "rectangle", on: blocks.selectedImageSizes == [.large]) { blocks.setImage(size: .large) }
+                    DocLayoutSection(title: String(localized: "Image Size")) {
+                        option(String(localized: "Auto"), symbol: "rectangle.center.inset.filled", on: blocks.selectedImageSizes == [.auto]) { blocks.setImage(size: .auto) }
+                        option(String(localized: "Large"), symbol: "rectangle", on: blocks.selectedImageSizes == [.large]) { blocks.setImage(size: .large) }
                     }
                 }
             }
@@ -1652,9 +1652,9 @@ struct DocBlockSelectionBar: View {
 extension DocLayout {
     var title: String {
         switch self {
-        case .small: "小"
-        case .regular: "常规"
-        case .card: "卡片"
+        case .small: String(localized: "Small")
+        case .regular: String(localized: "Regular")
+        case .card: String(localized: "Card")
         }
     }
 }

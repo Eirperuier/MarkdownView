@@ -1,0 +1,1471 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@ File" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 文件"
+          }
+        }
+      }
+    },
+    "%lld rows, %lld columns" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 行 %lld 列"
+          }
+        }
+      }
+    },
+    "%lld × %lld Table" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld × %lld 表格"
+          }
+        }
+      }
+    },
+    "%lld°" : {
+      "shouldTranslate" : false
+    },
+    "3 rows, 3 columns; or type /3x4" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3 行 3 列，也可以输入 /3x4"
+          }
+        }
+      }
+    },
+    "= %@" : {
+      "shouldTranslate" : false
+    },
+    "A LaTeX formula" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LaTeX 公式"
+          }
+        }
+      }
+    },
+    "A big heading" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "大标题"
+          }
+        }
+      }
+    },
+    "A list with bullets" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "圆点列表"
+          }
+        }
+      }
+    },
+    "A list with numbers" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编号列表"
+          }
+        }
+      }
+    },
+    "A medium heading" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中标题"
+          }
+        }
+      }
+    },
+    "A plain paragraph" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "普通段落"
+          }
+        }
+      }
+    },
+    "A small heading" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小标题"
+          }
+        }
+      }
+    },
+    "Actions" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作"
+          }
+        }
+      }
+    },
+    "Add Column" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加列"
+          }
+        }
+      }
+    },
+    "Add Link" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加链接"
+          }
+        }
+      }
+    },
+    "Add Row" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加行"
+          }
+        }
+      }
+    },
+    "Agent Demo" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent 演示"
+          }
+        }
+      }
+    },
+    "Agent · %@" : {
+      "shouldTranslate" : false
+    },
+    "Auto" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动"
+          }
+        }
+      }
+    },
+    "Block" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "块"
+          }
+        }
+      }
+    },
+    "Block handle" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "块把手"
+          }
+        }
+      }
+    },
+    "Blue" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "蓝色"
+          }
+        }
+      }
+    },
+    "Body" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正文"
+          }
+        }
+      }
+    },
+    "Bold" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加粗"
+          }
+        }
+      }
+    },
+    "Brown" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "棕色"
+          }
+        }
+      }
+    },
+    "Bulleted List" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无序列表"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消"
+          }
+        }
+      }
+    },
+    "Caption" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "说明"
+          }
+        }
+      }
+    },
+    "Card" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卡片"
+          }
+        }
+      }
+    },
+    "Changing a sentence" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在改一句话"
+          }
+        }
+      }
+    },
+    "Circle" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "圈出"
+          }
+        }
+      }
+    },
+    "Clear Cell" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除单元格内容"
+          }
+        }
+      }
+    },
+    "Click to select, drag to move" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点击选中，拖动移动"
+          }
+        }
+      }
+    },
+    "Close Menu" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭菜单"
+          }
+        }
+      }
+    },
+    "Code" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代码"
+          }
+        }
+      }
+    },
+    "Code Block" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代码块"
+          }
+        }
+      }
+    },
+    "Code in a monospaced font" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等宽字体的代码"
+          }
+        }
+      }
+    },
+    "Color" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "颜色"
+          }
+        }
+      }
+    },
+    "Colors" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "颜色"
+          }
+        }
+      }
+    },
+    "Content" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正文"
+          }
+        }
+      }
+    },
+    "Content that folds away" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可以收起的内容"
+          }
+        }
+      }
+    },
+    "Copy" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制"
+          }
+        }
+      }
+    },
+    "Cyan" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "青色"
+          }
+        }
+      }
+    },
+    "Decorations" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "装饰"
+          }
+        }
+      }
+    },
+    "Default" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认"
+          }
+        }
+      }
+    },
+    "Delete" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除"
+          }
+        }
+      }
+    },
+    "Delete Column" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除列"
+          }
+        }
+      }
+    },
+    "Delete Row" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除行"
+          }
+        }
+      }
+    },
+    "Delete Table" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除表格"
+          }
+        }
+      }
+    },
+    "Deleting a block" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在删除一块"
+          }
+        }
+      }
+    },
+    "Divider" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分割线"
+          }
+        }
+      }
+    },
+    "Done" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
+        }
+      }
+    },
+    "Duplicate" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "创建副本"
+          }
+        }
+      }
+    },
+    "Edit Link" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑链接"
+          }
+        }
+      }
+    },
+    "Edit Link…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑链接…"
+          }
+        }
+      }
+    },
+    "Edit Table" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑表格"
+          }
+        }
+      }
+    },
+    "Empty formula. Enter LaTeX." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空公式，输入 LaTeX"
+          }
+        }
+      }
+    },
+    "File" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件"
+          }
+        }
+      }
+    },
+    "Fill" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "填充"
+          }
+        }
+      }
+    },
+    "Fit" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "适应"
+          }
+        }
+      }
+    },
+    "Format" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "格式"
+          }
+        }
+      }
+    },
+    "Gray" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "灰色"
+          }
+        }
+      }
+    },
+    "Green" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绿色"
+          }
+        }
+      }
+    },
+    "Heading" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小标题"
+          }
+        }
+      }
+    },
+    "Heading 1" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一级标题"
+          }
+        }
+      }
+    },
+    "Heading 2" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "二级标题"
+          }
+        }
+      }
+    },
+    "Heading 3" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "三级标题"
+          }
+        }
+      }
+    },
+    "Hide Keyboard" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起键盘"
+          }
+        }
+      }
+    },
+    "Highlight" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高亮"
+          }
+        }
+      }
+    },
+    "Highlight Color" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高亮颜色"
+          }
+        }
+      }
+    },
+    "Highlight · ⌘⇧B" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高亮 · ⌘⇧B"
+          }
+        }
+      }
+    },
+    "Image" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片"
+          }
+        }
+      }
+    },
+    "Image Display" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片显示"
+          }
+        }
+      }
+    },
+    "Image Size" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片大小"
+          }
+        }
+      }
+    },
+    "Indent" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "增加缩进"
+          }
+        }
+      }
+    },
+    "Insert" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "插入"
+          }
+        }
+      }
+    },
+    "Insert Column Left" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在左侧插入列"
+          }
+        }
+      }
+    },
+    "Insert Column Right" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在右侧插入列"
+          }
+        }
+      }
+    },
+    "Insert Formula" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "插入公式"
+          }
+        }
+      }
+    },
+    "Insert Row Above" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在上方插入行"
+          }
+        }
+      }
+    },
+    "Insert Row Below" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在下方插入行"
+          }
+        }
+      }
+    },
+    "Inserting a paragraph" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在插入一段"
+          }
+        }
+      }
+    },
+    "Italic" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "斜体"
+          }
+        }
+      }
+    },
+    "LaTeX" : {
+      "shouldTranslate" : false
+    },
+    "Language" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语言"
+          }
+        }
+      }
+    },
+    "Large" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "大图"
+          }
+        }
+      }
+    },
+    "Layout" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "布局"
+          }
+        }
+      }
+    },
+    "Lemon" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浅黄"
+          }
+        }
+      }
+    },
+    "Line Break" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "换行"
+          }
+        }
+      }
+    },
+    "Link" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "链接"
+          }
+        }
+      }
+    },
+    "Link…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "链接…"
+          }
+        }
+      }
+    },
+    "List" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "列表"
+          }
+        }
+      }
+    },
+    "Math Block" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "公式块"
+          }
+        }
+      }
+    },
+    "Mint" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "薄荷"
+          }
+        }
+      }
+    },
+    "More" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更多"
+          }
+        }
+      }
+    },
+    "Move Column Left" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左移列"
+          }
+        }
+      }
+    },
+    "Move Column Right" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右移列"
+          }
+        }
+      }
+    },
+    "Move Row Down" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下移行"
+          }
+        }
+      }
+    },
+    "Move Row Up" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上移行"
+          }
+        }
+      }
+    },
+    "Moving a block" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在移动一块"
+          }
+        }
+      }
+    },
+    "Next Item" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下一项"
+          }
+        }
+      }
+    },
+    "No Color" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无颜色"
+          }
+        }
+      }
+    },
+    "No matching blocks" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有匹配的块"
+          }
+        }
+      }
+    },
+    "None" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无"
+          }
+        }
+      }
+    },
+    "Numbered List" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有序列表"
+          }
+        }
+      }
+    },
+    "Orange" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "橙色"
+          }
+        }
+      }
+    },
+    "Other Color" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "其他颜色"
+          }
+        }
+      }
+    },
+    "Other Highlight Color" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "其他高亮颜色"
+          }
+        }
+      }
+    },
+    "Other Text Color" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "其他文字颜色"
+          }
+        }
+      }
+    },
+    "Outdent" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "减少缩进"
+          }
+        }
+      }
+    },
+    "Pen" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "笔迹"
+          }
+        }
+      }
+    },
+    "Previous Item" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上一项"
+          }
+        }
+      }
+    },
+    "Purple" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "紫色"
+          }
+        }
+      }
+    },
+    "Quote" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "引用"
+          }
+        }
+      }
+    },
+    "Quote a passage" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "引用一段话"
+          }
+        }
+      }
+    },
+    "Read-only preview" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只读预览"
+          }
+        }
+      }
+    },
+    "Red" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "红色"
+          }
+        }
+      }
+    },
+    "Redo" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重做"
+          }
+        }
+      }
+    },
+    "Regular" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常规"
+          }
+        }
+      }
+    },
+    "Remove Link" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除链接"
+          }
+        }
+      }
+    },
+    "Reset" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置"
+          }
+        }
+      }
+    },
+    "Rewriting a block" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在改写一块"
+          }
+        }
+      }
+    },
+    "Separate what is above and below" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分开上下内容"
+          }
+        }
+      }
+    },
+    "Slate" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深灰"
+          }
+        }
+      }
+    },
+    "Small" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小"
+          }
+        }
+      }
+    },
+    "Small explanatory text" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小号的说明文字"
+          }
+        }
+      }
+    },
+    "Sort Ascending by This Column" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按此列升序排序"
+          }
+        }
+      }
+    },
+    "Sort Descending by This Column" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按此列降序排序"
+          }
+        }
+      }
+    },
+    "Stop" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止"
+          }
+        }
+      }
+    },
+    "Strikethrough" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除线"
+          }
+        }
+      }
+    },
+    "Strong" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "强调"
+          }
+        }
+      }
+    },
+    "Style" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "样式"
+          }
+        }
+      }
+    },
+    "Subtitle" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "副标题"
+          }
+        }
+      }
+    },
+    "Table" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表格"
+          }
+        }
+      }
+    },
+    "Table Actions" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表格操作"
+          }
+        }
+      }
+    },
+    "Text Color" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文字颜色"
+          }
+        }
+      }
+    },
+    "Text Style" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文字样式"
+          }
+        }
+      }
+    },
+    "Things to check off" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可勾选的事项"
+          }
+        }
+      }
+    },
+    "Title" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标题"
+          }
+        }
+      }
+    },
+    "Titles" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标题"
+          }
+        }
+      }
+    },
+    "To-do" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待办"
+          }
+        }
+      }
+    },
+    "Toggle List" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "折叠列表"
+          }
+        }
+      }
+    },
+    "Undo" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "撤销"
+          }
+        }
+      }
+    },
+    "Wavy Line" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "波浪线"
+          }
+        }
+      }
+    },
+    "Yellow" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "黄色"
+          }
+        }
+      }
+    },
+    "floo Chat" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "floo 对话"
+          }
+        }
+      }
+    },
+    "floo Docs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "floo 文档"
+          }
+        }
+      }
+    },
+    "floo Services" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "floo 加服务"
+          }
+        }
+      }
+    },
+    "⌃%@" : {
+      "shouldTranslate" : false
+    }
+  },
+  "version" : "1.0"
+}

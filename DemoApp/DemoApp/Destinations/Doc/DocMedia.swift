@@ -403,10 +403,10 @@ enum DocMediaLayout {
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
-    /// "DOCX 文件"
+    /// "DOCX File"
     static func kind(of name: String) -> String {
         let ext = (name as NSString).pathExtension.uppercased()
-        return ext.isEmpty ? "文件" : "\(ext) 文件"
+        return ext.isEmpty ? String(localized: "File") : String(localized: "\(ext) File")
     }
 
     /// "9.0 KB", "2.4 MB"

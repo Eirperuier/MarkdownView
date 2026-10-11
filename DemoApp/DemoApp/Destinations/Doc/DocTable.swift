@@ -43,21 +43,21 @@ enum DocTableAction: CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .insertRowAbove: "在上方插入行"
-        case .insertRowBelow: "在下方插入行"
-        case .insertColumnLeft: "在左侧插入列"
-        case .insertColumnRight: "在右侧插入列"
-        case .moveRowUp: "上移行"
-        case .moveRowDown: "下移行"
-        case .moveColumnLeft: "左移列"
-        case .moveColumnRight: "右移列"
-        case .sortAscending: "按此列升序排序"
-        case .sortDescending: "按此列降序排序"
-        case .insertFormula: "插入公式"
-        case .deleteRow: "删除行"
-        case .deleteColumn: "删除列"
-        case .clearCell: "清除单元格内容"
-        case .deleteTable: "删除表格"
+        case .insertRowAbove: String(localized: "Insert Row Above")
+        case .insertRowBelow: String(localized: "Insert Row Below")
+        case .insertColumnLeft: String(localized: "Insert Column Left")
+        case .insertColumnRight: String(localized: "Insert Column Right")
+        case .moveRowUp: String(localized: "Move Row Up")
+        case .moveRowDown: String(localized: "Move Row Down")
+        case .moveColumnLeft: String(localized: "Move Column Left")
+        case .moveColumnRight: String(localized: "Move Column Right")
+        case .sortAscending: String(localized: "Sort Ascending by This Column")
+        case .sortDescending: String(localized: "Sort Descending by This Column")
+        case .insertFormula: String(localized: "Insert Formula")
+        case .deleteRow: String(localized: "Delete Row")
+        case .deleteColumn: String(localized: "Delete Column")
+        case .clearCell: String(localized: "Clear Cell")
+        case .deleteTable: String(localized: "Delete Table")
         }
     }
 
@@ -608,7 +608,7 @@ enum DocTableMenu {
                 return item
             })
         }
-        return UIMenu(title: "编辑表格", image: UIImage(systemName: "tablecells"), children: sections)
+        return UIMenu(title: String(localized: "Edit Table"), image: UIImage(systemName: "tablecells"), children: sections)
     }
 }
 
@@ -731,10 +731,10 @@ struct DocTableRowView: View {
                     .markdownTableCellTap { [table, controller] position in controller.tapped(table, at: position) }
                     .markdownTableCellReplacement { [table, controller] position in controller.replacement(in: table, at: position) }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                DocTableAdder(systemImage: "plus", label: "添加行", isVisible: showsAdders) { controller.appendRow(table.block) }
+                DocTableAdder(systemImage: "plus", label: String(localized: "Add Row"), isVisible: showsAdders) { controller.appendRow(table.block) }
                     .frame(height: 16)
             }
-            DocTableAdder(systemImage: "plus", label: "添加列", isVisible: showsAdders) { controller.appendColumn(table.block) }
+            DocTableAdder(systemImage: "plus", label: String(localized: "Add Column"), isVisible: showsAdders) { controller.appendColumn(table.block) }
                 .frame(width: 16)
                 .padding(.bottom, 18)
         }
@@ -772,7 +772,7 @@ struct DocTableCellMenu: View {
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
-        .accessibilityLabel("表格操作")
+        .accessibilityLabel("Table Actions")
     }
 }
 

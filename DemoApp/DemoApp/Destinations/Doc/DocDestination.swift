@@ -181,7 +181,7 @@ struct DocDestination: View {
             if editor.blocks.isSelecting {
                 // Selecting blocks: only the way out, as Craft has it.
                 Spacer()
-                Button("完成", systemImage: "checkmark") { editor.blocks.endSelecting() }
+                Button("Done", systemImage: "checkmark") { editor.blocks.endSelecting() }
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
@@ -193,33 +193,33 @@ struct DocDestination: View {
                     .controlSize(.small)
                 Text("Agent · \(status)")
                     .font(.subheadline)
-                Text("只读预览")
+                Text("Read-only preview")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("停止") { demo.stop() }
+                Button("Stop") { demo.stop() }
                     .buttonStyle(.bordered)
             } else {
-                Button("撤销", systemImage: "arrow.uturn.backward") { editor.requestUndo() }
+                Button("Undo", systemImage: "arrow.uturn.backward") { editor.requestUndo() }
                     .keyboardShortcut("z", modifiers: .command)
                     .disabled(!demo.canUndo)
-                Button("重做", systemImage: "arrow.uturn.forward") { editor.requestRedo() }
+                Button("Redo", systemImage: "arrow.uturn.forward") { editor.requestRedo() }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                     .disabled(!demo.canRedo)
                 Spacer()
                 #if targetEnvironment(macCatalyst)
-                Button("格式", systemImage: "textformat") { editor.panels.showsFormat.toggle() }
+                Button("Format", systemImage: "textformat") { editor.panels.showsFormat.toggle() }
                     .foregroundStyle(editor.panels.showsFormat ? Color.accentColor : .primary)
                     .frame(width: 32, height: 28)
                     .background(editor.panels.showsFormat ? Color.accentColor.opacity(0.12) : .clear, in: .rect(cornerRadius: 7))
                     .buttonStyle(.plain)
-                    .help("格式")
+                    .help("Format")
                 #endif
-                Button("重置") {
+                Button("Reset") {
                     demo.reset()
                     editor.resetHistory()
                 }
-                Button("Agent 演示") { demo.runScript() }
+                Button("Agent Demo") { demo.runScript() }
                     .buttonStyle(.borderedProminent)
             }
         }
@@ -405,20 +405,20 @@ struct DocMediaMenu: View {
         case .link(let link): layouts(link.layout, ids)
         case .file(let file): layouts(file.layout, ids)
         case .image(let image):
-            Section("图片显示") {
-                Toggle("适应", isOn: binding(image.fit == .fit) { blocks.setImage(fit: .fit, of: ids) })
-                Toggle("填充", isOn: binding(image.fit == .fill) { blocks.setImage(fit: .fill, of: ids) })
+            Section("Image Display") {
+                Toggle("Fit", isOn: binding(image.fit == .fit) { blocks.setImage(fit: .fit, of: ids) })
+                Toggle("Fill", isOn: binding(image.fit == .fill) { blocks.setImage(fit: .fill, of: ids) })
             }
-            Section("图片大小") {
-                Toggle("自动", isOn: binding(image.size == .auto) { blocks.setImage(size: .auto, of: ids) })
-                Toggle("大图", isOn: binding(image.size == .large) { blocks.setImage(size: .large, of: ids) })
+            Section("Image Size") {
+                Toggle("Auto", isOn: binding(image.size == .auto) { blocks.setImage(size: .auto, of: ids) })
+                Toggle("Large", isOn: binding(image.size == .large) { blocks.setImage(size: .large, of: ids) })
             }
         default: EmptyView()
         }
     }
 
     private func layouts(_ current: DocLayout, _ ids: [DocBlockID]) -> some View {
-        Section("布局") {
+        Section("Layout") {
             ForEach(DocLayout.allCases, id: \.self) { layout in
                 Toggle(layout.title, isOn: binding(current == layout) { blocks.setLayout(layout, of: ids) })
             }

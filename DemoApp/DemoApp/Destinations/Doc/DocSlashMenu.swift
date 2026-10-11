@@ -30,26 +30,26 @@ struct DocSlashItem: Identifiable, Equatable {
     let action: Action
 
     static let all: [DocSlashItem] = [
-        .init(id: "paragraph", title: "正文", subtitle: "普通段落", symbol: "text.alignleft", keywords: ["text", "paragraph", "zhengwen"], action: .kind(.paragraph)),
-        .init(id: "h1", title: "一级标题", subtitle: "大标题", symbol: "textformat.size.larger", keywords: ["h1", "heading", "title", "biaoti"], action: .kind(.heading(level: 1))),
-        .init(id: "h2", title: "二级标题", subtitle: "中标题", symbol: "textformat.size", keywords: ["h2", "heading", "biaoti"], action: .kind(.heading(level: 2))),
-        .init(id: "h3", title: "三级标题", subtitle: "小标题", symbol: "textformat.size.smaller", keywords: ["h3", "heading", "biaoti"], action: .kind(.heading(level: 3))),
-        .init(id: "bullet", title: "无序列表", subtitle: "圆点列表", symbol: "list.bullet", keywords: ["ul", "bullet", "list", "liebiao"], action: .kind(.listItem(style: .bullet))),
-        .init(id: "numbered", title: "有序列表", subtitle: "编号列表", symbol: "list.number", keywords: ["ol", "number", "list", "liebiao"], action: .kind(.listItem(style: .numbered))),
-        .init(id: "task", title: "待办", subtitle: "可勾选的事项", symbol: "checklist", keywords: ["todo", "task", "check", "daiban"], action: .kind(.listItem(style: .task(done: false)))),
-        .init(id: "toggle", title: "折叠列表", subtitle: "可以收起的内容", symbol: "chevron.right", keywords: ["toggle", "collapse", "zhedie"], action: .kind(.listItem(style: .toggle(open: true)))),
-        .init(id: "quote", title: "引用", subtitle: "引用一段话", symbol: "text.quote", keywords: ["quote", "blockquote", "yinyong"], action: .kind(.quote)),
-        .init(id: "caption", title: "说明", subtitle: "小号的说明文字", symbol: "text.below.photo", keywords: ["caption", "small", "shuoming"], action: .kind(.caption)),
-        .init(id: "code", title: "代码块", subtitle: "等宽字体的代码", symbol: "chevron.left.forwardslash.chevron.right", keywords: ["code", "snippet", "daima"], action: .kind(.code(language: nil))),
-        .init(id: "math", title: "公式块", subtitle: "LaTeX 公式", symbol: "function", keywords: ["math", "latex", "equation", "gongshi"], action: .kind(.math)),
-        .init(id: "divider", title: "分割线", subtitle: "分开上下内容", symbol: "minus", keywords: ["divider", "line", "hr", "fengexian"], action: .divider),
-        .init(id: "table", title: "表格", subtitle: "3 行 3 列，也可以输入 /3x4", symbol: "tablecells", keywords: ["table", "grid", "biaoge"], action: .table(rows: 3, columns: 3)),
+        .init(id: "paragraph", title: String(localized: "Body"), subtitle: String(localized: "A plain paragraph"), symbol: "text.alignleft", keywords: ["text", "paragraph", "zhengwen"], action: .kind(.paragraph)),
+        .init(id: "h1", title: String(localized: "Heading 1"), subtitle: String(localized: "A big heading"), symbol: "textformat.size.larger", keywords: ["h1", "heading", "title", "biaoti"], action: .kind(.heading(level: 1))),
+        .init(id: "h2", title: String(localized: "Heading 2"), subtitle: String(localized: "A medium heading"), symbol: "textformat.size", keywords: ["h2", "heading", "biaoti"], action: .kind(.heading(level: 2))),
+        .init(id: "h3", title: String(localized: "Heading 3"), subtitle: String(localized: "A small heading"), symbol: "textformat.size.smaller", keywords: ["h3", "heading", "biaoti"], action: .kind(.heading(level: 3))),
+        .init(id: "bullet", title: String(localized: "Bulleted List"), subtitle: String(localized: "A list with bullets"), symbol: "list.bullet", keywords: ["ul", "bullet", "list", "liebiao"], action: .kind(.listItem(style: .bullet))),
+        .init(id: "numbered", title: String(localized: "Numbered List"), subtitle: String(localized: "A list with numbers"), symbol: "list.number", keywords: ["ol", "number", "list", "liebiao"], action: .kind(.listItem(style: .numbered))),
+        .init(id: "task", title: String(localized: "To-do"), subtitle: String(localized: "Things to check off"), symbol: "checklist", keywords: ["todo", "task", "check", "daiban"], action: .kind(.listItem(style: .task(done: false)))),
+        .init(id: "toggle", title: String(localized: "Toggle List"), subtitle: String(localized: "Content that folds away"), symbol: "chevron.right", keywords: ["toggle", "collapse", "zhedie"], action: .kind(.listItem(style: .toggle(open: true)))),
+        .init(id: "quote", title: String(localized: "Quote"), subtitle: String(localized: "Quote a passage"), symbol: "text.quote", keywords: ["quote", "blockquote", "yinyong"], action: .kind(.quote)),
+        .init(id: "caption", title: String(localized: "Caption"), subtitle: String(localized: "Small explanatory text"), symbol: "text.below.photo", keywords: ["caption", "small", "shuoming"], action: .kind(.caption)),
+        .init(id: "code", title: String(localized: "Code Block"), subtitle: String(localized: "Code in a monospaced font"), symbol: "chevron.left.forwardslash.chevron.right", keywords: ["code", "snippet", "daima"], action: .kind(.code(language: nil))),
+        .init(id: "math", title: String(localized: "Math Block"), subtitle: String(localized: "A LaTeX formula"), symbol: "function", keywords: ["math", "latex", "equation", "gongshi"], action: .kind(.math)),
+        .init(id: "divider", title: String(localized: "Divider"), subtitle: String(localized: "Separate what is above and below"), symbol: "minus", keywords: ["divider", "line", "hr", "fengexian"], action: .divider),
+        .init(id: "table", title: String(localized: "Table"), subtitle: String(localized: "3 rows, 3 columns; or type /3x4"), symbol: "tablecells", keywords: ["table", "grid", "biaoge"], action: .table(rows: 3, columns: 3)),
     ]
 
     /// "/3x4" (or 3*4, 3×4): a table that size, rows first, up to 9 by 9.
     static func sized(_ query: String) -> DocSlashItem? {
         guard let match = query.wholeMatch(of: /([1-9])\s*[xX×*]\s*([1-9])/), let rows = Int(match.1), let columns = Int(match.2) else { return nil }
-        return .init(id: "table-\(rows)x\(columns)", title: "\(rows) × \(columns) 表格", subtitle: "\(rows) 行 \(columns) 列", symbol: "tablecells", keywords: [], action: .table(rows: rows, columns: columns))
+        return .init(id: "table-\(rows)x\(columns)", title: String(localized: "\(rows) × \(columns) Table"), subtitle: String(localized: "\(rows) rows, \(columns) columns"), symbol: "tablecells", keywords: [], action: .table(rows: rows, columns: columns))
     }
 
     /// Items whose title or a keyword contains the query (case-insensitive), in order.
@@ -58,7 +58,7 @@ struct DocSlashItem: Identifiable, Equatable {
         let query = query.lowercased()
         guard !query.isEmpty else { return all }
         return all.filter { item in
-            item.title.contains(query) || item.keywords.contains { $0.contains(query) }
+            item.title.lowercased().contains(query) || item.keywords.contains { $0.contains(query) }
         }
     }
 }
@@ -221,7 +221,7 @@ struct DocSlashMenuView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     if menu.items.isEmpty {
-                        Text("没有匹配的块")
+                        Text("No matching blocks")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, minHeight: 44)

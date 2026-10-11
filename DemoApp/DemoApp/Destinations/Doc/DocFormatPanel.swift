@@ -36,19 +36,19 @@ struct DocFormatPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("格式")
+            Text("Format")
                 .font(Metrics.title)
                 .padding(.bottom, Metrics.titleGap)
             // Text first offers its kinds; a link, file or image its layout, after the
             // segments (as Craft orders them).
             // Text styles: how big a block's text is (Craft's six, ⌃1–⌃6).
             if !targets.isEmpty {
-                section("标题") {
+                section(String(localized: "Titles")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
                         ForEach(Self.styles.prefix(3), id: \.key) { tile($0) }
                     }
                 }
-                section("正文") {
+                section(String(localized: "Content")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
                         ForEach(Self.styles.suffix(3), id: \.key) { tile($0) }
                     }
@@ -56,7 +56,7 @@ struct DocFormatPanel: View {
             }
             segments
             if !editor.blocks.selectedLayouts.isEmpty {
-                section("布局") {
+                section(String(localized: "Layout")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
                         ForEach(DocLayout.allCases, id: \.self) { layout in
                             choice(isOn: editor.blocks.selectedLayouts == [layout], help: layout.title) {
@@ -71,54 +71,54 @@ struct DocFormatPanel: View {
                 .padding(.top, Metrics.sectionLead)
             }
             if !editor.blocks.selectedImageSizes.isEmpty {
-                section("图片大小") {
+                section(String(localized: "Image Size")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
-                        imageChoice("自动", symbol: "rectangle.center.inset.filled", isOn: editor.blocks.selectedImageSizes == [.auto]) { editor.blocks.setImage(size: .auto) }
-                        imageChoice("大图", symbol: "rectangle", isOn: editor.blocks.selectedImageSizes == [.large]) { editor.blocks.setImage(size: .large) }
+                        imageChoice(String(localized: "Auto"), symbol: "rectangle.center.inset.filled", isOn: editor.blocks.selectedImageSizes == [.auto]) { editor.blocks.setImage(size: .auto) }
+                        imageChoice(String(localized: "Large"), symbol: "rectangle", isOn: editor.blocks.selectedImageSizes == [.large]) { editor.blocks.setImage(size: .large) }
                     }
                 }
                 .padding(.top, Metrics.sectionLead)
-                section("图片显示") {
+                section(String(localized: "Image Display")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
-                        imageChoice("填充", symbol: "square.arrowtriangle.4.outward", isOn: editor.blocks.selectedImageFits == [.fill]) { editor.blocks.setImage(fit: .fill) }
-                        imageChoice("适应", symbol: "arrow.down.and.line.horizontal.and.arrow.up", isOn: editor.blocks.selectedImageFits == [.fit]) { editor.blocks.setImage(fit: .fit) }
+                        imageChoice(String(localized: "Fill"), symbol: "square.arrowtriangle.4.outward", isOn: editor.blocks.selectedImageFits == [.fill]) { editor.blocks.setImage(fit: .fill) }
+                        imageChoice(String(localized: "Fit"), symbol: "arrow.down.and.line.horizontal.and.arrow.up", isOn: editor.blocks.selectedImageFits == [.fit]) { editor.blocks.setImage(fit: .fit) }
                     }
                 }
             }
             // Decorations (Craft's): the quote, its bar at the left (Craft's Focus; a kind
             // of text block here), and the grey box any blocks can sit in.
             if !decorated.isEmpty {
-                section("装饰") {
+                section(String(localized: "Decorations")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
-                        choice(isOn: kindIsOn(.quote), help: "引用") {
+                        choice(isOn: kindIsOn(.quote), help: String(localized: "Quote")) {
                             let kind: BlockKind = kindIsOn(.quote) ? .paragraph : .quote
                             editor.blocks.transition { editor.setKind(kind, of: targets.map(\.id)) }
                         } label: {
                             HStack(spacing: Tokens.Space.md) {
                                 Capsule().frame(width: Metrics.quoteBar.width, height: Metrics.quoteBar.height)
-                                Text("引用").font(Metrics.label)
+                                Text("Quote").font(Metrics.label)
                             }
                             .frame(maxWidth: .infinity, minHeight: Metrics.tallTile)
                         }
                         .disabled(targets.isEmpty)
-                        .accessibilityIdentifier("format-引用")
+                        .accessibilityIdentifier("format-quote")
                         let boxed = decorated.allSatisfy { $0.decoration == .block }
-                        choice(isOn: boxed, help: "块") {
+                        choice(isOn: boxed, help: String(localized: "Block")) {
                             editor.blocks.transition { editor.setDecoration(boxed ? nil : .block, of: decorated.map(\.id)) }
                         } label: {
-                            Text("块")
+                            Text("Block")
                                 .font(Metrics.label)
                                 .frame(maxWidth: .infinity, minHeight: Metrics.tallTile - 12)
                                 .background(Tokens.ColorRole.Surface.pressed.opacity(0.7), in: .rect(cornerRadius: Tokens.Radius.sm, style: .continuous))
                                 .padding(6)
                         }
-                        .accessibilityIdentifier("format-块")
+                        .accessibilityIdentifier("format-block")
                     }
                 }
                 .padding(.top, Metrics.sectionLead)
             }
             if !markRanges.isEmpty {
-                section("颜色") { colors }
+                section(String(localized: "Color")) { colors }
                     .padding(.top, decorated.isEmpty ? Metrics.sectionLead : 0)
             }
         }
@@ -134,7 +134,7 @@ struct DocFormatPanel: View {
         let current = editor.common(.color, over: ranges)
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Metrics.swatchSpacing), count: Metrics.swatchColumns),
                          spacing: Metrics.swatchSpacing) {
-            swatch(nil, title: "默认", isOn: current == nil, ranges: ranges)
+            swatch(nil, title: String(localized: "Default"), isOn: current == nil, ranges: ranges)
             ForEach(DocColors.palette, id: \.token) { item in
                 swatch(item.token, title: item.title, isOn: current == .color(item.token), ranges: ranges)
             }
@@ -152,7 +152,7 @@ struct DocFormatPanel: View {
             Circle()
                 .fill(picked.map(DocColors.swatch) ?? Color(.systemBackground))
                 .padding(6)
-            ColorPicker("其他颜色", selection: Binding {
+            ColorPicker("Other Color", selection: Binding {
                 picked.map(DocColors.swatch) ?? .primary
             } set: { color in
                 editor.set(.color, to: .color(DocColors.hex(color)), over: ranges, merge: editor.colorMergeKey(over: ranges))
@@ -162,7 +162,7 @@ struct DocFormatPanel: View {
         }
         .frame(width: Metrics.swatch, height: Metrics.swatch)
         .clipShape(Circle())
-        .help("其他颜色")
+        .help("Other Color")
         .accessibilityIdentifier("color-custom")
     }
 
@@ -205,10 +205,10 @@ struct DocFormatPanel: View {
                 }
             })
             DocSegments(items: [
-                .init(id: "outdent", symbol: "decrease.indent", title: "减少缩进", isOn: false, isEnabled: canIndent(-1)) {
+                .init(id: "outdent", symbol: "decrease.indent", title: String(localized: "Outdent"), isOn: false, isEnabled: canIndent(-1)) {
                     editor.blocks.transition { editor.indent(targets.map(\.id), by: -1) }
                 },
-                .init(id: "indent", symbol: "increase.indent", title: "增加缩进", isOn: false, isEnabled: canIndent(1)) {
+                .init(id: "indent", symbol: "increase.indent", title: String(localized: "Indent"), isOn: false, isEnabled: canIndent(1)) {
                     editor.blocks.transition { editor.indent(targets.map(\.id), by: 1) }
                 },
             ])
@@ -278,27 +278,27 @@ struct DocFormatPanel: View {
     // MARK: Pieces
 
     private static let marks: [(id: String, symbol: String, title: String, mark: Mark)] = [
-        ("bold", "bold", "加粗", .bold),
-        ("italic", "italic", "斜体", .italic),
-        ("strike", "strikethrough", "删除线", .strike),
-        ("code", "chevron.left.forwardslash.chevron.right", "代码", .code),
+        ("bold", "bold", String(localized: "Bold"), .bold),
+        ("italic", "italic", String(localized: "Italic"), .italic),
+        ("strike", "strikethrough", String(localized: "Strikethrough"), .strike),
+        ("code", "chevron.left.forwardslash.chevron.right", String(localized: "Code"), .code),
     ]
 
     /// The text styles, Craft's: titles, then content; each its ⌃ key.
     static let styles: [(key: String, title: String, size: CGFloat, weight: Font.Weight, kind: BlockKind)] = [
-        ("1", "标题", 15, .bold, .heading(level: 1)),
-        ("2", "副标题", 15, .bold, .heading(level: 2)),
-        ("3", "小标题", 15, .semibold, .heading(level: 3)),
-        ("4", "强调", 15, .semibold, .heading(level: 4)),
-        ("5", "正文", 15, .regular, .paragraph),
-        ("6", "说明", 13.5, .regular, .caption),
+        ("1", String(localized: "Title"), 15, .bold, .heading(level: 1)),
+        ("2", String(localized: "Subtitle"), 15, .bold, .heading(level: 2)),
+        ("3", String(localized: "Heading"), 15, .semibold, .heading(level: 3)),
+        ("4", String(localized: "Strong"), 15, .semibold, .heading(level: 4)),
+        ("5", String(localized: "Body"), 15, .regular, .paragraph),
+        ("6", String(localized: "Caption"), 13.5, .regular, .caption),
     ]
 
     private static let lists: [(id: String, symbol: String, title: String, kind: BlockKind)] = [
-        ("task", "checkmark.square", "待办", .listItem(style: .task(done: false))),
-        ("toggle", "arrowtriangle.right.fill", "折叠列表", .listItem(style: .toggle(open: true))),
-        ("bullet", "list.bullet", "无序列表", .listItem(style: .bullet)),
-        ("numbered", "list.number", "有序列表", .listItem(style: .numbered)),
+        ("task", "checkmark.square", String(localized: "To-do"), .listItem(style: .task(done: false))),
+        ("toggle", "arrowtriangle.right.fill", String(localized: "Toggle List"), .listItem(style: .toggle(open: true))),
+        ("bullet", "list.bullet", String(localized: "Bulleted List"), .listItem(style: .bullet)),
+        ("numbered", "list.number", String(localized: "Numbered List"), .listItem(style: .numbered)),
     ]
 
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
@@ -355,7 +355,7 @@ struct DocFormatPanel: View {
         .buttonStyle(.plain)
         .disabled(targets.isEmpty)
         .help("⌃\(style.key)")
-        .accessibilityIdentifier("format-\(style.title)")
+        .accessibilityIdentifier("format-style-\(style.key)")
     }
 }
 

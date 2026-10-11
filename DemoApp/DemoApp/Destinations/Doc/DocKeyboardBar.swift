@@ -100,7 +100,7 @@ final class DocKeyboardBar: UIInputView {
                     self?.refresh()
                 })
             }
-            add(key("link", UIImage(systemName: "link"), "链接", isOn: marks.contains(.link)) { [weak self] in
+            add(key("link", UIImage(systemName: "link"), String(localized: "Link"), isOn: marks.contains(.link)) { [weak self] in
                 guard let editor = self?.editor, let view = editor.textView(for: block.id) else { return }
                 editor.promptLink(over: range, in: block.id, from: view)
             })
@@ -108,17 +108,17 @@ final class DocKeyboardBar: UIInputView {
         case .cursor(_, let kind, _, let isEmpty, let canUndo, let canRedo):
             keys.distribution = .fill
             let isList = if case .listItem = kind { true } else { false }
-            add(menuKey("lists", UIImage(systemName: "list.bullet"), "列表", isOn: isList, menu: kindMenu(Self.listKinds, block: block)))
-            add(menuKey("styles", UIImage(systemName: "textformat"), "文字样式", menu: kindMenu(Self.textKinds, block: block)))
-            add(menuKey("more", Self.verticalEllipsis, "更多", menu: moreMenu(block, canUndo: canUndo, canRedo: canRedo)))
+            add(menuKey("lists", UIImage(systemName: "list.bullet"), String(localized: "List"), isOn: isList, menu: kindMenu(Self.listKinds, block: block)))
+            add(menuKey("styles", UIImage(systemName: "textformat"), String(localized: "Text Style"), menu: kindMenu(Self.textKinds, block: block)))
+            add(menuKey("more", Self.verticalEllipsis, String(localized: "More"), menu: moreMenu(block, canUndo: canUndo, canRedo: canRedo)))
             add(UIView())
             if isEmpty {
-                add(key("divider", Self.dividerGlyph, "分割线") { [weak self] in
+                add(key("divider", Self.dividerGlyph, String(localized: "Divider")) { [weak self] in
                     self?.editor?.perform(.divider, in: block, replacing: 0..<0, from: DocPosition(block: block.id, offset: 0))
                     self?.refresh()
                 })
             }
-            add(menuKey("insert", UIImage(systemName: "plus"), "插入", menu: insertMenu(block)))
+            add(menuKey("insert", UIImage(systemName: "plus"), String(localized: "Insert"), menu: insertMenu(block)))
             add(dismissKey())
         }
     }
@@ -126,11 +126,11 @@ final class DocKeyboardBar: UIInputView {
     // MARK: Menus
 
     private static let marks: [(id: String, symbol: String, title: String, mark: Mark)] = [
-        ("highlight", "highlighter", "高亮", .highlight(color: nil)),
-        ("bold", "bold", "加粗", .bold),
-        ("italic", "italic", "斜体", .italic),
-        ("strike", "strikethrough", "删除线", .strike),
-        ("code", "chevron.left.forwardslash.chevron.right", "代码", .code),
+        ("highlight", "highlighter", String(localized: "Highlight"), .highlight(color: nil)),
+        ("bold", "bold", String(localized: "Bold"), .bold),
+        ("italic", "italic", String(localized: "Italic"), .italic),
+        ("strike", "strikethrough", String(localized: "Strikethrough"), .strike),
+        ("code", "chevron.left.forwardslash.chevron.right", String(localized: "Code"), .code),
     ]
 
     private static let listKinds = ["bullet", "numbered", "task", "toggle"]
@@ -152,22 +152,22 @@ final class DocKeyboardBar: UIInputView {
         var indent: [UIMenuElement] = []
         if case .listItem = block.kind {
             indent = [
-                UIAction(title: "增加缩进", image: UIImage(systemName: "increase.indent")) { [weak self] _ in
+                UIAction(title: String(localized: "Indent"), image: UIImage(systemName: "increase.indent")) { [weak self] _ in
                     self?.editor?.indent(block, by: 1)
                     self?.refresh()
                 },
-                UIAction(title: "减少缩进", image: UIImage(systemName: "decrease.indent"), attributes: block.indent > 0 ? [] : .disabled) { [weak self] _ in
+                UIAction(title: String(localized: "Outdent"), image: UIImage(systemName: "decrease.indent"), attributes: block.indent > 0 ? [] : .disabled) { [weak self] _ in
                     self?.editor?.indent(block, by: -1)
                     self?.refresh()
                 },
             ]
         }
         let history: [UIMenuElement] = [
-            UIAction(title: "撤销", image: UIImage(systemName: "arrow.uturn.backward"), attributes: canUndo ? [] : .disabled) { [weak self] _ in
+            UIAction(title: String(localized: "Undo"), image: UIImage(systemName: "arrow.uturn.backward"), attributes: canUndo ? [] : .disabled) { [weak self] _ in
                 self?.editor?.requestUndo()
                 self?.refresh()
             },
-            UIAction(title: "重做", image: UIImage(systemName: "arrow.uturn.forward"), attributes: canRedo ? [] : .disabled) { [weak self] _ in
+            UIAction(title: String(localized: "Redo"), image: UIImage(systemName: "arrow.uturn.forward"), attributes: canRedo ? [] : .disabled) { [weak self] _ in
                 self?.editor?.requestRedo()
                 self?.refresh()
             },
@@ -219,7 +219,7 @@ final class DocKeyboardBar: UIInputView {
     }
 
     private func dismissKey() -> UIButton {
-        key("dismiss", UIImage(systemName: "keyboard.chevron.compact.down"), "收起键盘") { [weak self] in
+        key("dismiss", UIImage(systemName: "keyboard.chevron.compact.down"), String(localized: "Hide Keyboard")) { [weak self] in
             self?.window?.endEditing(true)
         }
     }
