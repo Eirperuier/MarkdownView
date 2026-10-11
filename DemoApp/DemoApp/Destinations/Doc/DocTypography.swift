@@ -14,23 +14,34 @@ import DocKit
 import MarkdownView
 
 enum DocTypography {
+    /// On the Mac the page's text reads at Craft's size: the app is drawn smaller there
+    /// (scaled as an iPad's), and Craft's Mac text, measured against ours, is this much
+    /// larger: body text 1.16 times, headings 1.24 times.
+    #if targetEnvironment(macCatalyst)
+    static let textScale: CGFloat = 1.16
+    static let headingScale: CGFloat = 1.24
+    #else
+    static let textScale: CGFloat = 1
+    static let headingScale: CGFloat = 1
+    #endif
+
     /// The selectable path's fonts: body text, headings by level, inline code.
     static let fonts = MarkdownPlatformTypography(
-        body: .init(.body),
+        body: .init(.body, scale: textScale),
         headings: [
-            .init(.title1, weight: .bold),
-            .init(.title2, weight: .bold),
-            .init(.title3, weight: .semibold),
-            .init(.headline, weight: .semibold),
+            .init(.title1, weight: .bold, scale: headingScale),
+            .init(.title2, weight: .bold, scale: headingScale),
+            .init(.title3, weight: .semibold, scale: headingScale),
+            .init(.headline, weight: .semibold, scale: textScale),
         ],
-        inlineCode: .init(.callout),
-        tableBody: .init(.body)
+        inlineCode: .init(.callout, scale: textScale),
+        tableBody: .init(.body, scale: textScale)
     )
     /// A caption's: smaller text, drawn secondary.
     static var captionFonts: MarkdownPlatformTypography {
         var fonts = fonts
-        fonts.body = .init(.footnote)
-        fonts.inlineCode = .init(.caption1)
+        fonts.body = .init(.footnote, scale: textScale)
+        fonts.inlineCode = .init(.caption1, scale: textScale)
         return fonts
     }
     /// Between the lines of a paragraph (body text about 1.7 lines high); a heading's

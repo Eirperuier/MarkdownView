@@ -363,8 +363,10 @@ private struct DocRowView: View {
         // The document's type, and its own spacing between blocks (not a stream block's).
         .markdownPlatformTypography(DocTypography.fonts)
         .markdownStreamBlockEdgeInsets(false)
-        // Code at the text's size, monospaced (the editor uses the same font).
+        // Code at the text's size, monospaced (the editor uses the same font); a table's
+        // cells at the page's body size (their editor's).
         .font(Font(docCodeFont), for: .codeBlock)
+        .font(Font(DocTableCellField.bodyFont), for: .tableBody)
     }
 
     /// A paragraph, heading, list item or quote, from its tree (as MarkdownStreamBlockView

@@ -1667,6 +1667,25 @@ final class DocEditTests {
             if blocks.isSelecting { blocks.endSelecting() } else { blocks.clear() }
         }
         if DocBlockController.usesHandles {
+            await test("on the Mac the page's text reads at Craft's size: body 1.16 times, headings 1.24 times the text styles") {
+                @MainActor func renderedFont(_ prefix: String) throws -> UIFont {
+                    let block = try self.block(prefix)
+                    let view = try self.expectValue(self.editor.textView(for: block.id), "no text view for \(prefix)")
+                    let text = try self.expectValue(view.attributedText, "no text")
+                    let start = try self.expectValue(self.editor.textStart(in: view, block: block), "not in sync")
+                    return try self.expectValue(text.attribute(.font, at: start, effectiveRange: nil) as? UIFont, "no font")
+                }
+                let paragraph = try self.block("Loading older")
+                await show(paragraph.id)
+                let body = try renderedFont("Loading older").pointSize
+                let expected = UIFont.preferredFont(forTextStyle: .body).pointSize * 1.16
+                try self.expect(abs(body - expected) < 0.01, "body \(body), wanted \(expected)")
+                let heading = try self.block("第 1 节")
+                await show(heading.id)
+                let size = try renderedFont("第 1 节").pointSize
+                let wanted = UIFont.preferredFont(forTextStyle: .title2).pointSize * 1.24
+                try self.expect(abs(size - wanted) < 0.01, "heading \(size), wanted \(wanted)")
+            }
             await test("blocks selected next to each other are highlighted each on its own, a little around their text") {
                 let nested = try self.block("嵌套列表的缩进")
                 let group = blocks.groups([nested.id])[0]

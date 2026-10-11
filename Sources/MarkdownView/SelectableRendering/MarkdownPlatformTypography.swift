@@ -18,10 +18,13 @@ public struct MarkdownPlatformTypography: Hashable, Sendable {
     public struct Style: Hashable, Sendable {
         public var textStyle: PlatformFont.TextStyle
         public var weight: PlatformFont.Weight
+        /// Times the text style's size (an app whose text reads larger than the system's).
+        public var scale: CGFloat
 
-        public init(_ textStyle: PlatformFont.TextStyle, weight: PlatformFont.Weight = .regular) {
+        public init(_ textStyle: PlatformFont.TextStyle, weight: PlatformFont.Weight = .regular, scale: CGFloat = 1) {
             self.textStyle = textStyle
             self.weight = weight
+            self.scale = scale
         }
     }
 
@@ -65,12 +68,16 @@ extension MarkdownPlatformTypography.Style {
         #if canImport(UIKit)
         let traits = dynamicTypeSize.map { UITraitCollection(preferredContentSizeCategory: $0.uiContentSizeCategory) }
         let preferred = UIFont.preferredFont(forTextStyle: textStyle, compatibleWith: traits)
-        if monospaced { return .monospacedSystemFont(ofSize: preferred.pointSize, weight: weight) }
-        return weight == .regular ? preferred : .systemFont(ofSize: preferred.pointSize, weight: weight)
+        let size = preferred.pointSize * scale
+        if monospaced { return .monospacedSystemFont(ofSize: size, weight: weight) }
+        guard weight == .regular else { return .systemFont(ofSize: size, weight: weight) }
+        return scale == 1 ? preferred : preferred.withSize(size)
         #else
         let preferred = NSFont.preferredFont(forTextStyle: textStyle)
-        if monospaced { return .monospacedSystemFont(ofSize: preferred.pointSize, weight: weight) }
-        return weight == .regular ? preferred : .systemFont(ofSize: preferred.pointSize, weight: weight)
+        let size = preferred.pointSize * scale
+        if monospaced { return .monospacedSystemFont(ofSize: size, weight: weight) }
+        guard weight == .regular else { return .systemFont(ofSize: size, weight: weight) }
+        return scale == 1 ? preferred : NSFont(descriptor: preferred.fontDescriptor, size: size) ?? preferred
         #endif
     }
 }
