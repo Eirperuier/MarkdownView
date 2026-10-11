@@ -1224,6 +1224,9 @@ final class DocEditTests {
                 try self.expect(abs(handle.midY - lineInList.midY) < 1, "handle at \(handle.midY), first line at \(lineInList.midY)")
                 try self.expect(handle.maxX <= lineInList.minX && handle.minX >= row.minX, "handle \(handle) beside \(lineInList)")
             }
+            await test("a click on the handle is the handle's only: the row's click doesn't put the caret in the text") {
+                try self.expect(!blocks.testRowClickTakesHandle, "the row's click takes the handle's clicks")
+            }
             await test("every block's handle is in the same column, nested or not") {
                 let paragraph = try self.block("这篇文档由 DocKit")
                 let nested = try self.block("编号也一样")

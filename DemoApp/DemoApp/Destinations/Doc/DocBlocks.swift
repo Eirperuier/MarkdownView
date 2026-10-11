@@ -157,12 +157,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         list.addGestureRecognizer(click)
         rowClick = click
         // It only takes touches on links and images, so elsewhere nothing waits for it.
+        // A click doesn't wait for it either: the first click selects at once (the
+        // system's double-click time would hold every click back), the second opens.
+        // The phone's selecting tap waits, or a double tap would toggle twice.
         let open = UITapGestureRecognizer(target: self, action: #selector(mediaDoubleClicked(_:)))
         open.numberOfTapsRequired = 2
         open.delegate = self
         list.addGestureRecognizer(open)
         mediaOpen = open
-        click.require(toFail: open)
         selectTap?.require(toFail: open)
         observations = [
             list.observe(\.contentSize) { [weak self] _, _ in MainActor.assumeIsolated { self?.layoutOverlays() } },
@@ -510,9 +512,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             return opens(id)
         }
         if recognizer === rowClick {
-            // Text views and controls take their own clicks.
             guard !isSelecting, drag == nil else { return false }
-            return !sequence(first: touch.view, next: { $0?.superview }).contains { $0 is UITextView || $0 is UIControl }
+            return rowClickTakes(touch.view)
         }
         guard !demo.isAgentWriting, drag == nil else { return false }
         var view = touch.view
@@ -523,6 +524,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             view = current.superview
         }
         return true
+    }
+
+    /// Whether a click on this view is the row's. Text views and controls take their
+    /// own clicks; the handle takes its own too: the row's would put the caret in the
+    /// block's text, and the text taking the focus clears the selection the handle
+    /// just made (it happens with it, as a table cell's own tap does).
+    private func rowClickTakes(_ view: UIView?) -> Bool {
+        !sequence(first: view, next: { $0?.superview }).contains { $0 is UITextView || $0 is UIControl || $0 === handle }
     }
 
     @objc private func longPressed(_ recognizer: UILongPressGestureRecognizer) {
@@ -1363,6 +1372,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     var testRowFrame: (DocBlockID) -> CGRect? { { [weak self] in self?.rowFrame($0) } }
     var testHighlightFrames: [CGRect] { highlights.filter { !$0.isHidden }.map(\.frame) }
     var testHandleFrame: CGRect? { Self.usesHandles && !handle.isHidden ? handle.frame : nil }
+
+    /// Whether the row's click takes a click on the handle (it mustn't).
+    var testRowClickTakesHandle: Bool { rowClickTakes(handle) }
 
     func testHover(_ id: DocBlockID) {
         guard let list, let frame = rowFrame(id) else { return }
