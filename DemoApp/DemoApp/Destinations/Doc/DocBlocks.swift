@@ -214,7 +214,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         }
         observations = [
             list.observe(\.contentSize) { [weak self] _, _ in MainActor.assumeIsolated { self?.layoutOverlays() } },
-            list.observe(\.contentOffset) { [weak self] _, _ in MainActor.assumeIsolated { self?.followHover() } },
+            list.observe(\.contentOffset) { [weak self] _, _ in MainActor.assumeIsolated { self?.rowsMoved() } },
         ]
     }
 
@@ -391,6 +391,20 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         }
         followHover()
     }
+
+    /// The rows moved under the pointer: the block under it is found once the list is done
+    /// (the offset changes in the middle of its updates, and hit-testing a row lays its
+    /// content out then, the new content at the row's old size, and its animation is lost).
+    private func rowsMoved() {
+        guard Self.usesHandles, hoverPoint != nil, !followsHoverSoon else { return }
+        followsHoverSoon = true
+        DispatchQueue.main.async { [weak self] in
+            self?.followsHoverSoon = false
+            self?.followHover()
+        }
+    }
+
+    @ObservationIgnored private var followsHoverSoon = false
 
     /// The block under the pointer, again: the pointer moved or the rows did.
     private func followHover() {
