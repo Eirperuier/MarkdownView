@@ -6,10 +6,13 @@
 //  it (⇧ extends, ⌘ adds) and a drag moves it, from anywhere on it or from the handle
 //  beside the block under the pointer; only a selected block's content takes clicks (a
 //  second click puts the caret in its text, edits a cell, code or math). While text is
-//  edited, every block with text takes them: a click there edits it. On a phone, as in flowith's Composer, a long press lifts the block: drag
-//  it to move it, or let go to start selecting blocks (tap to add or remove). A list
-//  item moves with the items nested under it; a move is one transaction of moveBlock
-//  steps, undone in one go.
+//  edited, every block with text takes them: a click there edits it. On a phone a tap
+//  edits (a link, file or image opens), a long press lifts the block: drag it to move
+//  it, or let go to start selecting blocks; a swipe either way selects one too
+//  (flowith's Composer), and while selecting a tap or a swipe adds or removes one.
+//  Selecting a list item selects it alone; moving it takes the items nested under it.
+//  Drags are the system's (Craft's): the rows lifted from where they are, landing on
+//  where they go. A move is one transaction of moveBlock steps, undone in one go.
 //
 //  The handle, the selection, the drop line and the dimmed source rows are views in
 //  the list's own scroll view (content coordinates), so they scroll with the rows.
@@ -22,7 +25,8 @@ import MessagingUI
 
 @MainActor
 @Observable
-final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreviewControllerDataSource {
+final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInteractionDelegate, UIDropInteractionDelegate,
+    QLPreviewControllerDataSource {
     #if targetEnvironment(macCatalyst)
     nonisolated static let usesHandles = true
     #else
@@ -78,22 +82,29 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     /// the list's frame, to find it again after a scroll.
     @ObservationIgnored private(set) var hovered: DocBlockID?
     @ObservationIgnored private var hoverPoint: CGPoint?
-    @ObservationIgnored private var press: (block: DocBlockID, start: CGPoint)?
     @ObservationIgnored private var drag: Drag?
+    /// The moved blocks while the system flies their rows to where they landed: dimmed
+    /// until then (Craft's).
+    @ObservationIgnored private var landing: [DocBlockID] = []
+    @ObservationIgnored private var dragging: UIDragInteraction?
+    @ObservationIgnored private var dropping: UIDropInteraction?
+    /// The phone's swipe that selects a block, and the row it moves.
+    @ObservationIgnored private var swipe: UIPanGestureRecognizer?
+    @ObservationIgnored private var swiped: (block: DocBlockID, cell: UIView?)?
     @ObservationIgnored private var link: CADisplayLink?
     /// A click on a row outside its text (DocEditor.click), and the phone's tap that
     /// picks blocks while selecting.
     @ObservationIgnored private var rowClick: UITapGestureRecognizer?
-    /// The Mac's click or drag on a block whose content doesn't take it (blockTakes).
-    @ObservationIgnored private var blockPress: UILongPressGestureRecognizer?
+    /// The Mac's click on a block whose content doesn't take it (blockTakes).
+    @ObservationIgnored private var blockClick: UITapGestureRecognizer?
     @ObservationIgnored private var selectTap: UITapGestureRecognizer?
-    /// A double click on a link, image or file opens it (a single one selects it).
+    /// The Mac's double click on a link, image or file opens it (a single one selects it).
     @ObservationIgnored private var mediaOpen: UITapGestureRecognizer?
     /// Where a link opens (the browser; the edit tests catch it).
     @ObservationIgnored var opensURL: (URL) -> Void = { UIApplication.shared.open($0) }
     /// The image Quick Look shows.
     @ObservationIgnored private var previewing: URL?
-    /// Pieces flying to their rows: the selection shows once they're down.
+    /// Rows flying to where they landed: the selection shows once they're down.
     @ObservationIgnored private var landings = 0
 
     private struct Drag {
@@ -101,25 +112,17 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         /// items nested under them: what moves.
         var tops: [DocBlockID]
         var moving: [DocBlockID]
-        var preview: UIView
-        /// The card in the preview and, on it, each moving block's row as an image.
-        var card: UIView
-        var pieces: [Piece]
-        /// From the pointer to the preview's centre, in the list's frame.
-        var offset: CGPoint
-        /// The pointer, in the list's frame (stays put while the list scrolls under it).
+        var grabbed: DocBlockID
+        /// Where it started (list coordinates) and where the pointer is, in the list's
+        /// frame (stays put while the list scrolls under it).
+        var start: CGPoint
         var point: CGPoint
-        /// Whether it has moved yet: a phone's lifted block can still be let go as a tap.
-        var isMoving: Bool
+        /// Whether the lift finished: a phone's block lifted and let go starts selecting.
+        var isLifted = false
+        /// Whether it has moved yet.
+        var isMoving = false
         /// Where the blocks would go: after this block (nil: the top), or nowhere new.
         var target: DocBlockID??
-    }
-
-    /// One block's row in the preview, and where it sits on the card.
-    private struct Piece {
-        var block: DocBlockID
-        var view: UIImageView
-        var slot: CGRect
     }
 
     init(demo: DocDemo, editor: DocEditor) {
@@ -145,26 +148,30 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             handle.isHidden = true
             let hover = UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:)))
             list.addGestureRecognizer(hover)
-            for view in [handle, list] {
-                let press = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
-                press.minimumPressDuration = 0
-                press.allowableMovement = .greatestFiniteMagnitude
-                view.addGestureRecognizer(press)
-                if view === list {
-                    press.delegate = self
-                    blockPress = press
-                }
-            }
+            handle.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleClicked(_:))))
+            let click = UITapGestureRecognizer(target: self, action: #selector(blockClicked(_:)))
+            click.delegate = self
+            list.addGestureRecognizer(click)
+            blockClick = click
         } else {
-            let lift = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
-            lift.minimumPressDuration = 0.35
-            lift.delegate = self
-            list.addGestureRecognizer(lift)
             let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
             tap.delegate = self
             list.addGestureRecognizer(tap)
             selectTap = tap
+            let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
+            swipe.maximumNumberOfTouches = 1
+            swipe.delegate = self
+            list.addGestureRecognizer(swipe)
+            self.swipe = swipe
         }
+        let dragging = UIDragInteraction(delegate: self)
+        dragging.isEnabled = !Self.usesHandles
+        list.addInteraction(dragging)
+        self.dragging = dragging
+        let dropping = UIDropInteraction(delegate: self)
+        list.addInteraction(dropping)
+        self.dropping = dropping
+        followDragAvailability()
         // On the list, not in the rows: SwiftUI's hit testing doesn't always pass a click
         // through a row's content to a view behind it.
         let click = UITapGestureRecognizer(target: self, action: #selector(rowClicked(_:)))
@@ -174,13 +181,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         // It only takes touches on links and images, so elsewhere nothing waits for it.
         // A click doesn't wait for it either: the first click selects at once (the
         // system's double-click time would hold every click back), the second opens.
-        // The phone's selecting tap waits, or a double tap would toggle twice.
-        let open = UITapGestureRecognizer(target: self, action: #selector(mediaDoubleClicked(_:)))
-        open.numberOfTapsRequired = 2
-        open.delegate = self
-        list.addGestureRecognizer(open)
-        mediaOpen = open
-        selectTap?.require(toFail: open)
+        // On a phone a tap opens them.
+        if Self.usesHandles {
+            let open = UITapGestureRecognizer(target: self, action: #selector(mediaDoubleClicked(_:)))
+            open.numberOfTapsRequired = 2
+            open.delegate = self
+            list.addGestureRecognizer(open)
+            mediaOpen = open
+        }
         observations = [
             list.observe(\.contentSize) { [weak self] _, _ in MainActor.assumeIsolated { self?.layoutOverlays() } },
             list.observe(\.contentOffset) { [weak self] _, _ in MainActor.assumeIsolated { self?.followHover() } },
@@ -278,7 +286,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             return view
         }
         layoutChecks()
-        dimmers = place(drag.map { $0.isMoving ? runs(of: $0.moving) : [] } ?? [], in: dimmers, outset: 6) {
+        let dimmed = (drag.map { $0.isMoving ? $0.moving : [] } ?? []) + landing
+        dimmers = place(runs(of: dimmed), in: dimmers, outset: 6) {
             let view = UIView()
             view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.65)
             view.layer.zPosition = 6
@@ -379,7 +388,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             hoverPoint = list.convert(recognizer.location(in: list), to: list.superview)
         default:
             // Leaving the list hides the handle, but not while it is being used.
-            guard press == nil else { return }
+            guard drag == nil else { return }
             hoverPoint = nil
         }
         followHover()
@@ -387,57 +396,21 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     /// The block under the pointer, again: the pointer moved or the rows did.
     private func followHover() {
-        guard Self.usesHandles, let list, press == nil, drag == nil else { return }
+        guard Self.usesHandles, let list, drag == nil else { return }
         let next = hoverPoint.flatMap { block(at: list.convert($0, from: list.superview)) }
         if next != hovered { hovered = next }
         layoutHandle()
+        updateDragAvailability()
     }
 
-    /// A press on the handle (the hovered block's) or on a block (blockPress).
-    @objc private func pressed(_ recognizer: UILongPressGestureRecognizer) {
-        guard let list else { return }
-        let point = recognizer.location(in: list)
-        switch recognizer.state {
-        case .began:
-            guard let id = recognizer.view === handle ? hovered : block(at: point) else { return }
-            pressBegan(id, at: point)
-        case .changed:
-            pressMoved(to: point)
-        case .ended:
-            pressEnded(modifiers: recognizer.modifierFlags)
-        default:
-            press = nil
-            cancelDrag()
-        }
+    @objc private func handleClicked(_ recognizer: UITapGestureRecognizer) {
+        guard let hovered, !demo.isAgentWriting else { return }
+        click(hovered, modifiers: recognizer.modifierFlags)
     }
 
-    private func pressBegan(_ id: DocBlockID, at point: CGPoint) {
-        guard !demo.isAgentWriting else { return }
-        press = (id, point)
-    }
-
-    /// The press moved to `point` (list coordinates): past a few points it picks the
-    /// block up.
-    private func pressMoved(to point: CGPoint) {
-        guard let list, let press else { return }
-        if drag == nil, hypot(point.x - press.start.x, point.y - press.start.y) > 4 {
-            // Craft selects what it picks up, unless it is already in the selection.
-            if !selected.contains(press.block) { select([press.block]) }
-            lift(press.block, at: point)
-            startMoving()
-        }
-        if drag != nil { moveDrag(to: list.convert(point, to: list.superview)) }
-    }
-
-    /// Let go: what was picked up drops, a press that didn't move is a click.
-    private func pressEnded(modifiers: UIKeyModifierFlags) {
-        guard let press else { return }
-        self.press = nil
-        if drag != nil {
-            drop()
-        } else {
-            click(press.block, modifiers: modifiers)
-        }
+    @objc private func blockClicked(_ recognizer: UITapGestureRecognizer) {
+        guard let list, !demo.isAgentWriting, let id = block(at: recognizer.location(in: list)) else { return }
+        click(id, modifiers: recognizer.modifierFlags)
     }
 
     /// Whether a block's row (`editsText`: it has text to edit) takes clicks itself (its
@@ -453,10 +426,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         return editing == id || editsText
     }
 
-    /// Whether the Mac's press on the list takes a touch on `view` at `point` (list
-    /// coordinates): on a block whose row doesn't take clicks, or on a selected one with
-    /// nothing in it to edit (a link, file, image, divider: a click selects it again, a
-    /// drag moves it).
+    /// Whether the Mac's click and drag on the list take a touch on `view` at `point`
+    /// (list coordinates): on a block whose row doesn't take clicks, or on a selected one
+    /// with nothing in it to edit (a link, file, image, divider: a click selects it
+    /// again, a drag moves it).
     private func pressTakes(_ view: UIView?, at point: CGPoint) -> Bool {
         guard Self.usesHandles, !demo.isAgentWriting, drag == nil, let id = block(at: point),
             !sequence(first: view, next: { $0?.superview }).contains(where: { $0 is UIControl || $0 === handle })
@@ -471,11 +444,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         if modifiers.contains(.shift), let anchor {
             extend(from: anchor, to: id)
         } else if modifiers.contains(.command) {
-            let group = Set(groups([id]).flatMap { $0 })
             if selected.contains(id) {
-                setSelection(selected.filter { !group.contains($0) })
+                setSelection(selected.filter { $0 != id })
             } else {
-                setSelection(selected + group)
+                setSelection(selected + [id])
             }
             anchor = id
             head = id
@@ -487,11 +459,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     // MARK: Selection
 
-    /// Selects these blocks and the items nested under them.
-    func select(_ tops: [DocBlockID]) {
-        setSelection(groups(tops).flatMap { $0 })
-        anchor = tops.first
-        head = tops.last
+    /// Selects these blocks (a list item alone, not the items nested under it).
+    func select(_ ids: [DocBlockID]) {
+        setSelection(ids)
+        anchor = ids.first
+        head = ids.last
     }
 
     private func setSelection(_ ids: [DocBlockID]) {
@@ -505,7 +477,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         let ids = demo.doc.blocks.map(\.id)
         guard let from = ids.firstIndex(of: anchor), let to = ids.firstIndex(of: target) else { return }
         let range = min(from, to)...max(from, to)
-        setSelection(groups(Array(ids[range])).flatMap { $0 })
+        setSelection(Array(ids[range]))
         head = target
     }
 
@@ -528,13 +500,32 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         if typing == id { typing = nil }
     }
 
+    /// Whether a drag can start now. On the Mac, where the pointer is: from the handle,
+    /// or from a block whose row doesn't take clicks (pickUp), so a drag on text a click
+    /// would edit selects the text. On a phone, while nothing is edited: the text being
+    /// typed in keeps its long press (the loupe, selecting).
+    private func updateDragAvailability() {
+        guard let list, let dragging, drag == nil else { return }
+        if Self.usesHandles {
+            dragging.isEnabled = hoverPoint.map { pickUp(at: list.convert($0, from: list.superview)) != nil } ?? false
+        } else {
+            dragging.isEnabled = !demo.isAgentWriting && typing == nil && editor.tables.editing == nil && editor.sources.editing == nil
+        }
+    }
+
+    /// Keeps the drag's availability up with what it depends on (the selection, what's
+    /// edited, the agent writing).
+    private func followDragAvailability() {
+        withObservationTracking { updateDragAvailability() } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followDragAvailability() }
+        }
+    }
+
     /// The block before or after the selection (↑ ↓); with ⇧ the selection grows to it.
     func step(_ direction: Int, extending: Bool) {
         let ids = demo.doc.blocks.map(\.id)
         guard let current = head ?? selected.last, let index = ids.firstIndex(of: current) else { return }
-        var next = index + direction
-        // Down from a list item skips the items nested under it (they're selected with it).
-        if direction > 0, !extending, let last = selected.last, let lastIndex = ids.firstIndex(of: last) { next = max(next, lastIndex + 1) }
+        let next = index + direction
         guard ids.indices.contains(next) else { return }
         if extending, let anchor {
             extend(from: anchor, to: ids[next])
@@ -574,28 +565,31 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         clear()
     }
 
-    // MARK: Phone: lift, select
+    // MARK: Phone: tap, swipe, select
 
     func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if recognizer === selectTap { return isSelecting }
+        if recognizer === swipe {
+            guard drag == nil, !demo.isAgentWriting, let list, block(at: touch.location(in: list)) != nil else { return false }
+            return !sequence(first: touch.view, next: { $0?.superview }).contains { $0 is UIControl }
+        }
         if recognizer === mediaOpen {
             guard drag == nil, let list, let id = block(at: touch.location(in: list)) else { return false }
             return opens(id)
         }
-        if recognizer === blockPress, let list { return pressTakes(touch.view, at: touch.location(in: list)) }
+        if recognizer === blockClick, let list { return pressTakes(touch.view, at: touch.location(in: list)) }
         if recognizer === rowClick {
             guard !isSelecting, drag == nil, let list else { return false }
             return rowClickTakes(touch.view) && !pressTakes(touch.view, at: touch.location(in: list))
         }
-        guard !demo.isAgentWriting, drag == nil else { return false }
-        var view = touch.view
-        while let current = view, current !== list {
-            if current is UIControl { return false }
-            // The text being typed in keeps its own long press (the loupe, selecting).
-            if current.isFirstResponder { return false }
-            view = current.superview
-        }
         return true
+    }
+
+    /// A swipe starts across, not along the page (it scrolls).
+    func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard recognizer === swipe, let pan = recognizer as? UIPanGestureRecognizer, let list else { return true }
+        let velocity = pan.velocity(in: list)
+        return abs(velocity.x) > abs(velocity.y)
     }
 
     /// Whether a click on this view is the row's. Text views and controls take their
@@ -606,39 +600,73 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         !sequence(first: view, next: { $0?.superview }).contains { $0 is UITextView || $0 is UIControl || $0 === handle }
     }
 
-    @objc private func longPressed(_ recognizer: UILongPressGestureRecognizer) {
+    // Composer's swipe: the row follows the finger, damped, and eases back; 80 points
+    // across select it (or, while selecting, add or remove it).
+    private static let swipeDistance: CGFloat = 80
+    private static let swipeMaxOffset: CGFloat = 72
+    private static let swipeDamping: CGFloat = 130
+    private static let swipeFlick: CGFloat = 1200
+
+    @objc private func swiped(_ recognizer: UIPanGestureRecognizer) {
         guard let list else { return }
-        let point = recognizer.location(in: list)
         switch recognizer.state {
         case .began:
-            guard let id = block(at: point) else { return }
-            press = (id, point)
-            list.window?.endEditing(true)
-            lift(id, at: point)
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            guard let id = block(at: recognizer.location(in: list)) else { return }
+            swipeBegan(id)
         case .changed:
-            guard let press else { return }
-            if drag?.isMoving == false, hypot(point.x - press.start.x, point.y - press.start.y) > 10 { startMoving() }
-            if drag?.isMoving == true { moveDrag(to: list.convert(point, to: list.superview)) }
+            swipeMoved(recognizer.translation(in: list).x)
         case .ended:
-            guard let press else { return }
-            self.press = nil
-            if drag?.isMoving == true {
-                drop()
-            } else {
-                cancelDrag()
-                // Let go where it was lifted: select it (Composer's batch editing).
-                if !isSelecting { beginSelecting(press.block) }
-            }
+            swipeEnded(recognizer.translation(in: list).x, velocity: recognizer.velocity(in: list).x)
         default:
-            press = nil
-            cancelDrag()
+            swipeEnded(0, velocity: 0)
         }
+    }
+
+    private func swipeBegan(_ id: DocBlockID) {
+        let cell = cells(of: [id]).first
+        cell?.layer.zPosition = 30
+        swiped = (id, cell)
+    }
+
+    private func swipeMoved(_ x: CGFloat) {
+        swiped?.cell?.transform = CGAffineTransform(translationX: Self.swipeOffset(x), y: 0)
+    }
+
+    private func swipeEnded(_ x: CGFloat, velocity: CGFloat) {
+        guard let (id, cell) = swiped else { return }
+        swiped = nil
+        let selects = abs(x) >= Self.swipeDistance
+        if selects { toggleSelecting(id) }
+        UIView.animate(withDuration: abs(velocity) >= Self.swipeFlick ? 0.15 : 0.2, delay: 0,
+                       options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+            cell?.transform = .identity
+        } completion: { _ in
+            cell?.layer.zPosition = 0
+        }
+    }
+
+    /// How far the row follows a swipe `x` across: less and less, up to 72 points.
+    private static func swipeOffset(_ x: CGFloat) -> CGFloat {
+        let magnitude = min(abs(x), 320)
+        return swipeMaxOffset * (1 - exp(-magnitude / swipeDamping)) * (x >= 0 ? 1 : -1)
+    }
+
+    /// A block picked while selecting is added or removed (the last one out ends
+    /// selecting); outside, selecting starts with it.
+    private func toggleSelecting(_ id: DocBlockID) {
+        guard isSelecting else { return beginSelecting(id) }
+        if selected.contains(id) {
+            setSelection(selected.filter { $0 != id })
+            if selected.isEmpty { endSelecting() }
+        } else {
+            setSelection(selected + [id])
+        }
+        UISelectionFeedbackGenerator().selectionChanged()
     }
 
     func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         // A table cell's own tap and the row's click both happen; a double click opens
-        // what the press on it selected.
+        // what the click on it selected.
         recognizer === rowClick || recognizer === mediaOpen
     }
 
@@ -648,16 +676,17 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
     }
 
     /// A click at a point of the window outside any text: the block whose row it is in
-    /// takes it. A link, file or image is selected by it (and opened by a second); on
-    /// the Mac so is any block whose row doesn't take clicks (blockTakes).
+    /// takes it. On the Mac a link, file or image is selected by it (and opened by a
+    /// second), as is any block whose row doesn't take clicks (blockTakes); on a phone a
+    /// tap opens a link, file or image.
     func click(atWindowPoint point: CGPoint) {
         guard let list, let id = block(at: list.convert(point, from: nil)) else { return }
         if Self.usesHandles, !blockTakes(id, editsText: demo.rows.first { $0.block == id }?.editsText ?? false) { return click(id) }
         guard let kind = demo.doc.block(id)?.kind, DocMediaView.draws(kind) else { return editor.click(id, at: point) }
         if Self.usesHandles {
             click(id)
-        } else if !isSelecting {
-            beginSelecting(id)
+        } else if !isSelecting, opens(id) {
+            open(id)
         }
     }
 
@@ -718,14 +747,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
         guard isSelecting, let list, let id = block(at: recognizer.location(in: list)) else { return }
-        let group = Set(groups([id]).flatMap { $0 })
-        if selected.contains(id) {
-            setSelection(selected.filter { !group.contains($0) })
-            if selected.isEmpty { endSelecting() }
-        } else {
-            setSelection(selected + group)
-        }
-        UISelectionFeedbackGenerator().selectionChanged()
+        toggleSelecting(id)
     }
 
     func beginSelecting(_ id: DocBlockID) {
@@ -761,55 +783,143 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     // MARK: Dragging
 
-    /// Picks the block up: the selection if the block is in it, else the block alone.
-    /// The preview shows every block that moves, in document order, as they will stand
-    /// after the drop; blocks that aren't next to the grabbed one fly into place on it.
-    private func lift(_ id: DocBlockID, at point: CGPoint) {
-        guard let list, let container = list.superview else { return }
+    /// The block a drag at `point` (list coordinates) picks up, if it picks one up. On
+    /// the Mac: the handle's, or a block whose row doesn't take clicks (pressTakes). On a
+    /// phone: any, but not from the text being typed in or a control.
+    private func pickUp(at point: CGPoint) -> DocBlockID? {
+        guard let list, drag == nil, !demo.isAgentWriting else { return nil }
+        let hit = list.hitTest(point, with: nil)
+        let chain = sequence(first: hit, next: { $0?.superview })
+        if Self.usesHandles {
+            if chain.contains(where: { $0 === handle }) { return hovered }
+            return pressTakes(hit, at: point) ? block(at: point) : nil
+        }
+        guard !chain.contains(where: { $0 is UIControl || $0?.isFirstResponder == true }) else { return nil }
+        return block(at: point)
+    }
+
+    /// Picks the block up: the selection if the block is in it, else the block alone,
+    /// with the items nested under them. One drag item per block (the system counts
+    /// them), each lifted from its own row.
+    private func beginDrag(_ id: DocBlockID, at point: CGPoint) -> [UIDragItem] {
+        guard let list else { return [] }
         let tops = selected.contains(id) ? topsOfSelection() : [id]
         let moving = groups(tops).flatMap { $0 }
-        guard let (preview, card, pieces) = makePreview(of: moving, grabbed: id) else { return }
-        container.addSubview(preview)
-        let at = list.convert(point, to: container)
-        drag = Drag(tops: tops, moving: moving, preview: preview, card: card, pieces: pieces,
-                    offset: CGPoint(x: preview.center.x - at.x, y: preview.center.y - at.y),
-                    point: at, isMoving: false, target: nil)
+        drag = Drag(tops: tops, moving: moving, grabbed: id, start: point, point: list.convert(point, to: list.superview))
         handle.isHidden = true
-        // Each piece starts on its own row and goes to its place on the card.
-        let scattered = pieces.contains { $0.view.frame != $0.slot }
-        if scattered { card.clipsToBounds = false }
-        UIView.animate(.spring(FlooDesignTokens.Motion.layoutSpring)) {
-            for piece in pieces { piece.view.frame = piece.slot }
-            if !Self.usesHandles { preview.transform = CGAffineTransform(translationX: 0, y: -6).scaledBy(x: 1.03, y: 1.03) }
-        } completion: {
-            card.clipsToBounds = true
+        return moving.map { block in
+            let item = UIDragItem(itemProvider: NSItemProvider())
+            item.localObject = block
+            return item
         }
     }
 
-    private func startMoving() {
-        guard var drag, !drag.isMoving else { return }
-        drag.isMoving = true
-        self.drag = drag
+    func dragInteraction(_ interaction: UIDragInteraction, itemsForBeginning session: UIDragSession) -> [UIDragItem] {
+        guard let list else { return [] }
+        // A lift let go before it finished may leave its drag behind.
+        if drag != nil { endDrag() }
+        let point = session.location(in: list)
+        guard let id = pickUp(at: point) else { return [] }
+        return beginDrag(id, at: point)
+    }
+
+    func dragInteraction(_ interaction: UIDragInteraction, sessionIsRestrictedToDraggingApplication session: UIDragSession) -> Bool {
+        true
+    }
+
+    func dragInteraction(_ interaction: UIDragInteraction, previewForLifting item: UIDragItem, session: UIDragSession) -> UITargetedDragPreview? {
+        (item.localObject as? DocBlockID).flatMap(preview)
+    }
+
+    /// A block's row as the system lifts it and lands it: its content, on the page's
+    /// lifted colour on a phone, nothing behind it on the Mac (the system shows it
+    /// translucent). Nil off screen.
+    private func preview(_ id: DocBlockID) -> UITargetedDragPreview? {
+        guard let list, let frame = contentFrame(id)?.insetBy(dx: -6, dy: -4),
+            frame.intersects(DocScrolling.visible(in: list)), let cell = cells(of: [id]).first
+        else { return nil }
+        let parameters = UIDragPreviewParameters()
+        parameters.visiblePath = UIBezierPath(roundedRect: list.convert(frame, to: cell), cornerRadius: 8)
+        parameters.backgroundColor = Self.usesHandles ? .clear
+            : .systemBackground.resolvedColor(with: list.traitCollection.modifyingTraits { $0.userInterfaceLevel = .elevated })
+        return UITargetedDragPreview(view: cell, parameters: parameters)
+    }
+
+    func dragInteraction(_ interaction: UIDragInteraction, willAnimateLiftWith animator: UIDragAnimating, session: UIDragSession) {
+        animator.addCompletion { [weak self] position in
+            guard let self else { return }
+            // Let go before the lift finished: nothing happens.
+            if position == .end { self.drag?.isLifted = true } else if self.drag?.isMoving != true { self.endDrag() }
+        }
+    }
+
+    func dragInteraction(_ interaction: UIDragInteraction, sessionWillBegin session: UIDragSession) {
         editor.tables.endEditing()
         editor.sources.endEditing()
-        let preview = drag.preview
-        UIView.animate(FlooDesignTokens.Motion.feedbackCurve) {
-            // On a phone the finger covers the block: it shrinks so the line where it
-            // will go stays in sight (Composer's).
-            preview.transform = Self.usesHandles ? .identity : CGAffineTransform(translationX: 0, y: -2).scaledBy(x: 0.5, y: 0.5)
-            preview.alpha = Self.usesHandles ? 0.92 : 1
-        }
+        // The rows lifted on the Mac move with the pointer at once.
+        if Self.usesHandles { drag?.isLifted = true }
         link = CADisplayLink(target: self, selector: #selector(autoscroll(_:)))
         link?.add(to: .main, forMode: .common)
+    }
+
+    func dragInteraction(_ interaction: UIDragInteraction, sessionDidMove session: UIDragSession) {
+        guard var drag, !drag.isMoving, let list else { return }
+        let point = session.location(in: list)
+        guard hypot(point.x - drag.start.x, point.y - drag.start.y) > (Self.usesHandles ? 4 : 10) else { return }
+        // Moving: the rows it lifted dim where they are (Craft's).
+        drag.isMoving = true
+        self.drag = drag
         layoutOverlays()
     }
 
-    private func moveDrag(to point: CGPoint) {
-        guard var drag, drag.isMoving else { return }
-        drag.point = point
-        drag.preview.center = CGPoint(x: point.x + drag.offset.x, y: point.y + drag.offset.y)
+    func dragInteraction(_ interaction: UIDragInteraction, session: UIDragSession, didEndWith operation: UIDropOperation) {
+        guard let drag = endDrag() else { return }
+        // A phone's block lifted and let go where it was: selecting starts with it
+        // (Composer's).
+        if !Self.usesHandles, drag.isLifted, !drag.isMoving, !isSelecting { beginSelecting(drag.grabbed) }
+    }
+
+    // MARK: Dropping
+
+    func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+        drag != nil && session.localDragSession != nil
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
+        guard var drag, let list else { return UIDropProposal(operation: .forbidden) }
+        drag.point = list.convert(session.location(in: list), to: list.superview)
         self.drag = drag
         updateTarget()
+        return UIDropProposal(operation: self.drag?.target != nil ? .move : .cancel)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) {
+        drag?.target = nil
+        indicator.isHidden = true
+    }
+
+    /// Moves the blocks, and lays the list out in the new order at once: the rows the
+    /// system flies to are where they will be.
+    func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+        guard let drag, case .some(let after) = drag.target, move(drag.tops, after: after) else { return }
+        landing = drag.moving
+        list?.window?.layoutIfNeeded()
+        layoutOverlays()
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, previewForDropping item: UIDragItem, withDefault defaultPreview: UITargetedDragPreview) -> UITargetedDragPreview? {
+        (item.localObject as? DocBlockID).flatMap(preview)
+    }
+
+    /// The moved rows stay dimmed until what flies to them is down.
+    func dropInteraction(_ interaction: UIDropInteraction, item: UIDragItem, willAnimateDropWith animator: UIDragAnimating) {
+        landings += 1
+        animator.addCompletion { [weak self] _ in
+            guard let self else { return }
+            self.landings -= 1
+            if self.landings == 0 { self.landing = [] }
+            self.layoutOverlays()
+        }
     }
 
     /// Where the blocks would land under the pointer, and the line that shows it.
@@ -911,33 +1021,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         return order == blocks ? nil : .some(after)
     }
 
-    private func drop() {
-        guard let drag = endDrag() else { return }
-        // Their rows go before the move: from the next frame on they'd be found elsewhere.
-        let rows = hide(drag.moving)
-        var moved = false
-        if case .some(let after) = drag.target, move(drag.tops, after: after) {
-            moved = true
-            if Self.usesHandles || isSelecting { select(drag.tops) }
-            if Self.usesHandles { focusKeys() }
-        }
-        land(drag, moved: moved, hidden: rows)
-    }
-
-    private func cancelDrag() {
-        guard let drag = endDrag() else { return }
-        land(drag, moved: false, hidden: hide(drag.moving))
-    }
-
-    /// Hides these blocks' rows: what the cells host, not the cells or their content
-    /// views, whose alpha the list sets itself (a move is a delete and an insert, faded).
-    private func hide(_ ids: [DocBlockID]) -> [UIView] {
-        let rows = cells(of: ids).flatMap(\.contentView.subviews).filter { $0.alpha != 0 }
-        for row in rows { row.alpha = 0 }
-        return rows
-    }
-
-    /// Stops following the pointer; the preview stays up for the landing.
+    /// Stops following the pointer.
+    @discardableResult
     private func endDrag() -> Drag? {
         guard let drag else { return nil }
         self.drag = nil
@@ -945,89 +1030,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         link = nil
         indicator.isHidden = true
         layoutOverlays()
+        followHover()
         return drag
-    }
-
-    /// Each block's row goes from where it floats on the card to where the block is
-    /// now (moved, or back where it was) and gives way to the row there. Until they
-    /// land their rows are hidden, so no block is shown twice.
-    private func land(_ drag: Drag, moved: Bool, hidden rows: [UIView]) {
-        let preview = drag.preview, card = drag.card, pieces = drag.pieces
-        let first = drag.moving[0]
-        let before = rowFrame(first)
-        let version = reader?.version
-        // The moving rows stay hidden until their pieces land on them (the list slides
-        // the other rows into place meanwhile).
-        var hidden = rows
-        func hide() { hidden += self.hide(drag.moving) }
-        landings += 1
-        layoutOverlays()
-        func show() {
-            for row in hidden { row.alpha = 1 }
-            self.landings -= 1
-            self.layoutOverlays()
-        }
-        hide()
-        Task { [weak self] in
-            // A move shows once the list has laid the rows out in their new order (a row
-            // of several reordered in place stays where it is: the list's update says so).
-            for _ in 0..<30 {
-                guard let self, moved, self.rowFrame(first) == before, self.reader?.version == version else { break }
-                try? await Task.sleep(for: .milliseconds(16))
-                hide()
-            }
-            guard let self, let list = self.list, let container = list.superview else {
-                preview.removeFromSuperview()
-                show()
-                return
-            }
-            list.layoutIfNeeded()
-            hide()
-            let targets = pieces.map { piece in
-                self.contentFrame(piece.block).map { list.convert($0.insetBy(dx: -6, dy: 0), to: container) }
-            }
-            // The preview comes to rest unscaled at the first piece's row; every piece
-            // goes to its own row from there.
-            guard let anchor = zip(pieces, targets).first(where: { $0.1 != nil }) else {
-                preview.removeFromSuperview()
-                show()
-                return
-            }
-            let origin = CGPoint(x: anchor.1!.minX - anchor.0.slot.minX, y: anchor.1!.minY - anchor.0.slot.minY)
-            card.clipsToBounds = false
-            Self.animate(preview.layer, "shadowOpacity", to: 0)
-            Self.animate(card.layer, "borderColor", to: UIColor.clear.cgColor)
-            UIView.animate(.spring(FlooDesignTokens.Motion.layoutSpring)) {
-                preview.transform = .identity
-                preview.center = CGPoint(x: origin.x + preview.bounds.width / 2, y: origin.y + preview.bounds.height / 2)
-                preview.alpha = 1
-                card.backgroundColor = .clear
-                for (piece, target) in zip(pieces, targets) {
-                    if let target {
-                        piece.view.frame = target.offsetBy(dx: -origin.x, dy: -origin.y)
-                    } else {
-                        piece.view.alpha = 0
-                    }
-                }
-                for view in preview.subviews where view !== card { view.alpha = 0 }
-            } completion: {
-                preview.removeFromSuperview()
-                show()
-            }
-            self.followHover()
-        }
-    }
-
-    /// A layer's own property (UIKit's animations don't reach it) with the layout spring.
-    private static func animate(_ layer: CALayer, _ keyPath: String, to value: Any) {
-        let spring = FlooDesignTokens.Motion.layoutSpring
-        let animation = CASpringAnimation(perceptualDuration: spring.duration, bounce: spring.bounce)
-        animation.keyPath = keyPath
-        animation.fromValue = layer.presentation()?.value(forKeyPath: keyPath) ?? layer.value(forKeyPath: keyPath)
-        animation.toValue = value
-        animation.duration = animation.settlingDuration
-        layer.setValue(value, forKeyPath: keyPath)
-        layer.add(animation, forKey: keyPath)
     }
 
     /// Near the top or bottom edge the list scrolls, faster the closer the pointer is.
@@ -1048,82 +1052,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         guard abs(offset - list.contentOffset.y) > 0.1 else { return }
         list.contentOffset.y = offset
         updateTarget()
-    }
-
-    /// The moving blocks' rows on one card, one under the other; at most `maxHeight`
-    /// of it shows (around the grabbed block), with the count when some is cut off.
-    /// Each piece's view starts where its row is, for the lift to bring it in.
-    private func makePreview(of moving: [DocBlockID], grabbed: DocBlockID) -> (UIView, UIView, [Piece])? {
-        guard let list, let container = list.superview else { return nil }
-        let maxHeight: CGFloat = 360
-        var pieces: [Piece] = []
-        var rows: [CGRect] = []
-        var y: CGFloat = 0
-        guard let shot = snapshot() else { return nil }
-        for id in moving {
-            // Rows off screen have nothing to show; they move all the same.
-            guard let frame = contentFrame(id)?.insetBy(dx: -6, dy: 0), frame.intersects(list.bounds) else { continue }
-            let pixels = frame.offsetBy(dx: -shot.bounds.minX, dy: -shot.bounds.minY)
-                .applying(CGAffineTransform(scaleX: shot.scale, y: shot.scale)).integral
-            guard let image = shot.image.cropping(to: pixels) else { continue }
-            let view = UIImageView(image: UIImage(cgImage: image, scale: shot.scale, orientation: .up))
-            view.contentMode = .top
-            view.clipsToBounds = true
-            pieces.append(Piece(block: id, view: view, slot: CGRect(x: 0, y: y, width: frame.width, height: frame.height)))
-            rows.append(frame)
-            y += frame.height
-        }
-        guard let grabbedIndex = pieces.firstIndex(where: { $0.block == grabbed }) else { return nil }
-        // A long selection shows the part with the grabbed block in it.
-        let grabbedSlot = pieces[grabbedIndex].slot
-        let shift = max(0, grabbedSlot.maxY - maxHeight)
-        for index in pieces.indices { pieces[index].slot.origin.y -= shift }
-        let size = CGSize(width: pieces.map(\.slot.width).max() ?? 0, height: min(y, maxHeight))
-        // The grabbed block's piece sits over its row.
-        let grabbedRow = rows[grabbedIndex]
-        let origin = CGPoint(x: grabbedRow.minX, y: grabbedRow.minY - pieces[grabbedIndex].slot.minY)
-        let preview = UIView(frame: list.convert(CGRect(origin: origin, size: size), to: container))
-        preview.isUserInteractionEnabled = false
-        let card = UIView(frame: preview.bounds)
-        card.backgroundColor = .systemBackground
-        card.layer.cornerRadius = 8
-        card.layer.cornerCurve = .continuous
-        card.layer.borderWidth = 1
-        card.layer.borderColor = UIColor.separator.withAlphaComponent(0.3).cgColor
-        card.clipsToBounds = true
-        preview.addSubview(card)
-        for (piece, row) in zip(pieces, rows) {
-            piece.view.frame = row.offsetBy(dx: -origin.x, dy: -origin.y)
-            card.addSubview(piece.view)
-        }
-        preview.layer.shadowColor = UIColor.black.cgColor
-        preview.layer.shadowOpacity = 0.16
-        preview.layer.shadowRadius = 12
-        preview.layer.shadowOffset = CGSize(width: 0, height: 6)
-        if y > maxHeight {
-            let badge = UILabel(frame: CGRect(x: 6, y: 6, width: 24, height: 20))
-            badge.text = "\(groups(moving).count)"
-            badge.font = .systemFont(ofSize: 12, weight: .semibold)
-            badge.textColor = .white
-            badge.textAlignment = .center
-            badge.backgroundColor = .tintColor
-            badge.layer.cornerRadius = 10
-            badge.clipsToBounds = true
-            preview.addSubview(badge)
-        }
-        return (preview, card, pieces)
-    }
-
-    /// What the list shows now, as an image to cut the rows out of: a preview's pieces
-    /// are the rows themselves, so they land on them without a seam. After pending screen
-    /// updates: a selection made just now is in the picture.
-    private func snapshot() -> (image: CGImage, bounds: CGRect, scale: CGFloat)? {
-        guard let list, list.bounds.width > 0, list.bounds.height > 0 else { return nil }
-        let renderer = UIGraphicsImageRenderer(size: list.bounds.size)
-        let image = renderer.image { _ in
-            list.drawHierarchy(in: CGRect(origin: .zero, size: list.bounds.size), afterScreenUpdates: true)
-        }
-        return image.cgImage.map { ($0, list.bounds, image.scale) }
     }
 
     // MARK: Reshaping
@@ -1196,10 +1124,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         return demo.edit(steps, before: editor.selection, after: editor.selection) != nil
     }
 
-    /// Deletes the selected blocks (a table's database with it). The cursor goes to
-    /// the end of the text before them.
+    /// Deletes the selected blocks with the items nested under them (a table's database
+    /// with it). The cursor goes to the end of the text before them.
     func deleteSelection() {
-        let ids = Set(selected)
+        let ids = Set(groups(selected).flatMap { $0 })
         let blocks = demo.doc.blocks
         guard !ids.isEmpty else { return }
         var steps: [DocStep] = []
@@ -1283,10 +1211,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         reshape { editor.setKind(kind, of: selected) }
     }
 
-    /// A copy of the selected blocks right after the last of them, in order; a table's
-    /// copy gets a database of its own. The copies become the selection.
+    /// A copy of the selected blocks (with the items nested under them) right after the
+    /// last of them, in order; a table's copy gets a database of its own. The copies of
+    /// the selected ones become the selection.
     func duplicateSelection() {
-        let ids = Set(selected)
+        let chosen = Set(selected)
+        let ids = Set(groups(selected).flatMap { $0 })
         let originals = demo.doc.blocks.filter { ids.contains($0.id) }
         guard let last = originals.last else { return }
         var steps: [DocStep] = []
@@ -1302,15 +1232,16 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
             }
             steps.append(.insertBlock(block: copy, after: after))
             after = copy.id
-            copies.append(copy.id)
+            if chosen.contains(original.id) { copies.append(copy.id) }
         }
         guard demo.edit(steps, before: editor.selection, after: editor.selection) != nil else { return }
         setSelection(copies)
     }
 
-    /// The selected blocks as markdown, on the pasteboard.
+    /// The selected blocks (with the items nested under them) as markdown, on the
+    /// pasteboard.
     func copySelection() {
-        let ids = Set(selected)
+        let ids = Set(groups(selected).flatMap { $0 })
         let blocks = demo.doc.blocks.filter { ids.contains($0.id) }
         guard !blocks.isEmpty else { return }
         UIPasteboard.general.string = Doc(id: demo.doc.id, blocks: blocks, databases: demo.doc.databases).markdown
@@ -1318,33 +1249,86 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
 
     // MARK: Tests
 
-    /// A drag as the handle or a long press would do it, for the edit tests: picks the
-    /// block up, moves to `y` (list coordinates), drops.
+    /// A drag as the system would run it, for the edit tests: picks `id` up (as the
+    /// handle or a long press would), moves to `y` (list coordinates), drops; what flies
+    /// to the rows lands 0.3 s later. Where each block's row was to land on is kept
+    /// (testLandings).
     func testDrag(_ id: DocBlockID, toY y: CGFloat, x: CGFloat? = nil) {
         guard let list, let frame = contentFrame(id) else { return }
         let start = CGPoint(x: frame.midX, y: frame.midY)
-        lift(id, at: start)
-        startMoving()
-        moveDrag(to: list.convert(CGPoint(x: x ?? start.x, y: y), to: list.superview))
-        drop()
+        testRunDrag(beginDrag(id, at: start), from: start, to: CGPoint(x: x ?? start.x, y: y))
     }
     var testIndicatorFrame: CGRect? { indicator.isHidden ? nil : indicator.frame }
+    /// Where the last drop's rows were to land, list coordinates.
+    private(set) var testLandings: [DocBlockID: CGRect] = [:]
+
+    private func testRunDrag(_ items: [UIDragItem], from start: CGPoint, to end: CGPoint) {
+        guard let list, let dragging, let dropping, !items.isEmpty else { return }
+        let session = DocTestDragSession(view: list, point: start, items: items)
+        dragInteraction(dragging, sessionWillBegin: session)
+        session.point = end
+        dragInteraction(dragging, sessionDidMove: session)
+        let drop = DocTestDropSession(drag: session)
+        let proposal = dropInteraction(dropping, sessionDidUpdate: drop)
+        testLandings = [:]
+        guard proposal.operation == .move else {
+            dragInteraction(dragging, session: session, didEndWith: .cancel)
+            return
+        }
+        dropInteraction(dropping, performDrop: drop)
+        let animator = DocTestAnimator()
+        for item in items {
+            if let id = item.localObject as? DocBlockID,
+               let preview = dropInteraction(dropping, previewForDropping: item, withDefault: UITargetedDragPreview(view: list)) {
+                let center = list.convert(preview.target.center, from: preview.target.container)
+                testLandings[id] = CGRect(x: center.x - preview.size.width / 2, y: center.y - preview.size.height / 2,
+                                          width: preview.size.width, height: preview.size.height)
+            }
+            dropInteraction(dropping, item: item, willAnimateDropWith: animator)
+        }
+        dragInteraction(dragging, session: session, didEndWith: .move)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { animator.finish() }
+    }
+
+    /// A long press on a phone lifting `id` and let go without moving.
+    func testLiftAndLetGo(_ id: DocBlockID) {
+        guard let list, let dragging, let frame = contentFrame(id) else { return }
+        let start = CGPoint(x: frame.midX, y: frame.midY)
+        let session = DocTestDragSession(view: list, point: start, items: beginDrag(id, at: start))
+        let lift = DocTestAnimator()
+        dragInteraction(dragging, willAnimateLiftWith: lift, session: session)
+        lift.finish()
+        dragInteraction(dragging, sessionWillBegin: session)
+        dragInteraction(dragging, session: session, didEndWith: .cancel)
+    }
+
+    /// How the system would lift a block's row.
+    func testLiftPreview(_ id: DocBlockID) -> UITargetedDragPreview? { preview(id) }
+
+    /// The phone's swipe on a block, `x` across.
+    func testSwipe(_ id: DocBlockID, x: CGFloat) {
+        swipeBegan(id)
+        swipeMoved(x)
+        swipeEnded(x, velocity: 0)
+    }
 
     func testContentFrame(_ id: DocBlockID) -> CGRect? { contentFrame(id) }
 
     /// A press at the middle of a block's content, moved to `y` (list coordinates) or not
-    /// moved (a click), as the Mac's press on the list takes it; false if it doesn't.
+    /// moved (a click), as the Mac's click and drag on the list take it; false if they
+    /// don't.
     @discardableResult
     func testPress(_ id: DocBlockID, toY y: CGFloat? = nil) -> Bool {
         guard let list, let frame = contentFrame(id) else { return false }
         let start = CGPoint(x: frame.midX, y: frame.midY)
-        guard pressTakes(list.window?.hitTest(list.convert(start, to: nil), with: nil), at: start) else { return false }
-        pressBegan(id, at: start)
+        let hit = list.window?.hitTest(list.convert(start, to: nil), with: nil)
+        guard pressTakes(hit, at: start) else { return false }
         if let y {
-            pressMoved(to: CGPoint(x: start.x, y: start.y + 8))
-            pressMoved(to: CGPoint(x: start.x, y: y))
+            guard pickUp(at: start) == id else { return false }
+            testRunDrag(beginDrag(id, at: start), from: start, to: CGPoint(x: start.x, y: y))
+        } else {
+            click(id)
         }
-        pressEnded(modifiers: [])
         return true
     }
 
@@ -1384,9 +1368,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, QLPreview
         }
     }
 
-    /// The blocks whose rows are hidden now (a drop landing on them).
-    var testHidden: Set<DocBlockID> {
-        Set(demo.doc.blocks.map(\.id).filter { id in cells(of: [id]).contains { $0.contentView.subviews.contains { $0.alpha == 0 } } })
+    /// The blocks whose rows are dimmed now (lifted, or a drop landing on them).
+    var testDimmed: Set<DocBlockID> {
+        let shown = dimmers.filter { !$0.isHidden }.map(\.frame)
+        return Set(demo.doc.blocks.map(\.id).filter { id in
+            contentFrame(id).map { frame in shown.contains { $0.contains(CGPoint(x: frame.midX, y: frame.midY)) } } ?? false
+        })
     }
 
     /// How far down a block's row draws its box right now, moving included (list
@@ -1832,5 +1819,63 @@ private struct DocSelectionTile: View {
         .frame(width: 64, height: 66)
         .background(color.opacity(0.08), in: .rect(cornerRadius: 16, style: .continuous))
         .contentShape(.rect(cornerRadius: 16, style: .continuous))
+    }
+}
+
+// MARK: - Test sessions
+
+/// A drag session for the edit tests: the system's drags can't be made by hand.
+@MainActor
+final class DocTestDragSession: NSObject, UIDragSession {
+    let view: UIView
+    var point: CGPoint
+    let items: [UIDragItem]
+    var localContext: Any?
+
+    init(view: UIView, point: CGPoint, items: [UIDragItem]) {
+        self.view = view
+        self.point = point
+        self.items = items
+    }
+
+    func location(in view: UIView) -> CGPoint { view.convert(point, from: self.view) }
+    var allowsMoveOperation: Bool { true }
+    var isRestrictedToDraggingApplication: Bool { true }
+    func hasItemsConforming(toTypeIdentifiers typeIdentifiers: [String]) -> Bool { false }
+    func canLoadObjects(ofClass aClass: any NSItemProviderReading.Type) -> Bool { false }
+}
+
+@MainActor
+final class DocTestDropSession: NSObject, UIDropSession {
+    let drag: DocTestDragSession
+    var progressIndicatorStyle: UIDropSessionProgressIndicatorStyle = .none
+    nonisolated let progress = Progress()
+
+    init(drag: DocTestDragSession) { self.drag = drag }
+
+    var localDragSession: (any UIDragSession)? { drag }
+    var items: [UIDragItem] { drag.items }
+    func location(in view: UIView) -> CGPoint { drag.location(in: view) }
+    var allowsMoveOperation: Bool { true }
+    var isRestrictedToDraggingApplication: Bool { true }
+    func hasItemsConforming(toTypeIdentifiers typeIdentifiers: [String]) -> Bool { false }
+    func canLoadObjects(ofClass aClass: any NSItemProviderReading.Type) -> Bool { false }
+    func loadObjects(ofClass aClass: any NSItemProviderReading.Type, completion: @escaping ([any NSItemProviderReading]) -> Void) -> Progress {
+        Progress()
+    }
+}
+
+/// A lift's or a drop's animation that ends when told to.
+@MainActor
+final class DocTestAnimator: NSObject, UIDragAnimating {
+    private var completions: [(UIViewAnimatingPosition) -> Void] = []
+
+    func addAnimations(_ animations: @escaping () -> Void) { animations() }
+    func addCompletion(_ completion: @escaping (UIViewAnimatingPosition) -> Void) { completions.append(completion) }
+
+    func finish() {
+        let done = completions
+        completions = []
+        for completion in done { completion(.end) }
     }
 }

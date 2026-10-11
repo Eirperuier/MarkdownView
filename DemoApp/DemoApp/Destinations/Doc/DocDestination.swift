@@ -48,6 +48,9 @@ struct DocDestination: View {
                 DocRowCell(item: row, demo: demo, editor: editor)
             }
             .reader(reader)
+            // A swipe across a block selects it (DocBlockController), not the chat's
+            // swipe to show the times.
+            .revealConfiguration(.disabled)
             .heightEstimate { row, width in
                 row.estimatedHeight(width: width)
             }

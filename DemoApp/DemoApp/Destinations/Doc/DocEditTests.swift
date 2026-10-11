@@ -1510,19 +1510,19 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(order() == ids, "undo didn't restore the order")
         }
-        await test("a card dropped on the near half of another on its line goes beside it, on the line; only it hides while it lands") {
+        await test("a card dropped on the near half of another on its line goes beside it, on the line; only it dims while it lands") {
             let line = try self.expectValue(self.linkCards(), "no line of cards")
             let (first, second) = (line[0], line[1])
             let ids = order()
             await show(first)
             let target = try self.expectValue(blocks.testContentFrame(first), "no card")
             blocks.testDrag(second, toY: target.midY, x: target.minX + 20)
-            try self.expect(blocks.testHidden == [second], "hidden while landing \(blocks.testHidden)")
+            try self.expect(blocks.testDimmed == [second], "dimmed while landing \(blocks.testDimmed)")
             let after = order()
             let at = try self.expectValue(ids.firstIndex(of: first), "no card")
             try self.expect(after[at] == second && after[at + 1] == first, "order \(String(describing: after.firstIndex(of: second)))")
             try? await Task.sleep(for: .milliseconds(600))
-            try self.expect(blocks.testHidden.isEmpty, "still hidden \(blocks.testHidden)")
+            try self.expect(blocks.testDimmed.isEmpty, "still dimmed \(blocks.testDimmed)")
             try self.expect(self.line(of: second).prefix(2) == [second, first], "line \(self.line(of: second))")
             try await self.undo()
             try self.expect(order() == ids, "undo didn't restore the order")
@@ -1612,20 +1612,92 @@ final class DocEditTests {
             try self.expect(items.allSatisfy { self.demo.doc.block($0)?.indent == 0 }, "one undo didn't take both back")
             blocks.clear()
         }
-        await test("a click on a link selects it and a double click opens it") {
+        await test(DocBlockController.usesHandles ? "a click on a link selects it and a double click opens it" : "a tap on a link opens it") {
             let link = try self.expectValue(self.demo.doc.blocks.first { if case .link = $0.kind { true } else { false } }, "no link")
+            guard case .link(let shown) = link.kind else { return }
             await show(link.id)
             var opened: [URL] = []
             blocks.opensURL = { opened.append($0) }
             defer { blocks.opensURL = { UIApplication.shared.open($0) } }
             blocks.testClick(link.id)
-            try self.expect(blocks.selected == [link.id], "selected \(blocks.selected.count)")
-            try self.expect(opened.isEmpty, "a single click opened it")
-            blocks.open(link.id)
-            guard case .link(let shown) = link.kind else { return }
+            if DocBlockController.usesHandles {
+                try self.expect(blocks.selected == [link.id], "selected \(blocks.selected.count)")
+                try self.expect(opened.isEmpty, "a single click opened it")
+                blocks.open(link.id)
+            } else {
+                try self.expect(blocks.selected.isEmpty && !blocks.isSelecting, "the tap selected it")
+            }
             try self.expect(opened == [URL(string: shown.url)!], "opened \(opened)")
             blocks.clear()
             if blocks.isSelecting { blocks.endSelecting() }
+        }
+        await test("a list item is selected alone; dragged, its nested items go with it, each lifted from its row") {
+            let nested = try self.block("嵌套列表的缩进")
+            let group = blocks.groups([nested.id])[0]
+            try self.expect(group.count == 3, "group of \(group.count)")
+            await show(nested.id)
+            if DocBlockController.usesHandles { blocks.click(nested.id) } else { blocks.beginSelecting(nested.id) }
+            try self.expect(blocks.selected == [nested.id], "selected \(blocks.selected.count)")
+            try self.expect(blocks.testHighlightFrames.count == 1, "highlights \(blocks.testHighlightFrames.count)")
+            if let highlight = blocks.testHighlightFrames.first, let row = blocks.testContentFrame(nested.id), let child = blocks.testContentFrame(group[1]) {
+                try self.expect(highlight.maxY < child.midY && highlight.minY < row.midY, "the highlight \(highlight) covers the nested item \(child)")
+            }
+            let preview = try self.expectValue(blocks.testLiftPreview(nested.id), "no lift preview")
+            let clear = preview.parameters.backgroundColor.cgColor.alpha == 0
+            try self.expect(clear == DocBlockController.usesHandles, DocBlockController.usesHandles ? "the Mac's preview has a background" : "the phone's preview has no background")
+            let before = order()
+            let index = try self.expectValue(before.firstIndex(of: nested.id), "no index")
+            let target = try self.expectValue(blocks.testRowFrame(before[index + 3]), "no row after the group")
+            blocks.testDrag(nested.id, toY: target.maxY - 2)
+            let after = order()
+            let at = try self.expectValue(after.firstIndex(of: nested.id), "not moved")
+            try self.expect(Array(after[at...(at + 2)]) == group && at == index + 1, "the group isn't after the next block: at \(at)")
+            try self.expect(blocks.testDimmed.isSuperset(of: group.filter { blocks.testContentFrame($0) != nil }), "not dimmed while landing \(blocks.testDimmed)")
+            for id in group {
+                guard let landing = blocks.testLandings[id], let row = blocks.testContentFrame(id) else { continue }
+                try self.expect(abs(landing.midY - row.midY) < 1 && abs(landing.minX - (row.minX - 6)) < 1, "\(id) lands at \(landing), its row is at \(row)")
+            }
+            try self.expect(!blocks.testLandings.isEmpty, "nothing to land on")
+            try? await Task.sleep(for: .milliseconds(500))
+            try self.expect(blocks.testDimmed.isEmpty, "still dimmed \(blocks.testDimmed)")
+            try self.expect(blocks.selected == [nested.id], "selected \(blocks.selected.count) after the drop")
+            try await self.undo()
+            try self.expect(order() == before, "undo didn't restore the order")
+            if blocks.isSelecting { blocks.endSelecting() } else { blocks.clear() }
+        }
+        await test("deleting a selected list item takes its nested items; undo brings them back") {
+            let nested = try self.block("嵌套列表的缩进")
+            let group = blocks.groups([nested.id])[0]
+            await show(nested.id)
+            let before = order()
+            blocks.select([nested.id])
+            blocks.deleteSelection()
+            try self.expect(group.allSatisfy { self.demo.doc.block($0) == nil }, "the nested items stayed")
+            try await self.undo()
+            try self.expect(order() == before, "undo didn't restore them")
+        }
+        if !DocBlockController.usesHandles {
+            await test("on a phone a block lifted and let go where it was starts selecting with it") {
+                let block = try self.block("Loading older")
+                await show(block.id)
+                blocks.testLiftAndLetGo(block.id)
+                try self.expect(blocks.isSelecting && blocks.selected == [block.id], "selecting \(blocks.isSelecting), \(blocks.selected.count)")
+                blocks.endSelecting()
+            }
+            await test("on a phone a swipe across a block selects it, another takes it out; a short one does nothing") {
+                let block = try self.block("Loading older")
+                let heading = try self.block("第 2 节")
+                await show(block.id)
+                blocks.testSwipe(block.id, x: 40)
+                try self.expect(!blocks.isSelecting, "a short swipe selected")
+                blocks.testSwipe(block.id, x: -100)
+                try self.expect(blocks.isSelecting && blocks.selected == [block.id], "selecting \(blocks.isSelecting), \(blocks.selected.count)")
+                blocks.testSwipe(heading.id, x: 100)
+                try self.expect(blocks.selected == [block.id, heading.id], "selected \(blocks.selected.count)")
+                blocks.testSwipe(block.id, x: 100)
+                blocks.testSwipe(heading.id, x: -100)
+                try self.expect(!blocks.isSelecting, "still selecting with nothing selected")
+            }
         }
         await test("several selected blocks move together, in order") {
             let first = try self.block("Loading older")
