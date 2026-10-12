@@ -1254,10 +1254,17 @@ final class DocEditTests {
             if !DocBlockController.usesHandles {
                 // A sheet as tall as its pages (Craft's), over the bottom of the window.
                 try? await Task.sleep(for: .milliseconds(800))
-                let sheet = try self.expectValue(blocks.testSheetFrame, "no sheet")
-                print("DOCTEST NOTE sheet \(sheet)")
+                let sheets = blocks.testSheetFrames
                 let pages = FlooDesignTokens.Component.FormatSheet.page
-                try self.expect(sheet.height > pages && sheet.height < pages + 80, "the sheet is \(sheet.height) tall for pages \(pages) tall")
+                try self.expect(sheets.count == 1 && sheets[0].height > pages && sheets[0].height < pages + 80,
+                                "sheets \(sheets) for pages \(pages) tall")
+                // Another page opens in a sheet over it, and goes back to it.
+                self.editor.panels.sheetPage = .colors
+                try? await Task.sleep(for: .milliseconds(800))
+                try self.expect(blocks.testSheetFrames.count == 2, "colours: sheets \(blocks.testSheetFrames)")
+                self.editor.panels.sheetPage = .main
+                try? await Task.sleep(for: .milliseconds(800))
+                try self.expect(blocks.testSheetFrames.count == 1, "back: sheets \(blocks.testSheetFrames)")
             }
             try self.expect(DocFormatting(editor: self.editor, caretTakesBlock: true).targets.map(\.id) == [first.id], "targets")
             DocFormatting(editor: self.editor, caretTakesBlock: true).toggleList(.listItem(style: .task(done: false)))
@@ -1266,7 +1273,7 @@ final class DocEditTests {
             try self.expect(self.editor.panels.sheetPage == nil, "the sheet stays")
             if !DocBlockController.usesHandles {
                 try? await Task.sleep(for: .milliseconds(800))
-                try self.expect(blocks.testSheetFrame == nil, "the sheet stays on screen")
+                try self.expect(blocks.testSheetFrames.isEmpty, "sheets stay on screen: \(blocks.testSheetFrames)")
             }
         }
     }

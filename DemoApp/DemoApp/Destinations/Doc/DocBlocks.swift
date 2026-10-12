@@ -1547,10 +1547,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         }
     }
 
-    /// The sheet over the list (Style, Layout): its frame in the window, nil without one.
-    var testSheetFrame: CGRect? {
-        guard let view = list?.window?.rootViewController?.presentedViewController?.view else { return nil }
-        return view.convert(view.bounds, to: nil)
+    /// The sheets over the list (Style, Layout, and a page of Style's over it): their
+    /// frames in the window, bottom one first.
+    var testSheetFrames: [CGRect] {
+        sequence(first: list?.window?.rootViewController?.presentedViewController, next: { $0?.presentedViewController })
+            .prefix { $0 != nil }.compactMap { $0?.view }.map { $0.convert($0.bounds, to: nil) }
     }
 
     func testShownBoxBottom(_ id: DocBlockID) -> CGFloat? {
@@ -1728,8 +1729,6 @@ final class DocBlockKeyView: UIView {
 /// the layouts of the selected links, files and images.
 struct DocBlockSelectionBar: View {
     let blocks: DocBlockController
-    /// The sheet's content as measured: the sheet is as tall (Craft's).
-    @State private var sheetHeight = FlooDesignTokens.Component.FormatSheet.page + 40
 
     /// Style and Layout open a sheet over the bar; leaving the selection closes it.
     private var showsSheet: Bool {
@@ -1758,17 +1757,10 @@ struct DocBlockSelectionBar: View {
                         .padding(.horizontal, FlooDesignTokens.Component.FormatSheet.inset)
                         .padding(.bottom, FlooDesignTokens.Component.FormatSheet.inset)
                 } else {
-                    DocFormatSheet(editor: blocks.editor, onClose: closeSheet)
+                    DocFormatSheet(editor: blocks.editor, stacksPages: true, onClose: closeSheet)
                 }
             }
-            .padding(.top, FlooDesignTokens.Component.FormatSheet.rowSpacing)
-            .fixedSize(horizontal: false, vertical: true)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { sheetHeight = $0 }
-            .frame(maxHeight: .infinity, alignment: .top)
-            .presentationDetents([.height(sheetHeight)])
-            // Their own grabber goes back a page before it closes the sheet.
-            .presentationDragIndicator(.hidden)
-            .presentationBackgroundInteraction(.enabled)
+            .docSizedSheet()
         }
     }
 

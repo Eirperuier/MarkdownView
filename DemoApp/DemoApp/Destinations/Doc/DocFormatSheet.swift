@@ -26,12 +26,17 @@ import DocKit
 private typealias Tokens = FlooDesignTokens
 private typealias Metrics = FlooDesignTokens.Component.FormatSheet
 
-enum DocFormatSheetPage: Hashable {
+enum DocFormatSheetPage: Hashable, Identifiable {
     case main, styles, colors, more
+
+    var id: Self { self }
 }
 
 struct DocFormatSheet: View {
     let editor: DocEditor
+    /// In a sheet of its own: another page opens in a sheet over it (Craft's), not in
+    /// its place.
+    var stacksPages = false
     /// Back from the main page: the sheet goes.
     let onClose: () -> Void
 
@@ -39,10 +44,22 @@ struct DocFormatSheet: View {
     private var page: DocFormatSheetPage { editor.panels.sheetPage ?? .main }
 
     var body: some View {
+        if stacksPages {
+            sheet(.main)
+                .sheet(item: Binding(get: { page == .main ? nil : page }, set: { if $0 == nil { go(.main) } })) { page in
+                    sheet(page).docSizedSheet()
+                }
+        } else {
+            sheet(page)
+                .animation(Tokens.Motion.feedback, value: page)
+        }
+    }
+
+    private func sheet(_ shown: DocFormatSheetPage) -> some View {
         VStack(spacing: Metrics.rowSpacing) {
-            grabber
+            grabber(shown)
             Group {
-                switch page {
+                switch shown {
                 case .main: main
                 case .styles: styles
                 case .colors: colors
@@ -55,23 +72,22 @@ struct DocFormatSheet: View {
         .padding(.horizontal, Metrics.inset)
         .padding(.bottom, Metrics.inset)
         .buttonStyle(.plain)
-        .animation(Tokens.Motion.feedback, value: page)
-        .gesture(DragGesture(minimumDistance: 12).onEnded { if $0.translation.height > 30 { back() } })
+        .gesture(DragGesture(minimumDistance: 12).onEnded { if $0.translation.height > 30 { back(from: shown) } })
     }
 
-    private var grabber: some View {
+    private func grabber(_ shown: DocFormatSheetPage) -> some View {
         Capsule()
             .fill(Tokens.ColorRole.Content.tertiary)
             .frame(width: Metrics.grabber.width, height: Metrics.grabber.height)
             .frame(maxWidth: .infinity, minHeight: Metrics.grabberArea)
             .contentShape(Rectangle())
-            .onTapGesture(perform: back)
-            .accessibilityLabel(page == .main ? Text("Close") : Text("Back"))
+            .onTapGesture { back(from: shown) }
+            .accessibilityLabel(shown == .main ? Text("Close") : Text("Back"))
             .accessibilityAddTraits(.isButton)
     }
 
-    private func back() {
-        if page == .main { onClose() } else { go(.main) }
+    private func back(from shown: DocFormatSheetPage) {
+        if shown == .main { onClose() } else { go(.main) }
     }
 
     private func go(_ page: DocFormatSheetPage) {
@@ -502,6 +518,28 @@ final class DocColorPicking: NSObject, UIColorPickerViewControllerDelegate {
         editor.endColorChanges()
         Self.current = nil
     }
+}
+
+/// A sheet as tall as its content (Craft's): it floats over the bottom, and the document
+/// behind it still takes touches. No system grabber: the content's own goes back a page
+/// before it closes the sheet.
+private struct DocSizedSheet: ViewModifier {
+    @State private var height = DocFormatInputView.sheetHeight
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.top, Metrics.rowSpacing)
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            .frame(maxHeight: .infinity, alignment: .top)
+            .presentationDetents([.height(height)])
+            .presentationDragIndicator(.hidden)
+            .presentationBackgroundInteraction(.enabled)
+    }
+}
+
+extension View {
+    func docSizedSheet() -> some View { modifier(DocSizedSheet()) }
 }
 
 /// The sheet where the keyboard was, on the keyboard's own background; the keyboard
