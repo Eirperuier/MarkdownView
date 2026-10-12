@@ -1603,6 +1603,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             .prefix { $0 != nil }.compactMap { $0?.view }.map { $0.convert($0.bounds, to: nil) }
     }
 
+    /// Where `view`, in a block's row, draws right now, moving included (list coordinates).
+    func testShownFrame(of view: UIView, in id: DocBlockID) -> CGRect? {
+        guard let cell = testCell(id) else { return nil }
+        let root = cell.layer.presentation() ?? cell.layer
+        let shown = view.layer.presentation() ?? view.layer
+        return shown.convert(shown.bounds, to: root).offsetBy(dx: root.frame.minX, dy: root.frame.minY)
+    }
+
     func testShownBoxBottom(_ id: DocBlockID) -> CGFloat? {
         testShownBox(id)?.frame.maxY
     }

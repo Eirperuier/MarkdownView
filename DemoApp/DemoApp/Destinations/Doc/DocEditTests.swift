@@ -1613,6 +1613,23 @@ final class DocEditTests {
                 blocks.setLayout(old.layout == .small ? .regular : .small, of: [file.id])
             }
         }
+        await test("a paragraph made a quote, boxed and back: its text keeps its view and goes to its place with the rows after it") {
+            let paragraph = try self.block("这篇文档由 DocKit")
+            let next = try self.blockAfter(paragraph.id).id
+            await show(paragraph.id)
+            blocks.testCenter(paragraph.id)
+            let view = try self.expectValue(self.editor.textView(for: paragraph.id), "no text view")
+            let changes: [(String, () -> Void)] = [
+                ("quote", { self.editor.setKind(.quote, of: [paragraph.id]) }),
+                ("box", { self.editor.setDecoration(.block, of: [paragraph.id]) }),
+                ("unbox", { self.editor.setDecoration(nil, of: [paragraph.id]) }),
+                ("paragraph", { self.editor.setKind(.paragraph, of: [paragraph.id]) }),
+            ]
+            for (name, change) in changes {
+                try await self.expectInStep(paragraph.id, view: view, next: next, name) { blocks.reshape(change) }
+                try self.expect(self.editor.textView(for: paragraph.id) === view, "\(name): the text has another view")
+            }
+        }
         await test("a selected image fills and goes large, and draws at the page's width") {
             let image = try self.expectValue(self.demo.doc.blocks.first { if case .image = $0.kind { true } else { false } }, "no image")
             await show(image.id)
@@ -2125,6 +2142,34 @@ final class DocEditTests {
         let next = try expectValue(blocks.testRowFrame(next), "no next row")
         try expect(abs(end.next - next.minY) < 0.5, "next row rests at \(end.next), its place is \(next.minY)")
         if let beforeTop { try expect(samples.allSatisfy { $0.before.map { abs($0 - beforeTop) < 0.5 } ?? true }, "the row before moved") }
+    }
+
+    /// Makes `change` to a block of text and watches the screen while it lands: its text
+    /// goes in or out from the edge (a quote's inset, a box's) while the row after it goes
+    /// to its new place, the two on their way in the same frames, not one and then the other.
+    private func expectInStep(_ id: DocBlockID, view: UITextView, next: DocBlockID, _ name: String, change: () -> Void) async throws {
+        let blocks = editor.blocks
+        try? await Task.sleep(for: .milliseconds(300))
+        func sample() throws -> (edge: CGFloat, next: CGFloat) {
+            (try expectValue(blocks.testShownFrame(of: view, in: id)?.minX, "\(name): no text drawn"),
+             try expectValue(blocks.testShownRowFrame(next)?.minY, "\(name): next row not on screen"))
+        }
+        let start = try sample()
+        let began = CACurrentMediaTime()
+        change()
+        var samples: [(time: Double, edge: CGFloat, next: CGFloat)] = []
+        while CACurrentMediaTime() - began < 0.7 {
+            try? await Task.sleep(for: .milliseconds(8))
+            let shown = try sample()
+            samples.append((CACurrentMediaTime() - began, shown.edge, shown.next))
+        }
+        let end = try expectValue(samples.last, "no samples")
+        let trace = samples.map { String(format: "%.3f:%.1f/%.1f", $0.time, $0.edge - start.edge, $0.next - start.next) }.joined(separator: " ")
+        print("DOCTEST TRACE in step \(name) \(start.edge)/\(start.next) → \(trace)")
+        func between(_ value: CGFloat, _ a: CGFloat, _ b: CGFloat) -> Bool { value > min(a, b) + 2 && value < max(a, b) - 2 }
+        try expect(abs(end.edge - start.edge) > 6 && abs(end.next - start.next) > 6, "\(name): nothing moved: \(trace)")
+        let together = samples.filter { between($0.edge, start.edge, end.edge) && between($0.next, start.next, end.next) }
+        try expect(together.count >= 3, "\(name): only \(together.count) frames with both on their way: \(trace)")
     }
 
     /// Makes `change` to a block that gives its box another place or size on the page and

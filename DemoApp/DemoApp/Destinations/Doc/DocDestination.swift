@@ -368,15 +368,13 @@ private struct DocRowView: View {
     /// A paragraph, heading, list item or quote, from its tree (as MarkdownStreamBlockView
     /// lays out a stream block of that kind).
     private func textView(_ text: DocTextRow) -> some View {
-        Group {
-            if text.isQuote {
-                SelectableBlockQuote(content: text.tree)
-            } else {
-                MarkdownSelectableText(tree: text.tree, listDepthOffset: text.depth, applyEdgeInsets: false)
-                    // 20 pt a level, as MarkdownStreamBlockView indents a nested item.
-                    .padding(.leading, CGFloat(text.depth) * 20)
-            }
-        }
+        // One view whatever the kind: a block that becomes a quote (or stops being one)
+        // keeps its text view and goes to its new shape with the change's animation. A
+        // quote's text keeps its edge insets inside the quote, as SelectableBlockQuote's.
+        MarkdownSelectableText(tree: text.tree, listDepthOffset: text.depth, applyEdgeInsets: text.isQuote)
+            // 20 pt a level, as MarkdownStreamBlockView indents a nested item.
+            .padding(.leading, CGFloat(text.depth) * 20)
+            .markdownBlockQuote(text.isQuote)
         .lineSpacing(row.role.lineSpacing)
         .modifier(DocCaptionType(isOn: row.role == .caption))
         .markdownDisplayMathRendersSynchronously()
@@ -419,26 +417,24 @@ private struct DocRowBoxing: ViewModifier {
     private typealias Box = FlooDesignTokens.Component.DecorationBox
 
     func body(content: Content) -> some View {
-        if let box, run?.kind != nil {
-            content
-                .padding(.horizontal, Box.inset)
-                .padding(.vertical, Box.padding)
-                .background(RoundedRectangle(cornerRadius: Box.cornerRadius, style: .continuous).fill(Box.fill))
-                .padding(.top, spacingAbove)
-        } else if let box {
-            let radius = Box.cornerRadius
-            let shape = UnevenRoundedRectangle(topLeadingRadius: box.isFirst ? radius : 0, bottomLeadingRadius: box.isLast ? radius : 0,
-                                               bottomTrailingRadius: box.isLast ? radius : 0, topTrailingRadius: box.isFirst ? radius : 0,
-                                               style: .continuous)
-            content
-                .padding(.horizontal, run == nil ? Box.inset : 0)
-                .padding(.top, box.isFirst ? Box.padding : spacingAbove)
-                .padding(.bottom, box.isLast ? Box.padding : 0)
-                .background(shape.fill(Box.fill).padding(.horizontal, -(run?.inset ?? 0) - Box.outset))
-                .padding(.top, box.isFirst ? spacingAbove : 0)
-        } else {
-            content.padding(.top, spacingAbove)
-        }
+        // One layout with or without a box (no branches), so a row going into or out of a
+        // box keeps its view and changes shape with the change's animation, as the rows
+        // round it move. A card or a gallery's image has a whole box of its own.
+        let boxed = box != nil
+        let own = boxed && run?.kind != nil
+        let first = own || box?.isFirst == true
+        let last = own || box?.isLast == true
+        // Out of a box the (hidden) box is a whole one: a block boxed alone only fades in.
+        let top = Box.cornerRadius * (first || !boxed ? 1 : 0)
+        let bottom = Box.cornerRadius * (last || !boxed ? 1 : 0)
+        let shape = UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom,
+                                           bottomTrailingRadius: bottom, topTrailingRadius: top, style: .continuous)
+        content
+            .padding(.horizontal, boxed && (own || run == nil) ? Box.inset : 0)
+            .padding(.top, !boxed ? 0 : first ? Box.padding : spacingAbove)
+            .padding(.bottom, boxed && last ? Box.padding : 0)
+            .background(shape.fill(Box.fill).opacity(boxed ? 1 : 0).padding(.horizontal, own ? 0 : -(run?.inset ?? 0) - Box.outset))
+            .padding(.top, !boxed || first ? spacingAbove : 0)
     }
 }
 

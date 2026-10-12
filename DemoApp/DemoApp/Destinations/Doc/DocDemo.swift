@@ -353,7 +353,7 @@ final class DocDemo {
     /// A paragraph, heading, list item or quote as its row shows it; nil for other kinds.
     private static func textRow(_ block: DocBlock, in doc: Doc) -> DocTextRow? {
         guard block.kind.allowsMarks, let (document, depth) = doc.markupTree(of: block.id) else { return nil }
-        // A quote's row draws the quote around what it holds (SelectableBlockQuote).
+        // A quote's row draws the quote around what it holds (markdownBlockQuote).
         if case .quote = block.kind, let quote = document.child(at: 0) {
             let content = Markdown.Document(quote.children.compactMap { $0 as? any BlockMarkup })
             return DocTextRow(tree: MarkdownTree(content), depth: 0, isQuote: true, plain: block.text.string)
