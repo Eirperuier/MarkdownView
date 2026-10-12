@@ -1251,11 +1251,23 @@ final class DocEditTests {
             let blocks = self.editor.blocks
             blocks.beginSelecting(first.id)
             self.editor.panels.sheetPage = .main
+            if !DocBlockController.usesHandles {
+                // A sheet as tall as its pages (Craft's), over the bottom of the window.
+                try? await Task.sleep(for: .milliseconds(800))
+                let sheet = try self.expectValue(blocks.testSheetFrame, "no sheet")
+                print("DOCTEST NOTE sheet \(sheet)")
+                let pages = FlooDesignTokens.Component.FormatSheet.page
+                try self.expect(sheet.height > pages && sheet.height < pages + 80, "the sheet is \(sheet.height) tall for pages \(pages) tall")
+            }
             try self.expect(DocFormatting(editor: self.editor, caretTakesBlock: true).targets.map(\.id) == [first.id], "targets")
             DocFormatting(editor: self.editor, caretTakesBlock: true).toggleList(.listItem(style: .task(done: false)))
             try self.expect(self.demo.doc.block(first.id)?.kind == .listItem(style: .task(done: false)), "kind \(String(describing: self.demo.doc.block(first.id)?.kind))")
             blocks.endSelecting()
             try self.expect(self.editor.panels.sheetPage == nil, "the sheet stays")
+            if !DocBlockController.usesHandles {
+                try? await Task.sleep(for: .milliseconds(800))
+                try self.expect(blocks.testSheetFrame == nil, "the sheet stays on screen")
+            }
         }
     }
 
@@ -1848,6 +1860,9 @@ final class DocEditTests {
             await test("on a phone a block lifted and let go where it was starts selecting with it as the touch ends") {
                 let block = try self.block("Loading older")
                 await show(block.id)
+                // A press the system began a drag for, then took for a scroll: its end selects nothing.
+                let scroll = blocks.testPressBecomingScroll(block.id)
+                try self.expect(!scroll.selecting && !scroll.dragLeft, "a scroll's end: selecting \(scroll.selecting), drag left \(scroll.dragLeft)")
                 let atOnce = blocks.testLiftAndLetGo(block.id)
                 try self.expect(atOnce, "selecting waited for the lift to settle back")
                 try self.expect(blocks.isSelecting && blocks.selected == [block.id], "selecting \(blocks.isSelecting), \(blocks.selected.count)")

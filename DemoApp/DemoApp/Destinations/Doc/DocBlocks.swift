@@ -148,6 +148,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         /// frame (stays put while the list scrolls under it).
         var start: CGPoint
         var point: CGPoint
+        /// Whether the system lifted it (a press it began on can turn into a scroll instead).
+        var isLifting = false
         /// Whether it has moved yet.
         var isMoving = false
         /// Where the blocks would go: after this block (nil: the top), or nowhere new.
@@ -198,6 +200,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             // Let go: selecting starts at once, not once the rows have settled back.
             let ends = DocTouchEnds { [weak self] in
                 guard let self, let drag = self.drag else { return }
+                // A drag the system never lifted is a press that became a scroll: over.
+                guard drag.isLifting else { self.endDrag(); return }
                 self.letGo(drag)
             }
             ends.delegate = self
@@ -914,6 +918,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     }
 
     func dragInteraction(_ interaction: UIDragInteraction, willAnimateLiftWith animator: UIDragAnimating, session: UIDragSession) {
+        drag?.isLifting = true
         animator.addCompletion { [weak self] position in
             guard let self, position != .end, self.drag?.isMoving != true, let drag = self.endDrag() else { return }
             // Let go before the lift finished: the press was long enough all the same.
@@ -1407,6 +1412,15 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         return selectingAtOnce
     }
 
+    /// A press on a phone that the system began a drag for but never lifted (it became a
+    /// scroll), its touch ending: whether selecting started, and whether a drag is left.
+    func testPressBecomingScroll(_ id: DocBlockID) -> (selecting: Bool, dragLeft: Bool) {
+        guard let frame = contentFrame(id) else { return (false, false) }
+        _ = beginDrag(id, at: CGPoint(x: frame.midX, y: frame.midY))
+        touchEnds?.end()
+        return (isSelecting, drag != nil)
+    }
+
     /// How the system would lift a block's row.
     func testLiftPreview(_ id: DocBlockID) -> UITargetedDragPreview? { preview(id) }
 
@@ -1531,6 +1545,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             guard abs(fit - cell.bounds.height) > 0.5 else { return nil }
             return "row at \(Int(cell.frame.minY)) is \(cell.bounds.height) high for \(fit)"
         }
+    }
+
+    /// The sheet over the list (Style, Layout): its frame in the window, nil without one.
+    var testSheetFrame: CGRect? {
+        guard let view = list?.window?.rootViewController?.presentedViewController?.view else { return nil }
+        return view.convert(view.bounds, to: nil)
     }
 
     func testShownBoxBottom(_ id: DocBlockID) -> CGFloat? {
@@ -1708,33 +1728,53 @@ final class DocBlockKeyView: UIView {
 /// the layouts of the selected links, files and images.
 struct DocBlockSelectionBar: View {
     let blocks: DocBlockController
+    /// The sheet's content as measured: the sheet is as tall (Craft's).
+    @State private var sheetHeight = FlooDesignTokens.Component.FormatSheet.page + 40
+
+    /// Style and Layout open a sheet over the bar; leaving the selection closes it.
+    private var showsSheet: Bool {
+        blocks.isSelecting && (blocks.isChoosingLayout || blocks.editor.panels.sheetPage != nil)
+    }
 
     var body: some View {
         VStack {
             if blocks.isSelecting {
-                let formatting = blocks.editor.panels.sheetPage != nil
-                let radius = formatting ? FlooDesignTokens.Component.FormatSheet.cornerRadius : 26
-                Group {
-                    if blocks.isChoosingLayout {
-                        layouts
-                    } else if formatting {
-                        DocFormatSheet(editor: blocks.editor) { blocks.editor.panels.sheetPage = nil }
-                    } else {
-                        actions
-                    }
-                }
-                .padding(formatting ? 0 : 8)
-                .background(.regularMaterial, in: .rect(cornerRadius: radius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(.white.opacity(0.6), lineWidth: 1))
-                .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                actions
+                    .padding(8)
+                    .background(.regularMaterial, in: .rect(cornerRadius: 26, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(.white.opacity(0.6), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+                    .opacity(showsSheet ? 0 : 1)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .animation(FlooDesignTokens.Motion.layout, value: blocks.isSelecting)
-        .animation(FlooDesignTokens.Motion.layout, value: blocks.isChoosingLayout)
-        .animation(FlooDesignTokens.Motion.layout, value: blocks.editor.panels.sheetPage == nil)
+        .sheet(isPresented: Binding(get: { showsSheet }, set: { if !$0 { closeSheet() } })) {
+            Group {
+                if blocks.isChoosingLayout {
+                    layouts
+                        .padding(.horizontal, FlooDesignTokens.Component.FormatSheet.inset)
+                        .padding(.bottom, FlooDesignTokens.Component.FormatSheet.inset)
+                } else {
+                    DocFormatSheet(editor: blocks.editor, onClose: closeSheet)
+                }
+            }
+            .padding(.top, FlooDesignTokens.Component.FormatSheet.rowSpacing)
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { sheetHeight = $0 }
+            .frame(maxHeight: .infinity, alignment: .top)
+            .presentationDetents([.height(sheetHeight)])
+            // Their own grabber goes back a page before it closes the sheet.
+            .presentationDragIndicator(.hidden)
+            .presentationBackgroundInteraction(.enabled)
+        }
+    }
+
+    private func closeSheet() {
+        blocks.editor.panels.sheetPage = nil
+        blocks.isChoosingLayout = false
     }
 
     private var hasMedia: Bool {
