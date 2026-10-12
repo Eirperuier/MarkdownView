@@ -32,6 +32,8 @@ final class DocPanels {
     var sheetPage: DocFormatSheetPage?
     /// What Copy Format took, for Paste Format.
     var copiedFormat: DocCopiedFormat?
+    /// The phone's keyboard bar: up while the keyboard is, for a block's text.
+    var showsKeyboardBar = false
 }
 
 struct DocFormatPanel: View {

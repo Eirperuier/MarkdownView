@@ -88,6 +88,9 @@ struct DocDestination: View {
                     .ignoresSafeArea(edges: .vertical)
                 }
             }
+            #if !targetEnvironment(macCatalyst)
+            .overlay(alignment: .bottom) { DocKeyboardBarHost(bar: editor.keyboardBar, panels: editor.panels) }
+            #endif
             .overlay { DocSlashMenuView(menu: editor.slash) }
             .overlay(alignment: .bottom) { DocBlockSelectionBar(blocks: editor.blocks) }
         }

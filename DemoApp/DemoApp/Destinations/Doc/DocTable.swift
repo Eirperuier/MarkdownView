@@ -830,6 +830,9 @@ struct DocTableAdder: View {
 @MainActor
 enum DocScrolling {
     private(set) static var keyboard: CGRect = .null
+    /// The keyboard bar's height while it is up on the keyboard (DocKeyboardBar): it
+    /// covers the page too.
+    static var keyboardBar: CGFloat = 0
     private static var observer: NSObjectProtocol?
 
     /// Starts following the keyboard's frame (screen coordinates).
@@ -855,7 +858,8 @@ enum DocScrolling {
         var visible = list.bounds.inset(by: UIEdgeInsets(top: list.safeAreaInsets.top, left: 0, bottom: list.safeAreaInsets.bottom, right: 0))
         if !keyboard.isNull, let window = list.window {
             let overlap = list.convert(window.convert(keyboard, from: nil), from: window)
-            if overlap.minY < visible.maxY { visible.size.height = max(0, overlap.minY - visible.minY) }
+            let top = overlap.minY - keyboardBar
+            if top < visible.maxY { visible.size.height = max(0, top - visible.minY) }
         }
         return visible
     }

@@ -1291,10 +1291,19 @@ final class DocEditTests {
                     let visible = list.convert(DocScrolling.visible(in: list), to: nil)
                     try self.expect(caret.maxY <= visible.maxY, "\(prefix): caret \(caret.maxY) under the keyboard at \(visible.maxY)")
                     try self.expect(shown.last == before || before > visible.maxY - 30, "\(prefix) moved from \(before) to \(shown.last!) though it showed")
+                    // The bar is the page's, on the keyboard's top; the caret's line above it too.
+                    let window = try self.expectValue(view.window, "no window")
+                    let keyboard = window.convert(DocScrolling.keyboard, from: nil)
+                    let onPage = bar.convert(bar.bounds, to: window)
+                    try self.expect(bar.window === window && self.editor.panels.showsKeyboardBar && abs(onPage.maxY - keyboard.minY) < 1,
+                                    "\(prefix): the bar at \(onPage) in \(String(describing: bar.window)), the keyboard at \(keyboard)")
+                    try self.expect(caret.maxY <= onPage.minY, "\(prefix): caret \(caret.maxY) under the bar at \(onPage.minY)")
                     let settled = y()
                     bar.testTap("dismiss")
                     for _ in 0..<40 { try? await Task.sleep(for: .milliseconds(20)); try self.expect(y() == settled, "\(prefix) moved as the keyboard went: \(settled) → \(y())") }
                     try self.expect(!view.isFirstResponder, "\(prefix): the keyboard stayed")
+                    let gone = bar.convert(bar.bounds, to: window)
+                    try self.expect(!self.editor.panels.showsKeyboardBar && gone.minY >= window.bounds.maxY - 0.5, "\(prefix): the bar stayed at \(gone)")
                 }
             }
         }

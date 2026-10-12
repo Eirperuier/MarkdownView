@@ -94,19 +94,36 @@ final class DocEditor {
         // The keyboard coming up over the caret (a tap low on the page): the caret's
         // line rises above it, the least it needs, as the keyboard does. (After
         // DocScrolling's observer of the same note: it knows the keyboard's new frame.)
-        NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] _ in
+        NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
+            let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
             MainActor.assumeIsolated {
+                self?.updateKeyboardBar(duration: duration)
                 guard let self, let view = self.allViews.first(where: \.isFirstResponder) else { return }
                 DocScrolling.reveal(view, rect: view.selectedTextRange.map { view.caretRect(for: $0.end) } ?? view.bounds)
                 // The menu stays clear of the keyboard where it is now.
                 self.placeSlash()
             }
         }
+        NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] note in
+            let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
+            MainActor.assumeIsolated { self?.updateKeyboardBar(duration: duration) }
+        }
         slash.choose = { [weak self] item in self?.chooseSlash(item) }
         slash.dismiss = { [weak self] in self?.dismissSlash() }
     }
 
     private var allViews: [UITextView] { views.values.flatMap { $0 }.compactMap(\.view) }
+
+    /// The keyboard bar is up while the keyboard is, for a block's text; it comes and
+    /// goes in the keyboard's time, sliding in and out from behind it (never above it).
+    func updateKeyboardBar(duration: Double? = nil) {
+        let view = allViews.first(where: \.isFirstResponder)
+        let keyboard = view?.window.map { $0.convert(DocScrolling.keyboard, from: nil) } ?? .null
+        let shows = !keyboard.isNull && keyboard.height > 0 && keyboard.minY < (view?.window?.bounds.maxY ?? 0) - 1
+        DocScrolling.keyboardBar = shows ? DocKeyboardBar.height : 0
+        guard shows != panels.showsKeyboardBar else { return }
+        withAnimation(duration.map { .easeInOut(duration: $0) }) { panels.showsKeyboardBar = shows }
+    }
     /// For the edit tests' reports.
     var allTextViews: [UITextView] { allViews }
 
@@ -137,9 +154,6 @@ final class DocEditor {
         textView.smartDashesType = .no
         textView.smartInsertDeleteType = .no
         textView.spellCheckingType = .no
-        #if !targetEnvironment(macCatalyst)
-        textView.inputAccessoryView = keyboardBar
-        #endif
         let original = (textView.delegate as? DocTextDelegate)?.original ?? textView.delegate
         let delegate = DocTextDelegate(original: original, block: id, editor: self)
         delegates[ObjectIdentifier(textView)] = delegate
@@ -1211,6 +1225,7 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
         editor?.tables.endEditing()
         editor?.sources.endEditing()
         editor?.blocks.textEditingBegan(block)
+        editor?.updateKeyboardBar()
         // The selection may have come before the focus: the toolbar waits for both.
         editor?.selectionToolbar.selectionChanged()
     }

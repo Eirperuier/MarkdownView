@@ -355,10 +355,7 @@ extension DocEditor {
         var room = CGRect(origin: .zero, size: list.frame.size).inset(by: UIEdgeInsets(top: list.safeAreaInsets.top, left: 0, bottom: list.safeAreaInsets.bottom, right: 0))
         if !DocScrolling.keyboard.isNull, let window = list.window {
             let keyboard = toOverlay(frame.convert(window.convert(DocScrolling.keyboard, from: nil), from: window))
-            // The keyboard's frame has the bar over it (its input accessory).
-            let bar = textView.inputAccessoryView?.window != nil ? textView.inputAccessoryView?.bounds.height ?? 0 : 0
-            let top = keyboard.minY + bar
-            if top < room.maxY { room.size.height = max(0, top - room.minY) }
+            if keyboard.minY < room.maxY { room.size.height = max(0, keyboard.minY - room.minY) }
         }
         return (anchor, room)
     }

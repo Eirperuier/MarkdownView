@@ -3,7 +3,9 @@
 //  DemoApp
 //
 //  The bar over a phone's keyboard, laid out as Craft's: a white strip with a hairline
-//  on top, the keyboard's own width.
+//  on top, the page's width. As Craft's, it is the page's, not the keyboard's (no input
+//  accessory): over the page's bottom, on the keyboard's top, up and down with it, and
+//  under what the page shows over itself (the command menu).
 //
 //  - Text selected: highlight, bold, italic, strikethrough, code, link and the keyboard
 //    key, spread evenly; a mark all of the selection has sits on a light tint. The
@@ -22,7 +24,7 @@ import UIKit
 import DocKit
 
 @MainActor
-final class DocKeyboardBar: UIInputView {
+final class DocKeyboardBar: UIView {
     private weak var editor: DocEditor?
     private let keys = UIStackView()
     /// What the keys show now; they're rebuilt only when it changes.
@@ -42,8 +44,7 @@ final class DocKeyboardBar: UIInputView {
 
     init(editor: DocEditor) {
         self.editor = editor
-        super.init(frame: CGRect(x: 0, y: 0, width: 390, height: Self.height), inputViewStyle: .default)
-        allowsSelfSizing = true
+        super.init(frame: CGRect(x: 0, y: 0, width: 390, height: Self.height))
         backgroundColor = .systemBackground
         let hairline = UIView()
         hairline.backgroundColor = .separator
@@ -54,7 +55,6 @@ final class DocKeyboardBar: UIInputView {
             addSubview(view)
         }
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: Self.height),
             hairline.topAnchor.constraint(equalTo: topAnchor),
             hairline.leadingAnchor.constraint(equalTo: leadingAnchor),
             hairline.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -67,7 +67,7 @@ final class DocKeyboardBar: UIInputView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    private static let height: CGFloat = 46
+    static let height: CGFloat = 46
     private static let keySize = CGSize(width: 50, height: 40)
     /// Craft's: symbols about 19 pt, regular, a dark gray rather than black.
     private static let symbols = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular, scale: .medium)
@@ -166,7 +166,6 @@ final class DocKeyboardBar: UIInputView {
 
     private func dismissKey() -> UIButton {
         key("dismiss", UIImage(systemName: "keyboard.chevron.compact.down"), String(localized: "Hide Keyboard")) { [weak self] in
-            // The bar is in the keyboard's window: the text view is in the document's.
             self?.editor?.dismissKeyboard()
         }
     }
@@ -193,8 +192,7 @@ final class DocKeyboardBar: UIInputView {
 
     // MARK: Colours
 
-    /// The colours over the highlight key. The bar is in the keyboard's window; they go
-    /// in the document's, over the key.
+    /// The colours over the highlight key, in the document's window.
     private func showColors(from key: UIButton, block: DocBlockID, range: Range<Int>) {
         guard let editor, let window = editor.textView(for: block)?.window else { return }
         colorsAnchor.isUserInteractionEnabled = false
@@ -285,6 +283,35 @@ final class DocKeyboardBar: UIInputView {
             (menu?.children ?? []).flatMap { ($0 as? UIAction).map { [$0] } ?? actions($0 as? UIMenu) }
         }
         actions(button.menu).first { $0.title == title }?.performWithSender(nil, target: nil)
+    }
+}
+
+/// The keyboard bar on the page: on the keyboard's top, its white under the keyboard,
+/// while it's up; else slid down
+/// behind the keyboard and off the screen. Always there, so where it is follows only
+/// whether it's up.
+struct DocKeyboardBarHost: View {
+    let bar: DocKeyboardBar
+    let panels: DocPanels
+
+    var body: some View {
+        Bar(bar: bar)
+            .frame(height: DocKeyboardBar.height)
+            // Its white goes on down under the keyboard (Craft's: the keyboard sits on it).
+            .background(Color(uiColor: .systemBackground).ignoresSafeArea(.keyboard, edges: .bottom))
+            .offset(y: panels.showsKeyboardBar ? 0 : DocKeyboardBar.height)
+            .allowsHitTesting(panels.showsKeyboardBar)
+            .accessibilityHidden(!panels.showsKeyboardBar)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            // Down to the screen's bottom when there's no keyboard; on the keyboard's
+            // top when there is.
+            .ignoresSafeArea(.container, edges: .bottom)
+    }
+
+    private struct Bar: UIViewRepresentable {
+        let bar: DocKeyboardBar
+        func makeUIView(context: Context) -> DocKeyboardBar { bar }
+        func updateUIView(_ view: DocKeyboardBar, context: Context) {}
     }
 }
 

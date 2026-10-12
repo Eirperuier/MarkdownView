@@ -1780,33 +1780,36 @@ struct DocBlockSelectionBar: View {
         blocks.isSelecting && (blocks.isChoosingLayout || blocks.editor.panels.sheetPage != nil)
     }
 
+    /// The bar shows exactly while selecting, under no sheet. It is always there and
+    /// only slides and fades: never inserted or removed, it can't be left over by a
+    /// removal that didn't finish (the keyboard coming back as selecting ends).
+    private var isShown: Bool { blocks.isSelecting && !showsSheet }
+
     var body: some View {
-        VStack {
-            if blocks.isSelecting {
-                actions
-                    .padding(8)
-                    .background(.regularMaterial, in: .rect(cornerRadius: 26, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(.white.opacity(0.6), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
-                    .opacity(showsSheet ? 0 : 1)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(FlooDesignTokens.Motion.layout, value: blocks.isSelecting)
-        .sheet(isPresented: Binding(get: { showsSheet }, set: { if !$0 { blocks.closeSheet() } })) {
-            Group {
-                if blocks.isChoosingLayout {
-                    layouts
-                        .padding(.horizontal, FlooDesignTokens.Component.FormatSheet.inset)
-                        .padding(.bottom, FlooDesignTokens.Component.FormatSheet.inset)
-                } else {
-                    DocFormatSheet(editor: blocks.editor)
+        actions
+            .padding(8)
+            .background(.regularMaterial, in: .rect(cornerRadius: 26, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(.white.opacity(0.6), lineWidth: 1))
+            .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
+            .offset(y: blocks.isSelecting ? 0 : 40)
+            .opacity(isShown ? 1 : 0)
+            .allowsHitTesting(isShown)
+            .accessibilityHidden(!isShown)
+            .animation(FlooDesignTokens.Motion.layout, value: blocks.isSelecting)
+            .sheet(isPresented: Binding(get: { showsSheet }, set: { if !$0 { blocks.closeSheet() } })) {
+                Group {
+                    if blocks.isChoosingLayout {
+                        layouts
+                            .padding(.horizontal, FlooDesignTokens.Component.FormatSheet.inset)
+                            .padding(.bottom, FlooDesignTokens.Component.FormatSheet.inset)
+                    } else {
+                        DocFormatSheet(editor: blocks.editor)
+                    }
                 }
+                .docSizedSheet()
             }
-            .docSizedSheet()
-        }
     }
 
     private var hasMedia: Bool {
