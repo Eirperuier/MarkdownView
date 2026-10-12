@@ -36,12 +36,18 @@ public struct MarkdownPlatformTypography: Hashable, Sendable {
     public var inlineCode: Style?
     /// Table body cells once they turn selectable; nil keeps them in the body font.
     public var tableBody: Style?
+    /// Bold text's weight, at least (a heavier font, a heading's, keeps its own). Bold by
+    /// default, as Craft's: the system font's bold trait gives semibold, too close to the
+    /// text around it (the CJK face has bold and heavier weights too).
+    public var strongWeight: PlatformFont.Weight
 
-    public init(body: Style, headings: [Style], inlineCode: Style? = nil, tableBody: Style? = nil) {
+    public init(body: Style, headings: [Style], inlineCode: Style? = nil, tableBody: Style? = nil,
+                strongWeight: PlatformFont.Weight = .bold) {
         self.body = body
         self.headings = headings
         self.inlineCode = inlineCode
         self.tableBody = tableBody
+        self.strongWeight = strongWeight
     }
 
     /// Body text; headings from title 1 to headline, heavy to medium.

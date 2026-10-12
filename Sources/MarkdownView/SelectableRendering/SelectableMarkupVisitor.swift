@@ -429,6 +429,41 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         return TextContent(.attributedString(display))
     }
 
+    /// `font` at the typography's bold weight (a heavier one is kept), its size, italics and
+    /// monospacing kept. Only the system's faces, the ones the typography makes; another
+    /// face keeps its own bold (the bold trait).
+    private func strengthened(_ font: PlatformFont) -> PlatformFont {
+        let weight = typography.strongWeight
+        #if canImport(UIKit)
+        guard font.familyName.hasPrefix(".") || font.fontName.hasPrefix(".") else { return font }
+        let traits = font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any]
+        let current = (traits?[.weight] as? CGFloat).map { UIFont.Weight(rawValue: $0) } ?? .regular
+        guard current < weight else { return font }
+        let symbolic = font.fontDescriptor.symbolicTraits
+        var result = symbolic.contains(.traitMonoSpace)
+            ? UIFont.monospacedSystemFont(ofSize: font.pointSize, weight: weight)
+            : UIFont.systemFont(ofSize: font.pointSize, weight: weight)
+        if symbolic.contains(.traitItalic),
+           let italic = result.fontDescriptor.withSymbolicTraits(result.fontDescriptor.symbolicTraits.union(.traitItalic)) {
+            result = UIFont(descriptor: italic, size: font.pointSize)
+        }
+        return result
+        #else
+        guard font.familyName?.hasPrefix(".") == true || font.fontName.hasPrefix(".") else { return font }
+        let traits = font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
+        let current = (traits?[.weight] as? CGFloat).map { NSFont.Weight(rawValue: $0) } ?? .regular
+        guard current < weight else { return font }
+        let symbolic = font.fontDescriptor.symbolicTraits
+        var result = symbolic.contains(.monoSpace)
+            ? NSFont.monospacedSystemFont(ofSize: font.pointSize, weight: weight)
+            : NSFont.systemFont(ofSize: font.pointSize, weight: weight)
+        if symbolic.contains(.italic) {
+            result = NSFont(descriptor: result.fontDescriptor.withSymbolicTraits(result.fontDescriptor.symbolicTraits.union(.italic)), size: font.pointSize) ?? result
+        }
+        return result
+        #endif
+    }
+
     private func mediumWeightFont(ofSize size: CGFloat) -> PlatformFont {
         #if canImport(UIKit)
         UIFont.systemFont(ofSize: size, weight: .medium)
@@ -513,6 +548,14 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
             }
             for range in plainRanges {
                 attr[range].foregroundColor = configuration.preferredColor
+            }
+            // At the typography's bold weight, not the bold trait's semibold.
+            for run in attr.runs {
+                #if canImport(UIKit)
+                attr[run.range].uiKit.font = strengthened(run.uiKit.font ?? bodyFont)
+                #elseif os(macOS)
+                attr[run.range].appKit.font = strengthened(run.appKit.font ?? bodyFont)
+                #endif
             }
             return .attributedString(attr)
         })
