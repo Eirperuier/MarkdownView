@@ -1483,6 +1483,47 @@ final class DocEditTests {
             try self.expect(blocks.testBlock(at: CGPoint(x: left.midX, y: left.midY)) == line[0], "left point picks another block")
             try self.expect(blocks.testBlock(at: CGPoint(x: right.midX, y: right.midY)) == line[1], "right point picks another block")
         }
+        await test("cards are a column of the page wide, Craft's: three across while each is 140 or more, then two, then one") {
+            let card = try self.expectValue(self.demo.doc.blocks.first { if case .link(let link) = $0.kind { link.layout == .card } else { false } }, "no card")
+            let kinds = Array(repeating: card.kind, count: 3)
+            // The page's widths and the cards' as Craft draws them, measured as its window narrows.
+            for (width, columns, cardWidth) in [(696.0, 3, 226.0), (441.0, 3, 141.0), (432.0, 2, 212.0), (240.0, 2, 116.0), (200.0, 1, 200.0)] {
+                let frames = DocMediaLayout.runFrames(kinds, width: width)
+                let first = frames.filter { $0.minY == frames[0].minY }
+                try self.expect(first.count == columns && first.allSatisfy { abs($0.width - cardWidth) < 1 },
+                                "at \(width): \(first.map(\.width)), wanted \(columns) of \(cardWidth)")
+                try self.expect(frames.allSatisfy { abs($0.width - cardWidth) < 1 } && first.last.map { abs(width - $0.maxX) < 0.5 } == true,
+                                "at \(width) the cards don't fill a line: \(frames)")
+            }
+        }
+        #if targetEnvironment(macCatalyst)
+        await test("on the Mac a window made narrower places the cards across the page again, each a column wide") {
+            let line = try self.expectValue(self.linkCards(), "no line of cards")
+            let scene = try self.expectValue(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first, "no window scene")
+            let frame = try self.expectValue(scene.effectiveGeometry.systemFrame as CGRect?, "no frame")
+            @MainActor func resize(to width: CGFloat) async {
+                scene.requestGeometryUpdate(.Mac(systemFrame: CGRect(x: frame.minX, y: frame.minY, width: width, height: frame.height)))
+                for _ in 0..<100 where abs(scene.effectiveGeometry.systemFrame.width - width) > 1 {
+                    try? await Task.sleep(for: .milliseconds(20))
+                }
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+            await resize(to: 480)
+            defer { Task { await resize(to: frame.width) } }
+            let page = DocMediaLayout.pageWidth
+            try self.expect(DocMediaLayout.cardColumns(in: page) == 2, "the page is still \(page) wide")
+            let width = DocMediaLayout.cardWidth(in: page)
+            let places = line.compactMap { id in self.demo.rows.first { $0.block == id }?.place }
+            try self.expect(places.count == line.count && places.allSatisfy { $0.width == width }, "cards placed \(places.map(\.width)), a column is \(width)")
+            await show(line[0])
+            let drawn = try line.map { try self.expectValue(blocks.testContentFrame($0), "no frame") }
+            try self.expect(drawn.allSatisfy { abs($0.width - width) < 1 }, "cards drawn \(drawn.map(\.width)) wide, a column is \(width)")
+            await resize(to: frame.width)
+            try self.expect(DocMediaLayout.pageWidth > page, "the window didn't get wider again")
+            let wide = DocMediaLayout.cardWidth(in: DocMediaLayout.pageWidth)
+            try self.expect(line.allSatisfy { id in self.demo.rows.first { $0.block == id }?.place?.width == wide }, "the cards didn't widen again")
+        }
+        #endif
         await test("a file turned into a card after cards joins their run, its row the same") {
             let pdf = try self.expectValue(self.demo.doc.blocks.first { if case .file(let file) = $0.kind { file.name.hasSuffix(".pdf") } else { false } }, "no pdf")
             let index = try self.expectValue(self.demo.rows.firstIndex { $0.block == pdf.id }, "no pdf row")
@@ -1540,7 +1581,7 @@ final class DocEditTests {
             // The text between the preview (104 tall) and the footer: white and greys only.
             var coloured = 0, all = 0
             for y in 108..<190 where y < image.height {
-                for x in 0..<min(image.width, Int(DocMediaLayout.cardWidth)) {
+                for x in 0..<min(image.width, Int(DocMediaLayout.cardWidth(in: DocMediaLayout.pageWidth))) {
                     let p = y * perRow + x * step
                     let (a, b, c) = (Int(data[p]), Int(data[p + 1]), Int(data[p + 2]))
                     all += 1

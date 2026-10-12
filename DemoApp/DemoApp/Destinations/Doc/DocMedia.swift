@@ -80,8 +80,8 @@ struct DocLinkView: View {
 
 /// Where a link's parts (preview, title, summary, footer) go in each layout: small, a
 /// pill (the thumbnail, the title beside it); regular, a row (thumbnail, title and
-/// summary, the footer under them); card, half the page (the preview on top, the text,
-/// the footer at the bottom).
+/// summary, the footer under them); card, a column of the page (the preview on top, the
+/// text, the footer at the bottom).
 private struct DocLinkLayout: Layout {
     let layout: DocLayout
     let hasSummary: Bool
@@ -119,7 +119,7 @@ private struct DocLinkLayout: Layout {
                 CGRect(x: 0, y: 62, width: width, height: 26),
             ])
         case .card:
-            let card = DocMediaLayout.cardWidth
+            let card = DocMediaLayout.cardWidth(in: width)
             let room = ProposedViewSize(width: card - 20, height: nil)
             let (a, b) = (title.sizeThatFits(room), summary.sizeThatFits(room))
             return (CGSize(width: card, height: 222), [
@@ -208,7 +208,7 @@ struct DocFileView: View {
 
 /// Where a file's parts (a card's panel, the icon, the name, its kind and size) go in
 /// each layout: small, a pill (the icon, the name over its kind); regular, a row (the
-/// icon, then name, kind and size); card, half the page (the icon on the panel, the
+/// icon, then name, kind and size); card, a column of the page (the icon on the panel, the
 /// text centred under it).
 private struct DocFileLayout: Layout {
     let layout: DocLayout
@@ -257,7 +257,7 @@ private struct DocFileLayout: Layout {
                 CGRect(x: 80, y: top + a.height + 2 + b.height + 1, width: c.width, height: hasSize ? c.height : 0),
             ])
         case .card:
-            let card = DocMediaLayout.cardWidth
+            let card = DocMediaLayout.cardWidth(in: width)
             let icon = CGSize(width: 72 * 0.78, height: 72)
             let room = ProposedViewSize(width: card - 20, height: nil)
             let (a, b, c) = (name.sizeThatFits(room), kind.sizeThatFits(room), size.sizeThatFits(room))
@@ -392,7 +392,19 @@ private struct DocMediaPreview<Placeholder: View>: View {
 enum DocMediaLayout {
     static let border = Color(.separator).opacity(0.5)
     /// Half the page, less the gap between two cards.
-    static var cardWidth: CGFloat { min(240, (pageWidth - 12) / 2) }
+    /// Cards side by side (Craft's, measured as its window narrows): three columns across
+    /// the page while each is at least 140 wide, then two while each is at least 100, then
+    /// one; a card is a column wide, alone or in a run.
+    static func cardColumns(in width: CGFloat) -> Int {
+        if (width - gap * 2) / 3 >= 140 { return 3 }
+        if (width - gap) / 2 >= 100 { return 2 }
+        return 1
+    }
+
+    static func cardWidth(in width: CGFloat) -> CGFloat {
+        let columns = CGFloat(cardColumns(in: width))
+        return (width - gap * (columns - 1)) / columns
+    }
     /// The page's text width (as wide as a block can be).
     static var pageWidth: CGFloat {
         let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen.bounds.width }.first ?? 390
@@ -522,7 +534,7 @@ extension View {
 // MARK: Runs
 
 extension DocMediaLayout {
-    static let gap: CGFloat = 12
+    static let gap: CGFloat = 8
 
     /// What run a block joins (cards with cards, images with images); nil: it stands
     /// alone. A large image always does.
@@ -546,8 +558,8 @@ extension DocMediaLayout {
         var y: CGFloat = 0
         switch run {
         case .cards:
-            let card = cardWidth
-            let columns = max(1, Int((width + gap) / (card + gap)))
+            let card = cardWidth(in: width)
+            let columns = cardColumns(in: width)
             for line in stride(from: 0, to: kinds.count, by: columns) {
                 let members = kinds[line..<min(line + columns, kinds.count)]
                 let height = members.map(cardHeight).max() ?? 0

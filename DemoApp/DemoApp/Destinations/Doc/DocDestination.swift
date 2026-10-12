@@ -68,6 +68,8 @@ struct DocDestination: View {
             // keyboard's height at once. Showing the caret above the keyboard is the
             // editor's.
             .keyboardAvoidance(false, preservesContentOffset: true)
+            // A page made wider or narrower places its cards and galleries across it again.
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { _ in demo.pageWidthChanged() }
             .overlay(alignment: .topLeading) {
                 // A phone's block selection, the chat's (MarkdownBlockSelectionOverlay): a
                 // tint on the blocks (links, files and images outline themselves), a dot

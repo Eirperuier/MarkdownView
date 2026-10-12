@@ -254,6 +254,15 @@ final class DocDemo {
         askForPreviews()
     }
 
+    /// The page's width the links, files and images were placed at.
+    @ObservationIgnored private var placedWidth: CGFloat?
+
+    /// The page got wider or narrower: cards and galleries are placed across it again.
+    func pageWidthChanged() {
+        guard placedWidth != DocMediaLayout.pageWidth else { return }
+        publish()
+    }
+
     /// Links, files and images across the page: cards next to each other side by side,
     /// images in a gallery (not while the agent writes), each in as many lines as
     /// `runFrames` makes; the rest on lines of their own, a run of one too (an image at
@@ -262,6 +271,7 @@ final class DocDemo {
     private func place(_ rows: inout [DocRow]) {
         let blocks = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0) })
         let width = DocMediaLayout.pageWidth
+        placedWidth = width
         func block(_ row: DocRow) -> DocBlock? {
             guard row.media != nil, !row.isStreaming, let id = row.block else { return nil }
             return blocks[id]
