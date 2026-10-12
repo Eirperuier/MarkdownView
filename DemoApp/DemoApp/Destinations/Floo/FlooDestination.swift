@@ -11,6 +11,7 @@ import SwiftUI
 import MarkdownView
 import MessagingUI
 import CardUI
+import FlooDesign
 
 struct FlooDestination: View {
     @State private var demo = FlooDemo()

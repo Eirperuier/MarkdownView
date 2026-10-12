@@ -24,6 +24,7 @@ import UIKit.UIGestureRecognizerSubclass
 import DocKit
 import MarkdownView
 import MessagingUI
+import FlooDesign
 
 @MainActor
 @Observable
@@ -644,12 +645,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         !sequence(first: view, next: { $0?.superview }).contains { $0 is UITextView || $0 is UIControl || $0 === handle }
     }
 
-    // Composer's swipe: the row follows the finger, damped, and eases back; 80 points
+    // Composer's swipe: the row follows the finger, damped, and springs back; 80 points
     // across select it (or, while selecting, add or remove it).
     private static let swipeDistance: CGFloat = 80
     private static let swipeMaxOffset: CGFloat = 72
     private static let swipeDamping: CGFloat = 130
-    private static let swipeFlick: CGFloat = 1200
 
     @objc private func swiped(_ recognizer: UIPanGestureRecognizer) {
         guard let list else { return }
@@ -681,8 +681,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         swiped = nil
         let selects = abs(x) >= Self.swipeDistance
         if selects { toggleSelecting(id) }
-        UIView.animate(withDuration: abs(velocity) >= Self.swipeFlick ? 0.15 : 0.2, delay: 0,
-                       options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+        // Back in the layout's spring.
+        let spring = FlooDesignTokens.Motion.layoutSpring
+        UIView.animate(springDuration: spring.duration, bounce: spring.bounce, initialSpringVelocity: 0, delay: 0,
+                       options: [.beginFromCurrentState, .allowUserInteraction]) {
             cell?.transform = .identity
         } completion: { _ in
             cell?.layer.zPosition = 0
@@ -1780,35 +1782,21 @@ struct DocBlockSelectionBar: View {
         blocks.isSelecting && (blocks.isChoosingLayout || blocks.editor.panels.sheetPage != nil)
     }
 
-    /// The bar shows exactly while selecting, under no sheet. It is always there and
-    /// only slides and fades: never inserted or removed, it can't be left over by a
-    /// removal that didn't finish (the keyboard coming back as selecting ends).
-    private var isShown: Bool { blocks.isSelecting && !showsSheet }
-
     var body: some View {
-        actions
-            .padding(8)
-            .background(.regularMaterial, in: .rect(cornerRadius: 26, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(.white.opacity(0.6), lineWidth: 1))
-            .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
-            .offset(y: blocks.isSelecting ? 0 : 40)
-            .opacity(isShown ? 1 : 0)
-            .allowsHitTesting(isShown)
-            .accessibilityHidden(!isShown)
-            .animation(FlooDesignTokens.Motion.layout, value: blocks.isSelecting)
+        // Shown exactly while selecting, under no sheet: FlooDesign's panel stays in
+        // the view and follows only that, so nothing can leave it on screen.
+        FlooDesignActionPanel(isPresented: blocks.isSelecting && !showsSheet) { actions }
             .sheet(isPresented: Binding(get: { showsSheet }, set: { if !$0 { blocks.closeSheet() } })) {
                 Group {
                     if blocks.isChoosingLayout {
                         layouts
-                            .padding(.horizontal, FlooDesignTokens.Component.FormatSheet.inset)
-                            .padding(.bottom, FlooDesignTokens.Component.FormatSheet.inset)
+                            .padding(.horizontal, FlooDesignTokens.Component.Sheet.inset)
+                            .padding(.bottom, FlooDesignTokens.Component.Sheet.inset)
                     } else {
                         DocFormatSheet(editor: blocks.editor)
                     }
                 }
-                .docSizedSheet()
+                .flooDesignSizedSheet(estimate: FlooDesignTokens.Component.FormatSheet.estimate)
             }
     }
 
@@ -1816,19 +1804,19 @@ struct DocBlockSelectionBar: View {
         !blocks.selectedLayouts.isEmpty || !blocks.selectedImageFits.isEmpty
     }
 
-    private var actions: some View {
-        HStack(spacing: 8) {
+    @ViewBuilder private var actions: some View {
+        Group {
             Button {
                 blocks.editor.panels.sheetPage = .main
             } label: {
-                DocSelectionTile(title: String(localized: "Style"), symbol: "textformat", color: Color(red: 0.42, green: 0.13, blue: 0.78))
+                FlooDesignActionTile(title: String(localized: "Style"), symbol: "textformat", color: Action.format)
             }
             .accessibilityIdentifier("selection-style")
             if hasMedia {
                 Button {
                     blocks.isChoosingLayout = true
                 } label: {
-                    DocSelectionTile(title: String(localized: "Layout"), symbol: "rectangle.split.2x1", color: Color(red: 0.2, green: 0.27, blue: 0.36))
+                    FlooDesignActionTile(title: String(localized: "Layout"), symbol: "rectangle.split.2x1", color: Action.neutral)
                 }
             }
             Menu {
@@ -1838,54 +1826,51 @@ struct DocBlockSelectionBar: View {
                 }
                 Button("Duplicate", systemImage: "plus.square.on.square") { blocks.duplicateSelection() }
             } label: {
-                DocSelectionTile(title: String(localized: "Actions"), symbol: "square.and.arrow.up", color: Color(red: 0.2, green: 0.27, blue: 0.36))
+                FlooDesignActionTile(title: String(localized: "Actions"), symbol: "square.and.arrow.up", color: Action.neutral)
             }
             Button {
                 blocks.deleteSelection()
             } label: {
-                DocSelectionTile(title: String(localized: "Delete"), symbol: "trash", color: Color(red: 0.82, green: 0.06, blue: 0.13))
+                FlooDesignActionTile(title: String(localized: "Delete"), symbol: "trash", color: Action.destructive)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FlooDesignActionTileStyle())
     }
+
+    private typealias Action = FlooDesignTokens.ColorRole.Action
 
     /// Craft's layout sheet: the options (the sheet's own grabber and pull close it).
     private var layouts: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: FlooDesignTokens.Component.Option.sectionSpacing) {
             if !blocks.selectedImageFits.isEmpty {
-                HStack(spacing: 8) {
-                    DocLayoutSection(title: String(localized: "Image Display")) {
+                HStack(spacing: FlooDesignTokens.Space.sm) {
+                    FlooDesignOptionSection(String(localized: "Image Display")) {
                         option(String(localized: "Fit"), symbol: "arrow.down.and.line.horizontal.and.arrow.up", on: blocks.selectedImageFits == [.fit]) { blocks.setImage(fit: .fit) }
                         option(String(localized: "Fill"), symbol: "square.arrowtriangle.4.outward", on: blocks.selectedImageFits == [.fill]) { blocks.setImage(fit: .fill) }
                     }
-                    DocLayoutSection(title: String(localized: "Image Size")) {
+                    FlooDesignOptionSection(String(localized: "Image Size")) {
                         option(String(localized: "Auto"), symbol: "rectangle.center.inset.filled", on: blocks.selectedImageSizes == [.auto]) { blocks.setImage(size: .auto) }
                         option(String(localized: "Large"), symbol: "rectangle", on: blocks.selectedImageSizes == [.large]) { blocks.setImage(size: .large) }
                     }
                 }
             }
             if !blocks.selectedLayouts.isEmpty {
-                HStack(spacing: 8) {
+                HStack(spacing: FlooDesignTokens.Component.Option.sectionGap) {
                     ForEach(DocLayout.allCases, id: \.self) { layout in
-                        Button {
+                        FlooDesignOption(layout.title, isOn: blocks.selectedLayouts == [layout]) {
                             blocks.setLayout(layout)
-                        } label: {
-                            DocLayoutOption(title: layout.title, isOn: blocks.selectedLayouts == [layout]) {
-                                DocLayoutIllustration(layout: layout)
-                            }
+                        } picture: {
+                            DocLayoutIllustration(layout: layout)
                         }
                     }
                 }
             }
         }
-        .buttonStyle(.plain)
     }
 
     private func option(_ title: String, symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            DocLayoutOption(title: title, isOn: on) {
-                Image(systemName: symbol).font(.system(size: 18))
-            }
+        FlooDesignOption(title, isOn: on, action: action) {
+            Image(systemName: symbol).font(.system(size: FlooDesignTokens.Icon.toolbar))
         }
     }
 
@@ -1898,45 +1883,6 @@ extension DocLayout {
         case .regular: String(localized: "Regular")
         case .card: String(localized: "Card")
         }
-    }
-}
-
-/// A titled group of options (the image's fit, its size).
-private struct DocLayoutSection<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        VStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-            HStack(spacing: 6) { content() }
-        }
-    }
-}
-
-/// One layout option: its picture over its name, outlined in the tint when chosen.
-private struct DocLayoutOption<Picture: View>: View {
-    let title: String
-    let isOn: Bool
-    @ViewBuilder let picture: () -> Picture
-
-    var body: some View {
-        VStack(spacing: 6) {
-            picture()
-                .frame(height: 30)
-            Text(title)
-                .font(.system(size: 13))
-        }
-        .foregroundStyle(isOn ? Color.accentColor : .primary)
-        .frame(maxWidth: .infinity, minHeight: 70)
-        .padding(.horizontal, 6)
-        .background(isOn ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.05), in: .rect(cornerRadius: 14, style: .continuous))
-        .overlay {
-            if isOn { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5) }
-        }
-        .contentShape(.rect(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -1980,28 +1926,6 @@ struct DocLayoutIllustration: View {
 
     private func line(width: CGFloat) -> some View {
         Capsule().fill(Color(.systemGray3)).frame(width: width, height: 2.5)
-    }
-}
-
-/// One of the panel's tiles: its color's symbol over its name, on a wash of the color.
-private struct DocSelectionTile: View {
-    let title: String
-    let symbol: String
-    let color: Color
-
-    var body: some View {
-        VStack(spacing: 5) {
-            Image(systemName: symbol)
-                .font(.system(size: 22, weight: .medium))
-                .frame(height: 26)
-            Text(title)
-                .font(.system(size: 13))
-                .foregroundStyle(color.opacity(0.7))
-        }
-        .foregroundStyle(color)
-        .frame(width: 64, height: 66)
-        .background(color.opacity(0.08), in: .rect(cornerRadius: 16, style: .continuous))
-        .contentShape(.rect(cornerRadius: 16, style: .continuous))
     }
 }
 

@@ -8,6 +8,7 @@
 import SwiftUI
 import MarkdownView
 import MessagingUI
+import FlooDesign
 
 @main
 struct DemoAppApp: App {

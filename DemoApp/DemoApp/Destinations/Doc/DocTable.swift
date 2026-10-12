@@ -19,6 +19,7 @@
 import SwiftUI
 import UIKit
 import DocKit
+import FlooDesign
 import MarkdownView
 
 struct DocTableSnapshot: Equatable {
@@ -708,8 +709,8 @@ struct DocTableCellEditor: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay {
                 // Out over the cell's padding (MarkdownView's: 8 across, 13 down).
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.sm, style: .continuous)
+                    .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
                     .padding(.horizontal, -6)
                     .padding(.vertical, -9)
                     .allowsHitTesting(false)
@@ -722,13 +723,7 @@ struct DocTableCellEditor: View {
                 // A formula is edited as its text; what it computes shows under the cell
                 // (Craft shows the two the other way round).
                 if let result = controller.result(key) {
-                    Text("= \(result)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                        .fixedSize()
+                    FlooDesignBadge("= \(result)")
                         .offset(y: 30)
                         .allowsHitTesting(false)
                 }
@@ -791,13 +786,12 @@ struct DocTableCellMenu: View {
         } label: {
             Image(systemName: "ellipsis")
                 .rotationEffect(.degrees(90))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 24, height: 30)
-                .contentShape(Rectangle())
+                .font(.system(size: FlooDesignTokens.Icon.compact, weight: .semibold))
+                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                .frame(width: FlooDesignTokens.Space.xxl, height: FlooDesignTokens.Control.compactHeight)
         }
         .menuStyle(.button)
-        .buttonStyle(.plain)
+        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.sm, style: .continuous)))
         .accessibilityLabel("Table Actions")
     }
 }
@@ -812,12 +806,12 @@ struct DocTableAdder: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.secondary)
+                .font(.system(size: FlooDesignTokens.Icon.inline, weight: .bold))
+                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .background(FlooDesignTokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs, style: .continuous)))
         .accessibilityLabel(label)
         .opacity(isVisible ? 1 : 0)
         .allowsHitTesting(isVisible)

@@ -13,6 +13,7 @@
 		F100C0DE2E00000000000005 /* CardModel in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000004 /* CardModel */; };
 		F100C0DE2E00000000000007 /* CardRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000006 /* CardRuntime */; };
 		F100C0DE2E00000000000011 /* DocKit in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000012 /* DocKit */; };
+		F100C0DE2E00000000000021 /* FlooDesign in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000022 /* FlooDesign */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,6 +39,7 @@
 				F100C0DE2E00000000000005 /* CardModel in Frameworks */,
 				F100C0DE2E00000000000007 /* CardRuntime in Frameworks */,
 				F100C0DE2E00000000000011 /* DocKit in Frameworks */,
+				F100C0DE2E00000000000021 /* FlooDesign in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -86,6 +88,7 @@
 				F100C0DE2E00000000000004 /* CardModel */,
 				F100C0DE2E00000000000006 /* CardRuntime */,
 				F100C0DE2E00000000000012 /* DocKit */,
+				F100C0DE2E00000000000022 /* FlooDesign */,
 			);
 			productName = DemoApp;
 			productReference = 38A580AF2CC8D6D9001EDFCA /* DemoApp.app */;
@@ -121,6 +124,7 @@
 				8C21E5C02D9E7FB20097554E /* XCLocalSwiftPackageReference "floo-swiftui-messaging-ui" */,
 				F100C0DE2E00000000000001 /* XCLocalSwiftPackageReference "Cards" */,
 				F100C0DE2E00000000000010 /* XCLocalSwiftPackageReference "DocKit" */,
+				F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 38A580B02CC8D6D9001EDFCA /* Products */;
@@ -385,6 +389,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../DocKit;
 		};
+		F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../FlooDesign;
+		};
 		8C21E5C02D9E7FB20097554E /* XCLocalSwiftPackageReference "floo-swiftui-messaging-ui" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "../../floo-swiftui-messaging-ui";
@@ -415,6 +423,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F100C0DE2E00000000000001 /* XCLocalSwiftPackageReference "Cards" */;
 			productName = CardRuntime;
+		};
+		F100C0DE2E00000000000022 /* FlooDesign */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */;
+			productName = FlooDesign;
 		};
 		F100C0DE2E00000000000012 /* DocKit */ = {
 			isa = XCSwiftPackageProductDependency;

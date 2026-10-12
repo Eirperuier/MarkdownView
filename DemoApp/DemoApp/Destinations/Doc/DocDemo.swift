@@ -13,6 +13,7 @@ import SwiftUI
 import DocKit
 import Markdown
 import MarkdownView
+import FlooDesign
 
 /// A text block's content as its row shows it: the tree DocKit builds from the model and
 /// MarkdownView renders (no markdown written or parsed in between), how deep a list item

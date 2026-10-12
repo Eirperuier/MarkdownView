@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import FlooDesign
 
 struct FlooWorkView: View {
     let id: String

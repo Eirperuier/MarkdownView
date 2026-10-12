@@ -8,6 +8,7 @@
 
 import SwiftUI
 import MarkdownView
+import FlooDesign
 
 struct StreamingDestination: View {
     @State private var parser = MarkdownStreamParser(splitter: MarkdownBlockSplitter(

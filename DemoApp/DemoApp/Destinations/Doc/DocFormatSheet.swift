@@ -23,6 +23,7 @@
 import SwiftUI
 import UIKit
 import DocKit
+import FlooDesign
 
 private typealias Tokens = FlooDesignTokens
 private typealias Metrics = FlooDesignTokens.Component.FormatSheet
@@ -42,7 +43,7 @@ struct DocFormatSheet: View {
     var body: some View {
         sheet(.main)
             .sheet(item: Binding(get: { page == .main ? nil : page }, set: { if $0 == nil { go(.main) } })) { page in
-                sheet(page).docSizedSheet()
+                sheet(page).flooDesignSizedSheet(estimate: Metrics.estimate)
             }
     }
 
@@ -58,7 +59,6 @@ struct DocFormatSheet: View {
         .frame(height: Metrics.page, alignment: .top)
         .padding(.horizontal, Metrics.inset)
         .padding(.bottom, Metrics.inset)
-        .buttonStyle(.plain)
     }
 
     private func go(_ page: DocFormatSheetPage) {
@@ -70,7 +70,7 @@ struct DocFormatSheet: View {
     private var main: some View {
         let formatting = formatting
         return VStack(spacing: Metrics.rowSpacing) {
-            HStack(spacing: Metrics.tileSpacing) {
+            HStack(spacing: Tokens.Component.Tile.spacing) {
                 ForEach(shortStyles, id: \.key) { style in
                     chip(isOn: formatting.kindIsOn(style.kind), identifier: "sheet-style-\(style.key)") {
                         formatting.setStyle(style.kind)
@@ -78,20 +78,18 @@ struct DocFormatSheet: View {
                         styleLabel(style)
                     }
                 }
-                Rectangle()
-                    .fill(Tokens.Border.separator)
-                    .frame(width: Tokens.Border.hairline, height: Metrics.row - 20)
+                FlooDesignDivider(.vertical, length: Metrics.row - Tokens.Space.xl)
                 Button { go(.styles) } label: {
                     Text("More…")
                         .font(Metrics.label)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Tokens.ColorRole.Content.secondary)
                         .frame(maxWidth: .infinity, minHeight: Metrics.row)
-                        .contentShape(Rectangle())
                 }
+                .buttonStyle(FlooDesignPlainButtonStyle())
                 .accessibilityIdentifier("sheet-more-styles")
             }
             .disabled(formatting.targets.isEmpty)
-            HStack(spacing: Metrics.tileSpacing) {
+            HStack(spacing: Tokens.Component.Tile.spacing) {
                 ForEach(DocFormatting.lists, id: \.id) { item in
                     tile(isOn: formatting.kindIsOn(item.kind), identifier: "sheet-\(item.id)") {
                         formatting.toggleList(item.kind)
@@ -101,7 +99,7 @@ struct DocFormatSheet: View {
                     .disabled(formatting.targets.isEmpty)
                     .accessibilityLabel(item.title)
                 }
-                Spacer().frame(width: Metrics.groupGap - Metrics.tileSpacing * 2)
+                Spacer().frame(width: Metrics.groupGap - Tokens.Component.Tile.spacing * 2)
                 tile(isOn: false, identifier: "sheet-outdent") { formatting.indent(by: -1) } label: {
                     Image(systemName: "decrease.indent").font(.system(size: Tokens.Icon.toolbar))
                 }
@@ -113,10 +111,10 @@ struct DocFormatSheet: View {
                 .disabled(!formatting.canIndent(1))
                 .accessibilityLabel(Text("Indent"))
             }
-            HStack(spacing: Metrics.tileSpacing) {
+            HStack(spacing: Tokens.Component.Tile.spacing) {
                 tile(isOn: formatting.kindIsOn(.quote), identifier: "sheet-quote") { formatting.toggleQuote() } label: {
                     HStack(spacing: Tokens.Space.md) {
-                        Capsule().frame(width: 3, height: 22)
+                        Capsule().frame(width: Metrics.quoteBar.width, height: Metrics.quoteBar.height)
                         Text("Quote").font(Metrics.label)
                     }
                 }
@@ -127,28 +125,24 @@ struct DocFormatSheet: View {
                         .font(Metrics.label)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Tokens.ColorRole.Surface.pressed, in: .rect(cornerRadius: Tokens.Radius.sm, style: .continuous))
-                        .padding(6)
+                        .padding(Tokens.Space.sm - 2)
                 }
                 .disabled(formatting.decorated.isEmpty)
                 .frame(maxWidth: .infinity)
                 Button { go(.colors) } label: {
-                    ZStack {
-                        Circle().strokeBorder(DocColors.rainbow, lineWidth: 3.5)
-                        Circle()
-                            .fill(formatting.color.flatMap(Self.token).map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
-                            .padding(6)
-                    }
-                    .frame(width: Metrics.colorRing, height: Metrics.colorRing)
-                    .frame(width: Metrics.row + 10, height: Metrics.row)
-                    .contentShape(Rectangle())
+                    FlooDesignRainbowSwatch(Circle(), rainbow: DocColors.rainbow,
+                                            picked: formatting.color.flatMap(Self.token).map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
+                        .frame(width: Metrics.colorRing, height: Metrics.colorRing)
+                        .frame(width: Metrics.row + Tokens.Space.md, height: Metrics.row)
                 }
+                .buttonStyle(FlooDesignPlainButtonStyle())
                 .disabled(formatting.markRanges.isEmpty)
                 .accessibilityLabel(Text("Text Color"))
                 .accessibilityIdentifier("sheet-colors")
                 tile(isOn: false, identifier: "sheet-more") { go(.more) } label: {
                     Image(systemName: "ellipsis").font(.system(size: Tokens.Icon.toolbar, weight: .semibold))
                 }
-                .frame(width: Metrics.row + 6)
+                .frame(width: Metrics.row + Tokens.Space.sm)
                 .accessibilityLabel(Text("More"))
             }
         }
@@ -170,8 +164,8 @@ struct DocFormatSheet: View {
         let rows = [Array(DocFormatting.styles.prefix(3)), Array(DocFormatting.styles.suffix(3))]
         return VStack(spacing: 0) {
             ForEach(rows.indices, id: \.self) { index in
-                if index > 0 { Rectangle().fill(Tokens.Border.separator).frame(height: Tokens.Border.hairline) }
-                HStack(spacing: Metrics.tileSpacing) {
+                if index > 0 { FlooDesignDivider() }
+                HStack(spacing: Tokens.Component.Tile.spacing) {
                     ForEach(rows[index], id: \.key) { style in
                         chip(isOn: formatting.kindIsOn(style.kind), identifier: "sheet-style-\(style.key)") {
                             formatting.setStyle(style.kind)
@@ -197,7 +191,7 @@ struct DocFormatSheet: View {
         }
         return Text(style.title)
             .font(.system(size: size, weight: style.weight))
-            .foregroundStyle(style.kind == .caption ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            .foregroundStyle(style.kind == .caption ? Tokens.ColorRole.Content.secondary : Tokens.ColorRole.Content.primary)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
     }
@@ -225,23 +219,11 @@ struct DocFormatSheet: View {
                     formatting.pickColor(color)
                 }
             } label: {
-                RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous)
-                    .strokeBorder(DocColors.rainbow, lineWidth: Metrics.chosenRing)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: Metrics.swatchRadius - 5, style: .continuous)
-                            .fill(picked.map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
-                            .padding(5)
-                    }
-                    .overlay {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(5)
-                            .background(.black.opacity(0.25), in: .circle)
-                    }
+                FlooDesignRainbowSwatch(RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous), rainbow: DocColors.rainbow,
+                                        picked: picked.map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
                     .frame(height: Metrics.swatchHeight)
-                    .contentShape(Rectangle())
             }
+            .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous)))
             .accessibilityLabel(Text("Other Color"))
             .accessibilityIdentifier("sheet-color-custom")
         }
@@ -249,23 +231,12 @@ struct DocFormatSheet: View {
     }
 
     private func swatch(fill: Color, title: String, isOn: Bool, identifier: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous)
-                .fill(fill)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous)
-                        .strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.standard)
-                }
-                .padding(isOn ? Metrics.chosenRing + 2 : 0)
-                .overlay {
-                    if isOn {
-                        RoundedRectangle(cornerRadius: Metrics.swatchRadius + 2, style: .continuous)
-                            .strokeBorder(fill, lineWidth: Metrics.chosenRing)
-                    }
-                }
+        let shape = RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous)
+        return Button(action: action) {
+            FlooDesignSwatch(shape, fill: fill, isOn: isOn, chosen: .ring(fill))
                 .frame(height: Metrics.swatchHeight)
-                .contentShape(Rectangle())
         }
+        .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
         .accessibilityLabel(title)
         .accessibilityAddTraits(isOn ? .isSelected : [])
         .accessibilityIdentifier(identifier)
@@ -277,7 +248,7 @@ struct DocFormatSheet: View {
         let formatting = formatting
         let copied = editor.panels.copiedFormat
         return VStack(spacing: Metrics.rowSpacing) {
-            HStack(spacing: Metrics.tileSpacing) {
+            HStack(spacing: Tokens.Component.Tile.spacing) {
                 ForEach(DocFormatting.marks, id: \.id) { item in
                     chip(isOn: formatting.markIsOn(item.mark), identifier: "sheet-\(item.id)") {
                         formatting.toggle(item.mark)
@@ -288,7 +259,7 @@ struct DocFormatSheet: View {
                 }
             }
             .disabled(formatting.markRanges.isEmpty)
-            HStack(spacing: Metrics.tileSpacing) {
+            HStack(spacing: Tokens.Component.Tile.spacing) {
                 tile(isOn: false, identifier: "sheet-copy-format") {
                     editor.panels.copiedFormat = formatting.format
                 } label: {
@@ -310,38 +281,18 @@ struct DocFormatSheet: View {
     /// A choice standing free (a style, a mark): outlined in the tint when it's on.
     private func chip(isOn: Bool, identifier: String, action: @escaping () -> Void, @ViewBuilder label: () -> some View) -> some View {
         Button(action: action) {
-            label()
-                .frame(maxWidth: .infinity, minHeight: Metrics.row)
-                .background(isOn ? Tokens.ColorRole.Accent.subtle : .clear, in: .rect(cornerRadius: Metrics.tileRadius, style: .continuous))
-                .overlay {
-                    if isOn {
-                        RoundedRectangle(cornerRadius: Metrics.tileRadius, style: .continuous)
-                            .strokeBorder(Tokens.ColorRole.Accent.primary.opacity(0.8), lineWidth: Metrics.outline)
-                    }
-                }
-                .contentShape(.rect(cornerRadius: Metrics.tileRadius, style: .continuous))
+            label().frame(maxWidth: .infinity, minHeight: Metrics.row)
         }
-        .foregroundStyle(Tokens.ColorRole.Content.primary)
-        .accessibilityAddTraits(isOn ? .isSelected : [])
+        .buttonStyle(FlooDesignTileButtonStyle(isOn: isOn, surface: .chip))
         .accessibilityIdentifier(identifier)
     }
 
     /// A choice on a soft tile: tinted and outlined when it's on.
     private func tile(isOn: Bool, identifier: String, action: @escaping () -> Void, @ViewBuilder label: () -> some View) -> some View {
         Button(action: action) {
-            label()
-                .frame(maxWidth: .infinity, minHeight: Metrics.row, maxHeight: Metrics.row)
-                .background(isOn ? Tokens.ColorRole.Accent.subtle : Tokens.ColorRole.Surface.control, in: .rect(cornerRadius: Metrics.tileRadius, style: .continuous))
-                .overlay {
-                    if isOn {
-                        RoundedRectangle(cornerRadius: Metrics.tileRadius, style: .continuous)
-                            .strokeBorder(Tokens.ColorRole.Accent.primary.opacity(0.8), lineWidth: Metrics.outline)
-                    }
-                }
-                .contentShape(.rect(cornerRadius: Metrics.tileRadius, style: .continuous))
+            label().frame(maxWidth: .infinity, minHeight: Metrics.row, maxHeight: Metrics.row)
         }
-        .foregroundStyle(Tokens.ColorRole.Content.primary)
-        .accessibilityAddTraits(isOn ? .isSelected : [])
+        .buttonStyle(FlooDesignTileButtonStyle(isOn: isOn))
         .accessibilityIdentifier(identifier)
     }
 
@@ -371,11 +322,10 @@ struct DocColorsPopover: View {
                     editor.clearColors(over: ranges)
                     onClose()
                 } label: {
-                    Circle()
-                        .strokeBorder(Tokens.Border.separator, lineWidth: Tokens.Border.standard)
-                        .overlay { Rectangle().fill(Tokens.Border.separator).frame(width: Tokens.Border.standard, height: Popover.swatch * 0.5).rotationEffect(.degrees(35)) }
+                    FlooDesignNoColorSwatch()
                         .frame(width: Popover.swatch, height: Popover.swatch)
                 }
+                .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
                 .accessibilityLabel(Text("No Color"))
                 .accessibilityIdentifier("popover-none")
                 ForEach(DocColors.texts, id: \.token) { item in
@@ -390,7 +340,7 @@ struct DocColorsPopover: View {
                     editor.set(.color, to: .color(DocColors.hex(picked)), over: ranges, merge: editor.colorMergeKey(over: ranges))
                 }
             }
-            Rectangle().fill(Tokens.Border.separator).frame(height: Tokens.Border.hairline).padding(.horizontal, Tokens.Space.xs)
+            FlooDesignDivider().padding(.horizontal, Tokens.Space.xs)
             HStack(spacing: Popover.spacing) {
                 ForEach(DocColors.highlights, id: \.token) { item in
                     let isOn = highlight == .highlight(color: item.token)
@@ -408,8 +358,7 @@ struct DocColorsPopover: View {
             }
         }
         .padding(Popover.inset)
-        .buttonStyle(.plain)
-        .background(.regularMaterial, in: .rect(cornerRadius: Popover.cornerRadius, style: .continuous))
+        .background(Tokens.Material.floating, in: .rect(cornerRadius: Popover.cornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: Popover.cornerRadius, style: .continuous)
                 .strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.hairline)
@@ -419,14 +368,10 @@ struct DocColorsPopover: View {
 
     private func swatch(_ shape: some InsettableShape, fill: Color, title: String, isOn: Bool, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            shape.fill(fill)
-                .overlay { shape.strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.standard) }
-                .overlay {
-                    if isOn { Image(systemName: "checkmark").font(.system(size: 15, weight: .bold)).foregroundStyle(.white) }
-                }
+            FlooDesignSwatch(shape, fill: fill, isOn: isOn)
                 .frame(width: Popover.swatch, height: Popover.swatch)
-                .contentShape(shape)
         }
+        .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
         .accessibilityLabel(title)
         .accessibilityAddTraits(isOn ? .isSelected : [])
         .accessibilityIdentifier(identifier)
@@ -438,15 +383,10 @@ struct DocColorsPopover: View {
             onClose()
             DocColorPicking.present(from: editor, initial: .primary, picked: picked)
         } label: {
-            shape.strokeBorder(DocColors.rainbow, lineWidth: 3)
-                .overlay {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.secondary)
-                }
+            FlooDesignRainbowSwatch(shape, rainbow: DocColors.rainbow, picked: nil)
                 .frame(width: Popover.swatch, height: Popover.swatch)
-                .contentShape(shape)
         }
+        .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
         .accessibilityLabel(title)
         .accessibilityIdentifier(identifier)
     }
@@ -489,25 +429,4 @@ final class DocColorPicking: NSObject, UIColorPickerViewControllerDelegate {
         editor.endColorChanges()
         Self.current = nil
     }
-}
-
-/// A sheet as tall as its content (Craft's): it floats over the bottom, the system's
-/// grabber over the content, and the document behind it still takes touches.
-private struct DocSizedSheet: ViewModifier {
-    @State private var height = Metrics.grabberArea + Metrics.rowSpacing + Metrics.page + Metrics.inset
-
-    func body(content: Content) -> some View {
-        content
-            .padding(.top, Metrics.grabberArea + Metrics.rowSpacing)
-            .fixedSize(horizontal: false, vertical: true)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-            .frame(maxHeight: .infinity, alignment: .top)
-            .presentationDetents([.height(height)])
-            .presentationDragIndicator(.visible)
-            .presentationBackgroundInteraction(.enabled)
-    }
-}
-
-extension View {
-    func docSizedSheet() -> some View { modifier(DocSizedSheet()) }
 }

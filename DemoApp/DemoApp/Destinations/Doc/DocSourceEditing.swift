@@ -19,6 +19,7 @@ import UIKit
 import DocKit
 import MarkdownView
 import MessagingUI
+import FlooDesign
 
 enum DocSourceKind: Equatable {
     case code(language: String?)
@@ -627,19 +628,19 @@ struct DocCodeLanguageMenu: View {
                 Button(name) { controller.setLanguage(name, of: block) }
             }
         } label: {
-            HStack(spacing: 3) {
+            HStack(spacing: FlooDesignTokens.Space.xxs) {
                 Text(language ?? String(localized: "Language"))
                 Image(systemName: "chevron.up.chevron.down")
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.regularMaterial, in: Capsule())
+            .font(FlooDesignTokens.Typography.metadata.font)
+            .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+            .padding(.horizontal, FlooDesignTokens.Space.sm)
+            .padding(.vertical, FlooDesignTokens.Space.xs)
+            .background(FlooDesignTokens.Material.floating, in: Capsule())
         }
         .menuStyle(.button)
-        .buttonStyle(.plain)
-        .padding(.top, 6)
+        .buttonStyle(FlooDesignPlainButtonStyle(in: Capsule()))
+        .padding(.top, FlooDesignTokens.Space.sm - 2)
         .padding(.trailing, 84)
     }
 }
@@ -669,16 +670,16 @@ struct DocMathRowView: View {
         .background {
             // The formula being edited, marked where the panel comes from.
             if editing {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.08))
-                    .padding(.horizontal, -6)
+                RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.md, style: .continuous)
+                    .fill(FlooDesignTokens.ColorRole.Surface.selected)
+                    .padding(.horizontal, -(FlooDesignTokens.Space.sm - 2))
             }
         }
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded { [block, controller] in
             if controller.editing != block { controller.focus(block) }
         })
-        .docAnchoredPanel(isPresented: editing, onDismiss: { [block, controller] in controller.dismiss(block) }) {
+        .flooDesignAnchoredPanel(isPresented: editing, onDismiss: { [block, controller] in controller.dismiss(block) }) {
             DocMathPanel(block: block, text: controller.text(block), controller: controller)
         }
     }
@@ -697,21 +698,25 @@ struct DocMathPanel: View {
     }
 
     var body: some View {
-        DocFloatingPanelSurface {
-            VStack(alignment: .leading, spacing: 6) {
+        FlooDesignFloatingPanelSurface {
+            VStack(alignment: .leading, spacing: FlooDesignTokens.Space.sm) {
                 HStack {
                     Text("LaTeX")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .font(FlooDesignTokens.Typography.sectionLabel.font)
+                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
                     Spacer()
                     Button("Done") { controller.dismiss(block) }
-                        .font(.caption.weight(.semibold))
-                        .buttonStyle(.borderless)
+                        .font(FlooDesignTokens.Typography.sectionLabel.font)
+                        .foregroundStyle(FlooDesignTokens.ColorRole.Accent.primary)
+                        .padding(.horizontal, FlooDesignTokens.Space.sm)
+                        .padding(.vertical, FlooDesignTokens.Space.xxs)
+                        .buttonStyle(FlooDesignPlainButtonStyle(in: Capsule()))
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, FlooDesignTokens.Space.sm)
                 DocSourceField(block: block, text: text, controller: controller, font: codeFont,
-                               insets: UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8))
-                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                               insets: UIEdgeInsets(top: FlooDesignTokens.Space.sm, left: FlooDesignTokens.Space.sm,
+                                                    bottom: FlooDesignTokens.Space.sm, right: FlooDesignTokens.Space.sm))
+                    .background(FlooDesignTokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.md, style: .continuous))
             }
             .frame(width: width)
         }

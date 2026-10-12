@@ -13,6 +13,7 @@ import UIKit
 import DocKit
 import MarkdownView
 import MessagingUI
+import FlooDesign
 
 @MainActor
 final class DocEditTests {
@@ -585,11 +586,11 @@ final class DocEditTests {
         }
         await test("Slash menu: over the caret's line where it fits, else under it, never over the keyboard") {
             let room = CGRect(x: 0, y: 100, width: 400, height: 500)
-            let low = DocSlashMenuView.frame(over: CGRect(x: 50, y: 520, width: 2, height: 20), in: room, rows: 12)
+            let low = FlooDesignMenuOverlay.frame(over: CGRect(x: 50, y: 520, width: 2, height: 20), in: room, rows: 12)
             try self.expect(low.maxY < 520 && low.minY >= room.minY, "low caret: \(low)")
-            let high = DocSlashMenuView.frame(over: CGRect(x: 50, y: 120, width: 2, height: 20), in: room, rows: 12)
+            let high = FlooDesignMenuOverlay.frame(over: CGRect(x: 50, y: 120, width: 2, height: 20), in: room, rows: 12)
             try self.expect(high.minY > 140 && high.maxY <= room.maxY, "high caret: \(high)")
-            let squeezed = DocSlashMenuView.frame(over: CGRect(x: 50, y: 200, width: 2, height: 20), in: CGRect(x: 0, y: 100, width: 400, height: 200), rows: 12)
+            let squeezed = FlooDesignMenuOverlay.frame(over: CGRect(x: 50, y: 200, width: 2, height: 20), in: CGRect(x: 0, y: 100, width: 400, height: 200), rows: 12)
             try self.expect(squeezed.maxY <= 300 && squeezed.minY >= 100, "squeezed: \(squeezed)")
             try self.expect(low.maxX <= room.maxX && high.minX >= room.minX, "out of the sides: \(low) \(high)")
         }

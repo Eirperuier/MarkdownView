@@ -10,6 +10,7 @@
 
 import SwiftUI
 import DocKit
+import FlooDesign
 
 /// A command in the menu: one that acts on the caret's block, or a group whose commands
 /// take the menu's place (Craft's).
@@ -97,9 +98,11 @@ struct DocCommand: Identifiable, Equatable, Sendable {
         return flatten(all)
     }()
 
-    /// "/3x4" (or 3*4, 3×4): a table that size, rows first, up to 9 by 9.
+    /// "/3x4" (or 3*4, 3×4): a table that size, rows first, up to 9 by 9. A size on its
+    /// way ("3x", the columns not typed yet) is the square one until they come.
     static func sized(_ query: String) -> DocCommand? {
-        guard let match = query.wholeMatch(of: /([1-9])\s*[xX×*]\s*([1-9])/), let rows = Int(match.1), let columns = Int(match.2) else { return nil }
+        guard let match = query.wholeMatch(of: /([1-9])\s*[xX×*]\s*([1-9])?/), let rows = Int(match.1) else { return nil }
+        let columns = match.2.flatMap { Int($0) } ?? rows
         return .init(id: "table-\(rows)x\(columns)", title: String(localized: "\(rows) × \(columns) Table"), symbol: "tablecells", action: .table(rows: rows, columns: columns))
     }
 
@@ -138,7 +141,8 @@ final class DocSlashMenu {
     /// keyboard (over its bar).
     private(set) var room: CGRect = .infinite
     /// Where it shows, set as it opens: a group's commands and a query's take the same
-    /// place (DocSlashMenuView.frame).
+    /// place (FlooDesignMenuOverlay.frame). Closed, it keeps its place and its rows
+    /// while it goes.
     private(set) var frame: CGRect = .null
     /// How many rows the menu opened with.
     private var rows = 0
@@ -152,12 +156,17 @@ final class DocSlashMenu {
     /// - Parameter place: the caret and the room for the menu, once its row has
     ///   rendered; the first one known is where the menu stays.
     func show(query: String, place: (anchor: CGRect, room: CGRect)?) {
-        if query != self.query || !isOpen {
+        let opens = !isOpen
+        if opens {
+            group = nil
+            frame = .null
+        }
+        if query != self.query || opens {
             if !query.isEmpty { group = nil }
             items = group?.children ?? DocCommand.matching(query)
             highlighted = 0
         }
-        if !isOpen { rows = items.count }
+        if opens { rows = items.count }
         self.query = query
         isOpen = true
         if frame.isNull, let place { self.place(anchor: place.anchor, room: place.room) }
@@ -167,7 +176,7 @@ final class DocSlashMenu {
     func place(anchor: CGRect, room: CGRect) {
         self.anchor = anchor
         self.room = room
-        frame = DocSlashMenuView.frame(over: anchor, in: room, rows: rows)
+        frame = FlooDesignMenuOverlay.frame(over: anchor, in: room, rows: rows)
     }
 
     /// A group's commands in the menu's place.
@@ -186,14 +195,11 @@ final class DocSlashMenu {
         highlighted = items.firstIndex(of: group) ?? 0
     }
 
+    /// Closed: it goes where it is, as it is (its rows and place stay until it opens again).
     func close() {
         guard isOpen else { return }
         isOpen = false
         query = ""
-        items = []
-        group = nil
-        highlighted = 0
-        frame = .null
     }
 
     func move(by delta: Int) {
@@ -357,158 +363,35 @@ extension DocEditor {
             let keyboard = toOverlay(frame.convert(window.convert(DocScrolling.keyboard, from: nil), from: window))
             // Down to the keyboard bar's middle, as Craft's (the room's edge is a gap
             // inside it).
-            let floor = keyboard.minY - DocScrolling.keyboardBar / 2 + DocSlashMenuView.gap
+            let floor = keyboard.minY - DocScrolling.keyboardBar / 2 + FlooDesignTokens.Component.Menu.gap
             if floor < room.maxY { room.size.height = max(0, floor - room.minY) }
         }
         return (anchor, room)
     }
 }
 
-/// The menu over the caret's line (under it when there's no room above), Craft's: clear
-/// glass with a thick material laid in it, a little inside its edge; a row per
-/// command, an icon and a title, a chevron on a group; as tall as its rows up to a
-/// height, the rest scroll. It keeps the place it opened in. It goes over the list, whose frame its
-/// anchor is in.
+/// The command menu on the page (FlooDesign's menu): over the caret's line, under it
+/// when there's no room above, where it opened. It comes and goes with the reveal's
+/// motion.
 struct DocSlashMenuView: View {
     let menu: DocSlashMenu
 
-    #if targetEnvironment(macCatalyst)
-    private static let width: CGFloat = 246
-    private static let tallest: CGFloat = 260
-    private static let row: CGFloat = 32
-    private static let title = Font.system(size: 13)
-    private static let icon: CGFloat = 14
-    #else
-    private static let width: CGFloat = 278
-    private static let tallest: CGFloat = 320
-    private static let row: CGFloat = 40
-    private static let title = Font.system(size: 15)
-    private static let icon: CGFloat = 16
-    #endif
-    /// Between the glass's edge and the material in it.
-    private static let rim: CGFloat = 4
-    /// Between the material's edge and the rows.
-    private static let inset: CGFloat = 6
-    private static let radius: CGFloat = 22
-    private static let margin: CGFloat = 16
-    static let gap: CGFloat = 6
-
     var body: some View {
-        if menu.isOpen, !menu.frame.isNull {
-            ZStack(alignment: .topLeading) {
-                // A tap anywhere but the menu closes it (and does nothing else).
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { menu.dismiss() }
-                list
-                    .frame(width: menu.frame.width, height: menu.frame.height)
-                    .modifier(DocPopIn(anchor: menu.frame.minY >= menu.anchor.maxY ? .topLeading : .bottomLeading))
-                    .offset(x: menu.frame.minX, y: menu.frame.minY)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-    }
-
-    /// Over the caret's line where it fits (as tall as its rows, up to `tallest`), else
-    /// under it where it does (never out of `room`: over the keyboard); else on the
-    /// roomier side, as tall as there's room.
-    static func frame(over anchor: CGRect, in room: CGRect, rows count: Int) -> CGRect {
-        let room = room.insetBy(dx: margin, dy: gap)
-        guard !room.isNull else { return .null }
-        let width = min(Self.width, room.width)
-        let chrome = 2 * (rim + inset)
-        let above = min(anchor.minY - gap, room.maxY) - room.minY
-        let below = room.maxY - max(anchor.maxY + gap, room.minY)
-        let full = min(CGFloat(max(count, 1)) * row + chrome, tallest)
-        let goesAbove = above >= full || (below < full && above >= below)
-        let height = max(row + chrome, min(full, goesAbove ? above : below))
-        let x = min(max(room.minX, anchor.minX - rim - inset), room.maxX - width)
-        let y = goesAbove ? min(anchor.minY - gap, room.maxY) - height : max(anchor.maxY + gap, room.minY)
-        return CGRect(x: x, y: y, width: width, height: height)
-    }
-
-    private var list: some View {
-        let outer = RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
-        let inner = RoundedRectangle(cornerRadius: Self.radius - Self.rim, style: .continuous)
-        return ScrollViewReader { scroller in
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(menu.items.enumerated()), id: \.element.id) { index, item in
-                        row(item, highlighted: index == menu.highlighted)
-                            .id(item.id)
-                            .onTapGesture { menu.choose(item) }
-                    }
-                }
-                .padding(Self.inset)
-            }
-            .scrollIndicators(.hidden)
-            .onChange(of: menu.highlighted) {
-                if let item = menu.highlightedItem { scroller.scrollTo(item.id) }
-            }
-            .onChange(of: menu.group?.id) {
-                if let first = menu.items.first { scroller.scrollTo(first.id, anchor: .top) }
-            }
-        }
-        .background(.thickMaterial, in: inner)
-        .clipShape(inner)
-        .padding(Self.rim)
-        .modifier(DocClearGlass(shape: outer))
-    }
-
-    private func row(_ item: DocCommand, highlighted: Bool) -> some View {
-        HStack(spacing: 12) {
-            Group {
-                if let token = item.swatch {
-                    Circle().fill(DocColors.swatch(token)).frame(width: Self.icon - 2, height: Self.icon - 2)
-                } else {
-                    Image(systemName: item.symbol).font(.system(size: Self.icon))
-                }
-            }
-            .foregroundStyle(.secondary)
-            .frame(width: Self.icon + 8)
-            Text(item.title)
-                .font(Self.title)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            if item.isGroup {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: Self.icon - 3, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(height: Self.row)
-        .contentShape(Rectangle())
-        .background(highlighted ? Color.primary.opacity(0.06) : .clear,
-                    in: RoundedRectangle(cornerRadius: Self.radius - Self.rim - Self.inset, style: .continuous))
+        FlooDesignMenuOverlay(
+            isPresented: menu.isOpen, frame: menu.frame, opensBelow: menu.frame.minY >= menu.anchor.maxY,
+            entries: menu.items.map(\.entry), highlighted: menu.highlighted, page: menu.group?.id,
+            onHighlight: { menu.highlighted = $0 },
+            onChoose: { entry in
+                if let item = menu.items.first(where: { $0.id == entry.id }) { menu.choose(item) }
+            },
+            onDismiss: { menu.dismiss() }
+        )
     }
 }
 
-/// The menu opening: a quick small grow from the caret's side and a fade in. Only in:
-/// closed, it's gone at once (nothing is left over).
-private struct DocPopIn: ViewModifier {
-    let anchor: UnitPoint
-    @State private var isIn = false
-
-    func body(content: Content) -> some View {
-        content
-            .scaleEffect(isIn ? 1 : 0.92, anchor: anchor)
-            .opacity(isIn ? 1 : 0)
-            .onAppear { withAnimation(.easeOut(duration: 0.14)) { isIn = true } }
-    }
-}
-
-/// Clear glass where the system has it (iOS 26), else a thin material with a hairline.
-private struct DocClearGlass<S: Shape>: ViewModifier {
-    let shape: S
-
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, macCatalyst 26.0, *) {
-            content.glassEffect(.clear, in: shape)
-        } else {
-            content
-                .background(.ultraThinMaterial, in: shape)
-                .overlay(shape.stroke(FlooDesignTokens.Border.separator, lineWidth: FlooDesignTokens.Border.hairline))
-        }
+extension DocCommand {
+    /// The menu's row for it.
+    var entry: FlooDesignMenuEntry {
+        FlooDesignMenuEntry(id: id, title: title, symbol: symbol, swatch: swatch.map(DocColors.swatch), hasChildren: isGroup)
     }
 }

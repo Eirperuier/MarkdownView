@@ -15,6 +15,7 @@
 import SwiftUI
 import CardModel
 import CardUI
+import FlooDesign
 
 // MARK: - The catalog
 

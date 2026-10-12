@@ -10,6 +10,7 @@ import SwiftUI
 import MarkdownView
 import MessagingUI
 import DocKit
+import FlooDesign
 
 struct DocDestination: View {
     /// Code blocks are coloured by Highlightr, read and edited alike.
@@ -35,13 +36,13 @@ struct DocDestination: View {
             bar
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .padding(.horizontal)
-                .padding(.vertical, 8)
+                .padding(.vertical, FlooDesignTokens.Space.sm)
                 // The Mac's format panel: under the bar at the window's right, open until
                 // its Aa closes it (Craft's).
-                .docAnchoredPanel(isPresented: editor.panels.showsFormat,
+                .flooDesignAnchoredPanel(isPresented: editor.panels.showsFormat,
                                   configuration: .init(horizontalAlignment: .trailing, anchorGap: 0, dismissesOnOutsideTouch: false),
                                   onDismiss: { editor.panels.showsFormat = false }) {
-                    DocFloatingPanelSurface(contentInset: FlooDesignTokens.Component.FloatingPanel.roomyInset) {
+                    FlooDesignFloatingPanelSurface(contentInset: FlooDesignTokens.Component.FloatingPanel.roomyInset) {
                         DocFormatPanel(editor: editor, demo: demo)
                     }
                 }
@@ -236,12 +237,7 @@ struct DocDestination: View {
                 // Selecting blocks: only the way out, as Craft has it.
                 Spacer()
                 Button("Done", systemImage: "checkmark") { editor.blocks.endSelecting() }
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(.tint, in: .circle)
-                    .shadow(color: .accentColor.opacity(0.3), radius: 6, y: 2)
-                    .buttonStyle(.plain)
+                    .buttonStyle(FlooDesignRoundButtonStyle())
             } else if let status = demo.agentStatus {
                 ProgressView()
                     .controlSize(.small)
@@ -263,10 +259,8 @@ struct DocDestination: View {
                 Spacer()
                 #if targetEnvironment(macCatalyst)
                 Button("Format", systemImage: "textformat") { editor.panels.showsFormat.toggle() }
-                    .foregroundStyle(editor.panels.showsFormat ? Color.accentColor : .primary)
-                    .frame(width: 32, height: 28)
-                    .background(editor.panels.showsFormat ? Color.accentColor.opacity(0.12) : .clear, in: .rect(cornerRadius: 7))
-                    .buttonStyle(.plain)
+                    .frame(width: FlooDesignTokens.Control.compactHeight, height: FlooDesignTokens.Control.minimumHitTarget)
+                    .buttonStyle(FlooDesignTileButtonStyle(isOn: editor.panels.showsFormat, surface: .chip, cornerRadius: FlooDesignTokens.Radius.sm))
                     .help("Format")
                 #endif
                 Button("Reset") {

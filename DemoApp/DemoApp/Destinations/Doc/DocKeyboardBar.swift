@@ -22,6 +22,9 @@
 import SwiftUI
 import UIKit
 import DocKit
+import FlooDesign
+
+private typealias Metrics = FlooDesignTokens.Component.KeyboardBar
 
 @MainActor
 final class DocKeyboardBar: UIView {
@@ -38,7 +41,7 @@ final class DocKeyboardBar: UIView {
     }
 
     /// The colours over the highlight key, in the document's window.
-    private let colors = DocAnchoredPanelPresenter()
+    private let colors = FlooDesignAnchoredPanelPresenter()
     private let colorsAnchor = UIView()
     private(set) var showsColors = false
 
@@ -58,20 +61,16 @@ final class DocKeyboardBar: UIView {
             hairline.topAnchor.constraint(equalTo: topAnchor),
             hairline.leadingAnchor.constraint(equalTo: leadingAnchor),
             hairline.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hairline.heightAnchor.constraint(equalToConstant: 1 / max(1, traitCollection.displayScale)),
-            keys.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 6),
-            keys.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
+            hairline.heightAnchor.constraint(equalToConstant: FlooDesignTokens.Border.hairline),
+            keys.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: Metrics.inset),
+            keys.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -Metrics.inset),
             keys.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    static let height: CGFloat = 46
-    private static let keySize = CGSize(width: 50, height: 40)
-    /// Craft's: symbols about 19 pt, regular, a dark gray rather than black.
-    private static let symbols = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular, scale: .medium)
-    private static let ink = UIColor.label.withAlphaComponent(0.82)
+    static let height = Metrics.height
 
     // MARK: State
 
@@ -170,23 +169,12 @@ final class DocKeyboardBar: UIView {
         }
     }
 
-    /// A key: the symbol in dark gray; on, it's tinted, on a light tint of its own.
+    /// A key (FlooDesign's bar key): the symbol in the bar's ink; on, tinted.
     private func styled(_ id: String, _ image: UIImage?, _ title: String, isOn: Bool) -> UIButton {
         if isOn { onKeys.insert(id) }
-        var configuration = UIButton.Configuration.plain()
-        configuration.image = image
-        configuration.preferredSymbolConfigurationForImage = Self.symbols
-        configuration.baseForegroundColor = isOn ? .tintColor : Self.ink
-        configuration.background.backgroundColor = isOn ? UIColor.tintColor.withAlphaComponent(0.12) : .clear
-        configuration.background.cornerRadius = 12
-        let button = UIButton(configuration: configuration)
+        let button = FlooDesignBarKey.button(image, isOn: isOn)
         button.accessibilityLabel = title
         button.accessibilityIdentifier = id
-        NSLayoutConstraint.activate([
-            // A glyph wider than a key (the divider's rule) widens its key.
-            button.widthAnchor.constraint(equalToConstant: max(Self.keySize.width, (image?.size.width ?? 0) + 12)),
-            button.heightAnchor.constraint(equalToConstant: Self.keySize.height),
-        ])
         return button
     }
 
@@ -222,15 +210,14 @@ final class DocKeyboardBar: UIView {
     }
 
     private func setOn(_ button: UIButton, _ isOn: Bool) {
-        button.configuration?.baseForegroundColor = isOn ? .tintColor : Self.ink
-        button.configuration?.background.backgroundColor = isOn ? UIColor.tintColor.withAlphaComponent(0.12) : .clear
+        FlooDesignBarKey.setOn(button, isOn)
     }
 
     // MARK: Glyphs
 
     /// Craft's: a slash before a page of lines.
     private static let slashGlyph: UIImage? = {
-        let config = UIImage.SymbolConfiguration(pointSize: 15, weight: .regular, scale: .medium)
+        let config = UIImage.SymbolConfiguration(pointSize: FlooDesignTokens.Icon.standard, weight: .regular, scale: .medium)
         guard let page = UIImage(systemName: "doc.plaintext", withConfiguration: config) else { return nil }
         let size = CGSize(width: page.size.width + 7, height: page.size.height + 2)
         return UIGraphicsImageRenderer(size: size).image { _ in
@@ -253,7 +240,7 @@ final class DocKeyboardBar: UIView {
 
     /// Three dots stacked (the symbol set has them only side by side).
     private static let verticalEllipsis: UIImage? = {
-        let small = UIImage.SymbolConfiguration(pointSize: 17, weight: .medium, scale: .medium)
+        let small = UIImage.SymbolConfiguration(pointSize: FlooDesignTokens.Icon.toolbar, weight: .medium, scale: .medium)
         guard let dots = UIImage(systemName: "ellipsis", withConfiguration: small) else { return nil }
         let size = CGSize(width: dots.size.height, height: dots.size.width)
         return UIGraphicsImageRenderer(size: size).image { context in

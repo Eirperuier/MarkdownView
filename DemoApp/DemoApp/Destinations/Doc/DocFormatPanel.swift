@@ -11,6 +11,7 @@
 
 import SwiftUI
 import DocKit
+import FlooDesign
 
 private typealias Tokens = FlooDesignTokens
 private typealias Metrics = FlooDesignTokens.Component.FormatPanel
@@ -111,8 +112,8 @@ struct DocFormatPanel: View {
                             Text("Block")
                                 .font(Metrics.label)
                                 .frame(maxWidth: .infinity, minHeight: Metrics.tallTile - 12)
-                                .background(Tokens.ColorRole.Surface.pressed.opacity(0.7), in: .rect(cornerRadius: Tokens.Radius.sm, style: .continuous))
-                                .padding(6)
+                                .background(Tokens.ColorRole.Surface.pressed, in: .rect(cornerRadius: Tokens.Radius.sm, style: .continuous))
+                                .padding(Tokens.Space.sm - 2)
                         }
                         .accessibilityIdentifier("format-block")
                     }
@@ -149,11 +150,7 @@ struct DocFormatPanel: View {
     private func custom(_ current: Mark?, ranges: [(block: DocBlockID, range: Range<Int>)]) -> some View {
         let picked: String? = if case .color(let token)? = current, token.hasPrefix("#") { token } else { nil }
         return ZStack {
-            Circle()
-                .strokeBorder(DocColors.rainbow, lineWidth: Metrics.rainbowWidth)
-            Circle()
-                .fill(picked.map(DocColors.swatch) ?? Color(.systemBackground))
-                .padding(6)
+            FlooDesignRainbowSwatch(Circle(), rainbow: DocColors.rainbow, picked: picked.map(DocColors.swatch) ?? Tokens.ColorRole.Surface.canvas)
             ColorPicker("Other Color", selection: Binding {
                 picked.map(DocColors.swatch) ?? .primary
             } set: { color in
@@ -173,15 +170,11 @@ struct DocFormatPanel: View {
             editor.endColorChanges()
             editor.set(.color, to: token.map(Mark.color), over: ranges)
         } label: {
-            Circle()
-                .fill(token.map(DocColors.swatch) ?? Color(.systemBackground))
-                .overlay { Circle().strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.standard) }
-                .padding(isOn ? 4 : 0)
-                .overlay { if isOn { Circle().strokeBorder(Tokens.ColorRole.Content.primary, lineWidth: Metrics.chosenRing) } }
+            FlooDesignSwatch(Circle(), fill: token.map(DocColors.swatch) ?? Tokens.ColorRole.Surface.canvas, isOn: isOn,
+                             chosen: .ring(Tokens.ColorRole.Content.primary))
                 .frame(width: Metrics.swatch, height: Metrics.swatch)
-                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
         .help(title)
         .accessibilityLabel(title)
         .accessibilityIdentifier("color-\(token ?? "none")")
@@ -189,17 +182,17 @@ struct DocFormatPanel: View {
 
     private var segments: some View {
         VStack(spacing: Metrics.segmentGap) {
-            DocSegments(items: DocFormatting.marks.map { item in
+            FlooDesignSegments(items: DocFormatting.marks.map { item in
                 .init(id: item.id, symbol: item.symbol, title: item.title, isOn: markIsOn(item.mark), isEnabled: !markRanges.isEmpty) {
                     formatting.toggle(item.mark)
                 }
             })
-            DocSegments(items: DocFormatting.lists.map { item in
+            FlooDesignSegments(items: DocFormatting.lists.map { item in
                 .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: !targets.isEmpty) {
                     formatting.toggleList(item.kind)
                 }
             })
-            DocSegments(items: [
+            FlooDesignSegments(items: [
                 .init(id: "outdent", symbol: "decrease.indent", title: String(localized: "Outdent"), isOn: false, isEnabled: canIndent(-1)) {
                     formatting.indent(by: -1)
                 },
@@ -226,7 +219,7 @@ struct DocFormatPanel: View {
         VStack(alignment: .leading, spacing: Metrics.sectionLabelGap) {
             Text(title)
                 .font(Metrics.sectionLabel)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Tokens.ColorRole.Content.secondary)
             content()
         }
         .padding(.bottom, Metrics.sectionGap)
@@ -234,16 +227,9 @@ struct DocFormatPanel: View {
 
     /// A choice on a soft tile, outlined in the tint when it's in use.
     private func choice(isOn: Bool, help: String, action: @escaping () -> Void, @ViewBuilder label: () -> some View) -> some View {
-        Button(action: action) {
-            label()
-                .background(isOn ? Tokens.ColorRole.Accent.subtle : Tokens.ColorRole.Surface.control, in: .rect(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous))
-                .overlay {
-                    if isOn { RoundedRectangle(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous).strokeBorder(Tokens.ColorRole.Accent.outline, lineWidth: Tokens.Component.Tile.outline) }
-                }
-                .contentShape(.rect(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .help(help)
+        Button(action: action, label: label)
+            .buttonStyle(FlooDesignTileButtonStyle(isOn: isOn))
+            .help(help)
     }
 
     /// An image's size or fit: its name, and its symbol at the right (Craft's).
@@ -251,10 +237,10 @@ struct DocFormatPanel: View {
         choice(isOn: isOn, help: title, action: action) {
             HStack {
                 Text(title).font(Metrics.label)
-                Spacer(minLength: 4)
+                Spacer(minLength: Tokens.Space.xs)
                 Image(systemName: symbol).font(Metrics.label)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Tokens.Space.md)
             .frame(maxWidth: .infinity, minHeight: Metrics.tallTile)
         }
     }
@@ -267,52 +253,10 @@ struct DocFormatPanel: View {
             Text(style.title)
                 .font(.system(size: style.size, weight: style.weight))
                 .frame(maxWidth: .infinity, minHeight: Tokens.Component.Tile.minHeight)
-                .background(isOn ? Tokens.ColorRole.Accent.subtle : Tokens.ColorRole.Surface.control, in: .rect(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous))
-                .overlay {
-                    if isOn { RoundedRectangle(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous).strokeBorder(Tokens.ColorRole.Accent.outline, lineWidth: Tokens.Component.Tile.outline) }
-                }
-                .contentShape(.rect(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FlooDesignTileButtonStyle(isOn: isOn))
         .disabled(targets.isEmpty)
         .help("⌃\(style.key)")
         .accessibilityIdentifier("format-style-\(style.key)")
-    }
-}
-
-/// Keys joined in one rounded group with hairlines between them (Craft's segments).
-private struct DocSegments: View {
-    struct Item: Identifiable {
-        let id: String
-        let symbol: String
-        let title: String
-        let isOn: Bool
-        let isEnabled: Bool
-        let action: () -> Void
-    }
-
-    let items: [Item]
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                if index > 0 {
-                    Rectangle().fill(Tokens.Border.separator.opacity(0.5)).frame(width: Tokens.Border.standard, height: Tokens.Component.Segments.dividerHeight)
-                }
-                Button(action: item.action) {
-                    Image(systemName: item.symbol)
-                        .font(.system(size: Tokens.Icon.standard, weight: .medium))
-                        .frame(maxWidth: .infinity, minHeight: Tokens.Component.Segments.height)
-                        .background(item.isOn ? Tokens.ColorRole.Accent.subtle : .clear)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(item.isOn ? Tokens.ColorRole.Accent.primary : Tokens.ColorRole.Content.primary)
-                .disabled(!item.isEnabled)
-                .accessibilityLabel(item.title)
-            }
-        }
-        .background(Tokens.ColorRole.Surface.control)
-        .clipShape(.rect(cornerRadius: Tokens.Component.Segments.cornerRadius, style: .continuous))
     }
 }

@@ -13,6 +13,7 @@
 import SwiftUI
 import UIKit
 import DocKit
+import FlooDesign
 
 private typealias Tokens = FlooDesignTokens
 private typealias Metrics = FlooDesignTokens.Component.SelectionToolbar
@@ -40,7 +41,7 @@ final class DocSelectionToolbarModel {
 final class DocSelectionToolbarController {
     unowned let editor: DocEditor
     let model = DocSelectionToolbarModel()
-    private let presenter = DocAnchoredPanelPresenter()
+    private let presenter = FlooDesignAnchoredPanelPresenter()
     private let anchor = UIView()
     private var pending: Task<Void, Never>?
     private(set) var isShown = false
@@ -147,9 +148,8 @@ struct DocSelectionToolbar: View {
                     .font(.system(size: Tokens.Icon.inline, weight: .semibold))
                     .foregroundStyle(Tokens.ColorRole.Content.secondary)
                     .frame(width: Metrics.chevronWidth, height: Metrics.key)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(FlooDesignPlainButtonStyle(in: Capsule()))
             .help("Colors")
             .accessibilityLabel("Colors")
             ForEach(Self.marks, id: \.symbol) { item in
@@ -191,14 +191,14 @@ struct DocSelectionToolbar: View {
                 .frame(width: Metrics.keySlot, height: Metrics.height)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(DocToolbarKeyStyle())
+        .buttonStyle(FlooDesignKeyButtonStyle())
         .help(help)
         .accessibilityLabel(label)
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
     private var divider: some View {
-        Rectangle().fill(Tokens.Border.separator).frame(width: Tokens.Border.standard, height: Metrics.dividerHeight)
+        FlooDesignDivider(.vertical, length: Metrics.dividerHeight, thickness: Tokens.Border.standard)
             .padding(.horizontal, Tokens.Space.xs)
     }
 
@@ -214,13 +214,10 @@ struct DocSelectionToolbar: View {
                 editor.clearColors(over: model.ranges)
                 model.mode = .marks
             } label: {
-                Circle()
-                    .strokeBorder(Tokens.Border.separator, lineWidth: Tokens.Border.standard)
-                    .overlay(Rectangle().fill(Tokens.Border.separator).frame(width: Tokens.Border.standard, height: Metrics.swatch - 6)
-                        .rotationEffect(.degrees(45)))
+                FlooDesignNoColorSwatch()
                     .frame(width: Metrics.swatch, height: Metrics.swatch)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
             .help("No Color")
             .accessibilityLabel("No Color")
             divider
@@ -254,24 +251,16 @@ struct DocSelectionToolbar: View {
     private func swatch(_ shape: some InsettableShape, fill: Color, title: String, isOn: Bool, rainbow: Bool = false,
                         action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            shape.fill(fill)
-                .overlay(shape.strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Component.Swatch.border))
-                .padding(rainbow ? Tokens.Component.Swatch.rainbowInset : 0)
-                .overlay { if rainbow { shape.strokeBorder(DocColors.rainbow, lineWidth: Tokens.Component.Swatch.rainbowWidth) } }
-                .overlay {
-                    if isOn {
-                        Image(systemName: "checkmark").font(.system(size: Tokens.Icon.inline, weight: .bold))
-                            .foregroundStyle(Tokens.ColorRole.Content.onAccent)
-                            .shadow(color: .black.opacity(0.3), radius: 1)
-                    } else if rainbow {
-                        Image(systemName: "chevron.down").font(.system(size: Tokens.Icon.inline - 2, weight: .bold))
-                            .foregroundStyle(Tokens.ColorRole.Content.secondary)
-                    }
+            Group {
+                if rainbow {
+                    FlooDesignRainbowSwatch(shape, rainbow: DocColors.rainbow, picked: isOn ? fill : nil)
+                } else {
+                    FlooDesignSwatch(shape, fill: fill, isOn: isOn)
                 }
-                .frame(width: Metrics.swatch, height: Metrics.swatch)
-                .contentShape(Rectangle())
+            }
+            .frame(width: Metrics.swatch, height: Metrics.swatch)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
         .help(title)
         .accessibilityLabel(title)
         .accessibilityAddTraits(isOn ? .isSelected : [])
@@ -315,9 +304,9 @@ struct DocSelectionToolbar: View {
                     .font(.system(size: Tokens.Icon.inline, weight: .bold))
                     .foregroundStyle(Tokens.ColorRole.Content.onAccent)
                     .frame(width: Metrics.hueKnob, height: Metrics.hueKnob)
-                    .background(Circle().fill(Color.primary.opacity(Tokens.Opacity.strong)))
+                    .background(Circle().fill(Tokens.ColorRole.Content.primary.opacity(Tokens.Opacity.strong)))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
             .help("Done")
             .accessibilityLabel("Done")
         }
@@ -337,9 +326,9 @@ private struct DocHueSlider: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(DocColors.hues).frame(height: Metrics.hueTrackHeight)
                 Circle()
-                    .fill(Color.white)
+                    .fill(Tokens.ColorRole.Content.onAccent)
                     .overlay(Circle().strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.hairline))
-                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                    .shadow(color: Tokens.Elevation.low.color, radius: Tokens.Space.xxs, y: 1)
                     .frame(width: knob, height: knob)
                     .offset(x: CGFloat(hue) * travel)
             }
@@ -357,26 +346,6 @@ private struct DocHueSlider: View {
         .accessibilityAdjustableAction { direction in
             hue = min(max(0, hue + (direction == .increment ? 0.05 : -0.05)), 1)
             onChange(hue)
-        }
-    }
-}
-
-/// A key's press and hover: a soft disc behind it.
-private struct DocToolbarKeyStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        DocToolbarKey(configuration: configuration)
-    }
-
-    private struct DocToolbarKey: View {
-        let configuration: ButtonStyleConfiguration
-        @State private var hovering = false
-
-        var body: some View {
-            configuration.label
-                .background(Circle()
-                    .fill(configuration.isPressed ? Tokens.ColorRole.Surface.pressed : hovering ? Tokens.ColorRole.Surface.hover : .clear)
-                    .frame(width: Metrics.key, height: Metrics.key))
-                .onHover { hovering = $0 }
         }
     }
 }
