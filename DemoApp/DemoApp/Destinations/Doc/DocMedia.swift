@@ -4,7 +4,7 @@
 //
 //  Links, files and images on the page, as Craft draws them. Links and files share one
 //  set of layouts: small (a pill as wide as its name), regular (a row: thumbnail,
-//  title, details) and card (half the page: the preview on top, the text below).
+//  title, details) and card (a column of the page: the preview on top, the text below).
 //  Images fit or fill, at their own size or the page's width.
 //
 
@@ -19,7 +19,7 @@ struct DocMediaView: View {
         switch kind {
         case .link(let link): DocLinkView(link: link)
         case .file(let file): DocFileView(file: file)
-        case .image(let image): DocImageView(image: image, size: DocMediaLayout.imageBox(image, width: DocMediaLayout.pageWidth))
+        case .image(let image): DocImageView(image: image)
         default: EmptyView()
         }
     }
@@ -87,7 +87,7 @@ private struct DocLinkLayout: Layout {
     let hasSummary: Bool
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        arrange(width: proposal.width ?? DocMediaLayout.pageWidth, subviews).size
+        arrange(width: proposal.width ?? DocMediaLayout.widestPage, subviews).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
@@ -119,10 +119,10 @@ private struct DocLinkLayout: Layout {
                 CGRect(x: 0, y: 62, width: width, height: 26),
             ])
         case .card:
-            let card = DocMediaLayout.cardWidth(in: width)
+            let card = width
             let room = ProposedViewSize(width: card - 20, height: nil)
             let (a, b) = (title.sizeThatFits(room), summary.sizeThatFits(room))
-            return (CGSize(width: card, height: 222), [
+            return (CGSize(width: card, height: DocMediaLayout.cardHeight), [
                 CGRect(x: 0, y: 0, width: card, height: 104),
                 CGRect(x: 10, y: 112, width: a.width, height: a.height),
                 CGRect(x: 10, y: 112 + a.height + 4, width: b.width, height: hasSummary ? b.height : 0),
@@ -215,7 +215,7 @@ private struct DocFileLayout: Layout {
     let hasSize: Bool
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        arrange(width: proposal.width ?? DocMediaLayout.pageWidth, subviews).size
+        arrange(width: proposal.width ?? DocMediaLayout.widestPage, subviews).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
@@ -257,19 +257,21 @@ private struct DocFileLayout: Layout {
                 CGRect(x: 80, y: top + a.height + 2 + b.height + 1, width: c.width, height: hasSize ? c.height : 0),
             ])
         case .card:
-            let card = DocMediaLayout.cardWidth(in: width)
+            // As tall as a link's card: the panel takes what the text leaves.
+            let card = width
             let icon = CGSize(width: 72 * 0.78, height: 72)
             let room = ProposedViewSize(width: card - 20, height: nil)
             let (a, b, c) = (name.sizeThatFits(room), kind.sizeThatFits(room), size.sizeThatFits(room))
+            let panel: CGFloat = 144
             func centred(_ size: CGSize, _ y: CGFloat) -> CGRect {
                 CGRect(x: (card - size.width) / 2, y: y, width: size.width, height: size.height)
             }
-            return (CGSize(width: card, height: 182), [
-                CGRect(x: 0, y: 0, width: card, height: 104),
-                CGRect(x: (card - icon.width) / 2, y: 16, width: icon.width, height: icon.height),
-                centred(a, 114),
-                centred(b, 114 + a.height + 2),
-                centred(hasSize ? c : CGSize(width: c.width, height: 0), 114 + a.height + 2 + b.height + 2),
+            return (CGSize(width: card, height: DocMediaLayout.cardHeight), [
+                CGRect(x: 0, y: 0, width: card, height: panel),
+                CGRect(x: (card - icon.width) / 2, y: (panel - icon.height) / 2, width: icon.width, height: icon.height),
+                centred(a, panel + 10),
+                centred(b, panel + 10 + a.height + 2),
+                centred(hasSize ? c : CGSize(width: c.width, height: 0), panel + 10 + a.height + 2 + b.height + 2),
             ])
         }
     }
@@ -343,24 +345,38 @@ private struct DocPage: Shape {
 
 // MARK: Images
 
-/// An image in its box (`size`: alone, as its fit and size make it on the page; in a
-/// gallery, its place there). The picture is drawn at the size its fit gives it in the
-/// box, covering it or inside it, centred and cut to the box: a new fit, size or place is
-/// the box and the picture each going from one size to the other.
+/// An image in its box: alone, as its fit and size make it at the width it's given; in a
+/// gallery, that width at its shape (DocMediaLayout.aspect). The picture is drawn at the
+/// size its fit gives it in the box, covering it or inside it, centred and cut to the
+/// box: a new fit, size or place is the box and the picture each going from one size to
+/// the other.
 struct DocImageView: View {
     let image: DocImage
-    let size: CGSize
+    var inGallery = false
 
     var body: some View {
-        let drawn = DocMediaLayout.drawnSize(image, in: size)
-        Color.clear
-            .frame(width: size.width, height: size.height)
-            .overlay {
-                DocMediaPreview(source: image.source, contentMode: nil) { Color(.secondarySystemBackground) }
-                    .frame(width: drawn.width, height: drawn.height)
-            }
-            .clipShape(.rect(cornerRadius: 8, style: .continuous))
-            .accessibilityLabel(image.alt)
+        DocImageLayout(image: image, inGallery: inGallery) {
+            DocMediaPreview(source: image.source, contentMode: nil) { Color(.secondarySystemBackground) }
+        }
+        .clipShape(.rect(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel(image.alt)
+    }
+}
+
+/// An image's box at the width it's given, its picture centred in it at its drawn size.
+private struct DocImageLayout: Layout {
+    let image: DocImage
+    let inGallery: Bool
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? DocMediaLayout.widestPage
+        if inGallery { return CGSize(width: width, height: width / DocMediaLayout.aspect(.image(image: image))) }
+        return DocMediaLayout.imageBox(image, width: width)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let drawn = MainActor.assumeIsolated { DocMediaLayout.drawnSize(image, in: bounds.size) }
+        subviews.first?.place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center, proposal: ProposedViewSize(drawn))
     }
 }
 
@@ -405,12 +421,10 @@ enum DocMediaLayout {
         let columns = CGFloat(cardColumns(in: width))
         return (width - gap * (columns - 1)) / columns
     }
-    /// The page's text width (as wide as a block can be).
-    static var pageWidth: CGFloat {
-        let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen.bounds.width }.first ?? 390
-        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.bounds.width }.first ?? screen
-        return min(720, window - DocBlockController.leadingGutter - DocBlockController.trailingGutter)
-    }
+    /// The widest the page gets (DocBlockController.pageWidth): for a view given no width.
+    static let widestPage: CGFloat = 720
+    /// Every card's, link or file.
+    static let cardHeight: CGFloat = 222
 
     /// Fill: a 4:3 box the image covers; fit: the image's own shape.
     static func imageHeight(_ image: DocImage, width: CGFloat) -> CGFloat {
@@ -502,11 +516,11 @@ enum DocMediaLayout {
     }
 
     /// Rough heights for the list before it measures (DocRow.estimatedHeight).
-    static func estimatedHeight(_ kind: BlockKind) -> CGFloat? {
+    static func estimatedHeight(_ kind: BlockKind, width: CGFloat) -> CGFloat? {
         switch kind {
-        case .link(let link): [DocLayout.small: 36, .regular: 88, .card: 222][link.layout]
-        case .file(let file): [DocLayout.small: 42, .regular: 92, .card: 182][file.layout]
-        case .image(let image): imageHeight(image, width: pageWidth)
+        case .link(let link): [DocLayout.small: 36, .regular: 88, .card: cardHeight][link.layout]
+        case .file(let file): [DocLayout.small: 42, .regular: 92, .card: cardHeight][file.layout]
+        case .image(let image): imageHeight(image, width: width)
         default: nil
         }
     }
@@ -549,61 +563,62 @@ extension DocMediaLayout {
         }
     }
 
-    /// Where each block of a run sits, from the run's top left, at `width`: cards in as many
-    /// columns as fit, each line as tall as its tallest; images in lines of up to four,
-    /// one height per line, as wide together as the page (no taller than 280).
+    /// Where a run's member goes across a page `page` wide, from the run's top left, and
+    /// whether it's on the line of the member before it: cards in as many columns as the
+    /// page takes (cardColumns), filling it; images in lines of up to four, one height
+    /// per line, as wide together as the page (no taller than 280). A row on a line of
+    /// its own spans the page, less its inset.
+    static func place(_ run: DocRowRun, inPage page: CGFloat) -> (frame: CGRect, sharesLine: Bool) {
+        let room = page - run.inset * 2
+        switch run.kind {
+        case nil:
+            return (CGRect(x: run.inset, y: 0, width: room, height: 0), false)
+        case .cards:
+            let columns = cardColumns(in: room)
+            let card = cardWidth(in: room)
+            let (line, column) = run.index.quotientAndRemainder(dividingBy: columns)
+            return (CGRect(x: CGFloat(column) * (card + gap), y: CGFloat(line) * (cardHeight + gap), width: card, height: cardHeight), column > 0)
+        case .gallery:
+            let (line, column) = run.index.quotientAndRemainder(dividingBy: 4)
+            var y: CGFloat = 0
+            for start in stride(from: 0, through: line * 4, by: 4) {
+                let ratios = run.aspects[start..<min(start + 4, run.aspects.count)]
+                let height = min(280, (room - gap * CGFloat(ratios.count - 1)) / ratios.reduce(0, +)).rounded(.down)
+                guard start == line * 4 else {
+                    y += height + gap
+                    continue
+                }
+                let x = ratios.prefix(column).reduce(0) { $0 + $1 * height + gap }
+                return (CGRect(x: x, y: y, width: run.aspects[run.index] * height, height: height), column > 0)
+            }
+            return (.zero, false)
+        }
+    }
+
+    /// Where each block of a run of `kinds` goes across a page `width` wide.
     static func runFrames(_ kinds: [BlockKind], width: CGFloat) -> [CGRect] {
         guard let first = kinds.first, let run = run(first) else { return [] }
-        var frames: [CGRect] = []
-        var y: CGFloat = 0
-        switch run {
-        case .cards:
-            let card = cardWidth(in: width)
-            let columns = cardColumns(in: width)
-            for line in stride(from: 0, to: kinds.count, by: columns) {
-                let members = kinds[line..<min(line + columns, kinds.count)]
-                let height = members.map(cardHeight).max() ?? 0
-                for (column, kind) in members.enumerated() {
-                    frames.append(CGRect(x: CGFloat(column) * (card + gap), y: y, width: card, height: cardHeight(kind)))
-                }
-                y += height + gap
-            }
-        case .gallery:
-            for line in stride(from: 0, to: kinds.count, by: 4) {
-                let ratios = kinds[line..<min(line + 4, kinds.count)].map(aspect)
-                let height = min(280, (width - gap * CGFloat(ratios.count - 1)) / ratios.reduce(0, +)).rounded(.down)
-                var x: CGFloat = 0
-                for ratio in ratios {
-                    let w = (ratio * height).rounded(.down)
-                    frames.append(CGRect(x: x, y: y, width: w, height: height))
-                    x += w + gap
-                }
-                y += height + gap
-            }
-        }
-        return frames
+        let aspects = kinds.map(aspect)
+        return kinds.indices.map { place(DocRowRun(kind: run, index: $0, aspects: aspects), inPage: width).frame }
     }
 
-    private static func cardHeight(_ kind: BlockKind) -> CGFloat {
-        if case .file = kind { 182 } else { 222 }
-    }
-
-    /// An image's width over its height in a gallery (4:3 when it fills, or unknown).
-    private static func aspect(_ kind: BlockKind) -> CGFloat {
-        guard case .image(let image) = kind, image.fit == .fit, let size = naturalSize(image.source), size.height > 0 else { return 4 / 3 }
+    /// A member's width over its height in a run: an image's in a gallery (4:3 when it
+    /// fills, or unknown); a card's are all alike.
+    static func aspect(_ kind: BlockKind) -> CGFloat {
+        guard case .image(let image) = kind else { return 1 }
+        guard image.fit == .fit, let size = naturalSize(image.source), size.height > 0 else { return 4 / 3 }
         return size.width / size.height
     }
 }
 
 /// A link, file or image with what selecting adds: a tinted outline around it (Craft's;
 /// its dot is the selection's, over its box); on the Mac a right-click offers its
-/// layouts. `size` sets an image's box (its place in a gallery, or alone, its own on the
-/// page).
+/// layouts. In a gallery an image's box is its place's.
 struct DocMediaCell: View {
     let id: DocBlockID
     let kind: BlockKind
     let blocks: DocBlockController
-    var size: CGSize?
+    var inGallery = false
 
     var body: some View {
         content
@@ -621,7 +636,7 @@ struct DocMediaCell: View {
     private var content: some View {
         // An image is the same view alone or in a gallery: its box goes from one to the other.
         if case .image(let image) = kind {
-            DocImageView(image: image, size: size ?? DocMediaLayout.imageBox(image, width: DocMediaLayout.pageWidth))
+            DocImageView(image: image, inGallery: inGallery)
         } else {
             DocMediaView(kind: kind)
         }

@@ -49,6 +49,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         return leadingGutter + (room - min(720, room)) / 2
     }
 
+    /// The page's width in a list `width` wide: the room between the gutters, at most 720.
+    nonisolated static func pageWidth(inWidth width: CGFloat) -> CGFloat {
+        min(720, max(0, width - leadingGutter - trailingGutter))
+    }
+
     @ObservationIgnored private let demo: DocDemo
     @ObservationIgnored unowned let editor: DocEditor
     /// A phone's block selection: the chat's (MarkdownView's block selection mode), its
@@ -239,11 +244,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     private func pageFrame(_ id: DocBlockID) -> CGRect? {
         let rowID = id.description
         guard let row = reader?.frame(forItem: rowID) else { return nil }
-        let listWidth = demo.places[id] == nil ? row.width : list?.bounds.width ?? row.width
+        let listWidth = demo.runs[id] == nil ? row.width : list?.bounds.width ?? row.width
         let left = Self.pageLeft(inWidth: listWidth)
-        let width = min(720, max(0, listWidth - Self.leadingGutter - Self.trailingGutter))
+        let width = Self.pageWidth(inWidth: listWidth)
         let above = demo.spacingAbove[rowID] ?? 0
-        let below = demo.lastLine.contains(id) ? DocTypography.pageBottom : 0
+        let below = demo.spacingBelow[rowID] ?? 0
         return CGRect(x: left, y: row.minY + above, width: width, height: max(0, row.height - above - below))
     }
 
@@ -252,13 +257,13 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     private func contentFrame(_ id: DocBlockID) -> CGRect? {
         guard let page = pageFrame(id) else { return nil }
         guard let kind = demo.doc.block(id)?.kind, DocMediaView.draws(kind), let row = rowFrame(id) else { return page }
-        let place = demo.places[id]
-        let left = place == nil ? page.minX : row.minX
-        let width = place?.width ?? page.width
-        if let height = place?.lineHeight, case .image = kind {
-            return CGRect(x: left, y: page.minY, width: width, height: min(height, page.height))
+        let run = demo.runs[id]
+        let left = run == nil ? page.minX : row.minX
+        let width = run == nil ? page.width : row.width
+        if run?.kind == .gallery {
+            return CGRect(x: left, y: page.minY, width: width, height: page.height)
         }
-        guard let box = DocMediaLayout.boxSize(kind, width: place?.room ?? page.width) else { return page }
+        guard let box = DocMediaLayout.boxSize(kind, width: width) else { return page }
         return CGRect(x: left, y: page.minY, width: min(box.width, width), height: min(box.height, page.height))
     }
 
@@ -911,17 +916,35 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         indicator.isHidden = true
     }
 
-    /// Moves the blocks, and lays the list out in the new order at once: the rows the
-    /// system flies to are where they will be.
+    /// Moves the blocks, and lays the list out in the new order at once, without the
+    /// list's fading in of rows put in (an agent's rewrite's): the rows the system flies
+    /// to are where they will be, there already.
     func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
-        guard let drag, case .some(let after) = drag.target, move(drag.tops, after: after) else { return }
+        guard let drag, case .some(let after) = drag.target else { return }
+        var moved = false
+        UIView.performWithoutAnimation {
+            moved = move(drag.tops, after: after)
+            list?.window?.layoutIfNeeded()
+        }
+        guard moved else { return }
         landing = drag.moving
-        list?.window?.layoutIfNeeded()
         layoutOverlays()
     }
 
+    /// What was lifted flies from the pointer to where its block is now, its left edge on
+    /// the block's: the system's picture of it, not the row's cell (the list keeps that
+    /// where it lays it out).
     func dropInteraction(_ interaction: UIDropInteraction, previewForDropping item: UIDragItem, withDefault defaultPreview: UITargetedDragPreview) -> UITargetedDragPreview? {
-        (item.localObject as? DocBlockID).flatMap(preview)
+        guard let list, let id = item.localObject as? DocBlockID, let frame = contentFrame(id)?.insetBy(dx: -6, dy: -4) else { return nil }
+        let center = CGPoint(x: frame.minX + defaultPreview.size.width / 2, y: frame.midY)
+        return defaultPreview.retargetedPreview(with: UIDragPreviewTarget(container: list, center: center))
+    }
+
+    /// The drop is down: nothing stays dimmed, whatever the animations reported.
+    func dropInteraction(_ interaction: UIDropInteraction, concludeDrop session: UIDropSession) {
+        landings = 0
+        landing = []
+        layoutOverlays()
     }
 
     /// The moved rows stay dimmed until what flies to them is down.
@@ -967,7 +990,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         let line = reader.contentFrames(intersecting: CGRect(x: 0, y: point.y, width: list.bounds.width, height: 1))
             .filter { $0.value.minY <= point.y && point.y < $0.value.maxY }
             .compactMap { hit in demo.rows.first { $0.id == hit.key }?.block }
-            .filter { demo.places[$0]?.lineHeight != nil }
+            .filter { demo.runs[$0]?.kind != nil }
         guard let first = line.first.flatMap({ demo.doc.block($0) }), let run = DocMediaLayout.run(first.kind),
             moving.allSatisfy({ id in demo.doc.block(id).map { DocMediaLayout.run($0.kind) == run } ?? false })
         else { return nil }
@@ -1288,11 +1311,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             dragInteraction(dragging, session: session, didEndWith: .cancel)
             return
         }
+        // The system's pictures of what it lifted, as it drops them.
+        let lifted = items.compactMap { item in (item.localObject as? DocBlockID).flatMap { id in preview(id).map { (id, $0) } } }
         dropInteraction(dropping, performDrop: drop)
         let animator = DocTestAnimator()
         for item in items {
             if let id = item.localObject as? DocBlockID,
-               let preview = dropInteraction(dropping, previewForDropping: item, withDefault: UITargetedDragPreview(view: list)) {
+               let preview = dropInteraction(dropping, previewForDropping: item,
+                                             withDefault: lifted.first { $0.0 == id }?.1 ?? UITargetedDragPreview(view: list)) {
                 let center = list.convert(preview.target.center, from: preview.target.container)
                 testLandings[id] = CGRect(x: center.x - preview.size.width / 2, y: center.y - preview.size.height / 2,
                                           width: preview.size.width, height: preview.size.height)
@@ -1300,7 +1326,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             dropInteraction(dropping, item: item, willAnimateDropWith: animator)
         }
         dragInteraction(dragging, session: session, didEndWith: .move)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { animator.finish() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            animator.finish()
+            if let self { self.dropInteraction(dropping, concludeDrop: drop) }
+        }
     }
 
     /// A long press on a phone lifting `id` and let go without moving.
@@ -1392,6 +1421,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// How far down a block's row draws its box right now, moving included (list
     /// coordinates): the bottom of the lowest layer in it that clips or has a border (a
     /// card's box, an image's frame), as SwiftUI lays them out frame by frame.
+    /// The page's width in the list now.
+    var testPageWidth: CGFloat { Self.pageWidth(inWidth: list?.bounds.width ?? 0) }
+    var testListWidth: CGFloat? { list?.bounds.width }
+
     func testShownBoxBottom(_ id: DocBlockID) -> CGFloat? {
         testShownBox(id)?.frame.maxY
     }
@@ -1404,7 +1437,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         let root = cell.layer.presentation() ?? cell.layer
         // Not the row's own layers: a box is at most as wide as the page its content is
         // laid out in (going from one place to another, wider than its place).
-        let widest = (demo.places[id]?.room ?? cell.bounds.width - 2) + 1
+        let widest = (list.map { Self.pageWidth(inWidth: $0.bounds.width) } ?? cell.bounds.width - 2) + 1
         var frame: CGRect?
         // The cell's, its content view's and what it hosts (a row fading in or out).
         let hosted = cell.contentView.subviews.map { ($0.layer.presentation() ?? $0.layer).opacity }

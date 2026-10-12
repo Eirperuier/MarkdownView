@@ -627,8 +627,8 @@ final class DocEditTests {
             let block = try self.block("The trap is timing")
             // A long paragraph: the block's text four times.
             let long = String(repeating: block.text.string + " ", count: 4)
-            try await self.focus(block.id, at: block.text.length)
-            try await self.type(" " + long)
+            _ = self.demo.edit([.insertText(block: block.id, at: block.text.length, text: DocText(string: " " + long))], before: nil, after: nil)
+            try await self.focus(block.id, at: self.demo.doc.block(block.id)?.text.length ?? 0)
             try await self.settle()
             var publish: [Double] = []
             var rows: [Double] = []
@@ -1442,7 +1442,7 @@ final class DocEditTests {
             var sized = old, fitted = old
             sized.size = old.size == .large ? .auto : .large
             fitted.fit = old.fit == .fill ? .fit : .fill
-            let width = DocMediaLayout.pageWidth
+            let width = blocks.testPageWidth
             let height = { (image: DocImage) in DocMediaLayout.imageHeight(image, width: width) }
             let new = abs(height(sized) - height(old)) > abs(height(fitted) - height(old)) ? sized : fitted
             try self.expect(abs(height(new) - height(old)) > 30, "no change moves the image's bottom")
@@ -1470,7 +1470,7 @@ final class DocEditTests {
             try self.expect(changed.fit == .fill && changed.size == .large, "image \(changed)")
             try? await Task.sleep(for: .milliseconds(400))
             let row = try self.expectValue(blocks.testRowFrame(image.id), "no row")
-            let height = DocMediaLayout.imageHeight(changed, width: DocMediaLayout.pageWidth)
+            let height = DocMediaLayout.imageHeight(changed, width: blocks.testPageWidth)
             try self.expect(abs(row.height - (height + (self.demo.spacingAbove[image.id.description] ?? 0))) < 2, "row \(row.height), image \(height)")
             blocks.clear()
         }
@@ -1480,6 +1480,12 @@ final class DocEditTests {
             let left = try self.expectValue(blocks.testContentFrame(line[0]), "no frame")
             let right = try self.expectValue(blocks.testContentFrame(line[1]), "no frame")
             try self.expect(left.minY == right.minY && right.minX > left.maxX, "cards at \(left) and \(right)")
+            // A column of the page the list lays them out in, inside it.
+            let page = blocks.testPageWidth, column = DocMediaLayout.cardWidth(in: page)
+            try self.expect([left, right].allSatisfy { abs($0.width - column) < 1 }, "cards \(left.width), \(right.width) wide, a column is \(column)")
+            try self.expect(abs(right.minX - left.maxX - DocMediaLayout.gap) < 1, "cards \(right.minX - left.maxX) apart")
+            let list = try self.expectValue(blocks.testListWidth, "no list")
+            try self.expect(right.maxX <= DocBlockController.pageLeft(inWidth: list) + page + 0.5, "the cards run past the page: \(right.maxX)")
             try self.expect(blocks.testBlock(at: CGPoint(x: left.midX, y: left.midY)) == line[0], "left point picks another block")
             try self.expect(blocks.testBlock(at: CGPoint(x: right.midX, y: right.midY)) == line[1], "right point picks another block")
         }
@@ -1496,43 +1502,15 @@ final class DocEditTests {
                                 "at \(width) the cards don't fill a line: \(frames)")
             }
         }
-        #if targetEnvironment(macCatalyst)
-        await test("on the Mac a window made narrower places the cards across the page again, each a column wide") {
-            let line = try self.expectValue(self.linkCards(), "no line of cards")
-            let scene = try self.expectValue(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first, "no window scene")
-            let frame = try self.expectValue(scene.effectiveGeometry.systemFrame as CGRect?, "no frame")
-            @MainActor func resize(to width: CGFloat) async {
-                scene.requestGeometryUpdate(.Mac(systemFrame: CGRect(x: frame.minX, y: frame.minY, width: width, height: frame.height)))
-                for _ in 0..<100 where abs(scene.effectiveGeometry.systemFrame.width - width) > 1 {
-                    try? await Task.sleep(for: .milliseconds(20))
-                }
-                try? await Task.sleep(for: .milliseconds(400))
-            }
-            await resize(to: 480)
-            defer { Task { await resize(to: frame.width) } }
-            let page = DocMediaLayout.pageWidth
-            try self.expect(DocMediaLayout.cardColumns(in: page) == 2, "the page is still \(page) wide")
-            let width = DocMediaLayout.cardWidth(in: page)
-            let places = line.compactMap { id in self.demo.rows.first { $0.block == id }?.place }
-            try self.expect(places.count == line.count && places.allSatisfy { $0.width == width }, "cards placed \(places.map(\.width)), a column is \(width)")
-            await show(line[0])
-            let drawn = try line.map { try self.expectValue(blocks.testContentFrame($0), "no frame") }
-            try self.expect(drawn.allSatisfy { abs($0.width - width) < 1 }, "cards drawn \(drawn.map(\.width)) wide, a column is \(width)")
-            await resize(to: frame.width)
-            try self.expect(DocMediaLayout.pageWidth > page, "the window didn't get wider again")
-            let wide = DocMediaLayout.cardWidth(in: DocMediaLayout.pageWidth)
-            try self.expect(line.allSatisfy { id in self.demo.rows.first { $0.block == id }?.place?.width == wide }, "the cards didn't widen again")
-        }
-        #endif
         await test("a file turned into a card after cards joins their run, its row the same") {
             let pdf = try self.expectValue(self.demo.doc.blocks.first { if case .file(let file) = $0.kind { file.name.hasSuffix(".pdf") } else { false } }, "no pdf")
             let index = try self.expectValue(self.demo.rows.firstIndex { $0.block == pdf.id }, "no pdf row")
-            try self.expect(index > 0 && self.demo.rows[index - 1].place?.lineHeight != nil, "the pdf doesn't follow cards")
+            try self.expect(index > 0 && self.demo.rows[index - 1].run?.kind != nil, "the pdf doesn't follow cards")
             blocks.setLayout(.card, of: [pdf.id])
             try? await Task.sleep(for: .milliseconds(700))
             let row = try self.expectValue(self.demo.rows.first { $0.block == pdf.id }, "no pdf row")
-            try self.expect(row.place.map { $0.lineHeight != nil && !$0.startsRun } == true, "the pdf didn't join the cards: \(String(describing: row.place))")
-            try self.expect(blocks.testRowFrame(pdf.id).map { $0.width < DocMediaLayout.pageWidth / 2 + 1 } == true, "the pdf's row isn't a card's")
+            try self.expect(row.run.map { $0.kind == .cards && $0.index > 0 } == true, "the pdf didn't join the cards: \(String(describing: row.run))")
+            try self.expect(blocks.testRowFrame(pdf.id).map { $0.width < blocks.testPageWidth / 2 + 1 } == true, "the pdf's row isn't a card's")
             try await self.undo()
         }
         await test("a card dragged out of a line of cards stands on its own where it's dropped") {
@@ -1563,6 +1541,23 @@ final class DocEditTests {
             let after = order()
             let at = try self.expectValue(ids.firstIndex(of: first), "no card")
             try self.expect(after[at] == second && after[at + 1] == first, "order \(String(describing: after.firstIndex(of: second)))")
+            // Both cards in their new places at once, neither fading in nor coming from
+            // elsewhere; what flies down lands on the moved one.
+            let landing = try self.expectValue(blocks.testLandings[second], "nothing lands")
+            let moved = try self.expectValue(blocks.testContentFrame(second), "no card")
+            try self.expect(abs(landing.midY - moved.midY) < 1 && abs(landing.minX - (moved.minX - 6)) < 1, "lands at \(landing), the card is at \(moved)")
+            // From the first frame drawn after the drop.
+            try? await Task.sleep(for: .milliseconds(16))
+            let began = CACurrentMediaTime()
+            while CACurrentMediaTime() - began < 0.3 {
+                for id in [first, second] {
+                    let shown = try self.expectValue(blocks.testShownBox(id), "no card drawn")
+                    let place = try self.expectValue(blocks.testContentFrame(id), "no card")
+                    try self.expect(shown.opacity > 0.99 && abs(shown.frame.minY - place.minY) < 1 && abs(shown.frame.minX - place.minX) < 1,
+                                    "\(id == second ? "the moved" : "the other") card shows at \(shown.frame) a\(shown.opacity), its place is \(place)")
+                }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
             try? await Task.sleep(for: .milliseconds(600))
             try self.expect(blocks.testDimmed.isEmpty, "still dimmed \(blocks.testDimmed)")
             try self.expect(self.line(of: second).prefix(2) == [second, first], "line \(self.line(of: second))")
@@ -1573,7 +1568,7 @@ final class DocEditTests {
             let block = try self.expectValue(self.demo.doc.blocks.first {
                 if case .link(let link) = $0.kind { link.layout == .card && link.image != nil } else { false }
             }, "no card with a picture")
-            let renderer = ImageRenderer(content: DocMediaView(kind: block.kind).frame(width: DocMediaLayout.pageWidth, alignment: .topLeading))
+            let renderer = ImageRenderer(content: DocMediaView(kind: block.kind).frame(width: DocMediaLayout.cardWidth(in: blocks.testPageWidth), alignment: .topLeading))
             renderer.scale = 1
             let image = try self.expectValue(renderer.cgImage, "not drawn")
             let data = try self.expectValue(image.dataProvider?.data.flatMap(CFDataGetBytePtr), "no pixels")
@@ -1581,7 +1576,7 @@ final class DocEditTests {
             // The text between the preview (104 tall) and the footer: white and greys only.
             var coloured = 0, all = 0
             for y in 108..<190 where y < image.height {
-                for x in 0..<min(image.width, Int(DocMediaLayout.cardWidth(in: DocMediaLayout.pageWidth))) {
+                for x in 0..<min(image.width, Int(DocMediaLayout.cardWidth(in: blocks.testPageWidth))) {
                     let p = y * perRow + x * step
                     let (a, b, c) = (Int(data[p]), Int(data[p + 1]), Int(data[p + 2]))
                     all += 1
@@ -1595,7 +1590,7 @@ final class DocEditTests {
             let card = line[1]
             let rows = self.demo.rows
             let index = try self.expectValue(rows.firstIndex { $0.block == card }, "no row")
-            let next = try self.expectValue(rows[(index + 1)...].first { $0.place?.sharesLine != true }?.block, "nothing after the line")
+            let next = try self.expectValue(rows[(index + 1)...].first { !self.sharesLine($0) }?.block, "nothing after the line")
             blocks.testCenter(card)
             try await self.expectMove(card, next: next, still: line[0]) { blocks.setLayout(.regular, of: [card]) }
             try self.expect(self.line(of: card) == [card], "the card didn't leave its line: \(self.line(of: card))")
@@ -1608,11 +1603,11 @@ final class DocEditTests {
             let rows = self.demo.rows
             let index = try self.expectValue(rows.indices.first { index in
                 guard index > 0, case .image? = rows[index].media else { return false }
-                return rows[index].place?.sharesLine == true
+                return self.sharesLine(rows[index])
             }, "no gallery")
             let (image, before) = try (self.expectValue(rows[index].block, "no image"), self.expectValue(rows[index - 1].block, "no image"))
             let line = self.line(of: image)
-            let next = try self.expectValue(rows[(index + 1)...].first { $0.place?.sharesLine != true }?.block, "nothing after the gallery")
+            let next = try self.expectValue(rows[(index + 1)...].first { !self.sharesLine($0) }?.block, "nothing after the gallery")
             // Large, it's as tall as the page is wide: the row after it stays on screen.
             blocks.testShowAtTop(before)
             try await self.expectMove(image, next: next, still: before) { blocks.setImage(size: .large, of: [image]) }
@@ -1727,6 +1722,25 @@ final class DocEditTests {
                 let wanted = UIFont.preferredFont(forTextStyle: .title2).pointSize * 1.24
                 try self.expect(abs(size - wanted) < 0.01, "heading \(size), wanted \(wanted)")
             }
+            await test("on the Mac MarkdownView's own text is Craft's size too: its font group's and the selectable path's") {
+                struct Unscaled: MarkdownFontGroup {
+                    var body: Font { .body }
+                    var h2: Font { .title2 }
+                }
+                @MainActor func height(_ view: some View) -> CGFloat {
+                    UIHostingController(rootView: view).sizeThatFits(in: CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)).height
+                }
+                // One line taller by what the scale adds to its line (a heading's padding stays).
+                for (text, style) in [("One line of body text", UIFont.TextStyle.body), ("## One heading", .title2)] {
+                    let (scaled, plain) = (height(MarkdownView(text)), height(MarkdownView(text).fontGroup(Unscaled())))
+                    let font = UIFont.preferredFont(forTextStyle: style)
+                    let grows = font.withSize(MarkdownTextScale.size(of: style)).lineHeight - font.lineHeight
+                    try self.expect(abs((scaled - plain) - grows) < 1.5, "\(text): \(scaled) high, \(plain) at the text style, wanted \(grows) more")
+                }
+                let standard = MarkdownPlatformTypography.standard
+                try self.expect(standard.body.scale == 1.16 && standard.headings[0].scale == 1.24 && standard.headings[3].scale == 1.16,
+                                "the selectable path's scales: \(standard.body.scale), \(standard.headings.map(\.scale))")
+            }
             await test("blocks selected next to each other are highlighted each on its own, a little around their text") {
                 let nested = try self.block("嵌套列表的缩进")
                 let group = blocks.groups([nested.id])[0]
@@ -1828,13 +1842,15 @@ final class DocEditTests {
         editor.resetHistory()
         blockCountAtStart = demo.doc.blocks.count
         try? await Task.sleep(for: .milliseconds(300))
+        let started = CACurrentMediaTime()
+        func took() -> String { String(format: "%.1fs", CACurrentMediaTime() - started) }
         do {
             try await body()
             passed += 1
-            print("DOCTEST PASS \(name)")
+            print("DOCTEST PASS (\(took())) \(name)")
         } catch {
             failed += 1
-            print("DOCTEST FAIL \(name): \(error)")
+            print("DOCTEST FAIL (\(took())) \(name): \(error)")
         }
     }
 
@@ -1843,9 +1859,9 @@ final class DocEditTests {
     /// A link, file or image alone on its line, with a line starting right after it.
     private func mediaAlone(_ matches: (BlockKind) -> Bool) -> (block: DocBlock, next: DocBlockID)? {
         let rows = demo.rows
-        for (index, row) in rows.enumerated() where row.place?.sharesLine != true && index + 1 < rows.count {
+        for (index, row) in rows.enumerated() where !sharesLine(row) && index + 1 < rows.count {
             guard let id = row.block, let block = demo.doc.block(id), matches(block.kind),
-                  rows[index + 1].place?.sharesLine != true, let next = rows[index + 1].block else { continue }
+                  !sharesLine(rows[index + 1]), let next = rows[index + 1].block else { continue }
             return (block, next)
         }
         return nil
@@ -1855,17 +1871,22 @@ final class DocEditTests {
     private func line(of id: DocBlockID) -> [DocBlockID] {
         let rows = demo.rows
         guard var start = rows.firstIndex(where: { $0.block == id }) else { return [] }
-        while start > 0, rows[start].place?.sharesLine == true { start -= 1 }
+        while start > 0, sharesLine(rows[start]) { start -= 1 }
         var end = start + 1
-        while end < rows.count, rows[end].place?.sharesLine == true { end += 1 }
+        while end < rows.count, sharesLine(rows[end]) { end += 1 }
         return rows[start..<end].compactMap(\.block)
     }
 
     /// The first line of two or more link cards.
+    /// Whether a row is on the line of the row before it, at the list's width now.
+    private func sharesLine(_ row: DocRow) -> Bool {
+        row.run.map { DocMediaLayout.place($0, inPage: editor.blocks.testPageWidth).sharesLine } ?? false
+    }
+
     private func linkCards() -> [DocBlockID]? {
         let rows = demo.rows
-        for (index, row) in rows.enumerated() where index + 1 < rows.count && rows[index + 1].place?.sharesLine == true {
-            guard case .link? = row.media, row.place?.sharesLine != true, let id = row.block else { continue }
+        for (index, row) in rows.enumerated() where index + 1 < rows.count && sharesLine(rows[index + 1]) {
+            guard case .link? = row.media, !sharesLine(row), let id = row.block else { continue }
             return line(of: id)
         }
         return nil

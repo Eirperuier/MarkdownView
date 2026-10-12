@@ -30,20 +30,17 @@ struct DocRowBox: Equatable {
     let isLast: Bool
 }
 
-/// Where a link, file or image's row sits across the page: from the page's left, as wide
-/// as its box, on the line of the row before it (cards side by side, a gallery) or on
-/// one of its own. All of them are placed, so one taking another layout goes from one
-/// place to the other.
-struct DocRowPlace: Equatable {
-    var x: CGFloat
-    var width: CGFloat
-    /// The page's width, less a decoration's inset: what its content is laid out in.
-    var room: CGFloat
-    var sharesLine: Bool
-    /// In a run of cards or a gallery: the height of its line (each member is as tall).
-    var lineHeight: CGFloat?
-    /// The first of its run, or not in one.
-    var startsRun = true
+/// A link, file or image's row in the page: on a line of its own, or one of a run of
+/// cards or a gallery's images, side by side. Where it goes across the page is worked out
+/// at the width the list lays it out at (DocMediaLayout.place), as text wraps.
+struct DocRowRun: Equatable {
+    /// Cards or a gallery; nil: on a line of its own, as wide as the page.
+    var kind: DocMediaLayout.Run?
+    var index: Int
+    /// Each member's width over its height (a gallery's images; cards are all alike).
+    var aspects: [CGFloat]
+    /// A decoration's inset on each side of the page (a row on its own line).
+    var inset: CGFloat = 0
 }
 
 /// One list row: a committed block, or a block of what the agent is writing.
@@ -62,8 +59,8 @@ struct DocRow: Identifiable, Equatable {
     let tree: MarkdownTree?
     /// A link, file or image block, drawn as itself (DocMedia).
     let media: BlockKind?
-    /// Where a link, file or image sits across the page (nil: a row as wide as the page).
-    var place: DocRowPlace?
+    /// A link, file or image's run across the page (nil: a row as wide as the page).
+    var run: DocRowRun?
     /// A code or math block, edited as its source (and whether it's empty).
     let sourceKind: DocSourceKind?
     let sourceIsEmpty: Bool
@@ -99,7 +96,7 @@ struct DocRow: Identifiable, Equatable {
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
         lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.text == rhs.text && lhs.tree == rhs.tree
-            && lhs.table == rhs.table && lhs.media == rhs.media && lhs.place == rhs.place
+            && lhs.table == rhs.table && lhs.media == rhs.media && lhs.run == rhs.run
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
             && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role && lhs.box == rhs.box
@@ -254,24 +251,13 @@ final class DocDemo {
         askForPreviews()
     }
 
-    /// The page's width the links, files and images were placed at.
-    @ObservationIgnored private var placedWidth: CGFloat?
-
-    /// The page got wider or narrower: cards and galleries are placed across it again.
-    func pageWidthChanged() {
-        guard placedWidth != DocMediaLayout.pageWidth else { return }
-        publish()
-    }
-
-    /// Links, files and images across the page: cards next to each other side by side,
-    /// images in a gallery (not while the agent writes), each in as many lines as
-    /// `runFrames` makes; the rest on lines of their own, a run of one too (an image at
-    /// its own size, not a gallery's). A run doesn't cross a change of indent or
-    /// decoration; in a decoration's box it sits inside the box's inset.
+    /// Links, files and images in runs: cards next to each other side by side (a card on
+    /// its own too, a column of the page wide), images in a gallery (not while the agent
+    /// writes); the rest on lines of their own, an image alone at its own size. A run
+    /// doesn't cross a change of indent or decoration; each of its members has a box of
+    /// its own.
     private func place(_ rows: inout [DocRow]) {
         let blocks = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0) })
-        let width = DocMediaLayout.pageWidth
-        placedWidth = width
         func block(_ row: DocRow) -> DocBlock? {
             guard row.media != nil, !row.isStreaming, let id = row.block else { return nil }
             return blocks[id]
@@ -279,12 +265,10 @@ final class DocDemo {
         var index = 0
         while index < rows.count {
             guard let first = block(rows[index]) else {
-                rows[index].place = nil
+                rows[index].run = nil
                 index += 1
                 continue
             }
-            let inset = first.decoration == nil ? 0 : FlooDesignTokens.Component.DecorationBox.inset
-            let room = width - inset * 2
             let kind = layer == nil ? DocMediaLayout.run(first.kind) : nil
             var end = index + 1
             if let kind {
@@ -293,66 +277,68 @@ final class DocDemo {
                     end += 1
                 }
             }
-            if end - index > 1 {
-                let frames = DocMediaLayout.runFrames(rows[index..<end].compactMap(block).map(\.kind), width: room)
-                for (offset, frame) in frames.enumerated() {
-                    let line = frames.filter { $0.minY == frame.minY }
-                    rows[index + offset].place = DocRowPlace(
-                        x: inset + frame.minX, width: frame.width, room: room,
-                        sharesLine: offset > 0 && frames[offset - 1].minY == frame.minY,
-                        lineHeight: line.map(\.height).max(), startsRun: offset == 0)
+            if let kind, kind == .cards || end - index > 1 {
+                let aspects = rows[index..<end].compactMap(block).map { DocMediaLayout.aspect($0.kind) }
+                for offset in 0..<(end - index) {
+                    rows[index + offset].run = DocRowRun(kind: kind, index: offset, aspects: aspects)
                 }
             } else {
-                rows[index].place = DocRowPlace(x: inset, width: room, room: room, sharesLine: false)
+                let inset = first.decoration == nil ? 0 : FlooDesignTokens.Component.DecorationBox.inset
+                rows[index].run = DocRowRun(kind: nil, index: 0, aspects: [], inset: inset)
             }
             index = end
         }
     }
 
-    /// Each row's space above by what it is and what comes before it, the rows on a line
-    /// the space of its first, and in a run of cards or a gallery its gap between lines;
-    /// the last line carries the page's bottom. Decorated lines next to each other make
-    /// one box.
+    /// Each row's space above by what it is and what comes before it. A run's members
+    /// (cards, a gallery's images) are each the gap below the line above them, so the
+    /// members of whatever line the list puts them on line up; the row before the run
+    /// carries the rest of its space. The last row carries the page's bottom (a run's
+    /// last member is on its last line). Decorated rows next to each other make one box;
+    /// a run's members each have one of their own.
     private func space(_ rows: inout [DocRow]) {
         let kinds = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.kind) })
         let decorations = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.decoration) })
-        // Lines: a row sharing one goes with the row before it.
-        var lines: [Range<Int>] = []
-        for index in rows.indices {
-            if rows[index].place?.sharesLine == true, let last = lines.popLast() {
-                lines.append(last.lowerBound..<(index + 1))
-            } else {
-                lines.append(index..<(index + 1))
-            }
-        }
-        let decorated = lines.map { line in rows[line.lowerBound].block.flatMap { decorations[$0] } ?? nil }
+        let decorated = rows.map { row in row.block.flatMap { decorations[$0] } ?? nil }
+        let inRun = rows.map { $0.run?.kind != nil }
         var previous: DocRowRole?
-        for (number, line) in lines.enumerated() {
-            let first = rows[line.lowerBound]
-            let role = first.block.flatMap { kinds[$0] }.map(DocRowRole.init) ?? DocRowRole(markdown: first.blocks.first?.source ?? "")
-            let inRun = first.place.map { $0.lineHeight != nil && !$0.startsRun } ?? false
-            let box = decorated[number].map { decoration in
-                DocRowBox(isFirst: number == 0 || decorated[number - 1] != decoration,
-                          isLast: number == lines.count - 1 || decorated[number + 1] != decoration)
-            }
-            for index in line {
-                rows[index].role = role
-                rows[index].spacingAbove = inRun ? DocMediaLayout.gap : role.spacing(after: previous)
-                rows[index].spacingBelow = number == lines.count - 1 ? DocTypography.pageBottom : 0
-                rows[index].box = box
+        var runSpace: CGFloat = 0
+        for index in rows.indices {
+            let row = rows[index]
+            let role = row.block.flatMap { kinds[$0] }.map(DocRowRole.init) ?? DocRowRole(markdown: row.blocks.first?.source ?? "")
+            rows[index].role = role
+            rows[index].spacingBelow = index == rows.count - 1 ? DocTypography.pageBottom : 0
+            if let run = row.run, run.kind != nil {
+                if run.index == 0 {
+                    let space = role.spacing(after: previous)
+                    if index > 0 {
+                        rows[index - 1].spacingBelow += space - DocMediaLayout.gap
+                        runSpace = DocMediaLayout.gap
+                    } else {
+                        runSpace = space
+                    }
+                }
+                rows[index].spacingAbove = runSpace
+                rows[index].box = decorated[index].map { _ in DocRowBox(isFirst: true, isLast: true) }
+            } else {
+                rows[index].spacingAbove = role.spacing(after: previous)
+                rows[index].box = decorated[index].map { decoration in
+                    DocRowBox(isFirst: index == 0 || inRun[index - 1] || decorated[index - 1] != decoration,
+                              isLast: index == rows.count - 1 || inRun[index + 1] || decorated[index + 1] != decoration)
+                }
             }
             previous = role
         }
         spacingAbove = Dictionary(rows.map { ($0.id, $0.spacingAbove) }, uniquingKeysWith: { first, _ in first })
-        places = Dictionary(rows.compactMap { row in row.place.flatMap { place in row.block.map { ($0, place) } } },
-                            uniquingKeysWith: { first, _ in first })
-        lastLine = Set(lines.last.map { rows[$0].compactMap(\.block) } ?? [])
+        spacingBelow = Dictionary(rows.map { ($0.id, $0.spacingBelow) }, uniquingKeysWith: { first, _ in first })
+        runs = Dictionary(rows.compactMap { row in row.run.flatMap { run in row.block.map { ($0, run) } } },
+                          uniquingKeysWith: { first, _ in first })
     }
 
-    /// Where each placed block's row sits across the page (DocRowPlace).
-    @ObservationIgnored private(set) var places: [DocBlockID: DocRowPlace] = [:]
-    /// The blocks on the last line, whose rows carry the page's bottom.
-    @ObservationIgnored private(set) var lastLine: Set<DocBlockID> = []
+    /// Each link, file or image block's run (DocRowRun).
+    @ObservationIgnored private(set) var runs: [DocBlockID: DocRowRun] = [:]
+    /// The space below each row (by row id): the page's bottom, or a run's after it.
+    @ObservationIgnored private(set) var spacingBelow: [String: CGFloat] = [:]
 
     /// The space above each row (by row id), for laying things over the rows.
     @ObservationIgnored private(set) var spacingAbove: [String: CGFloat] = [:]
@@ -656,8 +642,10 @@ extension DocRow {
         let textWidth = max(100, min(width - DocBlockController.leadingGutter - DocBlockController.trailingGutter, 720))
         let boxPadding = FlooDesignTokens.Component.DecorationBox.padding
         let spacing = spacingAbove + spacingBelow + (box.map { ($0.isFirst ? boxPadding : 0) + ($0.isLast ? boxPadding : 0) } ?? 0)
-        if let height = place?.lineHeight { return height + spacing }
-        if let media, let height = DocMediaLayout.estimatedHeight(media) { return height + spacing }
+        if let run, run.kind != nil {
+            return DocMediaLayout.place(run, inPage: DocBlockController.pageWidth(inWidth: width)).frame.height + spacing
+        }
+        if let media, let height = DocMediaLayout.estimatedHeight(media, width: textWidth) { return height + spacing }
         switch tree?.document.child(at: 0) {
         case let code as CodeBlock:
             return CGFloat(max(1, code.code.split(separator: "\n", omittingEmptySubsequences: false).count - 1)) * 18 + 46 + spacing

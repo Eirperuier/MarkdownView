@@ -55,11 +55,13 @@ struct DocDestination: View {
             .heightEstimate { row, width in
                 row.estimatedHeight(width: width)
             }
-            // Links, files and images where their place says, from the page's left.
+            // Links, files and images across the page at the width it's laid out at, as
+            // text wraps (DocMediaLayout.place).
             .itemPlacement { row, width in
-                row.place.map { place in
-                    TiledItemPlacement(x: DocBlockController.pageLeft(inWidth: width) + place.x, width: place.width,
-                                       sharesLine: place.sharesLine)
+                row.run.map { run in
+                    let place = DocMediaLayout.place(run, inPage: DocBlockController.pageWidth(inWidth: width))
+                    return TiledItemPlacement(x: DocBlockController.pageLeft(inWidth: width) + place.frame.minX, width: place.frame.width,
+                                              sharesLine: place.sharesLine)
                 }
             }
             // A document is anchored at its top: the keyboard (the safe area) adds room
@@ -68,8 +70,6 @@ struct DocDestination: View {
             // keyboard's height at once. Showing the caret above the keyboard is the
             // editor's.
             .keyboardAvoidance(false, preservesContentOffset: true)
-            // A page made wider or narrower places its cards and galleries across it again.
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { _ in demo.pageWidthChanged() }
             .overlay(alignment: .topLeading) {
                 // A phone's block selection, the chat's (MarkdownBlockSelectionOverlay): a
                 // tint on the blocks (links, files and images outline themselves), a dot
@@ -297,8 +297,8 @@ private struct DocRowView: View {
 
     var body: some View {
         Group {
-            if let place = row.place, let media = row.media, let block = row.block, !row.isStreaming {
-                placed(DocMediaCell(id: block, kind: media, blocks: blocks, size: imageBox(media, at: place)), at: place)
+            if let run = row.run, let media = row.media, let block = row.block, !row.isStreaming {
+                placed(DocMediaCell(id: block, kind: media, blocks: blocks, inGallery: run.kind == .gallery), in: run)
             } else {
                 page
             }
@@ -308,24 +308,13 @@ private struct DocRowView: View {
         .allowsHitTesting(row.block.map { blocks.blockTakes($0, editsText: row.editsText) } ?? true)
     }
 
-    /// An image's box: its place in a gallery, or alone, its own in the page's room.
-    private func imageBox(_ kind: BlockKind, at place: DocRowPlace) -> CGSize? {
-        guard case .image(let image) = kind else { return nil }
-        if let height = place.lineHeight { return CGSize(width: place.width, height: height) }
-        return DocMediaLayout.imageBox(image, width: place.room)
-    }
-
-    /// A link, file or image where the list places its row (DocRowPlace): its content
-    /// laid out at the page's width whatever its row's (a box going from one layout to
-    /// another goes from one size to the other, not from the row's), the rows on a line
-    /// as tall as it.
-    private func placed(_ content: some View, at place: DocRowPlace) -> some View {
+    /// A link, file or image where the list places its row (DocRowRun), laid out at the
+    /// row's width as text is.
+    private func placed(_ content: some View, in run: DocRowRun) -> some View {
         content
-            .frame(width: place.room, alignment: .topLeading)
-            .frame(width: place.width, height: place.lineHeight, alignment: .topLeading)
-            .modifier(DocRowBoxing(box: row.box, spacingAbove: row.spacingAbove, place: place))
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .modifier(DocRowBoxing(box: row.box, spacingAbove: row.spacingAbove, run: run))
             .padding(.bottom, row.spacingBelow)
-            .frame(width: place.width, alignment: .topLeading)
     }
 
     private var page: some View {
@@ -415,37 +404,32 @@ private struct DocRowView: View {
 
 /// The space above a row, and its part of a decoration's box (Craft's Block: a grey box,
 /// out past the text's edges, the text inset in it). Below the box's first row the box
-/// fills the space between rows too. A placed row is inside the inset already; the first
-/// on its line draws the box across the page.
+/// fills the space between rows too. A link, file or image on its own line is inside the
+/// inset already; a card or a gallery's image has a box of its own around it.
 private struct DocRowBoxing: ViewModifier {
     let box: DocRowBox?
     let spacingAbove: CGFloat
-    var place: DocRowPlace?
+    var run: DocRowRun?
 
     private typealias Box = FlooDesignTokens.Component.DecorationBox
 
     func body(content: Content) -> some View {
-        if let box {
+        if let box, run?.kind != nil {
+            content
+                .padding(.horizontal, Box.inset)
+                .padding(.vertical, Box.padding)
+                .background(RoundedRectangle(cornerRadius: Box.cornerRadius, style: .continuous).fill(Box.fill))
+                .padding(.top, spacingAbove)
+        } else if let box {
             let radius = Box.cornerRadius
             let shape = UnevenRoundedRectangle(topLeadingRadius: box.isFirst ? radius : 0, bottomLeadingRadius: box.isLast ? radius : 0,
                                                bottomTrailingRadius: box.isLast ? radius : 0, topTrailingRadius: box.isFirst ? radius : 0,
                                                style: .continuous)
             content
-                .padding(.horizontal, place == nil ? Box.inset : 0)
+                .padding(.horizontal, run == nil ? Box.inset : 0)
                 .padding(.top, box.isFirst ? Box.padding : spacingAbove)
                 .padding(.bottom, box.isLast ? Box.padding : 0)
-                .background(alignment: .topLeading) {
-                    if let place {
-                        if !place.sharesLine {
-                            shape.fill(Box.fill)
-                                .frame(width: DocMediaLayout.pageWidth + Box.outset * 2)
-                                .offset(x: -place.x - Box.outset)
-                        }
-                    } else {
-                        shape.fill(Box.fill)
-                            .padding(.horizontal, -Box.outset)
-                    }
-                }
+                .background(shape.fill(Box.fill).padding(.horizontal, -(run?.inset ?? 0) - Box.outset))
                 .padding(.top, box.isFirst ? spacingAbove : 0)
         } else {
             content.padding(.top, spacingAbove)
