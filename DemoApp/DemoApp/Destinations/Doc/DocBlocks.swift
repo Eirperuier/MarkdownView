@@ -125,8 +125,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @ObservationIgnored private var blockClick: UITapGestureRecognizer?
     /// The Mac's double click on a link, image or file opens it (a single one selects it).
     @ObservationIgnored private var mediaOpen: UITapGestureRecognizer?
-    /// Where a link opens (the browser; the edit tests catch it).
-    @ObservationIgnored var opensURL: (URL) -> Void = { UIApplication.shared.open($0) }
+    /// How links, files and images open: SwiftUI's `openURL` where the doc shows (set by
+    /// DocDestination), as links in MarkdownView's text open, so the app takes them over
+    /// with its `OpenURLAction`. Nil: the system's.
+    @ObservationIgnored var openURL: OpenURLAction?
     /// The image Quick Look shows.
     @ObservationIgnored private var previewing: URL?
     /// Rows flying to where they landed: the selection shows once they're down.
@@ -728,27 +730,35 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         }
     }
 
-    /// A link in the browser; an image in Quick Look; a file in either.
+    /// A link, file or image handed to `openURL`: a link or a file on the web as its URL,
+    /// a file on disk as its file URL, an image as its picture written to a file (or its
+    /// URL on the web). What the system can't open (a file, on a phone) shows in Quick Look.
     func open(_ id: DocBlockID) {
         switch demo.doc.block(id)?.kind {
         case .link(let link)?:
-            if let url = URL(string: link.url) { opensURL(url) }
+            if let url = URL(string: link.url) { open(url) }
         case .image(let image)?:
             if let picture = DocMediaLayout.asset(image.source), let data = picture.jpegData(compressionQuality: 0.95) {
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent((image.alt.isEmpty ? String(localized: "Image") : image.alt) + ".jpg")
                 guard (try? data.write(to: file)) != nil else { return }
-                quickLook(file)
+                open(file)
             } else if let url = URL(string: image.source), url.scheme?.hasPrefix("http") == true {
-                opensURL(url)
+                open(url)
             }
         case .file(let file)?:
-            // A file on the web opens in the browser, one on disk in Quick Look. A blob
-            // has nowhere to come from yet: attachments aren't stored (Docs/doc.md §3.4.1).
-            guard let url = URL(string: file.source) else { return }
-            if url.isFileURL { quickLook(url) } else if url.scheme?.hasPrefix("http") == true { opensURL(url) }
+            // A blob has nowhere to come from yet: attachments aren't stored (Docs/doc.md §3.4.1).
+            guard let url = URL(string: file.source), url.isFileURL || url.scheme?.hasPrefix("http") == true else { return }
+            open(url)
         default:
             break
         }
+    }
+
+    private func open(_ url: URL) {
+        let done = { [weak self] (accepted: Bool) in
+            if !accepted, url.isFileURL { self?.quickLook(url) }
+        }
+        if let openURL { openURL(url, completion: done) } else { UIApplication.shared.open(url, completionHandler: done) }
     }
 
     private func quickLook(_ file: URL) {
@@ -838,7 +848,22 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         if drag != nil { endDrag() }
         let point = session.location(in: list)
         guard let id = pickUp(at: point) else { return [] }
+        cancelGestures(at: point)
         return beginDrag(id, at: point)
+    }
+
+    /// The press lifting a block isn't a tap: letting go doesn't edit its text or open
+    /// it. The gestures it began under `point` (the text's own, the row's click, which
+    /// recognizes along with everything) are cancelled; the next touch has them again.
+    private func cancelGestures(at point: CGPoint) {
+        guard let list else { return }
+        let chain = sequence(first: list.hitTest(point, with: nil), next: { $0?.superview })
+            .prefix { $0 != nil && $0 !== list }.compactMap { $0 }
+        for recognizer in chain.flatMap({ $0.gestureRecognizers ?? [] }) + [rowClick].compactMap({ $0 })
+        where recognizer.isEnabled {
+            recognizer.isEnabled = false
+            recognizer.isEnabled = true
+        }
     }
 
     func dragInteraction(_ interaction: UIDragInteraction, sessionIsRestrictedToDraggingApplication session: UIDragSession) -> Bool {

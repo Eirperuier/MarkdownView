@@ -19,6 +19,8 @@ struct DocDestination: View {
     @State private var editor: DocEditor
     @State private var scrollPosition = TiledScrollPosition()
     @State private var reader = TiledViewReader<String>()
+    /// The app's: links, files and images open with it (DocBlockController.openURL).
+    @Environment(\.openURL) private var openURL
 
     static var autoruns: Bool { UserDefaults.standard.bool(forKey: "docAgent") }
 
@@ -99,6 +101,7 @@ struct DocDestination: View {
             editor.isEditable = !demo.isAgentWriting
         }
         .task {
+            editor.blocks.openURL = openURL
             // Opening a document starts at its top (TiledView's first offset tucks the
             // first row under the bar's edge).
             try? await Task.sleep(for: .milliseconds(150))

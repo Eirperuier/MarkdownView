@@ -1680,8 +1680,9 @@ final class DocEditTests {
             guard case .link(let shown) = link.kind else { return }
             await show(link.id)
             var opened: [URL] = []
-            blocks.opensURL = { opened.append($0) }
-            defer { blocks.opensURL = { UIApplication.shared.open($0) } }
+            let appOpens = blocks.openURL
+            blocks.openURL = OpenURLAction { opened.append($0); return .handled }
+            defer { blocks.openURL = appOpens }
             blocks.testClick(link.id)
             if DocBlockController.usesHandles {
                 try self.expect(blocks.selected == [link.id], "selected \(blocks.selected.count)")
@@ -1693,6 +1694,19 @@ final class DocEditTests {
             try self.expect(opened == [URL(string: shown.url)!], "opened \(opened)")
             blocks.clear()
             if blocks.isSelecting { blocks.endSelecting() }
+        }
+        await test("opening an image hands the app its picture as a file") {
+            let image = try self.expectValue(self.demo.doc.blocks.first {
+                if case .image(let image) = $0.kind { DocMediaLayout.asset(image.source) != nil } else { false }
+            }, "no image")
+            var opened: [URL] = []
+            let appOpens = blocks.openURL
+            blocks.openURL = OpenURLAction { opened.append($0); return .handled }
+            defer { blocks.openURL = appOpens }
+            blocks.open(image.id)
+            let file = try self.expectValue(opened.first, "nothing opened")
+            try self.expect(opened.count == 1 && file.isFileURL, "opened \(opened)")
+            try self.expect((try? Data(contentsOf: file)).flatMap(UIImage.init(data:)) != nil, "no picture at \(file)")
         }
         await test("a list item is selected alone; dragged, its nested items go with it, each lifted from its row") {
             let nested = try self.block("嵌套列表的缩进")
