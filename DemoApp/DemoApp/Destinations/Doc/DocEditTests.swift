@@ -1834,12 +1834,15 @@ final class DocEditTests {
             try self.expect(order() == before, "undo didn't restore them")
         }
         if !DocBlockController.usesHandles {
-            await test("on a phone a block lifted and let go where it was starts selecting with it") {
+            await test("on a phone a block lifted and let go where it was starts selecting with it, the lift finished or not") {
                 let block = try self.block("Loading older")
                 await show(block.id)
-                blocks.testLiftAndLetGo(block.id)
-                try self.expect(blocks.isSelecting && blocks.selected == [block.id], "selecting \(blocks.isSelecting), \(blocks.selected.count)")
-                blocks.endSelecting()
+                for finished in [true, false] {
+                    blocks.testLiftAndLetGo(block.id, finished: finished)
+                    try self.expect(blocks.isSelecting && blocks.selected == [block.id],
+                                    "lift finished \(finished): selecting \(blocks.isSelecting), \(blocks.selected.count)")
+                    blocks.endSelecting()
+                }
             }
             await test("on a phone a swipe across a block selects it, another takes it out; a short one does nothing") {
                 let block = try self.block("Loading older")

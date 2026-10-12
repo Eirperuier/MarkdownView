@@ -144,8 +144,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         /// frame (stays put while the list scrolls under it).
         var start: CGPoint
         var point: CGPoint
-        /// Whether the lift finished: a phone's block lifted and let go starts selecting.
-        var isLifted = false
         /// Whether it has moved yet.
         var isMoving = false
         /// Where the blocks would go: after this block (nil: the top), or nowhere new.
@@ -890,17 +888,15 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     func dragInteraction(_ interaction: UIDragInteraction, willAnimateLiftWith animator: UIDragAnimating, session: UIDragSession) {
         animator.addCompletion { [weak self] position in
-            guard let self else { return }
-            // Let go before the lift finished: nothing happens.
-            if position == .end { self.drag?.isLifted = true } else if self.drag?.isMoving != true { self.endDrag() }
+            guard let self, position != .end, self.drag?.isMoving != true, let drag = self.endDrag() else { return }
+            // Let go before the lift finished: the press was long enough all the same.
+            self.letGo(drag)
         }
     }
 
     func dragInteraction(_ interaction: UIDragInteraction, sessionWillBegin session: UIDragSession) {
         editor.tables.endEditing()
         editor.sources.endEditing()
-        // The rows lifted on the Mac move with the pointer at once.
-        if Self.usesHandles { drag?.isLifted = true }
         link = CADisplayLink(target: self, selector: #selector(autoscroll(_:)))
         link?.add(to: .main, forMode: .common)
     }
@@ -917,9 +913,13 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     func dragInteraction(_ interaction: UIDragInteraction, session: UIDragSession, didEndWith operation: UIDropOperation) {
         guard let drag = endDrag() else { return }
-        // A phone's block lifted and let go where it was: selecting starts with it
-        // (Composer's).
-        if !Self.usesHandles, drag.isLifted, !drag.isMoving, !isSelecting { beginSelecting(drag.grabbed) }
+        letGo(drag)
+    }
+
+    /// A phone's block lifted and let go where it was, the lift finished or not: selecting
+    /// starts with it (Composer's).
+    private func letGo(_ drag: Drag) {
+        if !Self.usesHandles, !drag.isMoving, !isSelecting { beginSelecting(drag.grabbed) }
     }
 
     // MARK: Dropping
@@ -1365,15 +1365,20 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         }
     }
 
-    /// A long press on a phone lifting `id` and let go without moving.
-    func testLiftAndLetGo(_ id: DocBlockID) {
+    /// A long press on a phone lifting `id` and let go without moving, after the lift
+    /// finished or before.
+    func testLiftAndLetGo(_ id: DocBlockID, finished: Bool = true) {
         guard let list, let dragging, let frame = contentFrame(id) else { return }
         let start = CGPoint(x: frame.midX, y: frame.midY)
         let session = DocTestDragSession(view: list, point: start, items: beginDrag(id, at: start))
         let lift = DocTestAnimator()
         dragInteraction(dragging, willAnimateLiftWith: lift, session: session)
-        lift.finish()
-        dragInteraction(dragging, sessionWillBegin: session)
+        if finished {
+            lift.finish()
+            dragInteraction(dragging, sessionWillBegin: session)
+        } else {
+            lift.finish(at: .start)
+        }
         dragInteraction(dragging, session: session, didEndWith: .cancel)
     }
 
@@ -1938,9 +1943,10 @@ final class DocTestAnimator: NSObject, UIDragAnimating {
     func addAnimations(_ animations: @escaping () -> Void) { animations() }
     func addCompletion(_ completion: @escaping (UIViewAnimatingPosition) -> Void) { completions.append(completion) }
 
-    func finish() {
+    /// - Parameter position: `.start` for a lift let go before it finished.
+    func finish(at position: UIViewAnimatingPosition = .end) {
         let done = completions
         completions = []
-        for completion in done { completion(.end) }
+        for completion in done { completion(position) }
     }
 }
