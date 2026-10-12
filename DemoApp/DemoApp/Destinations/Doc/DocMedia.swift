@@ -69,17 +69,20 @@ struct DocFileView: View {
 
 // MARK: Cards
 
-/// A card, drawn at its size's design (CardFrame, a 360-point column) and scaled whole to
-/// the width it's given: its parts don't re-flow as the page narrows or widens.
+/// A card, drawn at its size's design on the page's grid (CardFrame, a 360-point column,
+/// DocMediaLayout.cardGrid) and scaled whole to the width it's given: its parts don't
+/// re-flow as the page narrows or widens. Its box is a link's or an image's (square
+/// inside, rounded and edged once scaled, so the corners are theirs at any scale).
 struct DocCardView: View {
     let card: DocCard
 
     var body: some View {
         let size = DocMediaLayout.size(of: card)
-        CardFrame(layout: CardLayout(size: size)) {
+        CardFrame(layout: CardLayout(size: size), grid: DocMediaLayout.cardGrid, cornerRadius: 0) {
             CardView(tree: DocMediaLayout.session(for: card).tree)
         }
-        .flooDesignScaled(designWidth: CGFloat(size.width()))
+        .flooDesignScaled(designWidth: CGFloat(size.width(grid: DocMediaLayout.cardGrid)))
+        .flooDesignMediaBox()
     }
 }
 
@@ -265,9 +268,15 @@ enum DocMediaLayout {
 // MARK: Cards
 
 extension DocMediaLayout {
-    /// The size a card was drawn for; one this version doesn't know draws as a summary.
+    /// The page's cards are pieces of one grid, the gap between media apart across and
+    /// down (CardGrid.tiled).
+    static let cardGrid = CardGrid.tiled(gap: Double(gap))
+
+    /// The size a card shows at: the one it was drawn for, but a collection shows as a
+    /// detail (a page has no extra large); one this version doesn't know as a summary.
     static func size(of card: DocCard) -> CardSize {
-        CardSize(token: card.size) ?? .summary
+        let size = CardSize(token: card.size) ?? .summary
+        return size == .collection ? .detail : size
     }
 
     /// A card block's size; nil for any other block.
@@ -288,23 +297,23 @@ extension DocMediaLayout {
 
     /// The gutter above a card `width` wide (DocCardGap); none above anything else.
     static func cardGap(_ kind: BlockKind, width: CGFloat) -> CGFloat {
-        cardSize(kind).map { CGFloat(CardSize.gutter()) * width / CGFloat($0.width()) } ?? 0
+        cardSize(kind).map { CGFloat(CardSize.gutter(grid: cardGrid)) * width / CGFloat($0.width(grid: cardGrid)) } ?? 0
     }
 
     /// The gutter above each card (DocCardGap), on a page `width` wide.
     static func flooGap(in width: CGFloat) -> CGFloat {
-        CGFloat(CardSize.gutter()) * flooScale(in: width)
+        CGFloat(CardSize.gutter(grid: cardGrid)) * flooScale(in: width)
     }
 
     /// The design's width of `count` columns and the gutters between them.
     private static func columnsWidth(_ count: Int) -> CGFloat {
-        CGFloat(CardSize.summary.width()) * CGFloat(count) + CGFloat(CardSize.gutter()) * CGFloat(count - 1)
+        CGFloat(CardSize.summary.width(grid: cardGrid)) * CGFloat(count) + CGFloat(CardSize.gutter(grid: cardGrid)) * CGFloat(count - 1)
     }
 
-    /// A card's height over its width, as designed.
+    /// A card's height over its width, as designed on the page's grid.
     static func cardAspect(_ card: DocCard) -> CGFloat {
         let size = size(of: card)
-        return CGFloat(size.height() / size.width())
+        return CGFloat(size.height(grid: cardGrid) / size.width(grid: cardGrid))
     }
 
     /// A card's session: its source compiled with its data, once per card.
@@ -375,16 +384,16 @@ extension DocMediaLayout {
             // takes one, every other size a column. A card that doesn't fit on the line
             // starts the next, the gutter below; a line is as tall as its tallest card.
             let scale = flooScale(in: room)
-            let slot = CGFloat(CardSize.glance.width() + CardSize.gutter()) * scale
+            let slot = CGFloat(CardSize.glance.width(grid: cardGrid) + CardSize.gutter(grid: cardGrid)) * scale
             let slots = flooColumns(in: room) * 2
             var (used, y, lineHeight) = (0, CGFloat(0), CGFloat(0))
             for (index, size) in run.cards.enumerated() {
                 let span = size == .glance ? 1 : 2
                 if used > 0, used + span > slots {
-                    (used, y, lineHeight) = (0, y + lineHeight + CGFloat(CardSize.gutter()) * scale, 0)
+                    (used, y, lineHeight) = (0, y + lineHeight + CGFloat(CardSize.gutter(grid: cardGrid)) * scale, 0)
                 }
                 let frame = CGRect(x: CGFloat(used) * slot, y: y,
-                                   width: CGFloat(size.width()) * scale, height: CGFloat(size.height()) * scale)
+                                   width: CGFloat(size.width(grid: cardGrid)) * scale, height: CGFloat(size.height(grid: cardGrid)) * scale)
                 if index == run.index { return (frame, used > 0) }
                 used += span
                 lineHeight = max(lineHeight, frame.height)
@@ -440,7 +449,7 @@ struct DocMediaCell: View {
             .flooDesignMediaSelection(blocks.isSelected(id))
             .modifier(DocMediaContextMenu(kind: kind, block: id, blocks: blocks))
         if case .card(let card) = kind {
-            DocCardGap(designWidth: CGFloat(DocMediaLayout.size(of: card).width())) { cell }
+            DocCardGap(designWidth: CGFloat(DocMediaLayout.size(of: card).width(grid: DocMediaLayout.cardGrid))) { cell }
         } else {
             cell
         }
@@ -457,8 +466,8 @@ struct DocMediaCell: View {
     }
 }
 
-/// A card with the gutter above it at its own scale, as across: cards are as far apart
-/// down as side by side (two glances and the gutter between are a summary's width).
+/// A card with the grid's gap above it at its own scale, as across: cards are as far
+/// apart down as side by side.
 private struct DocCardGap: Layout {
     let designWidth: CGFloat
 
@@ -476,7 +485,7 @@ private struct DocCardGap: Layout {
     }
 
     private func gap(_ width: CGFloat) -> CGFloat {
-        CGFloat(CardSize.gutter()) * width / designWidth
+        CGFloat(CardSize.gutter(grid: DocMediaLayout.cardGrid)) * width / designWidth
     }
 }
 

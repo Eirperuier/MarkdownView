@@ -1711,7 +1711,7 @@ final class DocEditTests {
             try self.expect(abs(row.height - (height + (self.demo.spacingAbove[image.id.description] ?? 0))) < 2, "row \(row.height), image \(height)")
             blocks.clear()
         }
-        await test("floo's cards: their sources compile; in two columns where the page has room (two summaries side by side), each at its size's shape, drawn there") {
+        await test("floo's cards: their sources compile; pieces of one grid 8 apart, in two columns where the page has room, a collection as a detail, each drawn at its place") {
             let cards = self.demo.doc.blocks.compactMap { block -> (DocBlockID, DocCard)? in
                 if case .card(let card) = block.kind { (block.id, card) } else { nil }
             }
@@ -1722,14 +1722,18 @@ final class DocEditTests {
                                 "\(card.size): \(session.diagnostics.map(\.message)) \(session.tree.issues)")
             }
             let page = blocks.testPageWidth
-            // Two 360-point columns and the 22-point gutter, at no less than 3/4 scale.
-            let columns = page / 742 >= 0.75 ? 2 : 1
-            let scale = columns == 2 ? page / 742 : page / 360
+            // The tiled grid at 8: a glance 176 square, a summary 360 by 176, a detail 360
+            // square (a collection too, on a page); two columns and the gap are 728, at no
+            // less than 3/4 scale.
+            let columns = page / 728 >= 0.75 ? 2 : 1
+            let scale = columns == 2 ? page / 728 : page / 360
+            let designs: [String: CGSize] = ["glance": CGSize(width: 176, height: 176), "summary": CGSize(width: 360, height: 176),
+                                             "detail": CGSize(width: 360, height: 360), "collection": CGSize(width: 360, height: 360)]
             for (id, card) in cards {
                 await show(id)
                 let frame = try self.expectValue(blocks.testContentFrame(id), "no frame for \(card.size)")
-                let size = DocMediaLayout.size(of: card)
-                let width = CGFloat(size.width()) * scale, height = CGFloat(size.height()) * scale
+                let design = try self.expectValue(designs[card.size], "a \(card.size)")
+                let width = design.width * scale, height = design.height * scale
                 try self.expect(abs(frame.width - width) < 1 && abs(frame.height - height) < 1,
                                 "\(card.size) at \(frame), wanted \(width)x\(height) on a page \(page) wide")
                 let drawn = try self.expectValue(blocks.testShownBox(id)?.frame, "\(card.size) not drawn")
@@ -1737,9 +1741,9 @@ final class DocEditTests {
             }
             // In the order they come: two glances, a summary, a detail, a collection.
             let frames = try cards.map { try self.expectValue(blocks.testContentFrame($0.0), "no frame for \($0.1.size)") }
-            try self.expect(frames[0].minY == frames[1].minY && abs(frames[1].minX - frames[0].maxX - 22 * scale) < 1, "glances at \(frames[0]) and \(frames[1])")
-            // As far apart down as across: the gutter at the cards' scale.
-            let gutter = 22 * scale
+            // As far apart down as across: the gap at the cards' scale.
+            let gutter = 8 * scale
+            try self.expect(frames[0].minY == frames[1].minY && abs(frames[1].minX - frames[0].maxX - gutter) < 1, "glances at \(frames[0]) and \(frames[1])")
             if columns == 2 {
                 try self.expect(frames[2].minY == frames[0].minY && abs(frames[2].minX - frames[1].maxX - gutter) < 1, "the summary not beside the glances: \(frames)")
                 try self.expect(frames[3].minY == frames[4].minY && abs(frames[4].minX - frames[3].maxX - gutter) < 1, "the detail and the collection not side by side: \(frames)")
