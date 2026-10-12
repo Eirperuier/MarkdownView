@@ -355,7 +355,10 @@ extension DocEditor {
         var room = CGRect(origin: .zero, size: list.frame.size).inset(by: UIEdgeInsets(top: list.safeAreaInsets.top, left: 0, bottom: list.safeAreaInsets.bottom, right: 0))
         if !DocScrolling.keyboard.isNull, let window = list.window {
             let keyboard = toOverlay(frame.convert(window.convert(DocScrolling.keyboard, from: nil), from: window))
-            if keyboard.minY < room.maxY { room.size.height = max(0, keyboard.minY - room.minY) }
+            // Down to the keyboard bar's middle, as Craft's (the room's edge is a gap
+            // inside it).
+            let floor = keyboard.minY - DocScrolling.keyboardBar / 2 + DocSlashMenuView.gap
+            if floor < room.maxY { room.size.height = max(0, floor - room.minY) }
         }
         return (anchor, room)
     }
@@ -388,7 +391,7 @@ struct DocSlashMenuView: View {
     private static let inset: CGFloat = 6
     private static let radius: CGFloat = 22
     private static let margin: CGFloat = 16
-    private static let gap: CGFloat = 6
+    static let gap: CGFloat = 6
 
     var body: some View {
         if menu.isOpen, !menu.frame.isNull {
@@ -399,6 +402,7 @@ struct DocSlashMenuView: View {
                     .onTapGesture { menu.dismiss() }
                 list
                     .frame(width: menu.frame.width, height: menu.frame.height)
+                    .modifier(DocPopIn(anchor: menu.frame.minY >= menu.anchor.maxY ? .topLeading : .bottomLeading))
                     .offset(x: menu.frame.minX, y: menu.frame.minY)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -477,6 +481,20 @@ struct DocSlashMenuView: View {
         .contentShape(Rectangle())
         .background(highlighted ? Color.primary.opacity(0.06) : .clear,
                     in: RoundedRectangle(cornerRadius: Self.radius - Self.rim - Self.inset, style: .continuous))
+    }
+}
+
+/// The menu opening: a quick small grow from the caret's side and a fade in. Only in:
+/// closed, it's gone at once (nothing is left over).
+private struct DocPopIn: ViewModifier {
+    let anchor: UnitPoint
+    @State private var isIn = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isIn ? 1 : 0.92, anchor: anchor)
+            .opacity(isIn ? 1 : 0)
+            .onAppear { withAnimation(.easeOut(duration: 0.14)) { isIn = true } }
     }
 }
 

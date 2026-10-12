@@ -286,33 +286,65 @@ final class DocKeyboardBar: UIView {
     }
 }
 
-/// The keyboard bar on the page: on the keyboard's top, its white under the keyboard,
-/// while it's up; else slid down
-/// behind the keyboard and off the screen. Always there, so where it is follows only
-/// whether it's up.
-struct DocKeyboardBarHost: View {
+/// The keyboard bar on the page: on the keyboard's top, its white on down under the
+/// keyboard, while it's up; else below the window's bottom. It is placed in the
+/// keyboard's own animation (its duration and curve), so it rises and falls with the
+/// keyboard, from behind it. Over the whole page, under the command menu; only the bar
+/// takes touches.
+final class DocKeyboardBarStage: UIView {
     let bar: DocKeyboardBar
-    let panels: DocPanels
+    /// The bar's white under the keyboard.
+    private let under = UIView()
+    private(set) var isShown = false
+    /// The keyboard's frame in the window.
+    private var keyboard: CGRect = .null
 
-    var body: some View {
-        Bar(bar: bar)
-            .frame(height: DocKeyboardBar.height)
-            // Its white goes on down under the keyboard (Craft's: the keyboard sits on it).
-            .background(Color(uiColor: .systemBackground).ignoresSafeArea(.keyboard, edges: .bottom))
-            .offset(y: panels.showsKeyboardBar ? 0 : DocKeyboardBar.height)
-            .allowsHitTesting(panels.showsKeyboardBar)
-            .accessibilityHidden(!panels.showsKeyboardBar)
-            .frame(maxHeight: .infinity, alignment: .bottom)
-            // Down to the screen's bottom when there's no keyboard; on the keyboard's
-            // top when there is.
-            .ignoresSafeArea(.container, edges: .bottom)
+    init(bar: DocKeyboardBar) {
+        self.bar = bar
+        super.init(frame: .zero)
+        under.backgroundColor = .systemBackground
+        addSubview(under)
+        addSubview(bar)
     }
 
-    private struct Bar: UIViewRepresentable {
-        let bar: DocKeyboardBar
-        func makeUIView(context: Context) -> DocKeyboardBar { bar }
-        func updateUIView(_ view: DocKeyboardBar, context: Context) {}
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// Follows the keyboard, in its animation when it has one.
+    func place(shows: Bool, keyboard: CGRect, duration: Double?, curve: UInt?) {
+        isShown = shows
+        self.keyboard = keyboard
+        bar.accessibilityElementsHidden = !shows
+        guard let duration, duration > 0, window != nil else { return setNeedsLayout() }
+        layoutIfNeeded()
+        UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: (curve ?? 7) << 16), .beginFromCurrentState]) {
+            self.placeBar()
+        }
     }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        placeBar()
+    }
+
+    private func placeBar() {
+        guard let window else { return }
+        let height = DocKeyboardBar.height
+        let top = isShown && !keyboard.isNull ? convert(keyboard, from: window).minY - height
+            : convert(CGPoint(x: 0, y: window.bounds.maxY), from: window).y
+        bar.frame = CGRect(x: 0, y: top, width: bounds.width, height: height)
+        under.frame = CGRect(x: 0, y: top + height, width: bounds.width, height: window.bounds.height)
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isShown, let hit = super.hitTest(point, with: event), hit !== self, hit !== under else { return nil }
+        return hit
+    }
+}
+
+struct DocKeyboardBarHost: UIViewRepresentable {
+    let stage: DocKeyboardBarStage
+    func makeUIView(context: Context) -> DocKeyboardBarStage { stage }
+    func updateUIView(_ view: DocKeyboardBarStage, context: Context) {}
 }
 
 extension DocEditor {

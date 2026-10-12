@@ -62,6 +62,8 @@ final class DocEditor {
     lazy var sources = DocSourceController(demo: demo, editor: self)
     /// The bar over a phone's keyboard: marks, block kinds, inserting (Craft's).
     lazy var keyboardBar = DocKeyboardBar(editor: self)
+    /// Where the bar is on the page.
+    lazy var keyboardBarStage = DocKeyboardBarStage(bar: keyboardBar)
     /// Blocks as wholes: the handle, selecting blocks, moving them.
     lazy var blocks = DocBlockController(demo: demo, editor: self)
     /// Where the command menu's "/" is while it's open.
@@ -96,8 +98,9 @@ final class DocEditor {
         // DocScrolling's observer of the same note: it knows the keyboard's new frame.)
         NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
             let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
+            let curve = note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt
             MainActor.assumeIsolated {
-                self?.updateKeyboardBar(duration: duration)
+                self?.updateKeyboardBar(duration: duration, curve: curve)
                 guard let self, let view = self.allViews.first(where: \.isFirstResponder) else { return }
                 DocScrolling.reveal(view, rect: view.selectedTextRange.map { view.caretRect(for: $0.end) } ?? view.bounds)
                 // The menu stays clear of the keyboard where it is now.
@@ -106,7 +109,8 @@ final class DocEditor {
         }
         NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] note in
             let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
-            MainActor.assumeIsolated { self?.updateKeyboardBar(duration: duration) }
+            let curve = note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt
+            MainActor.assumeIsolated { self?.updateKeyboardBar(duration: duration, curve: curve) }
         }
         slash.choose = { [weak self] item in self?.chooseSlash(item) }
         slash.dismiss = { [weak self] in self?.dismissSlash() }
@@ -115,14 +119,13 @@ final class DocEditor {
     private var allViews: [UITextView] { views.values.flatMap { $0 }.compactMap(\.view) }
 
     /// The keyboard bar is up while the keyboard is, for a block's text; it comes and
-    /// goes in the keyboard's time, sliding in and out from behind it (never above it).
-    func updateKeyboardBar(duration: Double? = nil) {
+    /// goes in the keyboard's animation, sliding in and out from behind it.
+    func updateKeyboardBar(duration: Double? = nil, curve: UInt? = nil) {
         let view = allViews.first(where: \.isFirstResponder)
         let keyboard = view?.window.map { $0.convert(DocScrolling.keyboard, from: nil) } ?? .null
         let shows = !keyboard.isNull && keyboard.height > 0 && keyboard.minY < (view?.window?.bounds.maxY ?? 0) - 1
         DocScrolling.keyboardBar = shows ? DocKeyboardBar.height : 0
-        guard shows != panels.showsKeyboardBar else { return }
-        withAnimation(duration.map { .easeInOut(duration: $0) }) { panels.showsKeyboardBar = shows }
+        keyboardBarStage.place(shows: shows, keyboard: keyboard, duration: duration, curve: curve)
     }
     /// For the edit tests' reports.
     var allTextViews: [UITextView] { allViews }
