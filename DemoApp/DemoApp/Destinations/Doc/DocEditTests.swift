@@ -623,6 +623,30 @@ final class DocEditTests {
         }
         // MARK: Typing speed
 
+        await test("Resizing: each width the list goes through is laid out within a frame") {
+            let blocks = self.editor.blocks
+            blocks.testCenter(try self.block("The trap is timing").id)
+            try? await Task.sleep(for: .milliseconds(300))
+            let width = try self.expectValue(blocks.testListWidth, "no list")
+            let widths = (1...30).map { width - CGFloat($0) * 8 }
+            defer { _ = blocks.testResize(through: [width]) }
+            _ = blocks.testResize(through: widths + [width])
+            let times = blocks.testResize(through: widths)
+            let median = times.sorted()[times.count / 2]
+            print("DOCPERF resize step (ms): median \(String(format: "%.1f", median)) max \(String(format: "%.1f", times.max() ?? 0))")
+            // Only the rows on screen are measured at each width (in their own cells), well
+            // within a frame; measuring rows off screen too took a whole one.
+            try self.expect(median < 8, "a resize step takes \(median) ms")
+            // Once the width rests, the rest converge: rows anywhere show their contents' height.
+            try? await Task.sleep(for: .seconds(1))
+            for row in [self.demo.rows.first, self.demo.rows.last] {
+                let id = try self.expectValue(row?.block, "no block row")
+                blocks.testCenter(id)
+                try? await Task.sleep(for: .milliseconds(300))
+                let misfits = blocks.testMisfitRows
+                try self.expect(misfits.isEmpty, "after resizing: \(misfits)")
+            }
+        }
         await test("Typing speed: keystrokes in a long paragraph render within a frame or two") {
             let block = try self.block("The trap is timing")
             // A long paragraph: the block's text four times.

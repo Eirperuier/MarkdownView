@@ -1434,6 +1434,29 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// The page's width in the list now.
     var testPageWidth: CGFloat { Self.pageWidth(inWidth: list?.bounds.width ?? 0) }
     var testListWidth: CGFloat? { list?.bounds.width }
+    /// The list's width set to each of `widths` in turn, each laid out at once (as a
+    /// window being resized): the main thread's time for each, in ms. The list keeps the
+    /// last width.
+    func testResize(through widths: [CGFloat]) -> [Double] {
+        guard let list, let host = list.superview else { return [] }
+        return widths.map { width in
+            let start = CACurrentMediaTime()
+            host.frame.size.width = width
+            host.layoutIfNeeded()
+            return (CACurrentMediaTime() - start) * 1000
+        }
+    }
+
+    /// The rows on screen whose height isn't their contents' at the row's width.
+    var testMisfitRows: [String] {
+        guard let list else { return [] }
+        return list.visibleCells.compactMap { cell in
+            guard let host = cell.contentView.subviews.first else { return nil }
+            let fit = host.sizeThatFits(CGSize(width: cell.bounds.width, height: .greatestFiniteMagnitude)).height
+            guard abs(fit - cell.bounds.height) > 0.5 else { return nil }
+            return "row at \(Int(cell.frame.minY)) is \(cell.bounds.height) high for \(fit)"
+        }
+    }
 
     func testShownBoxBottom(_ id: DocBlockID) -> CGFloat? {
         testShownBox(id)?.frame.maxY
