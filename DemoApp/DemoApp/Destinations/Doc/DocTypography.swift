@@ -61,8 +61,8 @@ enum DocRowRole: Equatable {
         case .paragraph: self = .paragraph
         case .caption: self = .caption
         case .listItem: self = .listItem
-        case .link, .file: self = .media
-        case .quote, .code, .math, .divider, .image, .card, .database: self = .boxed
+        case .link, .file, .card: self = .media
+        case .quote, .code, .math, .divider, .image, .database: self = .boxed
         }
     }
 

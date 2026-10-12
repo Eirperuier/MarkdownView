@@ -1711,6 +1711,39 @@ final class DocEditTests {
             try self.expect(abs(row.height - (height + (self.demo.spacingAbove[image.id.description] ?? 0))) < 2, "row \(row.height), image \(height)")
             blocks.clear()
         }
+        await test("floo's cards: their sources compile; glances two to a line, the others across the page, each at its size's shape, drawn there") {
+            let cards = self.demo.doc.blocks.compactMap { block -> (DocBlockID, DocCard)? in
+                if case .card(let card) = block.kind { (block.id, card) } else { nil }
+            }
+            try self.expect(cards.count == 5, "\(cards.count) cards")
+            for (_, card) in cards {
+                let session = DocMediaLayout.session(for: card)
+                try self.expect(session.diagnostics.isEmpty && session.tree.issues.isEmpty && !session.tree.roots.isEmpty,
+                                "\(card.size): \(session.diagnostics.map(\.message)) \(session.tree.issues)")
+            }
+            let page = blocks.testPageWidth
+            let scale = page / 360
+            for (id, card) in cards {
+                await show(id)
+                let frame = try self.expectValue(blocks.testContentFrame(id), "no frame for \(card.size)")
+                let size = DocMediaLayout.size(of: card)
+                let width = CGFloat(size.width()) * scale, height = CGFloat(size.height()) * scale
+                try self.expect(abs(frame.width - width) < 1 && abs(frame.height - height) < 1,
+                                "\(card.size) at \(frame), wanted \(width)x\(height) on a page \(page) wide")
+                let drawn = try self.expectValue(blocks.testShownBox(id)?.frame, "\(card.size) not drawn")
+                try self.expect(abs(drawn.width - width) < 2 && abs(drawn.height - height) < 2, "\(card.size) drawn at \(drawn), placed at \(frame)")
+            }
+            let glances = cards.filter { $0.1.size == "glance" }.map(\.0)
+            let left = try self.expectValue(blocks.testContentFrame(glances[0]), "no frame")
+            let right = try self.expectValue(blocks.testContentFrame(glances[1]), "no frame")
+            try self.expect(left.minY == right.minY && abs(right.minX - left.maxX - 22 * scale) < 1, "glances at \(left) and \(right)")
+            // Opening one is the app's to say.
+            var opened: (DocBlockID, DocCard)?
+            blocks.openCard = { opened = ($0, $1) }
+            blocks.open(cards[2].0)
+            blocks.openCard = nil
+            try self.expect(opened?.0 == cards[2].0 && opened?.1 == cards[2].1, "opened \(String(describing: opened?.1.size))")
+        }
         await test("cards next to each other share a line; a point on each picks that one") {
             let line = try self.expectValue(self.linkCards(), "no line of cards")
             await show(line[0])

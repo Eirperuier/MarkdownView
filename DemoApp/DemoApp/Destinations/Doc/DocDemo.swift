@@ -278,7 +278,7 @@ final class DocDemo {
                     end += 1
                 }
             }
-            if let kind, kind == .cards || end - index > 1 {
+            if let kind, kind != .gallery || end - index > 1 {
                 let aspects = rows[index..<end].compactMap(block).map { DocMediaLayout.aspect($0.kind) }
                 for offset in 0..<(end - index) {
                     rows[index + offset].run = DocRowRun(kind: kind, index: offset, aspects: aspects)

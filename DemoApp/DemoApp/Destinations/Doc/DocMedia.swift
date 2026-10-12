@@ -2,15 +2,18 @@
 //  DocMedia.swift
 //  DemoApp
 //
-//  Links, files and images on the page, as Craft draws them. Links and files are
+//  Links, files, images and cards on the page, as Craft draws them. Links and files are
 //  FlooDesign's cards in the block's layout: small (a pill as wide as its name), regular
 //  (a row: thumbnail, title, details) and card (a column of the page: the preview on
 //  top, the text below). Images fit or fill, at their own size or the page's width.
+//  Cards (floo's) are drawn at their size's design and scaled to the page.
 //
 
 import SwiftUI
 import DocKit
 import FlooDesign
+import CardModel
+import CardUI
 
 /// A link, file or image block's view.
 struct DocMediaView: View {
@@ -21,6 +24,7 @@ struct DocMediaView: View {
         case .link(let link): DocLinkView(link: link)
         case .file(let file): DocFileView(file: file)
         case .image(let image): DocImageView(image: image)
+        case .card(let card): DocCardView(card: card)
         default: EmptyView()
         }
     }
@@ -28,7 +32,7 @@ struct DocMediaView: View {
     /// The kinds this view draws.
     static func draws(_ kind: BlockKind) -> Bool {
         switch kind {
-        case .link, .file, .image: true
+        case .link, .file, .image, .card: true
         default: false
         }
     }
@@ -60,6 +64,22 @@ struct DocFileView: View {
     var body: some View {
         FlooDesignFileCard(style: file.layout.style, name: file.name, kind: DocMediaLayout.kind(of: file.name),
                            size: file.size.map(DocMediaLayout.bytes), widest: DocMediaLayout.widestPage)
+    }
+}
+
+// MARK: Cards
+
+/// A card, drawn at its size's design (CardFrame, a 360-point column) and scaled whole to
+/// the width it's given: its parts don't re-flow as the page narrows or widens.
+struct DocCardView: View {
+    let card: DocCard
+
+    var body: some View {
+        let size = DocMediaLayout.size(of: card)
+        CardFrame(layout: CardLayout(size: size)) {
+            CardView(tree: DocMediaLayout.session(for: card).tree)
+        }
+        .flooDesignScaled(designWidth: CGFloat(size.width()))
     }
 }
 
@@ -184,6 +204,8 @@ enum DocMediaLayout {
         switch kind {
         case .image(let image):
             return imageBox(image, width: width)
+        case .card(let card):
+            return CGSize(width: width, height: width * cardAspect(card))
         case .link, .file:
             let key = BoxKey(kind: kind, width: width)
             if let size = boxSizes[key] { return size }
@@ -234,9 +256,38 @@ enum DocMediaLayout {
         case .link(let link): link.layout.pick(Card.smallLinkHeight, Card.regularLinkHeight, cardHeight)
         case .file(let file): file.layout.pick(Card.smallFileHeight, Card.regularFileHeight, cardHeight)
         case .image(let image): imageHeight(image, width: width)
+        case .card(let card): width * cardAspect(card)
         default: nil
         }
     }
+}
+
+// MARK: Cards
+
+extension DocMediaLayout {
+    /// The size a card was drawn for; one this version doesn't know draws as a summary.
+    static func size(of card: DocCard) -> CardSize {
+        CardSize(token: card.size) ?? .summary
+    }
+
+    /// A card's height over its width, as designed.
+    static func cardAspect(_ card: DocCard) -> CGFloat {
+        let size = size(of: card)
+        return CGFloat(size.height() / size.width())
+    }
+
+    /// A card's session: its source compiled with its data, once per card.
+    @MainActor static func session(for card: DocCard) -> CardSession {
+        if let session = sessions[card] { return session }
+        let data = card.data.flatMap { try? JSONEncoder().encode($0) }.flatMap { try? JSONDecoder().decode(CardValue.self, from: $0) }
+        let session = CardSession(data: data ?? .object([:]))
+        session.append(card.source ?? "")
+        session.finish()
+        sessions[card] = session
+        return session
+    }
+
+    @MainActor private static var sessions: [DocCard: CardSession] = [:]
 }
 
 extension DocLayout {
@@ -260,13 +311,15 @@ extension DocMediaLayout {
 
     /// What run a block joins (cards with cards, images with images); nil: it stands
     /// alone. A large image always does.
-    enum Run { case cards, gallery }
+    /// Glances (floo's smallest cards) go two to a line, as on a 360-point column.
+    enum Run { case cards, gallery, glances }
 
     static func run(_ kind: BlockKind) -> Run? {
         switch kind {
         case .link(let link) where link.layout == .card: .cards
         case .file(let file) where file.layout == .card: .cards
         case .image(let image) where image.size == .auto: .gallery
+        case .card(let card) where size(of: card) == .glance: .glances
         default: nil
         }
     }
@@ -286,6 +339,13 @@ extension DocMediaLayout {
             let card = cardWidth(in: room)
             let (line, column) = run.index.quotientAndRemainder(dividingBy: columns)
             return (CGRect(x: CGFloat(column) * (card + gap), y: CGFloat(line) * (cardHeight + gap), width: card, height: cardHeight), column > 0)
+        case .glances:
+            // The column's widths, at the page's scale: two glances and the gutter between.
+            let designed = CGFloat(CardSize.summary.width())
+            let glance = CGFloat(CardSize.glance.width()) * room / designed
+            let gutter = CGFloat(CardSize.gutter()) * room / designed
+            let (line, column) = run.index.quotientAndRemainder(dividingBy: 2)
+            return (CGRect(x: CGFloat(column) * (glance + gutter), y: CGFloat(line) * (glance + gap), width: glance, height: glance), column > 0)
         case .gallery:
             let (line, column) = run.index.quotientAndRemainder(dividingBy: 4)
             var y: CGFloat = 0
@@ -330,6 +390,8 @@ struct DocMediaCell: View {
 
     var body: some View {
         content
+            // What a card asks of the app (its tools, its pictures).
+            .environment(\.cardHost, blocks.cardHost)
             .flooDesignMediaSelection(blocks.isSelected(id))
             .modifier(DocMediaContextMenu(kind: kind, block: id, blocks: blocks))
     }

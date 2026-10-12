@@ -383,7 +383,7 @@
 		};
 		F100C0DE2E00000000000001 /* XCLocalSwiftPackageReference "Cards" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../../floo-cards-snapshot/Packages/Cards";
+			relativePath = ../../floo/Packages/Cards;
 		};
 		F100C0DE2E00000000000010 /* XCLocalSwiftPackageReference "DocKit" */ = {
 			isa = XCLocalSwiftPackageReference;

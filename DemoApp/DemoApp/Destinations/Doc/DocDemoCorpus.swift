@@ -19,7 +19,7 @@ enum DocDemoCorpus {
             1. 编号也一样
             2. Tab 缩进，空项回车退一层
         - 行首输入 `# `、`- `、`1. `、`> ` 改块的类型
-        """, attachments]
+        """, attachments, cards]
         for index in 0..<sections {
             parts.append("## 第 \(index + 1) 节 · \(ChatCorpus.prompt(index))")
             parts.append(ChatCorpus.reply(index))

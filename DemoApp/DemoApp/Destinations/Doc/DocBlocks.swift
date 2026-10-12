@@ -25,6 +25,7 @@ import DocKit
 import MarkdownView
 import MessagingUI
 import FlooDesign
+import CardRuntime
 
 @MainActor
 @Observable
@@ -126,6 +127,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @ObservationIgnored private var touchEnds: DocTouchEnds?
     @ObservationIgnored private var swiped: (block: DocBlockID, cell: UIView?)?
     @ObservationIgnored private var link: CADisplayLink?
+    /// What opening a card does (a double click on the Mac, a tap on a phone): the
+    /// app's to say; nil, a card doesn't open.
+    @ObservationIgnored var openCard: (@MainActor (DocBlockID, DocCard) -> Void)?
+    /// What the cards on the page ask of the app: their tools, their pictures.
+    @ObservationIgnored var cardHost: (any CardHost)?
     /// A click on a row outside its text (DocEditor.click), and the phone's tap that
     /// picks blocks while selecting.
     @ObservationIgnored private var rowClick: UITapGestureRecognizer?
@@ -748,6 +754,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     private func opens(_ id: DocBlockID) -> Bool {
         switch demo.doc.block(id)?.kind {
         case .link?, .image?: true
+        case .card?: openCard != nil
         case .file(let file)?: URL(string: file.source).map { $0.isFileURL || $0.scheme?.hasPrefix("http") == true } ?? false
         default: false
         }
@@ -772,6 +779,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             // A blob has nowhere to come from yet: attachments aren't stored (Docs/doc.md §3.4.1).
             guard let url = URL(string: file.source), url.isFileURL || url.scheme?.hasPrefix("http") == true else { return }
             open(url)
+        case .card(let card)?:
+            openCard?(id, card)
         default:
             break
         }
