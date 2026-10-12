@@ -332,7 +332,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         let outset = Self.highlightOutset
         highlights = place(text.compactMap { pageFrame($0)?.insetBy(dx: 0, dy: -outset) }, in: highlights, outset: 10) {
             let view = UIView()
-            view.backgroundColor = UIColor.tintColor.withAlphaComponent(MarkdownBlockSelectionStyle.highlightOpacity)
+            view.backgroundColor = FlooDesignTokens.UIKitColor.accent.withAlphaComponent(MarkdownBlockSelectionStyle.highlightOpacity)
             view.layer.cornerRadius = MarkdownBlockSelectionStyle.highlightCornerRadius
             view.layer.cornerCurve = .continuous
             view.layer.zPosition = 5

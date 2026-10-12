@@ -319,7 +319,7 @@ private struct DocHueSlider: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(FlooDesignTokens.ColorRole.Spectrum.hues).frame(height: Metrics.hueTrackHeight)
                 Circle()
-                    .fill(Tokens.ColorRole.Content.onAccent)
+                    .fill(Tokens.ColorRole.Content.onColor)
                     .overlay(Circle().strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.hairline))
                     .shadow(color: Tokens.Elevation.knob.color, radius: Tokens.Elevation.knob.radius, y: Tokens.Elevation.knob.y)
                     .frame(width: knob, height: knob)

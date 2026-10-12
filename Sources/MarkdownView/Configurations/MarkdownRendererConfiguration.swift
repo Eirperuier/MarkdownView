@@ -16,7 +16,8 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     var table: Table = Table()
     var codeBlock: CodeBlock = CodeBlock()
     
-    var linkTintColor: Color = .blue
+    /// Links are in the app's accent colour (underlined), as bold text and block quotes are.
+    var linkTintColor: Color = .accentColor
     var inlineCodeTintColor: Color = .gray
     var blockQuoteTintColor: Color = .accentColor
     var preferredColor: Color = .accentColor
