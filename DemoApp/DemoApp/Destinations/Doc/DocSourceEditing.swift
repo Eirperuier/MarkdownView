@@ -512,7 +512,7 @@ struct DocSourceField: UIViewRepresentable {
 
 /// The document's code block font: the page's body size, monospaced (the rows set
 /// MarkdownView's code block font to the same).
-let docCodeFont = UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize * DocTypography.textScale,
+let docCodeFont = UIFont.monospacedSystemFont(ofSize: MarkdownTextScale.size(of: .body),
                                               weight: .regular)
 private var codeFont: UIFont { docCodeFont }
 

@@ -14,34 +14,24 @@ import DocKit
 import MarkdownView
 
 enum DocTypography {
-    /// On the Mac the page's text reads at Craft's size: the Mac's text styles are smaller
-    /// (body 13 points), and Craft's Mac text, measured against ours, is this much larger:
-    /// body text 1.16 times, headings 1.24 times.
-    #if targetEnvironment(macCatalyst)
-    static let textScale: CGFloat = 1.16
-    static let headingScale: CGFloat = 1.24
-    #else
-    static let textScale: CGFloat = 1
-    static let headingScale: CGFloat = 1
-    #endif
-
-    /// The selectable path's fonts: body text, headings by level, inline code.
+    /// The selectable path's fonts: body text, headings by level, inline code (each at
+    /// MarkdownView's scale, MarkdownTextScale: on the Mac, Craft's size).
     static let fonts = MarkdownPlatformTypography(
-        body: .init(.body, scale: textScale),
+        body: .init(.body),
         headings: [
-            .init(.title1, weight: .bold, scale: headingScale),
-            .init(.title2, weight: .bold, scale: headingScale),
-            .init(.title3, weight: .semibold, scale: headingScale),
-            .init(.headline, weight: .semibold, scale: textScale),
+            .init(.title1, weight: .bold),
+            .init(.title2, weight: .bold),
+            .init(.title3, weight: .semibold),
+            .init(.headline, weight: .semibold),
         ],
-        inlineCode: .init(.callout, scale: textScale),
-        tableBody: .init(.body, scale: textScale)
+        inlineCode: .init(.callout),
+        tableBody: .init(.body)
     )
     /// A caption's: smaller text, drawn secondary.
     static var captionFonts: MarkdownPlatformTypography {
         var fonts = fonts
-        fonts.body = .init(.footnote, scale: textScale)
-        fonts.inlineCode = .init(.caption1, scale: textScale)
+        fonts.body = .init(.footnote)
+        fonts.inlineCode = .init(.caption1)
         return fonts
     }
     /// Between the lines of a paragraph (body text about 1.7 lines high); a heading's

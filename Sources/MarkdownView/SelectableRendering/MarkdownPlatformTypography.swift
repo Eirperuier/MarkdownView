@@ -18,13 +18,13 @@ public struct MarkdownPlatformTypography: Hashable, Sendable {
     public struct Style: Hashable, Sendable {
         public var textStyle: PlatformFont.TextStyle
         public var weight: PlatformFont.Weight
-        /// Times the text style's size (an app whose text reads larger than the system's).
+        /// Times the text style's size; by default MarkdownView's (MarkdownTextScale).
         public var scale: CGFloat
 
-        public init(_ textStyle: PlatformFont.TextStyle, weight: PlatformFont.Weight = .regular, scale: CGFloat = 1) {
+        public init(_ textStyle: PlatformFont.TextStyle, weight: PlatformFont.Weight = .regular, scale: CGFloat? = nil) {
             self.textStyle = textStyle
             self.weight = weight
-            self.scale = scale
+            self.scale = scale ?? MarkdownTextScale.factor(for: textStyle)
         }
     }
 
