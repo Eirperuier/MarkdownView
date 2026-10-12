@@ -1530,34 +1530,36 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(order() == ids, "undo didn't restore the order")
         }
-        await test("a card dropped on the near half of another on its line goes beside it, on the line; only it dims while it lands") {
+        await test("a card dropped on the near half of another on its line goes beside it, on the line; the other slides over, the dropped one shows once it lands") {
             let line = try self.expectValue(self.linkCards(), "no line of cards")
             let (first, second) = (line[0], line[1])
             let ids = order()
             await show(first)
             let target = try self.expectValue(blocks.testContentFrame(first), "no card")
+            let was = try self.expectValue(blocks.testShownBox(first)?.frame, "no card drawn")
             blocks.testDrag(second, toY: target.midY, x: target.minX + 20)
-            try self.expect(blocks.testDimmed == [second], "dimmed while landing \(blocks.testDimmed)")
+            try self.expect(blocks.testLanding == [second], "hidden while landing \(blocks.testLanding)")
             let after = order()
             let at = try self.expectValue(ids.firstIndex(of: first), "no card")
             try self.expect(after[at] == second && after[at + 1] == first, "order \(String(describing: after.firstIndex(of: second)))")
-            // Both cards in their new places at once, neither fading in nor coming from
-            // elsewhere; what flies down lands on the moved one.
+            // What flies down lands on the moved card's place; the other card goes from
+            // where it was to its new place, on its way in between, never fading.
             let landing = try self.expectValue(blocks.testLandings[second], "nothing lands")
             let moved = try self.expectValue(blocks.testContentFrame(second), "no card")
             try self.expect(abs(landing.midY - moved.midY) < 1 && abs(landing.minX - (moved.minX - 6)) < 1, "lands at \(landing), the card is at \(moved)")
-            // From the first frame drawn after the drop.
-            try? await Task.sleep(for: .milliseconds(16))
+            let place = try self.expectValue(blocks.testContentFrame(first), "no card")
+            var xs: [CGFloat] = []
             let began = CACurrentMediaTime()
-            while CACurrentMediaTime() - began < 0.3 {
-                for id in [first, second] {
-                    let shown = try self.expectValue(blocks.testShownBox(id), "no card drawn")
-                    let place = try self.expectValue(blocks.testContentFrame(id), "no card")
-                    try self.expect(shown.opacity > 0.99 && abs(shown.frame.minY - place.minY) < 1 && abs(shown.frame.minX - place.minX) < 1,
-                                    "\(id == second ? "the moved" : "the other") card shows at \(shown.frame) a\(shown.opacity), its place is \(place)")
-                }
-                try? await Task.sleep(for: .milliseconds(16))
+            while CACurrentMediaTime() - began < 0.5 {
+                try? await Task.sleep(for: .milliseconds(8))
+                let shown = try self.expectValue(blocks.testShownBox(first), "no card drawn")
+                try self.expect(shown.opacity > 0.99 && abs(shown.frame.minY - place.minY) < 1, "the other card shows at \(shown.frame) a\(shown.opacity)")
+                xs.append(shown.frame.minX)
             }
+            let partway = xs.filter { $0 > min(was.minX, place.minX) + 3 && $0 < max(was.minX, place.minX) - 3 }
+            try self.expect(partway.count >= 3 && abs((xs.last ?? 0) - place.minX) < 1, "the other card went \(xs.map { Int($0) }) from \(was.minX) to \(place.minX)")
+            try self.expect(zip(xs, xs.dropFirst()).allSatisfy { ($1 - $0) * (place.minX - was.minX) >= -1 }, "the other card went back: \(xs.map { Int($0) })")
+            try self.expect(blocks.testLanding.isEmpty, "still hidden after landing \(blocks.testLanding)")
             try? await Task.sleep(for: .milliseconds(600))
             try self.expect(blocks.testDimmed.isEmpty, "still dimmed \(blocks.testDimmed)")
             try self.expect(self.line(of: second).prefix(2) == [second, first], "line \(self.line(of: second))")
@@ -1689,7 +1691,7 @@ final class DocEditTests {
             let after = order()
             let at = try self.expectValue(after.firstIndex(of: nested.id), "not moved")
             try self.expect(Array(after[at...(at + 2)]) == group && at == index + 1, "the group isn't after the next block: at \(at)")
-            try self.expect(blocks.testDimmed.isSuperset(of: group.filter { blocks.testContentFrame($0) != nil }), "not dimmed while landing \(blocks.testDimmed)")
+            try self.expect(blocks.testLanding.isSuperset(of: group), "not hidden while landing \(blocks.testLanding)")
             for id in group {
                 guard let landing = blocks.testLandings[id], let row = blocks.testContentFrame(id) else { continue }
                 try self.expect(abs(landing.midY - row.midY) < 1 && abs(landing.minX - (row.minX - 6)) < 1, "\(id) lands at \(landing), its row is at \(row)")

@@ -109,9 +109,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @ObservationIgnored private(set) var hovered: DocBlockID?
     @ObservationIgnored private var hoverPoint: CGPoint?
     @ObservationIgnored private var drag: Drag?
-    /// The moved blocks while the system flies their rows to where they landed: dimmed
-    /// until then (Craft's).
-    @ObservationIgnored private var landing: [DocBlockID] = []
+    /// The moved blocks while the system flies what it lifted to where they landed: their
+    /// rows hidden until it's down (what flies is them).
+    private var landing: [DocBlockID] = []
     @ObservationIgnored private var dragging: UIDragInteraction?
     @ObservationIgnored private var dropping: UIDropInteraction?
     /// The phone's swipe that selects a block, and the row it moves.
@@ -314,7 +314,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             view.layer.zPosition = 5
             return view
         }
-        let dimmed = (drag.map { $0.isMoving ? $0.moving : [] } ?? []) + landing
+        let dimmed = drag.map { $0.isMoving ? $0.moving : [] } ?? []
         dimmers = place(runs(of: dimmed), in: dimmers, outset: 6) {
             let view = UIView()
             view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.65)
@@ -916,20 +916,28 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         indicator.isHidden = true
     }
 
-    /// Moves the blocks, and lays the list out in the new order at once, without the
-    /// list's fading in of rows put in (an agent's rewrite's): the rows the system flies
-    /// to are where they will be, there already.
+    /// Moves the blocks with the layout motion: the rows they leave and join go to their
+    /// new places (the list's reorder), the moved ones hidden in theirs, laid out at once
+    /// so what the system flies lands where they will be.
     func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
         guard let drag, case .some(let after) = drag.target else { return }
-        var moved = false
-        UIView.performWithoutAnimation {
-            moved = move(drag.tops, after: after)
-            list?.window?.layoutIfNeeded()
-        }
-        guard moved else { return }
         landing = drag.moving
+        guard reshapeMoving(drag.tops, after: after) else {
+            landing = []
+            return
+        }
+        list?.window?.layoutIfNeeded()
         layoutOverlays()
     }
+
+    private func reshapeMoving(_ tops: [DocBlockID], after: DocBlockID?) -> Bool {
+        var moved = false
+        reshape { moved = move(tops, after: after) }
+        return moved
+    }
+
+    /// Whether a block's row is hidden while what was lifted from it lands.
+    func isLanding(_ id: DocBlockID) -> Bool { landing.contains(id) }
 
     /// What was lifted flies from the pointer to where its block is now, its left edge on
     /// the block's: the system's picture of it, not the row's cell (the list keeps that
@@ -1411,6 +1419,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     }
 
     /// The blocks whose rows are dimmed now (lifted, or a drop landing on them).
+    /// The blocks whose rows are hidden while a drop lands on them.
+    var testLanding: Set<DocBlockID> { Set(landing) }
     var testDimmed: Set<DocBlockID> {
         let shown = dimmers.filter { !$0.isHidden }.map(\.frame)
         return Set(demo.doc.blocks.map(\.id).filter { id in
