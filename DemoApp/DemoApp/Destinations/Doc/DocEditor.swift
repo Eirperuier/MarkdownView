@@ -66,6 +66,8 @@ final class DocEditor {
     lazy var blocks = DocBlockController(demo: demo, editor: self)
     /// Where the command menu's "/" is while it's open.
     var slashOrigin: DocPosition?
+    /// The list that doesn't scroll while the menu is open.
+    weak var heldList: UIScrollView?
     /// The next render of the selection's block should also take keyboard focus.
     private var wantsFocus = false
     /// The text view last focused for typing. If it leaves the window while focused

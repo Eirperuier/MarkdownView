@@ -137,6 +137,11 @@ final class DocSlashMenu {
     /// Where the menu may go, in the same coordinates: the list on screen, down to the
     /// keyboard (over its bar).
     private(set) var room: CGRect = .infinite
+    /// Where it shows, set as it opens: a group's commands and a query's take the same
+    /// place (DocSlashMenuView.frame).
+    private(set) var frame: CGRect = .null
+    /// How many rows the menu opened with.
+    private var rows = 0
     /// Called with the chosen command.
     @ObservationIgnored var choose: (DocCommand) -> Void = { _ in }
     /// A tap anywhere but the menu: it closes.
@@ -144,22 +149,25 @@ final class DocSlashMenu {
 
     var highlightedItem: DocCommand? { items.indices.contains(highlighted) ? items[highlighted] : nil }
 
-    func show(query: String, anchor: CGRect, room: CGRect) {
+    /// - Parameter place: the caret and the room for the menu, once its row has
+    ///   rendered; the first one known is where the menu stays.
+    func show(query: String, place: (anchor: CGRect, room: CGRect)?) {
         if query != self.query || !isOpen {
             if !query.isEmpty { group = nil }
             items = group?.children ?? DocCommand.matching(query)
             highlighted = 0
         }
+        if !isOpen { rows = items.count }
         self.query = query
-        self.anchor = anchor
-        self.room = room
         isOpen = true
+        if frame.isNull, let place { self.place(anchor: place.anchor, room: place.room) }
     }
 
-    /// The caret or the room for the menu moved (the keyboard changed).
+    /// Where it opened, or the room for it changed (the keyboard came or went).
     func place(anchor: CGRect, room: CGRect) {
         self.anchor = anchor
         self.room = room
+        frame = DocSlashMenuView.frame(over: anchor, in: room, rows: rows)
     }
 
     /// A group's commands in the menu's place.
@@ -185,6 +193,7 @@ final class DocSlashMenu {
         items = []
         group = nil
         highlighted = 0
+        frame = .null
     }
 
     func move(by delta: Int) {
@@ -197,16 +206,13 @@ extension DocEditor {
     /// The slash key's characters: "/", and "、" with a Chinese input method.
     static let slashes: Set<String> = ["/", "、"]
 
-    /// A "/" just typed at `offset` (the block's start or after whitespace) opens the menu.
+    /// A "/" just typed at `offset` opens the menu.
     func slashTyped(in block: DocBlock, at offset: Int) {
-        let before = offset == 0 ? nil : block.text.string.utf16.dropFirst(offset - 1).first
-        guard before == nil || before.map({ Character(UnicodeScalar($0) ?? " ").isWhitespace }) == true else { return }
         slashOrigin = DocPosition(block: block.id, offset: offset)
         updateSlash()
     }
 
-    /// The keyboard bar's key: a "/" typed, and the menu open even where a typed one
-    /// wouldn't open it (after a word).
+    /// The keyboard bar's key: a "/" typed, the menu open.
     func typeSlash() {
         guard let selection, let view = textView(for: selection.head.block) else { return }
         let origin = DocPosition(block: selection.head.block, offset: min(selection.anchor.offset, selection.head.offset))
@@ -227,15 +233,17 @@ extension DocEditor {
         let units = Array(block.text.string.utf16)
         guard Self.slashes.contains(String(decoding: [units[origin.offset]], as: UTF16.self)) else { return dismissSlash() }
         let query = String(decoding: units[(origin.offset + 1)..<selection.head.offset], as: UTF16.self)
-        guard query.count <= 24, !query.contains(where: \.isWhitespace) else { return dismissSlash() }
-        let (anchor, room) = slashPlace(origin) ?? (slash.anchor, slash.room)
-        slash.show(query: query, anchor: anchor, room: room)
+        // A space, or a query nothing matches (a path, a fraction typed on): it closes.
+        guard query.count <= 24, !query.contains(where: \.isWhitespace), query.isEmpty || !DocCommand.matching(query).isEmpty
+        else { return dismissSlash() }
+        slash.show(query: query, place: slashPlace(origin))
+        holdScrolling(in: textView(for: origin.block).flatMap(DocScrolling.list))
     }
 
     /// The query while an input method composes it (the model doesn't have it yet).
     /// Pinyin shows syllable breaks ("bi'ao", or a space): they aren't part of it.
     func slashComposing(_ query: String) {
-        slash.show(query: query.filter { $0 != "'" && !$0.isWhitespace }, anchor: slash.anchor, room: slash.room)
+        slash.show(query: query.filter { $0 != "'" && !$0.isWhitespace }, place: nil)
     }
 
     /// Only the menu's place, its query as it is (an input method may be composing it).
@@ -247,6 +255,15 @@ extension DocEditor {
     func dismissSlash() {
         slashOrigin = nil
         slash.close()
+        holdScrolling(in: nil)
+    }
+
+    /// The page doesn't scroll while the menu is open (the menu stays by its slash).
+    private func holdScrolling(in list: UIScrollView?) {
+        guard heldList !== list else { return }
+        heldList?.isScrollEnabled = true
+        list?.isScrollEnabled = false
+        heldList = list
     }
 
     /// Return (or a tap) on the menu: a group's commands take its place; a command
@@ -347,104 +364,137 @@ extension DocEditor {
     }
 }
 
-/// The menu over the caret's line (under it when there's no room above), a native
-/// menu's look: a glass panel, a row per command, an icon and a title, a chevron on a
-/// group; four rows show, the rest scroll. It goes over the list, whose frame its
+/// The menu over the caret's line (under it when there's no room above), Craft's: clear
+/// glass with the page's colour laid in it, a little inside its edge; a row per
+/// command, an icon and a title, a chevron on a group; up to seven rows show, the rest
+/// scroll. It keeps the place it opened in. It goes over the list, whose frame its
 /// anchor is in.
 struct DocSlashMenuView: View {
     let menu: DocSlashMenu
 
+    #if targetEnvironment(macCatalyst)
+    private static let width: CGFloat = 246
+    private static let row: CGFloat = 32
+    private static let title = Font.system(size: 13)
+    private static let icon: CGFloat = 14
+    #else
     private static let width: CGFloat = 278
     private static let row: CGFloat = 40
+    private static let title = Font.system(size: 15)
+    private static let icon: CGFloat = 16
+    #endif
+    /// Between the glass's edge and the page's colour in it.
+    private static let rim: CGFloat = 4
+    /// Between the page's colour and the rows.
     private static let inset: CGFloat = 6
+    private static let radius: CGFloat = 22
+    private static let rows = 7
     private static let margin: CGFloat = 16
     private static let gap: CGFloat = 6
 
     var body: some View {
-        GeometryReader { proxy in
-            if menu.isOpen {
-                let frame = Self.frame(over: menu.anchor, in: menu.room.intersection(CGRect(origin: .zero, size: proxy.size)), rows: menu.items.count)
+        if menu.isOpen, !menu.frame.isNull {
+            ZStack(alignment: .topLeading) {
                 // A tap anywhere but the menu closes it (and does nothing else).
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { menu.dismiss() }
                 list
-                    .frame(width: frame.width, height: frame.height)
-                    .offset(x: frame.minX, y: frame.minY)
+                    .frame(width: menu.frame.width, height: menu.frame.height)
+                    .offset(x: menu.frame.minX, y: menu.frame.minY)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
-    /// Over the caret's line where four rows fit, else under it where they do (never
-    /// out of `room`: over the keyboard); else on the roomier side, fewer rows.
+    /// Over the caret's line where all its rows fit (seven at most), else under it where
+    /// they do (never out of `room`: over the keyboard); else on the roomier side, fewer
+    /// rows.
     static func frame(over anchor: CGRect, in room: CGRect, rows count: Int) -> CGRect {
         let room = room.insetBy(dx: margin, dy: gap)
+        guard !room.isNull else { return .null }
         let width = min(Self.width, room.width)
-        let rows = CGFloat(min(max(count, 1), 4))
-        let above = anchor.minY - gap - room.minY
-        let below = room.maxY - anchor.maxY - gap
-        let full = rows * row + 2 * inset
+        let chrome = 2 * (rim + inset)
+        let rows = CGFloat(min(max(count, 1), Self.rows))
+        let above = min(anchor.minY - gap, room.maxY) - room.minY
+        let below = room.maxY - max(anchor.maxY + gap, room.minY)
+        let full = rows * row + chrome
         let goesAbove = above >= full || (below < full && above >= below)
-        let fitting = floor(((goesAbove ? above : below) - 2 * inset) / row)
-        let height = max(1, min(rows, fitting)) * row + 2 * inset
-        let x = min(max(room.minX, anchor.minX - inset), room.maxX - width)
-        return CGRect(x: x, y: goesAbove ? anchor.minY - gap - height : anchor.maxY + gap, width: width, height: height)
+        let fitting = floor(((goesAbove ? above : below) - chrome) / row)
+        let height = max(1, min(rows, fitting)) * row + chrome
+        let x = min(max(room.minX, anchor.minX - rim - inset), room.maxX - width)
+        let y = goesAbove ? min(anchor.minY - gap, room.maxY) - height : max(anchor.maxY + gap, room.minY)
+        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     private var list: some View {
-        DocFloatingPanelSurface(cornerRadius: 22, contentInset: EdgeInsets()) {
-            ScrollViewReader { scroller in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        if menu.items.isEmpty {
-                            Text("No Matching Commands")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, minHeight: Self.row)
-                        }
-                        ForEach(Array(menu.items.enumerated()), id: \.element.id) { index, item in
-                            row(item, highlighted: index == menu.highlighted)
-                                .id(item.id)
-                                .onTapGesture { menu.choose(item) }
-                        }
+        let outer = RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+        let inner = RoundedRectangle(cornerRadius: Self.radius - Self.rim, style: .continuous)
+        return ScrollViewReader { scroller in
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(menu.items.enumerated()), id: \.element.id) { index, item in
+                        row(item, highlighted: index == menu.highlighted)
+                            .id(item.id)
+                            .onTapGesture { menu.choose(item) }
                     }
-                    .padding(Self.inset)
                 }
-                .scrollIndicators(.hidden)
-                .onChange(of: menu.highlighted) {
-                    if let item = menu.highlightedItem { scroller.scrollTo(item.id) }
-                }
-                .onChange(of: menu.group?.id) {
-                    if let first = menu.items.first { scroller.scrollTo(first.id, anchor: .top) }
-                }
+                .padding(Self.inset)
+            }
+            .scrollIndicators(.hidden)
+            .onChange(of: menu.highlighted) {
+                if let item = menu.highlightedItem { scroller.scrollTo(item.id) }
+            }
+            .onChange(of: menu.group?.id) {
+                if let first = menu.items.first { scroller.scrollTo(first.id, anchor: .top) }
             }
         }
+        .background(Color(uiColor: .systemBackground).opacity(0.86), in: inner)
+        .clipShape(inner)
+        .padding(Self.rim)
+        .modifier(DocClearGlass(shape: outer))
     }
 
     private func row(_ item: DocCommand, highlighted: Bool) -> some View {
         HStack(spacing: 12) {
             Group {
                 if let token = item.swatch {
-                    Circle().fill(DocColors.swatch(token)).frame(width: 14, height: 14)
+                    Circle().fill(DocColors.swatch(token)).frame(width: Self.icon - 2, height: Self.icon - 2)
                 } else {
-                    Image(systemName: item.symbol).font(.system(size: 15))
+                    Image(systemName: item.symbol).font(.system(size: Self.icon))
                 }
             }
             .foregroundStyle(.secondary)
-            .frame(width: 22)
+            .frame(width: Self.icon + 8)
             Text(item.title)
-                .font(.subheadline)
+                .font(Self.title)
                 .lineLimit(1)
             Spacer(minLength: 0)
             if item.isGroup {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: Self.icon - 3, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
         }
         .padding(.horizontal, 10)
         .frame(height: Self.row)
         .contentShape(Rectangle())
-        .background(highlighted ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(highlighted ? Color.primary.opacity(0.06) : .clear,
+                    in: RoundedRectangle(cornerRadius: Self.radius - Self.rim - Self.inset, style: .continuous))
+    }
+}
+
+/// Clear glass where the system has it (iOS 26), else a thin material with a hairline.
+private struct DocClearGlass<S: Shape>: ViewModifier {
+    let shape: S
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, macCatalyst 26.0, *) {
+            content.glassEffect(.clear, in: shape)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: shape)
+                .overlay(shape.stroke(FlooDesignTokens.Border.separator, lineWidth: FlooDesignTokens.Border.hairline))
+        }
     }
 }

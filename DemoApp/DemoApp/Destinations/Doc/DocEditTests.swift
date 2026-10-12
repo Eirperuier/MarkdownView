@@ -593,6 +593,27 @@ final class DocEditTests {
             try self.expect(squeezed.maxY <= 300 && squeezed.minY >= 100, "squeezed: \(squeezed)")
             try self.expect(low.maxX <= room.maxX && high.minX >= room.minX, "out of the sides: \(low) \(high)")
         }
+        await test("Slash menu: “/” typed shows it on the list, by the caret") {
+            let block = try self.block("Loading older")
+            self.editor.blocks.testCenter(block.id)
+            try? await Task.sleep(for: .milliseconds(300))
+            try await self.focus(block.id, at: block.text.length)
+            try await self.type(" /")
+            let menu = self.editor.slash
+            try self.expect(menu.isOpen, "not open")
+            let frame = menu.frame
+            print("DOCTEST NOTE slash anchor \(menu.anchor) room \(menu.room) frame \(frame)")
+            try self.expect(!frame.isNull && frame.height > 40 && menu.room.contains(frame), "frame \(frame) in room \(menu.room)")
+            // The page holds still while it's open.
+            let list = try self.expectValue(self.editor.textView(for: block.id).flatMap(DocScrolling.list), "no list")
+            try self.expect(!list.isScrollEnabled, "the page scrolls under the menu")
+            // A group's commands take its place.
+            menu.choose(DocCommand.all[0])
+            try self.expect(menu.group != nil && menu.frame == frame, "a group moved it: \(menu.frame)")
+            UIApplication.shared.sendAction(Selector(("docSlashClose:")), to: nil, from: nil, for: nil)
+            try self.expect(list.isScrollEnabled, "the page doesn't scroll again")
+            try await self.undo()
+        }
         await test("Slash menu: Esc closes it, the “/” stays, Return is Return again") {
             let line = try await emptyLine()
             try await self.type("/")
@@ -622,13 +643,15 @@ final class DocEditTests {
             try await self.settle()
             try self.expect(self.text(line.id) == "/bi'ao", "committed \(self.text(line.id).debugDescription)")
         }
-        await test("Slash menu: a space closes it; a slash inside a word doesn't open it") {
+        await test("Slash menu: a space closes it; after a word it opens too, and closes once nothing matches") {
             let line = try await emptyLine()
             try await self.type("/x ")
             try self.expect(!self.editor.slash.isOpen, "open after a space")
             try await self.type("a/")
-            try self.expect(!self.editor.slash.isOpen, "open after a letter")
-            try self.expect(self.text(line.id) == "/x a/", "text \(self.text(line.id).debugDescription)")
+            try self.expect(self.editor.slash.isOpen, "not open after a letter")
+            try await self.type("zq")
+            try self.expect(!self.editor.slash.isOpen, "open with nothing matching")
+            try self.expect(self.text(line.id) == "/x a/zq", "text \(self.text(line.id).debugDescription)")
         }
         await test("Slash menu: “/分割” or a click on 分割线 puts a divider in, the caret below it") {
             let line = try await emptyLine()
