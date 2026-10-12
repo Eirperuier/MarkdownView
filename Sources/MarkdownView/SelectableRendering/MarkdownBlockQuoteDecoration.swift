@@ -35,13 +35,14 @@ private struct MarkdownBlockQuoteDecoration: ViewModifier {
             .padding(.vertical, isOn ? 8 : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, isOn ? 20 : 0)
+            // The ground and the bar have the corners; the content isn't clipped.
             .background {
                 tint.opacity(isOn ? 0.1 : 0)
                     .overlay(alignment: .leading) {
                         tint.frame(width: 4).opacity(isOn ? 1 : 0)
                     }
+                    .clipShape(.rect(cornerRadius: 3))
             }
-            .clipShape(.rect(cornerRadius: isOn ? 3 : 0))
     }
 }
 #endif

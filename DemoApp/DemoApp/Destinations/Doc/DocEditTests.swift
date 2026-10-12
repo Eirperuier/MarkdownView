@@ -1630,6 +1630,46 @@ final class DocEditTests {
                 try self.expect(self.editor.textView(for: paragraph.id) === view, "\(name): the text has another view")
             }
         }
+        await test("a paragraph made a quote and back again and again before it lands: its text and the rows after it keep together") {
+            let paragraph = try self.block("这篇文档由 DocKit")
+            let next = try self.blockAfter(paragraph.id).id
+            await show(paragraph.id)
+            blocks.testCenter(paragraph.id)
+            let view = try self.expectValue(self.editor.textView(for: paragraph.id), "no text view")
+            try await Task.sleep(for: .milliseconds(300))
+            @MainActor func sample() throws -> (edge: CGFloat, next: CGFloat) {
+                (try self.expectValue(blocks.testShownFrame(of: view, in: paragraph.id)?.minX, "no text drawn"),
+                 try self.expectValue(blocks.testShownRowFrame(next)?.minY, "next row not on screen"))
+            }
+            let start = try sample()
+            let began = CACurrentMediaTime()
+            let kinds: [BlockKind] = [.quote, .paragraph, .quote, .paragraph]
+            var samples: [(time: Double, edge: CGFloat, next: CGFloat)] = []
+            for (index, kind) in kinds.enumerated() {
+                blocks.reshape { self.editor.setKind(kind, of: [paragraph.id]) }
+                let until = index == kinds.count - 1 ? 0.6 : 0.09
+                let from = CACurrentMediaTime()
+                while CACurrentMediaTime() - from < until {
+                    try await Task.sleep(for: .milliseconds(8))
+                    let shown = try sample()
+                    samples.append((CACurrentMediaTime() - began, shown.edge, shown.next))
+                }
+            }
+            let end = try self.expectValue(samples.last, "no samples")
+            let trace = samples.map { String(format: "%.3f:%.1f/%.1f", $0.time, $0.edge - end.edge, $0.next - end.next) }.joined(separator: " ")
+            print("DOCTEST TRACE back and forth \(start.edge)/\(start.next) → \(trace)")
+            try self.expect(abs(end.edge - start.edge) < 0.5 && abs(end.next - start.next) < 0.5, "not back where it began: \(trace)")
+            try self.expect(samples.contains { abs($0.edge - end.edge) > 6 }, "the text never moved: \(trace)")
+            try self.expect(self.editor.textView(for: paragraph.id) === view, "the text has another view")
+            // Every update moves the text in and the next row down in the same proportion,
+            // so on the way, however the updates overlap, the next row is as far from its
+            // place as that proportion of the text's distance from its place.
+            let pairs = samples.map { (Double($0.edge - end.edge), Double($0.next - end.next)) }
+            let ratio = pairs.map { $0.0 * $0.1 }.reduce(0, +) / max(pairs.map { $0.0 * $0.0 }.reduce(0, +), 1e-9)
+            let apart = pairs.filter { abs($0.1 - ratio * $0.0) > 1.5 }
+            try self.expect(ratio > 0.5, "the next row doesn't follow the text (ratio \(ratio)): \(trace)")
+            try self.expect(apart.isEmpty, "\(apart.count) frames out of step (ratio \(ratio)): \(trace)")
+        }
         await test("a selected image fills and goes large, and draws at the page's width") {
             let image = try self.expectValue(self.demo.doc.blocks.first { if case .image = $0.kind { true } else { false } }, "no image")
             await show(image.id)
