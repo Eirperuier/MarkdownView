@@ -911,6 +911,15 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         layoutOverlays()
     }
 
+    /// Let go: selecting starts at once, not once the rows have settled back.
+    func dragInteraction(_ interaction: UIDragInteraction, session: UIDragSession, willEndWith operation: UIDropOperation) {
+        if operation == .cancel, let drag { letGo(drag) }
+    }
+
+    func dragInteraction(_ interaction: UIDragInteraction, item: UIDragItem, willAnimateCancelWith animator: UIDragAnimating) {
+        if let drag { letGo(drag) }
+    }
+
     func dragInteraction(_ interaction: UIDragInteraction, session: UIDragSession, didEndWith operation: UIDropOperation) {
         guard let drag = endDrag() else { return }
         letGo(drag)
@@ -1376,6 +1385,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         if finished {
             lift.finish()
             dragInteraction(dragging, sessionWillBegin: session)
+            dragInteraction(dragging, session: session, willEndWith: .cancel)
         } else {
             lift.finish(at: .start)
         }
