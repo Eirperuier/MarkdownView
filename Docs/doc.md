@@ -136,7 +136,7 @@ enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mentio
 
 ### 3.4.1 链接、附件、图片的布局【定】
 
-照 Craft:书签和附件共用一套布局 `DocLayout`——小(和名字一样宽的胶囊)、常规(整行:缩略图、标题、详情)、卡片(页面的一栏宽:预览在上,文字在下)。图片另有两项:适应 / 填充,自动 / 大图。改布局是 `setBlock` 换一个 kind,一次撤销退回;多选时一起改,是一个事务。连续的卡片并排,连续的图片成排。卡片照 Craft 窗口变窄时量的:每栏不窄于 140 时一行三张,不窄于 100 时两张,再窄一张,卡片间隔 8;页面变宽变窄时卡片和图片排重新排。
+照 Craft:书签和附件共用一套布局 `DocLayout`——小(和名字一样宽的胶囊)、常规(整行:缩略图、标题、详情)、卡片(页面的一栏宽:预览在上,文字在下)。图片另有两项:适应 / 填充,自动 / 大图。改布局是 `setBlock` 换一个 kind,一次撤销退回;多选时一起改,是一个事务。连续的卡片并排,连续的图片成排。卡片照 Craft 窗口变窄时量的:每栏不窄于 140 时一行三张,不窄于 100 时两张,再窄一张,卡片间隔 8;卡片一样宽一样高(链接和附件同高);灰底块里并排的卡片各有一个灰底。每行只记它在哪一组、第几个,横向放在哪、多宽由列表排版时按实际宽度算,和文字换行一样,所以页面变宽变窄、旁边有侧栏都照样排对。拖放时被移动的行立刻在新位置(不走 agent 改写的淡入),系统的拖动图飞到它上面,落下后不再变暗。
 
 并排和成排不合并行:每一块仍是自己的一行,行 id 就是块 id。书签、附件、图片的行由 TiledView 按位置摆(`itemPlacement`:从页面左边起的 x、宽度、和前一行是否同一排),一排和其中最高的一块一样高(同一排的卡片取同一高度)。一串卡片或一组图片按 `DocMediaLayout.runFrames` 分排;缩进或装饰不同就断开。所以一块换布局、加入或离开一排,都是它这一行原地更新,不删不插,别的行只是换了位置。
 
@@ -393,7 +393,7 @@ agent 写一段新内容或改写一块要花几秒,各端都要看到它在原�
 | D6 | 跨块文字选择 | 录屏 |
 | 之后 | 移植进 floo:DocKit 进 Core,服务端加 `doc_step` 和端点,App 接入;再做 Web | 走 floo 的流程 |
 
-界面上的尺寸、颜色、动效集中在 `FlooDesignTokens`(仿 Matrix HQ 的 `MatrixDesignTokens`:先按家族——状态、颜色角色、间距、控件、圆角、描边、阴影、动效——再按组件),iOS 和 Mac 共用一份:颜色用 UIKit 的语义色,字用文字样式,只在指针和手指确实不同的地方分开。文档内容自己的字体和行距仍在 `DocTypography`。Mac 版是 Mac 的界面(Optimize for Mac,不按 iPad 缩小画),Mac 的文字样式比手机小(正文 13 点),所以正文放大 1.16 倍、标题 1.24 倍(代码、表格、说明跟正文),和 Craft 在 Mac 上的字一样大(从同一段文字的截图量出)。
+界面上的尺寸、颜色、动效集中在 `FlooDesignTokens`(仿 Matrix HQ 的 `MatrixDesignTokens`:先按家族——状态、颜色角色、间距、控件、圆角、描边、阴影、动效——再按组件),iOS 和 Mac 共用一份:颜色用 UIKit 的语义色,字用文字样式,只在指针和手指确实不同的地方分开。文档内容自己的字体和行距仍在 `DocTypography`。Mac 版是 Mac 的界面(Optimize for Mac,不按 iPad 缩小画),Mac 的文字样式比手机小(正文 13 点),所以正文放大 1.16 倍、标题 1.24 倍(代码、表格、说明跟正文),和 Craft 在 Mac 上的字一样大(从同一段文字的截图量出)。这个倍数是 MarkdownView 的(`MarkdownTextScale`),聊天里的 Markdown 也一样。
 
 动效只有几种角色:`feedback`(控件的回应,snappy 0.18 秒)、`layout`(东西换尺寸、换位置,以及被它带动的行:无回弹弹簧 0.34 秒)、`scroll`(列表自己滚动:无回弹弹簧 0.5 秒)、出现和消失(easeOut 0.20 / easeIn 0.13 秒)。系统"减弱动态效果"打开时 feedback 和 layout 不动,淡入淡出保留。两个包各自暴露同样的角色:MarkdownView 的 `MarkdownMotion`(feedback、layout、reveal 曲线和时长,`.markdownMotion(_:)`),MessagingUI 的 `TiledMotion`(layout、scroll、feedback、reveal 时长,`.tiledMotion(_:)`);默认值取包原来最常用的值(原先各处零散的 0.15–0.4 秒归到这几个角色上),app 在根上用 `Motion.markdown` 和 `Motion.tiled` 把自己的 token 交给它们。代码里不写动画的数字,只写角色。
 
