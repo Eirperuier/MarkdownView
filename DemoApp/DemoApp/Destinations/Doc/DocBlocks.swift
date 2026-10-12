@@ -848,6 +848,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         return moving.map { block in
             let item = UIDragItem(itemProvider: NSItemProvider())
             item.localObject = block
+            if !Self.usesHandles, !tops.contains(block) {
+                item.previewProvider = { [weak self] in self?.movingPreview(block) }
+            }
             return item
         }
     }
@@ -880,8 +883,20 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         true
     }
 
+    /// A phone lifts the blocks pressed (the tops of the selection), not the items nested
+    /// under them: those join the drag as it moves (movingPreview).
     func dragInteraction(_ interaction: UIDragInteraction, previewForLifting item: UIDragItem, session: UIDragSession) -> UITargetedDragPreview? {
-        (item.localObject as? DocBlockID).flatMap(preview)
+        guard let id = item.localObject as? DocBlockID else { return nil }
+        if !Self.usesHandles, drag?.tops.contains(id) == false { return nil }
+        return preview(id)
+    }
+
+    /// A block's row as it looks lifted, for an item that joins the drag as it moves.
+    private func movingPreview(_ id: DocBlockID) -> UIDragPreview? {
+        guard let lifted = preview(id), let snapshot = lifted.view.snapshotView(afterScreenUpdates: false),
+            let parameters = lifted.parameters as? UIDragPreviewParameters
+        else { return nil }
+        return UIDragPreview(view: snapshot, parameters: parameters)
     }
 
     /// A block's row as the system lifts it and lands it: its content, on the page's
@@ -1395,6 +1410,18 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// How the system would lift a block's row.
     func testLiftPreview(_ id: DocBlockID) -> UITargetedDragPreview? { preview(id) }
 
+    /// The blocks a press on `id` picks up: those lifted, and those showing once it moves.
+    func testPickUp(_ id: DocBlockID) -> (lifted: [DocBlockID], moving: [DocBlockID]) {
+        guard let list, let dragging, let frame = contentFrame(id) else { return ([], []) }
+        let start = CGPoint(x: frame.midX, y: frame.midY)
+        let items = beginDrag(id, at: start)
+        defer { endDrag() }
+        let session = DocTestDragSession(view: list, point: start, items: items)
+        let lifted = items.filter { dragInteraction(dragging, previewForLifting: $0, session: session) != nil }
+        let moving = items.filter { item in lifted.contains(item) || item.previewProvider?() != nil }
+        return (lifted.compactMap { $0.localObject as? DocBlockID }, moving.compactMap { $0.localObject as? DocBlockID })
+    }
+
     /// The phone's swipe on a block, `x` across.
     func testSwipe(_ id: DocBlockID, x: CGFloat) {
         swipeBegan(id)
@@ -1474,17 +1501,25 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// The page's width in the list now.
     var testPageWidth: CGFloat { Self.pageWidth(inWidth: list?.bounds.width ?? 0) }
     var testListWidth: CGFloat? { list?.bounds.width }
+    var testContentOffset: CGPoint { list?.contentOffset ?? .zero }
     /// The list's width set to each of `widths` in turn, each laid out at once (as a
-    /// window being resized): the main thread's time for each, in ms. The list keeps the
-    /// last width.
-    func testResize(through widths: [CGFloat]) -> [Double] {
-        guard let list, let host = list.superview else { return [] }
-        return widths.map { width in
+    /// window being resized): the main thread's time for each, in ms, and how many rows
+    /// came on screen. The list keeps the last width.
+    func testResize(through widths: [CGFloat]) -> (times: [Double], arrived: Int) {
+        guard let list, let host = list.superview else { return ([], 0) }
+        var shown = Set(list.indexPathsForVisibleItems)
+        var arrived = 0
+        let times = widths.map { width in
             let start = CACurrentMediaTime()
             host.frame.size.width = width
             host.layoutIfNeeded()
-            return (CACurrentMediaTime() - start) * 1000
+            let time = (CACurrentMediaTime() - start) * 1000
+            let now = Set(list.indexPathsForVisibleItems)
+            arrived += now.subtracting(shown).count
+            shown = now
+            return time
         }
+        return (times, arrived)
     }
 
     /// The rows on screen whose height isn't their contents' at the row's width.

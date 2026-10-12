@@ -12,6 +12,7 @@ import SwiftUI
 import UIKit
 import DocKit
 import MarkdownView
+import MessagingUI
 
 @MainActor
 final class DocEditTests {
@@ -623,7 +624,7 @@ final class DocEditTests {
         }
         // MARK: Typing speed
 
-        await test("Resizing: each width the list goes through is laid out within a frame") {
+        await test("Resizing: each width the list goes through measures only the rows on screen, in their own cells") {
             let blocks = self.editor.blocks
             blocks.testCenter(try self.block("The trap is timing").id)
             try? await Task.sleep(for: .milliseconds(300))
@@ -631,12 +632,18 @@ final class DocEditTests {
             let widths = (1...30).map { width - CGFloat($0) * 8 }
             defer { _ = blocks.testResize(through: [width]) }
             _ = blocks.testResize(through: widths + [width])
-            let times = blocks.testResize(through: widths)
+            let probe = TiledCellHeightProbe.shared
+            probe.isEnabled = true
+            probe.reset()
+            let (times, arrived) = blocks.testResize(through: widths)
+            let built = probe.snapshot().sizingCellMeasureCount
+            probe.isEnabled = false
             let median = times.sorted()[times.count / 2]
-            print("DOCPERF resize step (ms): median \(String(format: "%.1f", median)) max \(String(format: "%.1f", times.max() ?? 0))")
-            // Only the rows on screen are measured at each width (in their own cells), well
-            // within a frame; measuring rows off screen too took a whole one.
-            try self.expect(median < 8, "a resize step takes \(median) ms")
+            print("DOCPERF resize step (ms): median \(String(format: "%.1f", median)) max \(String(format: "%.1f", times.max() ?? 0)), \(built) built, \(arrived) arrived")
+            // Only the rows on screen are measured at each width, in their own cells: a row is
+            // built to be measured only as it comes on screen, not every row at every width
+            // (that, and measuring rows off screen, took a frame).
+            try self.expect(built < widths.count, "\(built) rows built to measure them in \(widths.count) widths, \(arrived) came on screen")
             // Once the width rests, the rest converge: rows anywhere show their contents' height.
             try? await Task.sleep(for: .seconds(1))
             for row in [self.demo.rows.first, self.demo.rows.last] {
@@ -1597,7 +1604,7 @@ final class DocEditTests {
             let renderer = ImageRenderer(content: DocMediaView(kind: block.kind).frame(width: DocMediaLayout.cardWidth(in: blocks.testPageWidth), alignment: .topLeading))
             renderer.scale = 1
             let image = try self.expectValue(renderer.cgImage, "not drawn")
-            let data = try self.expectValue(image.dataProvider?.data.flatMap(CFDataGetBytePtr), "no pixels")
+            let data = try self.expectValue(image.dataProvider?.data.flatMap(CFDataGetBytePtr), "no pixels: \(image.width)x\(image.height) bpp \(image.bitsPerPixel) provider \(image.dataProvider != nil) data \(image.dataProvider?.data.map(CFDataGetLength) ?? -1)")
             let (perRow, step) = (image.bytesPerRow, image.bitsPerPixel / 8)
             // The text between the preview (104 tall) and the footer: white and greys only.
             var coloured = 0, all = 0
@@ -1708,7 +1715,7 @@ final class DocEditTests {
             try self.expect(opened.count == 1 && file.isFileURL, "opened \(opened)")
             try self.expect((try? Data(contentsOf: file)).flatMap(UIImage.init(data:)) != nil, "no picture at \(file)")
         }
-        await test("a list item is selected alone; dragged, its nested items go with it, each lifted from its row") {
+        await test("a list item is selected alone; dragged, its nested items go with it (a phone lifts the item alone)") {
             let nested = try self.block("嵌套列表的缩进")
             let group = blocks.groups([nested.id])[0]
             try self.expect(group.count == 3, "group of \(group.count)")
@@ -1719,6 +1726,10 @@ final class DocEditTests {
             if let highlight = blocks.testHighlightFrames.first, let row = blocks.testContentFrame(nested.id), let child = blocks.testContentFrame(group[1]) {
                 try self.expect(highlight.maxY < child.midY && highlight.minY < row.midY, "the highlight \(highlight) covers the nested item \(child)")
             }
+            // A phone's long press lifts the item alone; its nested items show once it moves.
+            let pickUp = blocks.testPickUp(nested.id)
+            try self.expect(pickUp.lifted == (DocBlockController.usesHandles ? group : [nested.id]) && pickUp.moving == group,
+                            "lifted \(pickUp.lifted.count), moving \(pickUp.moving.count) of \(group.count)")
             let preview = try self.expectValue(blocks.testLiftPreview(nested.id), "no lift preview")
             let clear = preview.parameters.backgroundColor.cgColor.alpha == 0
             try self.expect(clear == DocBlockController.usesHandles, DocBlockController.usesHandles ? "the Mac's preview has a background" : "the phone's preview has no background")
@@ -1993,6 +2004,7 @@ final class DocEditTests {
             try? await Task.sleep(for: .milliseconds(20))
         }
         let stays = try expectValue(blocks.testShownRowFrame(still), "no row that stays")
+        let startOffset = blocks.testContentOffset.y
         func sample() throws -> (box: CGRect, opacity: Float, next: CGFloat?, still: CGRect?) {
             let box = try expectValue(blocks.testShownBox(id), "no box drawn")
             return (box.frame, box.opacity, blocks.testShownRowFrame(next)?.minY, blocks.testShownRowFrame(still))
@@ -2000,11 +2012,11 @@ final class DocEditTests {
         let start = try sample()
         let began = CACurrentMediaTime()
         change()
-        var samples: [(time: Double, box: CGRect, opacity: Float, next: CGFloat?, still: CGRect?)] = []
+        var samples: [(time: Double, box: CGRect, opacity: Float, next: CGFloat?, still: CGRect?, offset: CGFloat)] = []
         while CACurrentMediaTime() - began < 0.7 {
             try? await Task.sleep(for: .milliseconds(8))
             let shown = try sample()
-            samples.append((CACurrentMediaTime() - began, shown.box, shown.opacity, shown.next, shown.still))
+            samples.append((CACurrentMediaTime() - began, shown.box, shown.opacity, shown.next, shown.still, blocks.testContentOffset.y))
         }
         let end = try expectValue(samples.last, "no samples")
         let trace = samples.map {
@@ -2023,16 +2035,19 @@ final class DocEditTests {
         try expect(partway.count >= 3, "only \(partway.count) frames partway: \(trace)")
         // The row after it: toward its place, never back, at rest there.
         let place = try expectValue(blocks.testRowFrame(next), "no next row")
-        let shown = samples.compactMap(\.next)
+        // On screen: rows measured above it meanwhile move the content, not what shows.
+        let shown = samples.compactMap { sample in sample.next.map { $0 - sample.offset } }
         let steps = zip(shown, shown.dropFirst()).map { $1 - $0 }
-        let direction: CGFloat = place.minY >= (start.next ?? shown.first ?? place.minY) ? 1 : -1
+        let target = place.minY - end.offset
+        let direction: CGFloat = target >= (start.next.map { $0 - startOffset } ?? shown.first ?? target) ? 1 : -1
         try expect(steps.allSatisfy { $0 * direction >= -1 }, "the next row went back: \(trace)")
         if let rest = end.next { try expect(abs(rest - place.minY) < 0.5, "next row rests at \(rest), its place is \(place.minY)") }
         // At rest where the layout puts its box; the row that stays never moved.
         let content = try expectValue(blocks.testContentFrame(id), "no frame")
         try expect(abs(end.box.minX - content.minX) < 1 && abs(end.box.minY - content.minY) < 1, "box rests at \(end.box), its place is \(content)")
-        try expect(samples.allSatisfy { $0.still.map { abs($0.minY - stays.minY) < 0.5 && abs($0.minX - stays.minX) < 0.5 } ?? true },
-                   "the row that stays moved")
+        try expect(samples.allSatisfy { sample in
+            sample.still.map { abs($0.minY - sample.offset - (stays.minY - startOffset)) < 0.5 && abs($0.minX - stays.minX) < 0.5 } ?? true
+        }, "the row that stays moved on screen")
     }
 
     // MARK: Helpers
