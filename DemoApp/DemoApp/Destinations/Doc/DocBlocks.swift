@@ -1260,8 +1260,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     /// Deletes the selected blocks with the items nested under them (a table's database
     /// with it). The cursor goes to the end of the text before them.
-    func deleteSelection() {
-        let ids = Set(groups(selected).flatMap { $0 })
+    func deleteSelection() { delete(selected) }
+
+    /// Deletes these blocks with the items nested under them; the caret goes to the end
+    /// of the text before them (when not selecting).
+    func delete(_ tops: [DocBlockID]) {
+        let ids = Set(groups(tops).flatMap { $0 })
         let blocks = demo.doc.blocks
         guard !ids.isEmpty else { return }
         var steps: [DocStep] = []
@@ -1349,10 +1353,17 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// last of them, in order; a table's copy gets a database of its own. The copies of
     /// the selected ones become the selection.
     func duplicateSelection() {
-        let chosen = Set(selected)
-        let ids = Set(groups(selected).flatMap { $0 })
+        setSelection(duplicate(selected))
+    }
+
+    /// Copies of these blocks (with the items nested under them) after the last of them.
+    /// - Returns: the copies of `tops`.
+    @discardableResult
+    func duplicate(_ tops: [DocBlockID]) -> [DocBlockID] {
+        let chosen = Set(tops)
+        let ids = Set(groups(tops).flatMap { $0 })
         let originals = demo.doc.blocks.filter { ids.contains($0.id) }
-        guard let last = originals.last else { return }
+        guard let last = originals.last else { return [] }
         var steps: [DocStep] = []
         var copies: [DocBlockID] = []
         var after = last.id
@@ -1368,14 +1379,15 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             after = copy.id
             if chosen.contains(original.id) { copies.append(copy.id) }
         }
-        guard demo.edit(steps, before: editor.selection, after: editor.selection) != nil else { return }
-        setSelection(copies)
+        guard demo.edit(steps, before: editor.selection, after: editor.selection) != nil else { return [] }
+        return copies
     }
 
-    /// The selected blocks (with the items nested under them) as markdown, on the
-    /// pasteboard.
-    func copySelection() {
-        let ids = Set(groups(selected).flatMap { $0 })
+    func copySelection() { copy(selected) }
+
+    /// These blocks (with the items nested under them) as markdown, on the pasteboard.
+    func copy(_ tops: [DocBlockID]) {
+        let ids = Set(groups(tops).flatMap { $0 })
         let blocks = demo.doc.blocks.filter { ids.contains($0.id) }
         guard !blocks.isEmpty else { return }
         UIPasteboard.general.string = Doc(id: demo.doc.id, blocks: blocks, databases: demo.doc.databases).markdown

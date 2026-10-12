@@ -8,7 +8,7 @@
 //  - Text selected: highlight, bold, italic, strikethrough, code, link and the keyboard
 //    key, spread evenly; a mark all of the selection has sits on a light tint. The
 //    highlight key opens the colours over it (text colours, highlights).
-//  - A cursor: the slash (the slash menu, as "/" typed), Aa (the caret's block selected,
+//  - A cursor: the slash (the command menu, as "/" typed opens it, nothing typed), Aa (the caret's block selected,
 //    the format sheet over it) and ⋮ (the caret's block selected) on the left, editing
 //    going on at the caret once the sheet closes or selecting ends; the keyboard key on
 //    the right. On an empty line a divider key comes in between.
@@ -123,8 +123,8 @@ final class DocKeyboardBar: UIInputView {
             add(dismissKey())
         case .cursor(_, _, _, let isEmpty):
             keys.distribution = .fill
-            add(key("slash", Self.slashGlyph, String(localized: "Insert")) { [weak self] in
-                self?.editor?.typeSlash()
+            add(key("slash", Self.slashGlyph, String(localized: "Commands")) { [weak self] in
+                self?.editor?.openCommands()
             })
             add(key("format", Self.formatGlyph, String(localized: "Format")) { [weak self] in
                 self?.editor?.blocks.formatCaretBlock()
@@ -291,7 +291,7 @@ final class DocKeyboardBar: UIInputView {
 extension DocEditor {
     /// The bar's insert: an empty line becomes the block; otherwise a new block goes
     /// after this one, the cursor in it.
-    func insert(_ action: DocSlashItem.Action, at block: DocBlock) {
+    func insert(_ action: DocCommand.Action, at block: DocBlock) {
         guard case .kind(let kind) = action, !block.text.isEmpty else {
             let head = selection?.head ?? DocPosition(block: block.id, offset: block.text.length)
             return perform(action, in: block, replacing: head.offset..<head.offset, from: head)

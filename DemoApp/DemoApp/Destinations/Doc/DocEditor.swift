@@ -64,7 +64,10 @@ final class DocEditor {
     lazy var keyboardBar = DocKeyboardBar(editor: self)
     /// Blocks as wholes: the handle, selecting blocks, moving them.
     lazy var blocks = DocBlockController(demo: demo, editor: self)
+    /// Where the command menu opened, and whether a "/" was typed there (the keyboard
+    /// bar's key opens it without one).
     var slashOrigin: DocPosition?
+    var slashIsTyped = true
     /// The next render of the selection's block should also take keyboard focus.
     private var wantsFocus = false
     /// The text view last focused for typing. If it leaves the window while focused
@@ -525,7 +528,7 @@ final class DocEditor {
             let old = rendered[ObjectIdentifier(textView)], let start = Self.textStart(of: old, block: block)
         else { return }
         let storage = Array((textView.text ?? "").utf16)
-        let from = start + origin.offset + 1
+        let from = start + origin.offset + (slashIsTyped ? 1 : 0)
         let caret = textView.selectedRange.location
         guard from <= caret, caret <= storage.count else { return }
         slashComposing(String(decoding: storage[from..<caret], as: UTF16.self))
@@ -883,17 +886,6 @@ final class DocEditor {
     /// The keyboard bar's keyboard key: the text being edited lets the focus go.
     func dismissKeyboard() {
         for view in allViews where view.isFirstResponder { view.resignFirstResponder() }
-    }
-
-    /// The keyboard bar's slash key: a "/" typed, and the slash menu open even where a
-    /// typed one wouldn't open it (after a word).
-    func typeSlash() {
-        guard let selection, let view = textView(for: selection.head.block) else { return }
-        let origin = DocPosition(block: selection.head.block, offset: min(selection.anchor.offset, selection.head.offset))
-        replace(view.selectedRange, with: "/", in: view, block: origin.block)
-        guard slashOrigin == nil, demo.doc.block(origin.block).map({ $0.text.string.utf16.dropFirst(origin.offset).first == 0x2F }) == true else { return }
-        slashOrigin = origin
-        updateSlash()
     }
 
     /// What presents a sheet over the document (the system colour picker).

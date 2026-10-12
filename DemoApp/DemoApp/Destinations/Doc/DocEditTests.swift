@@ -544,7 +544,7 @@ final class DocEditTests {
         await test("Slash menu: “/h2” and Return makes a heading 2") {
             let line = try await emptyLine()
             try await self.type("/")
-            try self.expect(self.editor.slash.isOpen && self.editor.slash.items.count == DocSlashItem.all.count, "menu open \(self.editor.slash.isOpen) items \(self.editor.slash.items.count)")
+            try self.expect(self.editor.slash.isOpen && self.editor.slash.items.count == DocCommand.all.count, "menu open \(self.editor.slash.isOpen) items \(self.editor.slash.items.count)")
             try await self.type("h2")
             try self.expect(self.editor.slash.highlightedItem?.id == "h2", "highlighted \(String(describing: self.editor.slash.highlightedItem?.id))")
             try self.expect(self.editor.slash.anchor.height > 0, "no anchor")
@@ -556,13 +556,17 @@ final class DocEditTests {
             try await self.type("T")
             try self.expect(self.text(line.id) == "T", "typed \(self.text(line.id).debugDescription)")
         }
-        await test("Slash menu: ↓↓ then Return picks the third item; one undo takes it back") {
+        await test("Slash menu: ↓↓ then Return opens the third group in its place, Return picks its first; one undo takes it back") {
             let line = try await emptyLine()
             try await self.type("/")
             for _ in 0..<2 { UIApplication.shared.sendAction(Selector(("docSlashDown:")), to: nil, from: nil, for: nil) }
             try self.expect(self.editor.slash.highlighted == 2, "highlighted \(self.editor.slash.highlighted)")
             try await self.enter()
-            try self.expect(self.demo.doc.block(line.id)?.kind == DocSlashItem.all[2].action.kind, "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
+            let group = DocCommand.all[2]
+            try self.expect(self.editor.slash.isOpen && self.editor.slash.group?.id == group.id && self.editor.slash.items == group.children,
+                            "group \(String(describing: self.editor.slash.group?.id)) items \(self.editor.slash.items.map(\.id))")
+            try await self.enter()
+            try self.expect(self.demo.doc.block(line.id)?.kind == group.children[0].action?.kind, "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
             try await self.undo()
             try self.expect(self.demo.doc.block(line.id)?.kind == .paragraph && self.text(line.id) == "/", "undo: \(String(describing: self.demo.doc.block(line.id)?.kind)) \(self.text(line.id).debugDescription)")
         }
@@ -1165,7 +1169,7 @@ final class DocEditTests {
             bar.testTap("highlight")
             try self.expect(!bar.showsColors, "the colours stay")
         }
-        await test("the keyboard bar's slash types a slash and opens the menu; Aa and ⋮ select the caret's block (Aa under the format sheet), and back") {
+        await test("the keyboard bar's command key opens the menu, nothing typed; Aa and ⋮ select the caret's block (Aa under the format sheet), and back") {
             let block = try self.block("Loading older")
             try await self.focus(block.id, at: block.text.length)
             try self.expect(bar.testItems.map(\.id) == ["slash", "format", "more", "dismiss"], "keys \(bar.testItems.map(\.id))")
@@ -1195,9 +1199,25 @@ final class DocEditTests {
                 try self.expect(self.editor.selection?.head == DocPosition(block: block.id, offset: 4), "caret after ⋮ \(String(describing: self.editor.selection))")
                 try await self.focus(block.id, at: block.text.length)
             }
+            // The command key opens the menu, nothing typed; Color › Blue colours the
+            // block's text, Delete Block deletes it.
+            let text = self.text(block.id)
             bar.testTap("slash")
             try await self.settle()
-            try self.expect(self.text(block.id).hasSuffix("/") && self.editor.slash.isOpen, "text \(self.text(block.id).debugDescription) open \(self.editor.slash.isOpen)")
+            try self.expect(self.text(block.id) == text && self.editor.slash.isOpen, "text \(self.text(block.id).debugDescription) open \(self.editor.slash.isOpen)")
+            let color = try self.expectValue(DocCommand.all.first { $0.id == "color" }, "no Color")
+            self.editor.slash.choose(color)
+            try self.expect(self.editor.slash.group?.id == "color", "Color didn't open")
+            self.editor.slash.choose(try self.expectValue(color.children.first { $0.swatch == "blue" }, "no blue"))
+            try await self.settle()
+            try self.expect(!self.editor.slash.isOpen && DocFormatting(editor: self.editor, caretTakesBlock: true).color == .color("blue"), "not blue")
+            try await self.undo()
+            bar.testTap("slash")
+            self.editor.slash.choose(try self.expectValue(DocCommand.all.first { $0.id == "delete" }, "no Delete Block"))
+            try await self.settle()
+            try self.expect(self.demo.doc.block(block.id) == nil, "not deleted")
+            try await self.undo()
+            try self.expect(self.text(block.id) == text, "undo: \(self.text(block.id).debugDescription)")
         }
         if !DocBlockController.usesHandles {
             await test("the keyboard comes and goes without the page jumping; its key hides it") {
