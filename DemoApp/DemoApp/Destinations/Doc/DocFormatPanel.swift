@@ -67,7 +67,7 @@ struct DocFormatPanel: View {
                             choice(isOn: editor.blocks.selectedLayouts == [layout], help: layout.title) {
                                 editor.blocks.setLayout(layout)
                             } label: {
-                                DocLayoutIllustration(layout: layout)
+                                FlooDesignMediaStyleGlyph(layout.style)
                                     .frame(maxWidth: .infinity, minHeight: Metrics.tallTile)
                             }
                         }
@@ -145,23 +145,17 @@ struct DocFormatPanel: View {
         }
     }
 
-    /// Any colour: Craft's rainbow ring, the colour inside it once one is picked. The
-    /// system's picker lies over it, clear, and takes the click.
+    /// Any colour: Craft's rainbow ring, the colour inside it once one is picked
+    /// (FlooDesign's colour well, the system's picker).
     private func custom(_ current: Mark?, ranges: [(block: DocBlockID, range: Range<Int>)]) -> some View {
         let picked: String? = if case .color(let token)? = current, token.hasPrefix("#") { token } else { nil }
-        return ZStack {
-            FlooDesignRainbowSwatch(Circle(), rainbow: DocColors.rainbow, picked: picked.map(DocColors.swatch) ?? Tokens.ColorRole.Surface.canvas)
-            ColorPicker("Other Color", selection: Binding {
-                picked.map(DocColors.swatch) ?? .primary
-            } set: { color in
-                editor.set(.color, to: .color(DocColors.hex(color)), over: ranges, merge: editor.colorMergeKey(over: ranges))
-            }, supportsOpacity: false)
-            .labelsHidden()
-            .opacity(0.02)
-        }
+        return FlooDesignColorWell(Circle(), title: String(localized: "Other Color"), picked: picked.map(DocColors.swatch) ?? Tokens.ColorRole.Surface.canvas,
+                                   selection: Binding {
+            picked.map(DocColors.swatch) ?? .primary
+        } set: { color in
+            editor.set(.color, to: .color(DocColors.hex(color)), over: ranges, merge: editor.colorMergeKey(over: ranges))
+        })
         .frame(width: Metrics.swatch, height: Metrics.swatch)
-        .clipShape(Circle())
-        .help("Other Color")
         .accessibilityIdentifier("color-custom")
     }
 

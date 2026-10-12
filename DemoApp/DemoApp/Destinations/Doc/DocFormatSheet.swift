@@ -130,7 +130,7 @@ struct DocFormatSheet: View {
                 .disabled(formatting.decorated.isEmpty)
                 .frame(maxWidth: .infinity)
                 Button { go(.colors) } label: {
-                    FlooDesignRainbowSwatch(Circle(), rainbow: DocColors.rainbow,
+                    FlooDesignRainbowSwatch(Circle(),
                                             picked: formatting.color.flatMap(Self.token).map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
                         .frame(width: Metrics.colorRing, height: Metrics.colorRing)
                         .frame(width: Metrics.row + Tokens.Space.md, height: Metrics.row)
@@ -184,10 +184,10 @@ struct DocFormatSheet: View {
     /// A style's name in its own type (Craft's: titles bigger and bolder, the caption smaller and quieter).
     private func styleLabel(_ style: (key: String, title: String, size: CGFloat, weight: Font.Weight, kind: BlockKind), large: Bool = false) -> some View {
         let size: CGFloat = switch style.kind {
-        case .heading(level: 1): large ? 21 : 17
-        case .heading(level: 2): large ? 19 : 17
-        case .caption: 15
-        default: 17
+        case .heading(level: 1): large ? Metrics.titleLabelLarge : Metrics.styleLabel
+        case .heading(level: 2): large ? Metrics.headingLabelLarge : Metrics.styleLabel
+        case .caption: Metrics.captionLabel
+        default: Metrics.styleLabel
         }
         return Text(style.title)
             .font(.system(size: size, weight: style.weight))
@@ -219,7 +219,7 @@ struct DocFormatSheet: View {
                     formatting.pickColor(color)
                 }
             } label: {
-                FlooDesignRainbowSwatch(RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous), rainbow: DocColors.rainbow,
+                FlooDesignRainbowSwatch(RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous),
                                         picked: picked.map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
                     .frame(height: Metrics.swatchHeight)
             }
@@ -358,12 +358,7 @@ struct DocColorsPopover: View {
             }
         }
         .padding(Popover.inset)
-        .background(Tokens.Material.floating, in: .rect(cornerRadius: Popover.cornerRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: Popover.cornerRadius, style: .continuous)
-                .strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.hairline)
-        }
-        .shadow(color: Tokens.Elevation.high.color, radius: Tokens.Elevation.high.radius, y: Tokens.Elevation.high.y)
+        .flooDesignGlass(.regular, in: RoundedRectangle(cornerRadius: Popover.cornerRadius, style: .continuous))
     }
 
     private func swatch(_ shape: some InsettableShape, fill: Color, title: String, isOn: Bool, identifier: String, action: @escaping () -> Void) -> some View {
@@ -383,7 +378,7 @@ struct DocColorsPopover: View {
             onClose()
             DocColorPicking.present(from: editor, initial: .primary, picked: picked)
         } label: {
-            FlooDesignRainbowSwatch(shape, rainbow: DocColors.rainbow, picked: nil)
+            FlooDesignRainbowSwatch(shape, picked: nil)
                 .frame(width: Popover.swatch, height: Popover.swatch)
         }
         .buttonStyle(FlooDesignPlainButtonStyle(in: shape))

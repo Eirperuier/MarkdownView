@@ -663,7 +663,7 @@ struct DocTableCellField: UIViewRepresentable {
         view.isHeader = isHeader
         view.isEditable = controller.isEditable
         view.font = isHeader ? DocTableCellField.headerFont : DocTableCellField.bodyFont
-        view.textColor = .label
+        view.textColor = FlooDesignTokens.UIKitColor.primary
         // The model is the truth; while typing it already equals the view.
         if view.text != text, view.markedTextRange == nil {
             let editing = view.isFirstResponder
@@ -699,6 +699,9 @@ struct DocTableCellField: UIViewRepresentable {
 
 /// The edited cell: its text view, Craft's blue frame around the cell, its ⋯.
 struct DocTableCellEditor: View {
+    /// How far the editing ring goes out over the cell's padding.
+    private static let ringOutset = CGSize(width: 6, height: 9)
+
     let key: DocCellKey
     let text: String
     let isHeader: Bool
@@ -711,8 +714,8 @@ struct DocTableCellEditor: View {
                 // Out over the cell's padding (MarkdownView's: 8 across, 13 down).
                 RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.sm, style: .continuous)
                     .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
-                    .padding(.horizontal, -6)
-                    .padding(.vertical, -9)
+                    .padding(.horizontal, -Self.ringOutset.width)
+                    .padding(.vertical, -Self.ringOutset.height)
                     .allowsHitTesting(false)
             }
             .overlay(alignment: .trailing) {
@@ -734,6 +737,8 @@ struct DocTableCellEditor: View {
 /// The table: MarkdownView renders it; clicks on cells edit them; the + strips add a
 /// row and a column.
 struct DocTableRowView: View {
+    private typealias Adder = FlooDesignTokens.Component.TableAdder
+
     let table: DocTableSnapshot
     let tree: MarkdownTree
     let controller: DocTableController
@@ -744,8 +749,8 @@ struct DocTableRowView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 4) {
-            VStack(spacing: 2) {
+        HStack(alignment: .top, spacing: Adder.gap) {
+            VStack(spacing: FlooDesignTokens.Space.xxs) {
                 MarkdownBlockView(tree: tree)
                     .markdownDisplayMathRendersSynchronously()
                     .markdownTableCellsSelectable()
@@ -753,11 +758,11 @@ struct DocTableRowView: View {
                     .markdownTableCellReplacement { [table, controller] position in controller.replacement(in: table, at: position) }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 DocTableAdder(systemImage: "plus", label: String(localized: "Add Row"), isVisible: showsAdders) { controller.appendRow(table.block) }
-                    .frame(height: 16)
+                    .frame(height: Adder.thickness)
             }
             DocTableAdder(systemImage: "plus", label: String(localized: "Add Column"), isVisible: showsAdders) { controller.appendColumn(table.block) }
-                .frame(width: 16)
-                .padding(.bottom, 18)
+                .frame(width: Adder.thickness)
+                .padding(.bottom, Adder.bottomInset)
         }
         .onHover { hovering = $0 }
     }
@@ -809,9 +814,9 @@ struct DocTableAdder: View {
                 .font(.system(size: FlooDesignTokens.Icon.inline, weight: .bold))
                 .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(FlooDesignTokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs, style: .continuous))
+                .background(FlooDesignTokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: FlooDesignTokens.Component.TableAdder.cornerRadius, style: .continuous))
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs, style: .continuous)))
+        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Component.TableAdder.cornerRadius, style: .continuous)))
         .accessibilityLabel(label)
         .opacity(isVisible ? 1 : 0)
         .allowsHitTesting(isVisible)

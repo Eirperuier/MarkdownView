@@ -128,10 +128,7 @@ struct DocSelectionToolbar: View {
         }
         .padding(.horizontal, Metrics.horizontalInset)
         .frame(height: Metrics.height)
-        .background(Capsule().fill(Tokens.ColorRole.Surface.canvas))
-        .overlay(Capsule().strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.hairline))
-        .compositingGroup()
-        .shadow(color: Metrics.shadow.color, radius: Metrics.shadow.radius, y: Metrics.shadow.y)
+        .flooDesignToolbarSurface()
         .animation(Tokens.Motion.feedback, value: model.mode)
     }
 
@@ -253,7 +250,7 @@ struct DocSelectionToolbar: View {
         Button(action: action) {
             Group {
                 if rainbow {
-                    FlooDesignRainbowSwatch(shape, rainbow: DocColors.rainbow, picked: isOn ? fill : nil)
+                    FlooDesignRainbowSwatch(shape, picked: isOn ? fill : nil)
                 } else {
                     FlooDesignSwatch(shape, fill: fill, isOn: isOn)
                 }
@@ -266,20 +263,16 @@ struct DocSelectionToolbar: View {
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
-    /// Any text colour: the system's picker, clear over the rainbow circle, takes the click.
+    /// Any text colour: FlooDesign's colour well (the system's picker).
     private func customTextColor(_ current: Mark?) -> some View {
         let picked: String? = if case .color(let token)? = current, token.hasPrefix("#") { token } else { nil }
-        return swatch(Self.circle, fill: picked.map(DocColors.swatch) ?? .clear, title: String(localized: "Other Text Color"), isOn: picked != nil,
-                      rainbow: true) {}
-            .overlay {
-                ColorPicker("Other Text Color", selection: Binding {
-                    picked.map(DocColors.swatch) ?? .primary
-                } set: { color in
-                    editor.set(.color, to: .color(DocColors.hex(color)), over: model.ranges, merge: editor.colorMergeKey(over: model.ranges))
-                }, supportsOpacity: false)
-                .labelsHidden()
-                .opacity(0.02)
-            }
+        return FlooDesignColorWell(Self.circle, title: String(localized: "Other Text Color"), picked: picked.map(DocColors.swatch),
+                                   selection: Binding {
+            picked.map(DocColors.swatch) ?? .primary
+        } set: { color in
+            editor.set(.color, to: .color(DocColors.hex(color)), over: model.ranges, merge: editor.colorMergeKey(over: model.ranges))
+        })
+        .frame(width: Metrics.swatch, height: Metrics.swatch)
     }
 
     // MARK: Any highlight
@@ -324,11 +317,11 @@ private struct DocHueSlider: View {
             let knob = Metrics.hueKnob
             let travel = max(1, geometry.size.width - knob)
             ZStack(alignment: .leading) {
-                Capsule().fill(DocColors.hues).frame(height: Metrics.hueTrackHeight)
+                Capsule().fill(FlooDesignTokens.ColorRole.Spectrum.hues).frame(height: Metrics.hueTrackHeight)
                 Circle()
                     .fill(Tokens.ColorRole.Content.onAccent)
                     .overlay(Circle().strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.hairline))
-                    .shadow(color: Tokens.Elevation.low.color, radius: Tokens.Space.xxs, y: 1)
+                    .shadow(color: Tokens.Elevation.knob.color, radius: Tokens.Elevation.knob.radius, y: Tokens.Elevation.knob.y)
                     .frame(width: knob, height: knob)
                     .offset(x: CGFloat(hue) * travel)
             }

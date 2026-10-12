@@ -48,9 +48,9 @@ final class DocKeyboardBar: UIView {
     init(editor: DocEditor) {
         self.editor = editor
         super.init(frame: CGRect(x: 0, y: 0, width: 390, height: Self.height))
-        backgroundColor = .systemBackground
+        backgroundColor = FlooDesignTokens.UIKitColor.canvas
         let hairline = UIView()
-        hairline.backgroundColor = .separator
+        hairline.backgroundColor = FlooDesignTokens.UIKitColor.separator
         keys.axis = .horizontal
         keys.alignment = .center
         for view in [hairline, keys] as [UIView] {
@@ -289,7 +289,7 @@ final class DocKeyboardBarStage: UIView {
     init(bar: DocKeyboardBar) {
         self.bar = bar
         super.init(frame: .zero)
-        under.backgroundColor = .systemBackground
+        under.backgroundColor = FlooDesignTokens.UIKitColor.canvas
         addSubview(under)
         addSubview(bar)
     }

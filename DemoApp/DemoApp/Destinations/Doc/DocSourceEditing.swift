@@ -308,7 +308,7 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     private func apply(_ runs: [(NSRange, UIColor)]) {
         let storage = textStorage
         storage.beginEditing()
-        storage.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: storage.length))
+        storage.addAttribute(.foregroundColor, value: FlooDesignTokens.UIKitColor.primary, range: NSRange(location: 0, length: storage.length))
         for (range, color) in runs where NSMaxRange(range) <= storage.length {
             storage.addAttribute(.foregroundColor, value: color, range: range)
         }
@@ -441,7 +441,7 @@ struct DocSourceField: UIViewRepresentable {
     var lineGap: CGFloat?
 
     private var attributes: [NSAttributedString.Key: Any] {
-        var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.label]
+        var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: FlooDesignTokens.UIKitColor.primary]
         if let lineGap {
             let style = NSMutableParagraphStyle()
             // Between the lines a long line wraps into, as MarkdownView spaces them.
@@ -585,7 +585,7 @@ final class DocStripeView: UIView {
     }
 
     override func draw(_ rect: CGRect) {
-        let tertiary = UIColor.tertiaryLabel.resolvedColor(with: traitCollection)
+        let tertiary = FlooDesignTokens.UIKitColor.tertiary.resolvedColor(with: traitCollection)
         var alpha: CGFloat = 0
         tertiary.getRed(nil, green: nil, blue: nil, alpha: &alpha)
         tertiary.withAlphaComponent(alpha * 0.1).setFill()
@@ -617,31 +617,22 @@ struct DocRowHeightReporter: ViewModifier {
 
 /// While a code block is edited, its language: a menu over the header's copy button's left.
 struct DocCodeLanguageMenu: View {
+    /// From the header's right edge to the left of its copy button (MarkdownView's).
+    private static let copyButtonClearance: CGFloat = 84
+
     let block: DocBlockID
     let language: String?
     let controller: DocSourceController
 
     var body: some View {
-        Menu {
+        FlooDesignMenuButton(language ?? String(localized: "Language")) {
             Button("None") { controller.setLanguage(nil, of: block) }
             ForEach(DocSourceController.languages, id: \.self) { name in
                 Button(name) { controller.setLanguage(name, of: block) }
             }
-        } label: {
-            HStack(spacing: FlooDesignTokens.Space.xxs) {
-                Text(language ?? String(localized: "Language"))
-                Image(systemName: "chevron.up.chevron.down")
-            }
-            .font(FlooDesignTokens.Typography.metadata.font)
-            .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-            .padding(.horizontal, FlooDesignTokens.Space.sm)
-            .padding(.vertical, FlooDesignTokens.Space.xs)
-            .background(FlooDesignTokens.Material.floating, in: Capsule())
         }
-        .menuStyle(.button)
-        .buttonStyle(FlooDesignPlainButtonStyle(in: Capsule()))
         .padding(.top, FlooDesignTokens.Space.sm - 2)
-        .padding(.trailing, 84)
+        .padding(.trailing, Self.copyButtonClearance)
     }
 }
 
@@ -658,9 +649,9 @@ struct DocMathRowView: View {
         Group {
             if isEmpty {
                 Text("Empty formula. Enter LaTeX.")
-                    .font(.callout)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, minHeight: 36)
+                    .font(FlooDesignTokens.Typography.body.font)
+                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                    .frame(maxWidth: .infinity, minHeight: FlooDesignTokens.Control.standardHeight)
             } else {
                 MarkdownBlockView(tree: tree)
                     .markdownDisplayMathRendersSynchronously()

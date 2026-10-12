@@ -34,8 +34,8 @@ struct DocDestination: View {
     var body: some View {
         VStack(spacing: 0) {
             bar
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .padding(.horizontal)
+                .frame(maxWidth: .infinity, minHeight: FlooDesignTokens.Control.prominentHeight, alignment: .leading)
+                .padding(.horizontal, FlooDesignTokens.Space.lg)
                 .padding(.vertical, FlooDesignTokens.Space.sm)
                 // The Mac's format panel: under the bar at the window's right, open until
                 // its Aa closes it (Craft's).
@@ -242,20 +242,22 @@ struct DocDestination: View {
                 ProgressView()
                     .controlSize(.small)
                 Text("Agent · \(status)")
-                    .font(.subheadline)
+                    .font(FlooDesignTokens.Typography.body.font)
                 Text("Read-only preview")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(FlooDesignTokens.Typography.metadata.font)
+                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
                 Spacer()
                 Button("Stop") { demo.stop() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(FlooDesignButtonStyle(.secondary))
             } else {
                 Button("Undo", systemImage: "arrow.uturn.backward") { editor.requestUndo() }
                     .keyboardShortcut("z", modifiers: .command)
                     .disabled(!demo.canUndo)
+                    .buttonStyle(FlooDesignButtonStyle(.borderless))
                 Button("Redo", systemImage: "arrow.uturn.forward") { editor.requestRedo() }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                     .disabled(!demo.canRedo)
+                    .buttonStyle(FlooDesignButtonStyle(.borderless))
                 Spacer()
                 #if targetEnvironment(macCatalyst)
                 Button("Format", systemImage: "textformat") { editor.panels.showsFormat.toggle() }
@@ -267,8 +269,9 @@ struct DocDestination: View {
                     demo.reset()
                     editor.resetHistory()
                 }
+                .buttonStyle(FlooDesignButtonStyle(.borderless))
                 Button("Agent Demo") { demo.runScript() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(FlooDesignButtonStyle(.primary))
             }
         }
         .labelStyle(.iconOnly)
@@ -447,7 +450,7 @@ private struct DocCaptionType: ViewModifier {
         if isOn {
             content
                 .markdownPlatformTypography(DocTypography.captionFonts)
-                .markdownBaseTextColor(.secondary)
+                .markdownBaseTextColor(FlooDesignTokens.ColorRole.Content.secondary)
         } else {
             content
         }

@@ -37,10 +37,6 @@ enum DocColors {
         Color(hue: hue, saturation: 0.9, brightness: 1)
     }
 
-    /// The hues along a slider's track, and the ring around "any colour".
-    static let hues = LinearGradient(colors: stride(from: 0.0, through: 1.0, by: 1.0 / 6).map { Color(hue: $0, saturation: 0.75, brightness: 1) },
-                                     startPoint: .leading, endPoint: .trailing)
-    static let rainbow = AngularGradient(colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red], center: .center)
 
     /// A colour dot for a menu item.
     static func dot(_ token: String) -> UIImage? {

@@ -45,7 +45,6 @@ extension FlooDesignTokens.Component {
         static let hueTrackWidth: CGFloat = 240
         static let hueTrackHeight: CGFloat = 14
         static let hueKnob: CGFloat = 22
-        static let shadow = Tokens.Elevation.low
         /// How long the selection rests before it comes.
         static let settleDelay: Duration = .milliseconds(220)
     }
@@ -88,7 +87,21 @@ extension FlooDesignTokens.Component {
         static let swatchRadius = Tokens.Radius.lg
         static let swatchSpacing = Tokens.Space.md
         static let swatchColumns = 6
-        static let label = Font.system(size: 17)
+        static let label = Font.system(size: styleLabel)
+        /// A style's name in its own type: a title's and a heading's bigger on the styles page.
+        static let styleLabel: CGFloat = 17
+        static let titleLabelLarge: CGFloat = 21
+        static let headingLabelLarge: CGFloat = 19
+        static let captionLabel: CGFloat = 15
+    }
+
+    /// A table's + strips beside and below it (Craft's).
+    enum TableAdder {
+        static let thickness: CGFloat = 16
+        static let gap = Tokens.Space.xs
+        /// The column's strip stops above the row's.
+        static let bottomInset: CGFloat = 18
+        static let cornerRadius = Tokens.Radius.xs
     }
 
     /// The colours over the phone's highlight key (Craft's): text colours, then highlights.

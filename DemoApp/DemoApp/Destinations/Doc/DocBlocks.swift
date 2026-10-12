@@ -92,15 +92,18 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @ObservationIgnored private weak var reader: TiledViewReader<String>?
     @ObservationIgnored private weak var list: UICollectionView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
-    @ObservationIgnored private lazy var handle = DocBlockHandleView()
+    /// The Mac's handle beside the block under the pointer (FlooDesign's).
+    @ObservationIgnored private lazy var handle: FlooDesignDragHandle = {
+        let handle = FlooDesignDragHandle()
+        handle.addInteraction(UIToolTipInteraction(defaultToolTip: String(localized: "Click to select, drag to move")))
+        handle.isAccessibilityElement = true
+        handle.accessibilityLabel = String(localized: "Block handle")
+        return handle
+    }()
     @ObservationIgnored private lazy var keys = DocBlockKeyView()
-    @ObservationIgnored private lazy var indicator: UIView = {
-        let view = UIView()
-        view.backgroundColor = .tintColor
-        view.layer.cornerRadius = 1
+    @ObservationIgnored private lazy var indicator: FlooDesignDropIndicator = {
+        let view = FlooDesignDropIndicator()
         view.layer.zPosition = 7
-        view.isUserInteractionEnabled = false
-        view.isHidden = true
         return view
     }()
     /// The Mac's selection (a phone's is the selection's overlay).
@@ -338,7 +341,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         let dimmed = drag.map { $0.isMoving ? $0.moving : [] } ?? []
         dimmers = place(runs(of: dimmed), in: dimmers, outset: 6) {
             let view = UIView()
-            view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.65)
+            view.backgroundColor = FlooDesignTokens.UIKitColor.dimmed
             view.layer.zPosition = 6
             return view
         }
@@ -394,7 +397,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             handle.isHidden = true
             return
         }
-        let size = DocBlockHandleView.size
+        let size = FlooDesignDragHandle.size
         // One column for every block, nested or not: the handles line up.
         let left = pageFrame(hovered)?.minX ?? content.minX
         handle.frame = CGRect(x: left - size.width - 6, y: firstLineMidY(hovered, row: content) - size.height / 2,
@@ -946,9 +949,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             frame.intersects(DocScrolling.visible(in: list)), let cell = cells(of: [id]).first
         else { return nil }
         let parameters = UIDragPreviewParameters()
-        parameters.visiblePath = UIBezierPath(roundedRect: list.convert(frame, to: cell), cornerRadius: 8)
-        parameters.backgroundColor = Self.usesHandles ? .clear
-            : .systemBackground.resolvedColor(with: list.traitCollection.modifyingTraits { $0.userInterfaceLevel = .elevated })
+        parameters.visiblePath = UIBezierPath(roundedRect: list.convert(frame, to: cell), cornerRadius: FlooDesignTokens.Component.DragPreview.cornerRadius)
+        parameters.backgroundColor = Self.usesHandles ? .clear : FlooDesignTokens.UIKitColor.elevated(in: list.traitCollection)
         return UITargetedDragPreview(view: cell, parameters: parameters)
     }
 
@@ -1073,13 +1075,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         }
         if let line = gap.line {
             indicator.frame = line
+            indicator.isHidden = false
         } else if let lineY = lineY(gap: gap.index), let content = contentFrame(drag.tops[0]) {
-            indicator.frame = CGRect(x: content.minX - 6, y: lineY - 1, width: content.width + 12, height: 2)
+            indicator.place(across: content, at: lineY)
         } else {
             indicator.isHidden = true
-            return
         }
-        indicator.isHidden = false
     }
 
     /// Over a line of cards or a gallery's that the moving blocks would join, the gap
@@ -1103,7 +1104,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         else { return nil }
         let isAfter = point.x > frame.midX
         let x = (isAfter ? frame.maxX : frame.minX) + (isAfter ? 1 : -1) * DocMediaLayout.gap / 2
-        return (isAfter ? index + 1 : index, CGRect(x: x - 1, y: frame.minY, width: 2, height: frame.height))
+        let thickness = FlooDesignTokens.Component.DropIndicator.thickness
+        return (isAfter ? index + 1 : index, CGRect(x: x - thickness / 2, y: frame.minY, width: thickness, height: frame.height))
     }
 
     /// The gap between blocks (an index into the document's blocks) nearest `y`.
@@ -1656,58 +1658,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     }
 }
 
-/// The six dots beside a block (Craft's): darker, on a soft background, under the pointer.
-final class DocBlockHandleView: UIView {
-    static let size = CGSize(width: 18, height: 24)
-    private let dots = CAShapeLayer()
-    private var isHovered = false
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        layer.cornerRadius = 5
-        layer.cornerCurve = .continuous
-        layer.addSublayer(dots)
-        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:))))
-        addInteraction(UIToolTipInteraction(defaultToolTip: String(localized: "Click to select, drag to move")))
-        isAccessibilityElement = true
-        accessibilityLabel = String(localized: "Block handle")
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    /// Two columns of three dots, centred.
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let diameter: CGFloat = 3, pitch: CGFloat = 5
-        let origin = CGPoint(x: bounds.midX - (pitch + diameter) / 2, y: bounds.midY - (2 * pitch + diameter) / 2)
-        let path = UIBezierPath()
-        for column in 0..<2 {
-            for row in 0..<3 {
-                path.append(UIBezierPath(ovalIn: CGRect(x: origin.x + CGFloat(column) * pitch, y: origin.y + CGFloat(row) * pitch,
-                                                        width: diameter, height: diameter)))
-            }
-        }
-        dots.frame = bounds
-        dots.path = path.cgPath
-        updateColors()
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        updateColors()
-    }
-
-    private func updateColors() {
-        backgroundColor = isHovered ? .quaternarySystemFill : .clear
-        dots.fillColor = (isHovered ? UIColor.secondaryLabel : .tertiaryLabel).resolvedColor(with: traitCollection).cgColor
-    }
-
-    @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
-        isHovered = recognizer.state == .began || recognizer.state == .changed
-        updateColors()
-    }
-}
-
 /// Takes the keys while blocks are selected on the Mac: Delete, Esc, ↑ ↓ (⇧ extends),
 /// Return to edit, ⌘C ⌘X; ⌘Z stays the document's.
 final class DocBlockKeyView: UIView {
@@ -1860,7 +1810,7 @@ struct DocBlockSelectionBar: View {
                         FlooDesignOption(layout.title, isOn: blocks.selectedLayouts == [layout]) {
                             blocks.setLayout(layout)
                         } picture: {
-                            DocLayoutIllustration(layout: layout)
+                            FlooDesignMediaStyleGlyph(layout.style)
                         }
                     }
                 }
@@ -1883,49 +1833,6 @@ extension DocLayout {
         case .regular: String(localized: "Regular")
         case .card: String(localized: "Card")
         }
-    }
-}
-
-/// Craft's little pictures of the layouts: a warm thumbnail and lines of text.
-struct DocLayoutIllustration: View {
-    let layout: DocLayout
-
-    var body: some View {
-        switch layout {
-        case .small:
-            HStack(spacing: 3) {
-                thumbnail.frame(width: 12, height: 9)
-                line(width: 18)
-            }
-            .padding(4)
-            .background(.background, in: .rect(cornerRadius: 3))
-        case .regular:
-            HStack(spacing: 4) {
-                thumbnail.frame(width: 18, height: 16)
-                VStack(alignment: .leading, spacing: 3) {
-                    line(width: 22)
-                    line(width: 14)
-                }
-            }
-            .padding(4)
-            .background(.background, in: .rect(cornerRadius: 3))
-        case .card:
-            VStack(alignment: .leading, spacing: 3) {
-                thumbnail.frame(width: 34, height: 14)
-                line(width: 22).padding(.leading, 2)
-            }
-            .padding(.bottom, 3)
-            .background(.background, in: .rect(cornerRadius: 3))
-        }
-    }
-
-    private var thumbnail: some View {
-        LinearGradient(colors: [Color(red: 0.98, green: 0.62, blue: 0.3), Color(red: 0.62, green: 0.36, blue: 0.3)], startPoint: .top, endPoint: .bottom)
-            .clipShape(.rect(cornerRadius: 2))
-    }
-
-    private func line(width: CGFloat) -> some View {
-        Capsule().fill(Color(.systemGray3)).frame(width: width, height: 2.5)
     }
 }
 
