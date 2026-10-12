@@ -365,7 +365,7 @@ extension DocEditor {
 }
 
 /// The menu over the caret's line (under it when there's no room above), Craft's: clear
-/// glass with the page's colour laid in it, a little inside its edge; a row per
+/// glass with a thick material laid in it, a little inside its edge; a row per
 /// command, an icon and a title, a chevron on a group; as tall as its rows up to a
 /// height, the rest scroll. It keeps the place it opened in. It goes over the list, whose frame its
 /// anchor is in.
@@ -385,9 +385,9 @@ struct DocSlashMenuView: View {
     private static let title = Font.system(size: 15)
     private static let icon: CGFloat = 16
     #endif
-    /// Between the glass's edge and the page's colour in it.
+    /// Between the glass's edge and the material in it.
     private static let rim: CGFloat = 4
-    /// Between the page's colour and the rows.
+    /// Between the material's edge and the rows.
     private static let inset: CGFloat = 6
     private static let radius: CGFloat = 22
     private static let margin: CGFloat = 16
@@ -448,7 +448,7 @@ struct DocSlashMenuView: View {
                 if let first = menu.items.first { scroller.scrollTo(first.id, anchor: .top) }
             }
         }
-        .background(Color(uiColor: .systemBackground).opacity(0.86), in: inner)
+        .background(.thickMaterial, in: inner)
         .clipShape(inner)
         .padding(Self.rim)
         .modifier(DocClearGlass(shape: outer))
