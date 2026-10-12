@@ -792,6 +792,33 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         MainActor.assumeIsolated { (previewing ?? URL(fileURLWithPath: "/")) as NSURL }
     }
 
+    /// The caret the keyboard bar's Aa or ⋮ selected the block of: back to it once the
+    /// sheet closes or selecting ends.
+    @ObservationIgnored private var returnsTo: DocSelection?
+
+    /// The keyboard bar's ⋮: the caret's block selected; editing goes on at the caret
+    /// when selecting ends.
+    func selectCaretBlock() {
+        guard !Self.usesHandles, let caret = editor.selection else { return }
+        beginSelecting(caret.head.block)
+        returnsTo = caret
+    }
+
+    /// The keyboard bar's Aa: the caret's block selected, the Style sheet over it (Craft's).
+    func formatCaretBlock() {
+        selectCaretBlock()
+        if isSelecting { editor.panels.sheetPage = .main }
+    }
+
+    /// The selection bar's sheet closed: from Aa, with the caret's block still the one
+    /// selected, editing goes on at the caret.
+    func closeSheet() {
+        editor.panels.sheetPage = nil
+        isChoosingLayout = false
+        guard let caret = returnsTo else { return }
+        if selected == [caret.head.block] { endSelecting() } else { returnsTo = nil }
+    }
+
     /// Starts a phone's selection mode with `id`; on the Mac (no mode) selects it.
     func beginSelecting(_ id: DocBlockID) {
         guard !Self.usesHandles else { return select([id]) }
@@ -819,6 +846,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             editor.isEditable = !demo.isAgentWriting
             anchor = nil
             head = nil
+            if let caret = returnsTo, demo.doc.block(caret.head.block) != nil, editor.isEditable { editor.place(caret) }
+            returnsTo = nil
         }
         layoutOverlays()
     }
@@ -1750,23 +1779,18 @@ struct DocBlockSelectionBar: View {
             }
         }
         .animation(FlooDesignTokens.Motion.layout, value: blocks.isSelecting)
-        .sheet(isPresented: Binding(get: { showsSheet }, set: { if !$0 { closeSheet() } })) {
+        .sheet(isPresented: Binding(get: { showsSheet }, set: { if !$0 { blocks.closeSheet() } })) {
             Group {
                 if blocks.isChoosingLayout {
                     layouts
                         .padding(.horizontal, FlooDesignTokens.Component.FormatSheet.inset)
                         .padding(.bottom, FlooDesignTokens.Component.FormatSheet.inset)
                 } else {
-                    DocFormatSheet(editor: blocks.editor, stacksPages: true, onClose: closeSheet)
+                    DocFormatSheet(editor: blocks.editor)
                 }
             }
             .docSizedSheet()
         }
-    }
-
-    private func closeSheet() {
-        blocks.editor.panels.sheetPage = nil
-        blocks.isChoosingLayout = false
     }
 
     private var hasMedia: Bool {
@@ -1806,15 +1830,9 @@ struct DocBlockSelectionBar: View {
         .buttonStyle(.plain)
     }
 
-    /// Craft's layout sheet: a grabber (tap or pull down to go back), then the options.
+    /// Craft's layout sheet: the options (the sheet's own grabber and pull close it).
     private var layouts: some View {
         VStack(spacing: 10) {
-            Capsule()
-                .fill(Color(.tertiaryLabel))
-                .frame(width: 36, height: 5)
-                .frame(maxWidth: .infinity, minHeight: 14)
-                .contentShape(Rectangle())
-                .onTapGesture { blocks.isChoosingLayout = false }
             if !blocks.selectedImageFits.isEmpty {
                 HStack(spacing: 8) {
                     DocLayoutSection(title: String(localized: "Image Display")) {
@@ -1842,7 +1860,6 @@ struct DocBlockSelectionBar: View {
             }
         }
         .buttonStyle(.plain)
-        .gesture(DragGesture(minimumDistance: 12).onEnded { if $0.translation.height > 30 { blocks.isChoosingLayout = false } })
     }
 
     private func option(_ title: String, symbol: String, on: Bool, action: @escaping () -> Void) -> some View {

@@ -1165,20 +1165,35 @@ final class DocEditTests {
             bar.testTap("highlight")
             try self.expect(!bar.showsColors, "the colours stay")
         }
-        await test("the keyboard bar's slash types a slash and opens the menu; Aa puts the format sheet in the keyboard's place") {
+        await test("the keyboard bar's slash types a slash and opens the menu; Aa and ⋮ select the caret's block (Aa under the format sheet), and back") {
             let block = try self.block("Loading older")
             try await self.focus(block.id, at: block.text.length)
             try self.expect(bar.testItems.map(\.id) == ["slash", "format", "more", "dismiss"], "keys \(bar.testItems.map(\.id))")
             if !DocBlockController.usesHandles {
+                // Aa selects the caret's block and opens the sheet over it; closed, the
+                // caret is back where it was.
+                try await self.focus(block.id, at: 4)
                 bar.testTap("format")
-                try self.expect(self.editor.showsFormatInput && self.editor.panels.sheetPage == .main, "no sheet")
-                try self.expect(bar.testItems.first { $0.id == "format" }?.isOn == true, "Aa not on")
-                // A caret stands for its block: the sheet's style goes on it.
+                try self.expect(self.editor.blocks.isSelecting && self.editor.blocks.selected == [block.id], "not selecting the caret's block")
+                try self.expect(self.editor.panels.sheetPage == .main, "no sheet")
                 DocFormatting(editor: self.editor, caretTakesBlock: true).setStyle(.heading(level: 2))
                 try await self.settle()
                 try self.expect(self.demo.doc.block(block.id)?.kind == .heading(level: 2), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
-                bar.testTap("format")
-                try self.expect(!self.editor.showsFormatInput && self.editor.panels.sheetPage == nil, "the sheet stays")
+                self.editor.blocks.closeSheet()
+                try await self.settle()
+                try self.expect(!self.editor.blocks.isSelecting && self.editor.panels.sheetPage == nil, "still selecting")
+                let caret = self.editor.selection
+                try self.expect(caret?.head == DocPosition(block: block.id, offset: 4) && caret?.anchor == caret?.head, "caret \(String(describing: caret))")
+                try self.expect(self.editor.textView(for: block.id)?.isFirstResponder == true, "not editing")
+                try await self.undo()
+                // ⋮ selects the caret's block; done selecting, the caret is back.
+                try await self.focus(block.id, at: 4)
+                bar.testTap("more")
+                try self.expect(self.editor.blocks.isSelecting && self.editor.blocks.selected == [block.id], "⋮ didn't select the caret's block")
+                self.editor.blocks.endSelecting()
+                try await self.settle()
+                try self.expect(self.editor.selection?.head == DocPosition(block: block.id, offset: 4), "caret after ⋮ \(String(describing: self.editor.selection))")
+                try await self.focus(block.id, at: block.text.length)
             }
             bar.testTap("slash")
             try await self.settle()

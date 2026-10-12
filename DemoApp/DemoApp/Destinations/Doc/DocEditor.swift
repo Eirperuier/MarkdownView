@@ -52,9 +52,6 @@ final class DocEditor {
     let cursor = DocCursor()
     /// Which format panels are up: the Mac's panel, the phone's sheet and its page.
     let panels = DocPanels()
-    /// The phone's format sheet in the keyboard's place, and the text view it's in.
-    private lazy var formatInput = DocFormatInputView(editor: self)
-    private weak var formatInputOwner: UITextView?
     /// The Mac's toolbar over selected text.
     lazy var selectionToolbar = DocSelectionToolbarController(editor: self)
     /// The slash menu, and where its "/" is while it's open.
@@ -883,38 +880,8 @@ final class DocEditor {
         demo.edit(steps, before: selection, after: selection)
     }
 
-    // MARK: The phone's format sheet in the keyboard's place
-
-    var showsFormatInput: Bool { formatInputOwner != nil }
-
-    /// The keyboard bar's Aa: the sheet takes the keyboard's place, or gives it back.
-    func toggleFormatInput() {
-        if showsFormatInput { return hideFormatInput() }
-        guard let selection, let view = textView(for: selection.head.block), view.isFirstResponder else { return }
-        panels.sheetPage = .main
-        formatInputOwner = view
-        view.inputView = formatInput
-        view.reloadInputViews()
-        keyboardBar.update()
-    }
-
-    func hideFormatInput() {
-        guard let view = formatInputOwner else { return }
-        formatInputOwner = nil
-        if !blocks.isSelecting { panels.sheetPage = nil }
-        view.inputView = nil
-        view.reloadInputViews()
-        keyboardBar.update()
-    }
-
-    /// A text view starts or stops being edited: the sheet stays with the one it's in.
-    fileprivate func editingChanged(_ textView: UITextView) {
-        if let owner = formatInputOwner, owner !== textView || !textView.isFirstResponder { hideFormatInput() }
-    }
-
     /// The keyboard bar's keyboard key: the text being edited lets the focus go.
     func dismissKeyboard() {
-        hideFormatInput()
         for view in allViews where view.isFirstResponder { view.resignFirstResponder() }
     }
 
@@ -1244,7 +1211,6 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
         editor?.tables.endEditing()
         editor?.sources.endEditing()
         editor?.blocks.textEditingBegan(block)
-        editor?.editingChanged(textView)
         // The selection may have come before the focus: the toolbar waits for both.
         editor?.selectionToolbar.selectionChanged()
     }
@@ -1252,7 +1218,6 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
     func textViewDidEndEditing(_ textView: UITextView) {
         original?.textViewDidEndEditing?(textView)
         editor?.blocks.textEditingEnded(block)
-        editor?.editingChanged(textView)
     }
 
     /// Letters typed with a Chinese, Japanese or Korean keyboard start marked text.

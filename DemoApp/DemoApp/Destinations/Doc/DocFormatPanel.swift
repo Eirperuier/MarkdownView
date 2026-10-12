@@ -28,8 +28,7 @@ final class DocCursor {
 final class DocPanels {
     /// The Mac's format panel (-docFormat YES opens with it).
     var showsFormat = UserDefaults.standard.bool(forKey: "docFormat")
-    /// The phone's format sheet and its page: over the selected blocks, or in the
-    /// keyboard's place.
+    /// The phone's format sheet and its page, over the selected blocks.
     var sheetPage: DocFormatSheetPage?
     /// What Copy Format took, for Paste Format.
     var copiedFormat: DocCopiedFormat?

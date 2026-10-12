@@ -2,9 +2,9 @@
 //  DocFormatSheet.swift
 //  DemoApp
 //
-//  The phone's format sheet, Craft's: over the selected blocks (from the selection
-//  bar's Style), or in the keyboard's place (from the keyboard bar's Aa), where a caret
-//  stands for its block. Pages in place:
+//  The phone's format sheet, Craft's: a system sheet over the selected blocks, from the
+//  selection bar's Style or the keyboard bar's Aa (which selects the caret's block).
+//  Its pages:
 //
 //  - main: a few styles and More…; lists and indent; the quote and the box, the colour,
 //    and … ;
@@ -12,8 +12,9 @@
 //  - colours: the text's own colour, the palette, and any colour (the system's picker);
 //  - more (…): bold, italic, strikethrough, code; Copy Format and Paste Format.
 //
-//  A choice on a page takes it back to the main one; the grabber goes back a page, or
-//  closes the sheet. What DocKit can't carry yet (alignment, fonts, pages) isn't offered.
+//  Every page but the main one is a sheet of its own over it; a choice on it takes it
+//  back to the main one. The sheets close with their own grabber and pull: no gestures
+//  of ours over them. What DocKit can't carry yet (alignment, fonts, pages) isn't offered.
 //
 //  The colours over the keyboard bar's highlight key, Craft's: none, the text colours
 //  and any; the highlights and any.
@@ -34,60 +35,30 @@ enum DocFormatSheetPage: Hashable, Identifiable {
 
 struct DocFormatSheet: View {
     let editor: DocEditor
-    /// In a sheet of its own: another page opens in a sheet over it (Craft's), not in
-    /// its place.
-    var stacksPages = false
-    /// Back from the main page: the sheet goes.
-    let onClose: () -> Void
 
     private var formatting: DocFormatting { DocFormatting(editor: editor, caretTakesBlock: true) }
     private var page: DocFormatSheetPage { editor.panels.sheetPage ?? .main }
 
     var body: some View {
-        if stacksPages {
-            sheet(.main)
-                .sheet(item: Binding(get: { page == .main ? nil : page }, set: { if $0 == nil { go(.main) } })) { page in
-                    sheet(page).docSizedSheet()
-                }
-        } else {
-            sheet(page)
-                .animation(Tokens.Motion.feedback, value: page)
-        }
+        sheet(.main)
+            .sheet(item: Binding(get: { page == .main ? nil : page }, set: { if $0 == nil { go(.main) } })) { page in
+                sheet(page).docSizedSheet()
+            }
     }
 
     private func sheet(_ shown: DocFormatSheetPage) -> some View {
-        VStack(spacing: Metrics.rowSpacing) {
-            grabber(shown)
-            Group {
-                switch shown {
-                case .main: main
-                case .styles: styles
-                case .colors: colors
-                case .more: more
-                }
+        Group {
+            switch shown {
+            case .main: main
+            case .styles: styles
+            case .colors: colors
+            case .more: more
             }
-            .frame(height: Metrics.page, alignment: .top)
-            .transition(.opacity)
         }
+        .frame(height: Metrics.page, alignment: .top)
         .padding(.horizontal, Metrics.inset)
         .padding(.bottom, Metrics.inset)
         .buttonStyle(.plain)
-        .gesture(DragGesture(minimumDistance: 12).onEnded { if $0.translation.height > 30 { back(from: shown) } })
-    }
-
-    private func grabber(_ shown: DocFormatSheetPage) -> some View {
-        Capsule()
-            .fill(Tokens.ColorRole.Content.tertiary)
-            .frame(width: Metrics.grabber.width, height: Metrics.grabber.height)
-            .frame(maxWidth: .infinity, minHeight: Metrics.grabberArea)
-            .contentShape(Rectangle())
-            .onTapGesture { back(from: shown) }
-            .accessibilityLabel(shown == .main ? Text("Close") : Text("Back"))
-            .accessibilityAddTraits(.isButton)
-    }
-
-    private func back(from shown: DocFormatSheetPage) {
-        if shown == .main { onClose() } else { go(.main) }
     }
 
     private func go(_ page: DocFormatSheetPage) {
@@ -520,58 +491,23 @@ final class DocColorPicking: NSObject, UIColorPickerViewControllerDelegate {
     }
 }
 
-/// A sheet as tall as its content (Craft's): it floats over the bottom, and the document
-/// behind it still takes touches. No system grabber: the content's own goes back a page
-/// before it closes the sheet.
+/// A sheet as tall as its content (Craft's): it floats over the bottom, the system's
+/// grabber over the content, and the document behind it still takes touches.
 private struct DocSizedSheet: ViewModifier {
-    @State private var height = DocFormatInputView.sheetHeight
+    @State private var height = Metrics.grabberArea + Metrics.rowSpacing + Metrics.page + Metrics.inset
 
     func body(content: Content) -> some View {
         content
-            .padding(.top, Metrics.rowSpacing)
+            .padding(.top, Metrics.grabberArea + Metrics.rowSpacing)
             .fixedSize(horizontal: false, vertical: true)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             .frame(maxHeight: .infinity, alignment: .top)
             .presentationDetents([.height(height)])
-            .presentationDragIndicator(.hidden)
+            .presentationDragIndicator(.visible)
             .presentationBackgroundInteraction(.enabled)
     }
 }
 
 extension View {
     func docSizedSheet() -> some View { modifier(DocSizedSheet()) }
-}
-
-/// The sheet where the keyboard was, on the keyboard's own background; the keyboard
-/// bar stays over it.
-final class DocFormatInputView: UIInputView {
-    private typealias Metrics = FlooDesignTokens.Component.FormatSheet
-
-    /// A grabber, a page, the inset below.
-    static let sheetHeight = Metrics.grabberArea + Metrics.rowSpacing + Metrics.page + Metrics.inset
-
-    init(editor: DocEditor) {
-        super.init(frame: CGRect(x: 0, y: 0, width: 390, height: Self.sheetHeight), inputViewStyle: .default)
-        allowsSelfSizing = true
-        // Opaque, as the bar over it: the document mustn't show through the tiles.
-        backgroundColor = .systemBackground
-        let host = UIHostingController(rootView: DocFormatSheet(editor: editor) { [weak editor] in editor?.hideFormatInput() })
-        host.view.backgroundColor = .clear
-        host.sizingOptions = []
-        host.safeAreaRegions = []
-        host.view.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(host.view)
-        hosting = host
-        NSLayoutConstraint.activate([
-            host.view.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.rowSpacing),
-            host.view.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
-            host.view.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
-            host.view.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
-            host.view.heightAnchor.constraint(equalToConstant: Self.sheetHeight),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    private var hosting: UIHostingController<DocFormatSheet>?
 }

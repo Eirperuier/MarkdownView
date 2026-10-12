@@ -8,9 +8,10 @@
 //  - Text selected: highlight, bold, italic, strikethrough, code, link and the keyboard
 //    key, spread evenly; a mark all of the selection has sits on a light tint. The
 //    highlight key opens the colours over it (text colours, highlights).
-//  - A cursor: the slash (the slash menu, as "/" typed), Aa (the format sheet in the
-//    keyboard's place, again for the keyboard) and more (indent, undo, redo) on the
-//    left; the keyboard key on the right. On an empty line a divider key comes in between.
+//  - A cursor: the slash (the slash menu, as "/" typed), Aa (the caret's block selected,
+//    the format sheet over it) and ⋮ (the caret's block selected) on the left, editing
+//    going on at the caret once the sheet closes or selecting ends; the keyboard key on
+//    the right. On an empty line a divider key comes in between.
 //
 //  Each action has one place. Menus open from their keys. The Mac has no on-screen
 //  keyboard and no bar.
@@ -31,7 +32,7 @@ final class DocKeyboardBar: UIInputView {
 
     private enum Shown: Equatable {
         case selection(block: DocBlockID, range: Range<Int>, marks: Set<MarkKind>)
-        case cursor(block: DocBlockID, kind: BlockKind, indent: Int, isEmpty: Bool, canUndo: Bool, canRedo: Bool, formatting: Bool)
+        case cursor(block: DocBlockID, kind: BlockKind, indent: Int, isEmpty: Bool)
     }
 
     /// The colours over the highlight key, in the document's window.
@@ -83,8 +84,7 @@ final class DocKeyboardBar: UIInputView {
             let marks = Set(Self.marks.map(\.mark.kind) + [.link]).filter { DocEditor.covers(block.text, range, with: $0) }
             next = .selection(block: block.id, range: range, marks: marks)
         } else {
-            next = .cursor(block: block.id, kind: block.kind, indent: block.indent, isEmpty: block.text.isEmpty,
-                           canUndo: editor.demo.canUndo, canRedo: editor.demo.canRedo, formatting: editor.showsFormatInput)
+            next = .cursor(block: block.id, kind: block.kind, indent: block.indent, isEmpty: block.text.isEmpty)
         }
         guard next != shown else { return }
         hideColors()
@@ -121,15 +121,17 @@ final class DocKeyboardBar: UIInputView {
                 editor.promptLink(over: range, in: block.id, from: view)
             })
             add(dismissKey())
-        case .cursor(_, _, _, let isEmpty, let canUndo, let canRedo, let formatting):
+        case .cursor(_, _, _, let isEmpty):
             keys.distribution = .fill
             add(key("slash", Self.slashGlyph, String(localized: "Insert")) { [weak self] in
                 self?.editor?.typeSlash()
             })
-            add(key("format", Self.formatGlyph, String(localized: "Format"), isOn: formatting) { [weak self] in
-                self?.editor?.toggleFormatInput()
+            add(key("format", Self.formatGlyph, String(localized: "Format")) { [weak self] in
+                self?.editor?.blocks.formatCaretBlock()
             })
-            add(menuKey("more", Self.verticalEllipsis, String(localized: "More"), menu: moreMenu(block, canUndo: canUndo, canRedo: canRedo)))
+            add(key("more", Self.verticalEllipsis, String(localized: "Select Block")) { [weak self] in
+                self?.editor?.blocks.selectCaretBlock()
+            })
             add(UIView())
             if isEmpty {
                 add(key("divider", Self.dividerGlyph, String(localized: "Divider")) { [weak self] in
@@ -150,33 +152,6 @@ final class DocKeyboardBar: UIInputView {
         ("code", "chevron.left.forwardslash.chevron.right", String(localized: "Code"), .code),
     ]
 
-    private func moreMenu(_ block: DocBlock, canUndo: Bool, canRedo: Bool) -> UIMenu {
-        var indent: [UIMenuElement] = []
-        if case .listItem = block.kind {
-            indent = [
-                UIAction(title: String(localized: "Indent"), image: UIImage(systemName: "increase.indent")) { [weak self] _ in
-                    self?.editor?.indent(block, by: 1)
-                    self?.refresh()
-                },
-                UIAction(title: String(localized: "Outdent"), image: UIImage(systemName: "decrease.indent"), attributes: block.indent > 0 ? [] : .disabled) { [weak self] _ in
-                    self?.editor?.indent(block, by: -1)
-                    self?.refresh()
-                },
-            ]
-        }
-        let history: [UIMenuElement] = [
-            UIAction(title: String(localized: "Undo"), image: UIImage(systemName: "arrow.uturn.backward"), attributes: canUndo ? [] : .disabled) { [weak self] _ in
-                self?.editor?.requestUndo()
-                self?.refresh()
-            },
-            UIAction(title: String(localized: "Redo"), image: UIImage(systemName: "arrow.uturn.forward"), attributes: canRedo ? [] : .disabled) { [weak self] _ in
-                self?.editor?.requestRedo()
-                self?.refresh()
-            },
-        ]
-        return UIMenu(children: [UIMenu(options: .displayInline, children: indent), UIMenu(options: .displayInline, children: history)])
-    }
-
     // MARK: Keys
 
     private func add(_ view: UIView) {
@@ -186,13 +161,6 @@ final class DocKeyboardBar: UIInputView {
     private func key(_ id: String, _ image: UIImage?, _ title: String, isOn: Bool = false, action: @escaping () -> Void) -> UIButton {
         let button = styled(id, image, title, isOn: isOn)
         button.addAction(UIAction { _ in action() }, for: .touchUpInside)
-        return button
-    }
-
-    private func menuKey(_ id: String, _ image: UIImage?, _ title: String, isOn: Bool = false, menu: UIMenu) -> UIButton {
-        let button = styled(id, image, title, isOn: isOn)
-        button.menu = menu
-        button.showsMenuAsPrimaryAction = true
         return button
     }
 
