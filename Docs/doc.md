@@ -393,7 +393,7 @@ agent 写一段新内容或改写一块要花几秒,各端都要看到它在原�
 | D6 | 跨块文字选择 | 录屏 |
 | 之后 | 移植进 floo:DocKit 进 Core,服务端加 `doc_step` 和端点,App 接入;再做 Web | 走 floo 的流程 |
 
-界面上的尺寸、颜色、动效集中在 `FlooDesignTokens`(仿 Matrix HQ 的 `MatrixDesignTokens`:先按家族——状态、颜色角色、间距、控件、圆角、描边、阴影、动效——再按组件),iOS 和 Mac 共用一份:颜色用 UIKit 的语义色,字用文字样式,只在指针和手指确实不同的地方分开。文档内容自己的字体和行距仍在 `DocTypography`。Mac 上 app 按 iPad 的尺寸缩小画(约 77%),所以正文放大 1.16 倍、标题 1.24 倍(代码、表格、说明跟正文),和 Craft 在 Mac 上的字一样大(从同一段文字的截图量出)。
+界面上的尺寸、颜色、动效集中在 `FlooDesignTokens`(仿 Matrix HQ 的 `MatrixDesignTokens`:先按家族——状态、颜色角色、间距、控件、圆角、描边、阴影、动效——再按组件),iOS 和 Mac 共用一份:颜色用 UIKit 的语义色,字用文字样式,只在指针和手指确实不同的地方分开。文档内容自己的字体和行距仍在 `DocTypography`。Mac 版是 Mac 的界面(Optimize for Mac,不按 iPad 缩小画),Mac 的文字样式比手机小(正文 13 点),所以正文放大 1.16 倍、标题 1.24 倍(代码、表格、说明跟正文),和 Craft 在 Mac 上的字一样大(从同一段文字的截图量出)。
 
 动效只有几种角色:`feedback`(控件的回应,snappy 0.18 秒)、`layout`(东西换尺寸、换位置,以及被它带动的行:无回弹弹簧 0.34 秒)、`scroll`(列表自己滚动:无回弹弹簧 0.5 秒)、出现和消失(easeOut 0.20 / easeIn 0.13 秒)。系统"减弱动态效果"打开时 feedback 和 layout 不动,淡入淡出保留。两个包各自暴露同样的角色:MarkdownView 的 `MarkdownMotion`(feedback、layout、reveal 曲线和时长,`.markdownMotion(_:)`),MessagingUI 的 `TiledMotion`(layout、scroll、feedback、reveal 时长,`.tiledMotion(_:)`);默认值取包原来最常用的值(原先各处零散的 0.15–0.4 秒归到这几个角色上),app 在根上用 `Motion.markdown` 和 `Motion.tiled` 把自己的 token 交给它们。代码里不写动画的数字,只写角色。
 

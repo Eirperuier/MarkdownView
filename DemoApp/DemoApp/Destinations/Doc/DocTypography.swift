@@ -14,9 +14,9 @@ import DocKit
 import MarkdownView
 
 enum DocTypography {
-    /// On the Mac the page's text reads at Craft's size: the app is drawn smaller there
-    /// (scaled as an iPad's), and Craft's Mac text, measured against ours, is this much
-    /// larger: body text 1.16 times, headings 1.24 times.
+    /// On the Mac the page's text reads at Craft's size: the Mac's text styles are smaller
+    /// (body 13 points), and Craft's Mac text, measured against ours, is this much larger:
+    /// body text 1.16 times, headings 1.24 times.
     #if targetEnvironment(macCatalyst)
     static let textScale: CGFloat = 1.16
     static let headingScale: CGFloat = 1.24
