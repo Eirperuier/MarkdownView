@@ -829,7 +829,7 @@ struct DocTableAdder: View {
 /// less the bars and the keyboard.
 @MainActor
 enum DocScrolling {
-    private static var keyboard: CGRect = .null
+    private(set) static var keyboard: CGRect = .null
     private static var observer: NSObjectProtocol?
 
     /// Starts following the keyboard's frame (screen coordinates).

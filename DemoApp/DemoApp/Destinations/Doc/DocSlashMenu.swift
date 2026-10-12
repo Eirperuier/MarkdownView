@@ -118,9 +118,10 @@ struct DocCommand: Identifiable, Equatable, Sendable {
 }
 
 /// The command menu: "/" typed (at a block's start or after a space; "、" too, the slash
-/// key's character with a Chinese input method) or the keyboard bar's key opens it over
-/// the caret's line. Text typed after it filters the commands, ↑↓ move, Return or a tap
-/// chooses (a group's commands take the menu's place), Esc or a space closes it.
+/// key's character with a Chinese input method; the keyboard bar's key types one
+/// anywhere) opens it over the caret's line. Text typed after it filters the commands,
+/// ↑↓ move, Return or a tap chooses (a group's commands take the menu's place, Backspace
+/// goes back), Esc, a space or a tap anywhere else closes it.
 @MainActor
 @Observable
 final class DocSlashMenu {
@@ -133,12 +134,17 @@ final class DocSlashMenu {
     /// The caret's rectangle where the menu opened, in the list's coordinates (the
     /// list's frame, not its scrolled content: where it is on screen, over the list).
     private(set) var anchor: CGRect = .zero
+    /// Where the menu may go, in the same coordinates: the list on screen, down to the
+    /// keyboard (over its bar).
+    private(set) var room: CGRect = .infinite
     /// Called with the chosen command.
     @ObservationIgnored var choose: (DocCommand) -> Void = { _ in }
+    /// A tap anywhere but the menu: it closes.
+    @ObservationIgnored var dismiss: () -> Void = {}
 
     var highlightedItem: DocCommand? { items.indices.contains(highlighted) ? items[highlighted] : nil }
 
-    func show(query: String, anchor: CGRect) {
+    func show(query: String, anchor: CGRect, room: CGRect) {
         if query != self.query || !isOpen {
             if !query.isEmpty { group = nil }
             items = group?.children ?? DocCommand.matching(query)
@@ -146,7 +152,14 @@ final class DocSlashMenu {
         }
         self.query = query
         self.anchor = anchor
+        self.room = room
         isOpen = true
+    }
+
+    /// The caret or the room for the menu moved (the keyboard changed).
+    func place(anchor: CGRect, room: CGRect) {
+        self.anchor = anchor
+        self.room = room
     }
 
     /// A group's commands in the menu's place.
@@ -155,6 +168,14 @@ final class DocSlashMenu {
         self.group = group
         items = group.children
         highlighted = 0
+    }
+
+    /// Backspace in a group: the menu's top again, the group highlighted.
+    func back() {
+        guard let group else { return }
+        self.group = nil
+        items = DocCommand.matching(query)
+        highlighted = items.firstIndex(of: group) ?? 0
     }
 
     func close() {
@@ -181,40 +202,46 @@ extension DocEditor {
         let before = offset == 0 ? nil : block.text.string.utf16.dropFirst(offset - 1).first
         guard before == nil || before.map({ Character(UnicodeScalar($0) ?? " ").isWhitespace }) == true else { return }
         slashOrigin = DocPosition(block: block.id, offset: offset)
-        slashIsTyped = true
         updateSlash()
     }
 
-    /// The keyboard bar's key: the menu at the caret, nothing typed.
-    func openCommands() {
-        guard let selection, selection.anchor == selection.head, demo.doc.block(selection.head.block)?.kind.carriesText == true else { return }
-        slashOrigin = selection.head
-        slashIsTyped = false
+    /// The keyboard bar's key: a "/" typed, and the menu open even where a typed one
+    /// wouldn't open it (after a word).
+    func typeSlash() {
+        guard let selection, let view = textView(for: selection.head.block) else { return }
+        let origin = DocPosition(block: selection.head.block, offset: min(selection.anchor.offset, selection.head.offset))
+        replace(view.selectedRange, with: "/", in: view, block: origin.block)
+        guard slashOrigin == nil, demo.doc.block(origin.block).map({ $0.text.string.utf16.dropFirst(origin.offset).first == 0x2F }) == true else { return }
+        slashOrigin = origin
         updateSlash()
     }
-
-    /// Where the query starts: after the slash, or at the origin without one.
-    private var queryStart: Int? { slashOrigin.map { $0.offset + (slashIsTyped ? 1 : 0) } }
 
     /// Keeps the menu in step with the text: the query is what follows the slash up to
     /// the caret; it closes when the caret leaves, the slash goes, or a space is typed.
     func updateSlash() {
         guard let origin = slashOrigin else { return slash.close() }
         guard isEditable, let selection, selection.anchor == selection.head, selection.head.block == origin.block,
-            let block = demo.doc.block(origin.block), let start = queryStart, selection.head.offset >= start,
+            let block = demo.doc.block(origin.block), selection.head.offset > origin.offset,
             selection.head.offset <= block.text.length
         else { return dismissSlash() }
         let units = Array(block.text.string.utf16)
-        guard !slashIsTyped || Self.slashes.contains(String(decoding: [units[origin.offset]], as: UTF16.self)) else { return dismissSlash() }
-        let query = String(decoding: units[start..<selection.head.offset], as: UTF16.self)
+        guard Self.slashes.contains(String(decoding: [units[origin.offset]], as: UTF16.self)) else { return dismissSlash() }
+        let query = String(decoding: units[(origin.offset + 1)..<selection.head.offset], as: UTF16.self)
         guard query.count <= 24, !query.contains(where: \.isWhitespace) else { return dismissSlash() }
-        slash.show(query: query, anchor: slashAnchor(origin) ?? slash.anchor)
+        let (anchor, room) = slashPlace(origin) ?? (slash.anchor, slash.room)
+        slash.show(query: query, anchor: anchor, room: room)
     }
 
     /// The query while an input method composes it (the model doesn't have it yet).
     /// Pinyin shows syllable breaks ("bi'ao", or a space): they aren't part of it.
     func slashComposing(_ query: String) {
-        slash.show(query: query.filter { $0 != "'" && !$0.isWhitespace }, anchor: slash.anchor)
+        slash.show(query: query.filter { $0 != "'" && !$0.isWhitespace }, anchor: slash.anchor, room: slash.room)
+    }
+
+    /// Only the menu's place, its query as it is (an input method may be composing it).
+    func placeSlash() {
+        guard slash.isOpen, let origin = slashOrigin, let place = slashPlace(origin) else { return }
+        slash.place(anchor: place.anchor, room: place.room)
     }
 
     func dismissSlash() {
@@ -297,16 +324,26 @@ extension DocEditor {
         }
     }
 
-    private func slashAnchor(_ origin: DocPosition) -> CGRect? {
+    /// The slash's caret rectangle, and where the menu may go: the list on screen, less
+    /// the bars over it and the keyboard (it may cover the keyboard's bar), in the
+    /// overlay's coordinates (the list's frame's).
+    private func slashPlace(_ origin: DocPosition) -> (anchor: CGRect, room: CGRect)? {
         guard let textView = textView(for: origin.block), let block = demo.doc.block(origin.block),
             let start = textStart(in: textView, block: block),
-            let position = textView.position(from: textView.beginningOfDocument, offset: start + origin.offset)
+            let position = textView.position(from: textView.beginningOfDocument, offset: start + origin.offset),
+            let list = DocScrolling.list(of: textView), let frame = list.superview
         else { return nil }
-        var list: UIView? = textView.superview
-        while let view = list, !(view is UICollectionView) { list = view.superview }
-        guard let list, let frame = list.superview else { return nil }
-        // The overlay covers the list's frame: its coordinates are the list's frame's.
-        return textView.convert(textView.caretRect(for: position), to: frame).offsetBy(dx: -list.frame.minX, dy: -list.frame.minY)
+        let toOverlay = { (rect: CGRect) in rect.offsetBy(dx: -list.frame.minX, dy: -list.frame.minY) }
+        let anchor = toOverlay(textView.convert(textView.caretRect(for: position), to: frame))
+        var room = CGRect(origin: .zero, size: list.frame.size).inset(by: UIEdgeInsets(top: list.safeAreaInsets.top, left: 0, bottom: list.safeAreaInsets.bottom, right: 0))
+        if !DocScrolling.keyboard.isNull, let window = list.window {
+            let keyboard = toOverlay(frame.convert(window.convert(DocScrolling.keyboard, from: nil), from: window))
+            // The keyboard's frame has the bar over it (its input accessory).
+            let bar = textView.inputAccessoryView?.window != nil ? textView.inputAccessoryView?.bounds.height ?? 0 : 0
+            let top = keyboard.minY + bar
+            if top < room.maxY { room.size.height = max(0, top - room.minY) }
+        }
+        return (anchor, room)
     }
 }
 
@@ -326,16 +363,32 @@ struct DocSlashMenuView: View {
     var body: some View {
         GeometryReader { proxy in
             if menu.isOpen {
-                let anchor = menu.anchor
-                let width = min(Self.width, proxy.size.width - 2 * Self.margin)
-                let height = CGFloat(min(max(menu.items.count, 1), 4)) * Self.row + 2 * Self.inset
-                let above = anchor.minY - Self.gap - height
-                let x = min(max(Self.margin, anchor.minX - Self.inset), proxy.size.width - Self.margin - width)
+                let frame = Self.frame(over: menu.anchor, in: menu.room.intersection(CGRect(origin: .zero, size: proxy.size)), rows: menu.items.count)
+                // A tap anywhere but the menu closes it (and does nothing else).
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { menu.dismiss() }
                 list
-                    .frame(width: width, height: height)
-                    .offset(x: x, y: above >= Self.margin ? above : anchor.maxY + Self.gap)
+                    .frame(width: frame.width, height: frame.height)
+                    .offset(x: frame.minX, y: frame.minY)
             }
         }
+    }
+
+    /// Over the caret's line where four rows fit, else under it where they do (never
+    /// out of `room`: over the keyboard); else on the roomier side, fewer rows.
+    static func frame(over anchor: CGRect, in room: CGRect, rows count: Int) -> CGRect {
+        let room = room.insetBy(dx: margin, dy: gap)
+        let width = min(Self.width, room.width)
+        let rows = CGFloat(min(max(count, 1), 4))
+        let above = anchor.minY - gap - room.minY
+        let below = room.maxY - anchor.maxY - gap
+        let full = rows * row + 2 * inset
+        let goesAbove = above >= full || (below < full && above >= below)
+        let fitting = floor(((goesAbove ? above : below) - 2 * inset) / row)
+        let height = max(1, min(rows, fitting)) * row + 2 * inset
+        let x = min(max(room.minX, anchor.minX - inset), room.maxX - width)
+        return CGRect(x: x, y: goesAbove ? anchor.minY - gap - height : anchor.maxY + gap, width: width, height: height)
     }
 
     private var list: some View {

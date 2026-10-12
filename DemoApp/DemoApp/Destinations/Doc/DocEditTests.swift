@@ -570,6 +570,29 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(self.demo.doc.block(line.id)?.kind == .paragraph && self.text(line.id) == "/", "undo: \(String(describing: self.demo.doc.block(line.id)?.kind)) \(self.text(line.id).debugDescription)")
         }
+        await test("Slash menu: Backspace in a group goes back to the top, nothing deleted; a tap outside closes it, the “/” stays") {
+            let line = try await emptyLine()
+            try await self.type("/")
+            let style = try self.expectValue(DocCommand.all.firstIndex { $0.id == "style" }, "no Text Style")
+            self.editor.slash.choose(DocCommand.all[style])
+            try self.expect(self.editor.slash.group?.id == "style", "group \(String(describing: self.editor.slash.group?.id))")
+            try await self.backspace()
+            try self.expect(self.editor.slash.isOpen && self.editor.slash.group == nil && self.editor.slash.highlighted == style,
+                            "open \(self.editor.slash.isOpen) group \(String(describing: self.editor.slash.group?.id)) highlighted \(self.editor.slash.highlighted)")
+            try self.expect(self.text(line.id) == "/", "text \(self.text(line.id).debugDescription)")
+            self.editor.slash.dismiss()
+            try self.expect(!self.editor.slash.isOpen && self.text(line.id) == "/", "open \(self.editor.slash.isOpen) text \(self.text(line.id).debugDescription)")
+        }
+        await test("Slash menu: over the caret's line where it fits, else under it, never over the keyboard") {
+            let room = CGRect(x: 0, y: 100, width: 400, height: 500)
+            let low = DocSlashMenuView.frame(over: CGRect(x: 50, y: 520, width: 2, height: 20), in: room, rows: 12)
+            try self.expect(low.maxY < 520 && low.minY >= room.minY, "low caret: \(low)")
+            let high = DocSlashMenuView.frame(over: CGRect(x: 50, y: 120, width: 2, height: 20), in: room, rows: 12)
+            try self.expect(high.minY > 140 && high.maxY <= room.maxY, "high caret: \(high)")
+            let squeezed = DocSlashMenuView.frame(over: CGRect(x: 50, y: 200, width: 2, height: 20), in: CGRect(x: 0, y: 100, width: 400, height: 200), rows: 12)
+            try self.expect(squeezed.maxY <= 300 && squeezed.minY >= 100, "squeezed: \(squeezed)")
+            try self.expect(low.maxX <= room.maxX && high.minX >= room.minX, "out of the sides: \(low) \(high)")
+        }
         await test("Slash menu: Esc closes it, the “/” stays, Return is Return again") {
             let line = try await emptyLine()
             try await self.type("/")
@@ -1169,7 +1192,7 @@ final class DocEditTests {
             bar.testTap("highlight")
             try self.expect(!bar.showsColors, "the colours stay")
         }
-        await test("the keyboard bar's command key opens the menu, nothing typed; Aa and ⋮ select the caret's block (Aa under the format sheet), and back") {
+        await test("the keyboard bar's command key types a slash and opens the menu; Aa and ⋮ select the caret's block (Aa under the format sheet), and back") {
             let block = try self.block("Loading older")
             try await self.focus(block.id, at: block.text.length)
             try self.expect(bar.testItems.map(\.id) == ["slash", "format", "more", "dismiss"], "keys \(bar.testItems.map(\.id))")
@@ -1199,19 +1222,23 @@ final class DocEditTests {
                 try self.expect(self.editor.selection?.head == DocPosition(block: block.id, offset: 4), "caret after ⋮ \(String(describing: self.editor.selection))")
                 try await self.focus(block.id, at: block.text.length)
             }
-            // The command key opens the menu, nothing typed; Color › Blue colours the
-            // block's text, Delete Block deletes it.
+            // The command key types a slash and opens the menu; Color › Blue (the slash
+            // gone) colours the block's text, Delete Block deletes it.
             let text = self.text(block.id)
             bar.testTap("slash")
             try await self.settle()
-            try self.expect(self.text(block.id) == text && self.editor.slash.isOpen, "text \(self.text(block.id).debugDescription) open \(self.editor.slash.isOpen)")
+            try self.expect(self.text(block.id) == text + "/" && self.editor.slash.isOpen, "text \(self.text(block.id).debugDescription) open \(self.editor.slash.isOpen)")
             let color = try self.expectValue(DocCommand.all.first { $0.id == "color" }, "no Color")
             self.editor.slash.choose(color)
             try self.expect(self.editor.slash.group?.id == "color", "Color didn't open")
             self.editor.slash.choose(try self.expectValue(color.children.first { $0.swatch == "blue" }, "no blue"))
             try await self.settle()
-            try self.expect(!self.editor.slash.isOpen && DocFormatting(editor: self.editor, caretTakesBlock: true).color == .color("blue"), "not blue")
-            try await self.undo()
+            try self.expect(!self.editor.slash.isOpen && self.text(block.id) == text, "open \(self.editor.slash.isOpen) text \(self.text(block.id).debugDescription)")
+            try self.expect(DocFormatting(editor: self.editor, caretTakesBlock: true).color == .color("blue"), "not blue")
+            // Undone: the colour, the slash's removal, the slash.
+            for _ in 0..<3 { try await self.undo() }
+            try self.expect(self.text(block.id) == text, "undo: \(self.text(block.id).debugDescription)")
+            try await self.focus(block.id, at: text.utf16.count)
             bar.testTap("slash")
             self.editor.slash.choose(try self.expectValue(DocCommand.all.first { $0.id == "delete" }, "no Delete Block"))
             try await self.settle()

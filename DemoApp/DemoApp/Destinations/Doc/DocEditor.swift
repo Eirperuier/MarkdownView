@@ -64,10 +64,8 @@ final class DocEditor {
     lazy var keyboardBar = DocKeyboardBar(editor: self)
     /// Blocks as wholes: the handle, selecting blocks, moving them.
     lazy var blocks = DocBlockController(demo: demo, editor: self)
-    /// Where the command menu opened, and whether a "/" was typed there (the keyboard
-    /// bar's key opens it without one).
+    /// Where the command menu's "/" is while it's open.
     var slashOrigin: DocPosition?
-    var slashIsTyped = true
     /// The next render of the selection's block should also take keyboard focus.
     private var wantsFocus = false
     /// The text view last focused for typing. If it leaves the window while focused
@@ -98,9 +96,12 @@ final class DocEditor {
             MainActor.assumeIsolated {
                 guard let self, let view = self.allViews.first(where: \.isFirstResponder) else { return }
                 DocScrolling.reveal(view, rect: view.selectedTextRange.map { view.caretRect(for: $0.end) } ?? view.bounds)
+                // The menu stays clear of the keyboard where it is now.
+                self.placeSlash()
             }
         }
         slash.choose = { [weak self] item in self?.chooseSlash(item) }
+        slash.dismiss = { [weak self] in self?.dismissSlash() }
     }
 
     private var allViews: [UITextView] { views.values.flatMap { $0 }.compactMap(\.view) }
@@ -349,6 +350,11 @@ final class DocEditor {
             redirect(replacement, to: moved)
             return
         }
+        // Backspace in a group of the command menu: back to its top, nothing deleted.
+        if replacement.isEmpty, slash.isOpen, slash.group != nil {
+            slash.back()
+            return
+        }
         guard let block = demo.doc.block(id), block.kind.carriesText,
             let modelRange = modelRange(range, deleting: replacement.isEmpty, in: textView, block: block)
         else { return }
@@ -528,7 +534,7 @@ final class DocEditor {
             let old = rendered[ObjectIdentifier(textView)], let start = Self.textStart(of: old, block: block)
         else { return }
         let storage = Array((textView.text ?? "").utf16)
-        let from = start + origin.offset + (slashIsTyped ? 1 : 0)
+        let from = start + origin.offset + 1
         let caret = textView.selectedRange.location
         guard from <= caret, caret <= storage.count else { return }
         slashComposing(String(decoding: storage[from..<caret], as: UTF16.self))

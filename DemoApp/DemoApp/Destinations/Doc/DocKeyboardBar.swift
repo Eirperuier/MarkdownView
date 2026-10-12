@@ -8,7 +8,7 @@
 //  - Text selected: highlight, bold, italic, strikethrough, code, link and the keyboard
 //    key, spread evenly; a mark all of the selection has sits on a light tint. The
 //    highlight key opens the colours over it (text colours, highlights).
-//  - A cursor: the slash (the command menu, as "/" typed opens it, nothing typed), Aa (the caret's block selected,
+//  - A cursor: the slash (a "/" typed and the command menu open, even after a word), Aa (the caret's block selected,
 //    the format sheet over it) and ⋮ (the caret's block selected) on the left, editing
 //    going on at the caret once the sheet closes or selecting ends; the keyboard key on
 //    the right. On an empty line a divider key comes in between.
@@ -124,7 +124,7 @@ final class DocKeyboardBar: UIInputView {
         case .cursor(_, _, _, let isEmpty):
             keys.distribution = .fill
             add(key("slash", Self.slashGlyph, String(localized: "Commands")) { [weak self] in
-                self?.editor?.openCommands()
+                self?.editor?.typeSlash()
             })
             add(key("format", Self.formatGlyph, String(localized: "Format")) { [weak self] in
                 self?.editor?.blocks.formatCaretBlock()
