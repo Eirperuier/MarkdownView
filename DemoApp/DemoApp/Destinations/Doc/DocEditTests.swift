@@ -1890,6 +1890,18 @@ final class DocEditTests {
                 try self.expect(blocks.isSelecting && blocks.selected == [block.id], "selecting \(blocks.isSelecting), \(blocks.selected.count)")
                 blocks.endSelecting()
             }
+            await test("on a phone a selected block gone from the document ends selecting, and its bar") {
+                let block = try self.block("Loading older")
+                await show(block.id)
+                blocks.beginSelecting(block.id)
+                try self.expect(blocks.isSelecting, "not selecting")
+                // Not the bar's Delete (that ends selecting itself): an edit from elsewhere.
+                let current = try self.expectValue(self.demo.doc.block(block.id), "no block")
+                self.demo.edit([.deleteBlock(block: current, after: nil)], before: nil, after: nil)
+                try? await Task.sleep(for: .milliseconds(300))
+                try self.expect(!blocks.isSelecting, "still selecting a block that's gone")
+                try await self.undo()
+            }
             await test("on a phone a swipe across a block selects it, another takes it out; a short one does nothing") {
                 let block = try self.block("Loading older")
                 let heading = try self.block("第 2 节")

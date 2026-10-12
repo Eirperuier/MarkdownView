@@ -311,9 +311,13 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// Lays the handle, the selection and a drag's marks out on the rows as they are now.
     func layoutOverlays() {
         guard let list else { return }
+        // Selected blocks gone from the document (an undo, the agent) leave the selection;
+        // with none left, selecting ends (its bar goes with it). `selected` only lists
+        // blocks that exist: compare what the selection holds.
         let existing = Set(demo.doc.blocks.map(\.id))
-        if selected.contains(where: { !existing.contains($0) }) {
-            setSelection(selected.filter { existing.contains($0) })
+        let held = Self.usesHandles ? Set(macSelection.map(\.description)) : selection.state.selectedItemIDs
+        if !held.isSubset(of: Set(existing.map(\.description))) {
+            setSelection(selected)
             if selected.isEmpty, isSelecting { endSelecting() }
             return
         }
