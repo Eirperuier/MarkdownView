@@ -290,7 +290,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             return CGRect(x: left, y: page.minY, width: width, height: page.height)
         }
         guard let box = DocMediaLayout.boxSize(kind, width: width) else { return page }
-        return CGRect(x: left, y: page.minY, width: min(box.width, width), height: min(box.height, page.height))
+        // A card has the gutter above it, at its scale (DocCardGap).
+        let gap = DocMediaLayout.cardGap(kind, width: width)
+        return CGRect(x: left, y: page.minY + gap, width: min(box.width, width), height: min(box.height, page.height - gap))
     }
 
     /// The committed block at a point (list coordinates): the row under it, or on a line

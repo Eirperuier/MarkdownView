@@ -1738,11 +1738,14 @@ final class DocEditTests {
             // In the order they come: two glances, a summary, a detail, a collection.
             let frames = try cards.map { try self.expectValue(blocks.testContentFrame($0.0), "no frame for \($0.1.size)") }
             try self.expect(frames[0].minY == frames[1].minY && abs(frames[1].minX - frames[0].maxX - 22 * scale) < 1, "glances at \(frames[0]) and \(frames[1])")
+            // As far apart down as across: the gutter at the cards' scale.
+            let gutter = 22 * scale
             if columns == 2 {
-                try self.expect(frames[2].minY == frames[0].minY && abs(frames[2].minX - frames[1].maxX - 22 * scale) < 1, "the summary not beside the glances: \(frames)")
-                try self.expect(frames[3].minY == frames[4].minY && frames[4].minX > frames[3].maxX, "the detail and the collection not side by side: \(frames)")
+                try self.expect(frames[2].minY == frames[0].minY && abs(frames[2].minX - frames[1].maxX - gutter) < 1, "the summary not beside the glances: \(frames)")
+                try self.expect(frames[3].minY == frames[4].minY && abs(frames[4].minX - frames[3].maxX - gutter) < 1, "the detail and the collection not side by side: \(frames)")
+                try self.expect(abs(frames[3].minY - frames[2].maxY - gutter) < 1, "the second line not \(gutter) below the first: \(frames)")
             } else {
-                try self.expect(frames[2].minY > frames[0].maxY && frames[3].minY > frames[2].maxY, "one column, but \(frames)")
+                try self.expect(abs(frames[2].minY - frames[0].maxY - gutter) < 1 && abs(frames[3].minY - frames[2].maxY - gutter) < 1, "one column, not \(gutter) apart: \(frames)")
             }
             // Opening one is the app's to say.
             var opened: (DocBlockID, DocCard)?

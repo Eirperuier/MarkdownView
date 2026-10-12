@@ -286,6 +286,16 @@ extension DocMediaLayout {
         width / columnsWidth(flooColumns(in: width))
     }
 
+    /// The gutter above a card `width` wide (DocCardGap); none above anything else.
+    static func cardGap(_ kind: BlockKind, width: CGFloat) -> CGFloat {
+        cardSize(kind).map { CGFloat(CardSize.gutter()) * width / CGFloat($0.width()) } ?? 0
+    }
+
+    /// The gutter above each card (DocCardGap), on a page `width` wide.
+    static func flooGap(in width: CGFloat) -> CGFloat {
+        CGFloat(CardSize.gutter()) * flooScale(in: width)
+    }
+
     /// The design's width of `count` columns and the gutters between them.
     private static func columnsWidth(_ count: Int) -> CGFloat {
         CGFloat(CardSize.summary.width()) * CGFloat(count) + CGFloat(CardSize.gutter()) * CGFloat(count - 1)
@@ -363,7 +373,7 @@ extension DocMediaLayout {
         case .floo:
             // Slots of a glance's width with the gutter between, two to a column: a glance
             // takes one, every other size a column. A card that doesn't fit on the line
-            // starts the next; a line is as tall as its tallest card.
+            // starts the next, the gutter below; a line is as tall as its tallest card.
             let scale = flooScale(in: room)
             let slot = CGFloat(CardSize.glance.width() + CardSize.gutter()) * scale
             let slots = flooColumns(in: room) * 2
@@ -371,7 +381,7 @@ extension DocMediaLayout {
             for (index, size) in run.cards.enumerated() {
                 let span = size == .glance ? 1 : 2
                 if used > 0, used + span > slots {
-                    (used, y, lineHeight) = (0, y + lineHeight + gap, 0)
+                    (used, y, lineHeight) = (0, y + lineHeight + CGFloat(CardSize.gutter()) * scale, 0)
                 }
                 let frame = CGRect(x: CGFloat(used) * slot, y: y,
                                    width: CGFloat(size.width()) * scale, height: CGFloat(size.height()) * scale)
@@ -424,11 +434,16 @@ struct DocMediaCell: View {
     var inGallery = false
 
     var body: some View {
-        content
+        let cell = content
             // What a card asks of the app (its tools, its pictures).
             .environment(\.cardHost, blocks.cardHost)
             .flooDesignMediaSelection(blocks.isSelected(id))
             .modifier(DocMediaContextMenu(kind: kind, block: id, blocks: blocks))
+        if case .card(let card) = kind {
+            DocCardGap(designWidth: CGFloat(DocMediaLayout.size(of: card).width())) { cell }
+        } else {
+            cell
+        }
     }
 
     @ViewBuilder
@@ -439,6 +454,29 @@ struct DocMediaCell: View {
         } else {
             DocMediaView(kind: kind)
         }
+    }
+}
+
+/// A card with the gutter above it at its own scale, as across: cards are as far apart
+/// down as side by side (two glances and the gutter between are a summary's width).
+private struct DocCardGap: Layout {
+    let designWidth: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let card = subviews.first else { return .zero }
+        let size = card.sizeThatFits(proposal)
+        return CGSize(width: size.width, height: size.height + gap(size.width))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let card = subviews.first else { return }
+        let gap = gap(bounds.width)
+        card.place(at: CGPoint(x: bounds.minX, y: bounds.minY + gap), anchor: .topLeading,
+                   proposal: ProposedViewSize(width: bounds.width, height: bounds.height - gap))
+    }
+
+    private func gap(_ width: CGFloat) -> CGFloat {
+        CGFloat(CardSize.gutter()) * width / designWidth
     }
 }
 

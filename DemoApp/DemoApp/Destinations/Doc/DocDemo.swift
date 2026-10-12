@@ -318,7 +318,11 @@ final class DocDemo {
             let role = row.block.flatMap { kinds[$0] }.map(DocRowRole.init) ?? DocRowRole(markdown: row.blocks.first?.source ?? "")
             rows[index].role = role
             rows[index].spacingBelow = index == rows.count - 1 ? DocTypography.pageBottom : 0
-            if let run = row.run, run.kind != nil {
+            if let run = row.run, run.kind == .floo {
+                // Cards carry the gutter above them, at their scale (DocCardGap).
+                rows[index].spacingAbove = 0
+                rows[index].box = decorated[index].map { _ in DocRowBox(isFirst: true, isLast: true) }
+            } else if let run = row.run, run.kind != nil {
                 if run.index == 0 {
                     let space = role.spacing(after: previous)
                     if index > 0 {
@@ -653,7 +657,9 @@ extension DocRow {
         let boxPadding = FlooDesignTokens.Component.DecorationBox.padding
         let spacing = spacingAbove + spacingBelow + (box.map { ($0.isFirst ? boxPadding : 0) + ($0.isLast ? boxPadding : 0) } ?? 0)
         if let run, run.kind != nil {
-            return DocMediaLayout.place(run, inPage: DocBlockController.pageWidth(inWidth: width)).frame.height + spacing
+            let page = DocBlockController.pageWidth(inWidth: width)
+            let gap = run.kind == .floo ? DocMediaLayout.flooGap(in: page) : 0
+            return DocMediaLayout.place(run, inPage: page).frame.height + gap + spacing
         }
         if let media, let height = DocMediaLayout.estimatedHeight(media, width: textWidth) { return height + spacing }
         switch tree?.document.child(at: 0) {
