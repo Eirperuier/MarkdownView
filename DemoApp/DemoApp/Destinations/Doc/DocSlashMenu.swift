@@ -366,19 +366,21 @@ extension DocEditor {
 
 /// The menu over the caret's line (under it when there's no room above), Craft's: clear
 /// glass with the page's colour laid in it, a little inside its edge; a row per
-/// command, an icon and a title, a chevron on a group; up to seven rows show, the rest
-/// scroll. It keeps the place it opened in. It goes over the list, whose frame its
+/// command, an icon and a title, a chevron on a group; as tall as its rows up to a
+/// height, the rest scroll. It keeps the place it opened in. It goes over the list, whose frame its
 /// anchor is in.
 struct DocSlashMenuView: View {
     let menu: DocSlashMenu
 
     #if targetEnvironment(macCatalyst)
     private static let width: CGFloat = 246
+    private static let tallest: CGFloat = 260
     private static let row: CGFloat = 32
     private static let title = Font.system(size: 13)
     private static let icon: CGFloat = 14
     #else
     private static let width: CGFloat = 278
+    private static let tallest: CGFloat = 320
     private static let row: CGFloat = 40
     private static let title = Font.system(size: 15)
     private static let icon: CGFloat = 16
@@ -388,7 +390,6 @@ struct DocSlashMenuView: View {
     /// Between the page's colour and the rows.
     private static let inset: CGFloat = 6
     private static let radius: CGFloat = 22
-    private static let rows = 7
     private static let margin: CGFloat = 16
     private static let gap: CGFloat = 6
 
@@ -407,21 +408,19 @@ struct DocSlashMenuView: View {
         }
     }
 
-    /// Over the caret's line where all its rows fit (seven at most), else under it where
-    /// they do (never out of `room`: over the keyboard); else on the roomier side, fewer
-    /// rows.
+    /// Over the caret's line where it fits (as tall as its rows, up to `tallest`), else
+    /// under it where it does (never out of `room`: over the keyboard); else on the
+    /// roomier side, as tall as there's room.
     static func frame(over anchor: CGRect, in room: CGRect, rows count: Int) -> CGRect {
         let room = room.insetBy(dx: margin, dy: gap)
         guard !room.isNull else { return .null }
         let width = min(Self.width, room.width)
         let chrome = 2 * (rim + inset)
-        let rows = CGFloat(min(max(count, 1), Self.rows))
         let above = min(anchor.minY - gap, room.maxY) - room.minY
         let below = room.maxY - max(anchor.maxY + gap, room.minY)
-        let full = rows * row + chrome
+        let full = min(CGFloat(max(count, 1)) * row + chrome, tallest)
         let goesAbove = above >= full || (below < full && above >= below)
-        let fitting = floor(((goesAbove ? above : below) - chrome) / row)
-        let height = max(1, min(rows, fitting)) * row + chrome
+        let height = max(row + chrome, min(full, goesAbove ? above : below))
         let x = min(max(room.minX, anchor.minX - rim - inset), room.maxX - width)
         let y = goesAbove ? min(anchor.minY - gap, room.maxY) - height : max(anchor.maxY + gap, room.minY)
         return CGRect(x: x, y: y, width: width, height: height)
