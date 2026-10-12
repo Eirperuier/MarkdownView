@@ -20,6 +20,7 @@
 
 import SwiftUI
 import QuickLook
+import UIKit.UIGestureRecognizerSubclass
 import DocKit
 import MarkdownView
 import MessagingUI
@@ -116,6 +117,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @ObservationIgnored private var dropping: UIDropInteraction?
     /// The phone's swipe that selects a block, and the row it moves.
     @ObservationIgnored private var swipe: UIPanGestureRecognizer?
+    /// A phone's touches ending: a lift let go (the system tells its drag only once the
+    /// rows have settled back).
+    @ObservationIgnored private var touchEnds: DocTouchEnds?
     @ObservationIgnored private var swiped: (block: DocBlockID, cell: UIView?)?
     @ObservationIgnored private var link: CADisplayLink?
     /// A click on a row outside its text (DocEditor.click), and the phone's tap that
@@ -191,6 +195,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             swipe.delegate = self
             list.addGestureRecognizer(swipe)
             self.swipe = swipe
+            // Let go: selecting starts at once, not once the rows have settled back.
+            let ends = DocTouchEnds { [weak self] in
+                guard let self, let drag = self.drag else { return }
+                self.letGo(drag)
+            }
+            ends.delegate = self
+            list.addGestureRecognizer(ends)
+            touchEnds = ends
         }
         let dragging = UIDragInteraction(delegate: self)
         dragging.isEnabled = !Self.usesHandles
@@ -690,7 +702,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         // A table cell's own tap and the row's click both happen; a double click opens
         // what the click on it selected.
-        recognizer === rowClick || recognizer === mediaOpen
+        recognizer === rowClick || recognizer === mediaOpen || recognizer === touchEnds
     }
 
     @objc private func rowClicked(_ recognizer: UITapGestureRecognizer) {
@@ -909,15 +921,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         drag.isMoving = true
         self.drag = drag
         layoutOverlays()
-    }
-
-    /// Let go: selecting starts at once, not once the rows have settled back.
-    func dragInteraction(_ interaction: UIDragInteraction, session: UIDragSession, willEndWith operation: UIDropOperation) {
-        if operation == .cancel, let drag { letGo(drag) }
-    }
-
-    func dragInteraction(_ interaction: UIDragInteraction, item: UIDragItem, willAnimateCancelWith animator: UIDragAnimating) {
-        if let drag { letGo(drag) }
     }
 
     func dragInteraction(_ interaction: UIDragInteraction, session: UIDragSession, didEndWith operation: UIDropOperation) {
@@ -1374,22 +1377,19 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         }
     }
 
-    /// A long press on a phone lifting `id` and let go without moving, after the lift
-    /// finished or before.
-    func testLiftAndLetGo(_ id: DocBlockID, finished: Bool = true) {
-        guard let list, let dragging, let frame = contentFrame(id) else { return }
+    /// A long press on a phone lifting `id` and let go without moving, as the system has
+    /// it: the touch ends, then the lift settles back (its drag never begins).
+    /// - Returns: whether selecting had started when the touch ended.
+    func testLiftAndLetGo(_ id: DocBlockID) -> Bool {
+        guard let list, let dragging, let frame = contentFrame(id) else { return false }
         let start = CGPoint(x: frame.midX, y: frame.midY)
         let session = DocTestDragSession(view: list, point: start, items: beginDrag(id, at: start))
         let lift = DocTestAnimator()
         dragInteraction(dragging, willAnimateLiftWith: lift, session: session)
-        if finished {
-            lift.finish()
-            dragInteraction(dragging, sessionWillBegin: session)
-            dragInteraction(dragging, session: session, willEndWith: .cancel)
-        } else {
-            lift.finish(at: .start)
-        }
-        dragInteraction(dragging, session: session, didEndWith: .cancel)
+        touchEnds?.end()
+        let selectingAtOnce = isSelecting
+        lift.finish(at: .start)
+        return selectingAtOnce
     }
 
     /// How the system would lift a block's row.
@@ -1959,4 +1959,34 @@ final class DocTestAnimator: NSObject, UIDragAnimating {
         completions = []
         for completion in done { completion(position) }
     }
+}
+
+/// Watches the touches on a view without recognizing anything or holding anything back:
+/// `ended` when the last one lifts.
+final class DocTouchEnds: UIGestureRecognizer {
+    private let ended: () -> Void
+
+    /// As if the last touch lifted.
+    func end() { ended() }
+
+    init(ended: @escaping () -> Void) {
+        self.ended = ended
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        if (event.allTouches ?? touches).allSatisfy({ $0.phase == .ended || $0.phase == .cancelled }) {
+            ended()
+            state = .failed
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        state = .failed
+    }
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
 }
