@@ -1711,7 +1711,7 @@ final class DocEditTests {
             try self.expect(abs(row.height - (height + (self.demo.spacingAbove[image.id.description] ?? 0))) < 2, "row \(row.height), image \(height)")
             blocks.clear()
         }
-        await test("floo's cards: their sources compile; glances two to a line, the others across the page, each at its size's shape, drawn there") {
+        await test("floo's cards: their sources compile; in two columns where the page has room (two summaries side by side), each at its size's shape, drawn there") {
             let cards = self.demo.doc.blocks.compactMap { block -> (DocBlockID, DocCard)? in
                 if case .card(let card) = block.kind { (block.id, card) } else { nil }
             }
@@ -1722,7 +1722,9 @@ final class DocEditTests {
                                 "\(card.size): \(session.diagnostics.map(\.message)) \(session.tree.issues)")
             }
             let page = blocks.testPageWidth
-            let scale = page / 360
+            // Two 360-point columns and the 22-point gutter, at no less than 3/4 scale.
+            let columns = page / 742 >= 0.75 ? 2 : 1
+            let scale = columns == 2 ? page / 742 : page / 360
             for (id, card) in cards {
                 await show(id)
                 let frame = try self.expectValue(blocks.testContentFrame(id), "no frame for \(card.size)")
@@ -1733,10 +1735,15 @@ final class DocEditTests {
                 let drawn = try self.expectValue(blocks.testShownBox(id)?.frame, "\(card.size) not drawn")
                 try self.expect(abs(drawn.width - width) < 2 && abs(drawn.height - height) < 2, "\(card.size) drawn at \(drawn), placed at \(frame)")
             }
-            let glances = cards.filter { $0.1.size == "glance" }.map(\.0)
-            let left = try self.expectValue(blocks.testContentFrame(glances[0]), "no frame")
-            let right = try self.expectValue(blocks.testContentFrame(glances[1]), "no frame")
-            try self.expect(left.minY == right.minY && abs(right.minX - left.maxX - 22 * scale) < 1, "glances at \(left) and \(right)")
+            // In the order they come: two glances, a summary, a detail, a collection.
+            let frames = try cards.map { try self.expectValue(blocks.testContentFrame($0.0), "no frame for \($0.1.size)") }
+            try self.expect(frames[0].minY == frames[1].minY && abs(frames[1].minX - frames[0].maxX - 22 * scale) < 1, "glances at \(frames[0]) and \(frames[1])")
+            if columns == 2 {
+                try self.expect(frames[2].minY == frames[0].minY && abs(frames[2].minX - frames[1].maxX - 22 * scale) < 1, "the summary not beside the glances: \(frames)")
+                try self.expect(frames[3].minY == frames[4].minY && frames[4].minX > frames[3].maxX, "the detail and the collection not side by side: \(frames)")
+            } else {
+                try self.expect(frames[2].minY > frames[0].maxY && frames[3].minY > frames[2].maxY, "one column, but \(frames)")
+            }
             // Opening one is the app's to say.
             var opened: (DocBlockID, DocCard)?
             blocks.openCard = { opened = ($0, $1) }
@@ -2295,7 +2302,15 @@ final class DocEditTests {
         let began = CACurrentMediaTime()
         change()
         var samples: [(time: Double, box: CGRect, opacity: Float, next: CGFloat?, still: CGRect?, offset: CGFloat)] = []
-        while CACurrentMediaTime() - began < 0.7 {
+        // A long way, a spring's tail takes a while to come within half a point; rows
+        // coming on screen meanwhile (text with math) are measured on the main thread and
+        // hold the frames up. So past 0.7 s it's watched until the row after it is there.
+        let goal = blocks.testRowFrame(next)?.minY
+        func there() -> Bool {
+            guard let goal, let shown = samples.last?.next else { return true }
+            return abs(shown - goal) < 0.5
+        }
+        while CACurrentMediaTime() - began < 0.7 || (!there() && CACurrentMediaTime() - began < 1.5) {
             try? await Task.sleep(for: .milliseconds(8))
             let shown = try sample()
             samples.append((CACurrentMediaTime() - began, shown.box, shown.opacity, shown.next, shown.still, blocks.testContentOffset.y))

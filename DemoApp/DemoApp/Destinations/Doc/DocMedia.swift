@@ -270,6 +270,27 @@ extension DocMediaLayout {
         CardSize(token: card.size) ?? .summary
     }
 
+    /// A card block's size; nil for any other block.
+    static func cardSize(_ kind: BlockKind) -> CardSize? {
+        if case .card(let card) = kind { size(of: card) } else { nil }
+    }
+
+    /// Columns of cards across a page `width` wide: two (two summaries side by side)
+    /// while a card is drawn at least three quarters of its design's size, else one.
+    static func flooColumns(in width: CGFloat) -> Int {
+        width / columnsWidth(2) >= 0.75 ? 2 : 1
+    }
+
+    /// What a card is drawn at, over its design, on a page `width` wide.
+    static func flooScale(in width: CGFloat) -> CGFloat {
+        width / columnsWidth(flooColumns(in: width))
+    }
+
+    /// The design's width of `count` columns and the gutters between them.
+    private static func columnsWidth(_ count: Int) -> CGFloat {
+        CGFloat(CardSize.summary.width()) * CGFloat(count) + CGFloat(CardSize.gutter()) * CGFloat(count - 1)
+    }
+
     /// A card's height over its width, as designed.
     static func cardAspect(_ card: DocCard) -> CGFloat {
         let size = size(of: card)
@@ -311,15 +332,15 @@ extension DocMediaLayout {
 
     /// What run a block joins (cards with cards, images with images); nil: it stands
     /// alone. A large image always does.
-    /// Glances (floo's smallest cards) go two to a line, as on a 360-point column.
-    enum Run { case cards, gallery, glances }
+    /// floo's cards go in columns (`floo`, cardColumns).
+    enum Run { case cards, gallery, floo }
 
     static func run(_ kind: BlockKind) -> Run? {
         switch kind {
         case .link(let link) where link.layout == .card: .cards
         case .file(let file) where file.layout == .card: .cards
         case .image(let image) where image.size == .auto: .gallery
-        case .card(let card) where size(of: card) == .glance: .glances
+        case .card: .floo
         default: nil
         }
     }
@@ -339,13 +360,26 @@ extension DocMediaLayout {
             let card = cardWidth(in: room)
             let (line, column) = run.index.quotientAndRemainder(dividingBy: columns)
             return (CGRect(x: CGFloat(column) * (card + gap), y: CGFloat(line) * (cardHeight + gap), width: card, height: cardHeight), column > 0)
-        case .glances:
-            // The column's widths, at the page's scale: two glances and the gutter between.
-            let designed = CGFloat(CardSize.summary.width())
-            let glance = CGFloat(CardSize.glance.width()) * room / designed
-            let gutter = CGFloat(CardSize.gutter()) * room / designed
-            let (line, column) = run.index.quotientAndRemainder(dividingBy: 2)
-            return (CGRect(x: CGFloat(column) * (glance + gutter), y: CGFloat(line) * (glance + gap), width: glance, height: glance), column > 0)
+        case .floo:
+            // Slots of a glance's width with the gutter between, two to a column: a glance
+            // takes one, every other size a column. A card that doesn't fit on the line
+            // starts the next; a line is as tall as its tallest card.
+            let scale = flooScale(in: room)
+            let slot = CGFloat(CardSize.glance.width() + CardSize.gutter()) * scale
+            let slots = flooColumns(in: room) * 2
+            var (used, y, lineHeight) = (0, CGFloat(0), CGFloat(0))
+            for (index, size) in run.cards.enumerated() {
+                let span = size == .glance ? 1 : 2
+                if used > 0, used + span > slots {
+                    (used, y, lineHeight) = (0, y + lineHeight + gap, 0)
+                }
+                let frame = CGRect(x: CGFloat(used) * slot, y: y,
+                                   width: CGFloat(size.width()) * scale, height: CGFloat(size.height()) * scale)
+                if index == run.index { return (frame, used > 0) }
+                used += span
+                lineHeight = max(lineHeight, frame.height)
+            }
+            return (.zero, false)
         case .gallery:
             let (line, column) = run.index.quotientAndRemainder(dividingBy: 4)
             var y: CGFloat = 0
@@ -367,7 +401,8 @@ extension DocMediaLayout {
     static func runFrames(_ kinds: [BlockKind], width: CGFloat) -> [CGRect] {
         guard let first = kinds.first, let run = run(first) else { return [] }
         let aspects = kinds.map(aspect)
-        return kinds.indices.map { place(DocRowRun(kind: run, index: $0, aspects: aspects), inPage: width).frame }
+        let cards = kinds.compactMap(cardSize)
+        return kinds.indices.map { place(DocRowRun(kind: run, index: $0, aspects: aspects, cards: cards), inPage: width).frame }
     }
 
     /// A member's width over its height in a run: an image's in a gallery (4:3 when it

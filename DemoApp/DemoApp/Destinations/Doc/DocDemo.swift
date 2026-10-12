@@ -11,6 +11,7 @@
 
 import SwiftUI
 import DocKit
+import CardModel
 import Markdown
 import MarkdownView
 import FlooDesign
@@ -40,6 +41,8 @@ struct DocRowRun: Equatable {
     var index: Int
     /// Each member's width over its height (a gallery's images; cards are all alike).
     var aspects: [CGFloat]
+    /// Each member's size, in a run of floo's cards.
+    var cards: [CardSize] = []
     /// A decoration's inset on each side of the page (a row on its own line).
     var inset: CGFloat = 0
 }
@@ -232,6 +235,10 @@ final class DocDemo {
                 // drawn from the model: text and the rest as their trees, links, files and
                 // images as themselves.
                 let alone = Doc(id: doc.id, blocks: [block])
+                // A card compiles with the document, not when it first shows: the first
+                // starts the card runtime (~240 ms), which mustn't fall in a scroll or an
+                // animation.
+                if case .card(let card) = block.kind { _ = DocMediaLayout.session(for: card) }
                 let row = if let text = Self.textRow(block, in: alone) {
                     DocRow(id: block.id.description, block: block.id, text: text)
                 } else {
@@ -279,9 +286,11 @@ final class DocDemo {
                 }
             }
             if let kind, kind != .gallery || end - index > 1 {
-                let aspects = rows[index..<end].compactMap(block).map { DocMediaLayout.aspect($0.kind) }
+                let members = rows[index..<end].compactMap(block).map(\.kind)
+                let aspects = members.map(DocMediaLayout.aspect)
+                let cards = members.compactMap(DocMediaLayout.cardSize)
                 for offset in 0..<(end - index) {
-                    rows[index + offset].run = DocRowRun(kind: kind, index: offset, aspects: aspects)
+                    rows[index + offset].run = DocRowRun(kind: kind, index: offset, aspects: aspects, cards: cards)
                 }
             } else {
                 let inset = first.decoration == nil ? 0 : FlooDesignTokens.Component.DecorationBox.inset
