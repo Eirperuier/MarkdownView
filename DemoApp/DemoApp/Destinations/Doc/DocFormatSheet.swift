@@ -73,7 +73,7 @@ struct DocFormatSheet: View {
             HStack(spacing: Tokens.Component.Tile.spacing) {
                 ForEach(shortStyles, id: \.key) { style in
                     chip(isOn: formatting.kindIsOn(style.kind), identifier: "sheet-style-\(style.key)") {
-                        formatting.setStyle(style.kind)
+                        formatting.setTextStyle(style.kind)
                     } label: {
                         styleLabel(style)
                     }
@@ -168,7 +168,7 @@ struct DocFormatSheet: View {
                 HStack(spacing: Tokens.Component.Tile.spacing) {
                     ForEach(rows[index], id: \.key) { style in
                         chip(isOn: formatting.kindIsOn(style.kind), identifier: "sheet-style-\(style.key)") {
-                            formatting.setStyle(style.kind)
+                            formatting.setTextStyle(style.kind)
                             go(.main)
                         } label: {
                             styleLabel(style, large: true)

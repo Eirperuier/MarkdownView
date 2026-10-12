@@ -481,6 +481,34 @@ final class DocEditTests {
             let view = try self.expectValue(self.editor.textView(for: line.id), "no text view")
             try self.expect((view.text ?? "").contains("==hi== $5 and $6 :circle[x]"), "shows \((view.text ?? "").debugDescription)")
         }
+        await test("a paragraph made a title takes its new size at once: all its text laid out, never over the row after it") {
+            let line = try await emptyLine()
+            try await self.type(String(repeating: "Words that wrap round the page ", count: 6), waitEach: false)
+            try await self.showsModelSoon(line.id)
+            try? await Task.sleep(for: .milliseconds(400))
+            let view = try self.expectValue(self.editor.textView(for: line.id), "no text view")
+            let next = try self.blockAfter(line.id).id
+            let blocks = self.editor.blocks
+            let before = view.bounds.height
+            let began = CACurrentMediaTime()
+            self.editor.keyCommand(.style(.heading(level: 1)), in: line.id)
+            var trace: [String] = []
+            while CACurrentMediaTime() - began < 0.7 {
+                try? await Task.sleep(for: .milliseconds(8))
+                let layout = try self.expectValue(view.textLayoutManager, "no TextKit 2")
+                let document = layout.documentRange
+                let laidOut = layout.textViewportLayoutController.viewportRange.map { layout.offset(from: document.location, to: $0.endLocation) } ?? 0
+                let length = layout.offset(from: document.location, to: document.endLocation)
+                let top = try self.expectValue(blocks.testShownFrame(of: view, in: line.id)?.minY, "no text drawn")
+                let shown = layout.usageBoundsForTextContainer.maxY
+                let nextTop = try self.expectValue(blocks.testShownRowFrame(next)?.minY, "next row not on screen")
+                trace.append(String(format: "%.3f:h%.0f %d/%d over%.1f", CACurrentMediaTime() - began, view.bounds.height, laidOut, length, top + shown - nextTop))
+                try self.expect(laidOut == length, "only \(laidOut) of \(length) laid out at \(view.bounds.height) high: \(trace)")
+                try self.expect(top + shown <= nextTop + 1, "the text over the next row: \(trace)")
+            }
+            print("DOCTEST TRACE title grows " + trace.joined(separator: " "))
+            try self.expect(view.bounds.height > before + 30, "at rest \(view.bounds.height) high, from \(before)")
+        }
         await test("⌃6 makes the line a caption, drawn smaller; ⌃5 makes it body text again") {
             let line = try await emptyLine()
             try await self.type("Photo by me")

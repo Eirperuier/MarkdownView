@@ -95,6 +95,12 @@ struct DocFormatting {
         editor.blocks.reshape { editor.setKind(kind, of: ids) }
     }
 
+    /// One of the text styles (⌃1–⌃6): only the type changes, which has nothing to
+    /// animate, so it isn't animated.
+    func setTextStyle(_ kind: BlockKind) {
+        editor.setKind(kind, of: targets.map(\.id))
+    }
+
     /// Pressed again, a list goes back to text (Craft's); items already in the style
     /// keep their state (a done task stays done).
     func toggleList(_ kind: BlockKind) {

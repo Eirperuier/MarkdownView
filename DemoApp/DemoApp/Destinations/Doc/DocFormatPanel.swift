@@ -242,7 +242,7 @@ struct DocFormatPanel: View {
     private func tile(_ style: (key: String, title: String, size: CGFloat, weight: Font.Weight, kind: BlockKind)) -> some View {
         let isOn = kindIsOn(style.kind)
         return Button {
-            formatting.setStyle(style.kind)
+            formatting.setTextStyle(style.kind)
         } label: {
             Text(style.title)
                 .font(.system(size: style.size, weight: style.weight))
