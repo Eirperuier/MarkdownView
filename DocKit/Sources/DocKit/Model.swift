@@ -57,13 +57,15 @@ public enum BlockKind: Hashable, Sendable, Codable {
     /// A file attached to the document.
     case file(file: DocFile)
     case card(card: DocCard)
+    /// A view the page's width, as tall as it draws (not a card: no frame, no size).
+    case view(view: DocView)
     case database(id: DatabaseID, view: DatabaseView)
 
     /// The kinds whose `text` holds content; the rest must be empty.
     public var carriesText: Bool {
         switch self {
         case .paragraph, .heading, .listItem, .quote, .caption, .code, .math: true
-        case .divider, .image, .link, .file, .card, .database: false
+        case .divider, .image, .link, .file, .card, .view, .database: false
         }
     }
 
@@ -71,7 +73,7 @@ public enum BlockKind: Hashable, Sendable, Codable {
     public var allowsMarks: Bool {
         switch self {
         case .paragraph, .heading, .listItem, .quote, .caption: true
-        case .code, .math, .divider, .image, .link, .file, .card, .database: false
+        case .code, .math, .divider, .image, .link, .file, .card, .view, .database: false
         }
     }
 
@@ -169,6 +171,18 @@ public struct DocCard: Hashable, Sendable, Codable {
     public init(size: String, view: String? = nil, source: String? = nil, data: JSONValue? = nil) {
         self.size = size
         self.view = view
+        self.source = source
+        self.data = data
+    }
+}
+
+/// A view drawn from source in the cards' language with its data, across the page and as
+/// tall as it draws: a dashboard, a comparison, a form (not a card, which has a size).
+public struct DocView: Hashable, Sendable, Codable {
+    public var source: String
+    public var data: JSONValue?
+
+    public init(source: String, data: JSONValue? = nil) {
         self.source = source
         self.data = data
     }

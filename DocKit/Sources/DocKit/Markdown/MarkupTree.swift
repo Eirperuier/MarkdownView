@@ -17,7 +17,7 @@ public import Markdown
 extension Doc {
     /// The block as a tree, with how deep it is: a paragraph, a heading, a quote, a caption, a list
     /// item as a list of one (numbered as it is in its list), code, maths, a divider, a
-    /// card (its fence) or a table. Nil for an image, a link or a file (no tree holds
+    /// card or a view (its fence) or a table. Nil for an image, a link or a file (no tree holds
     /// what they show) and a database the doc doesn't have.
     public func markupTree(of id: DocBlockID) -> (document: Document, depth: Int)? {
         var layout = ListLayout()
@@ -56,6 +56,9 @@ extension Doc {
             case .card(let card):
                 guard let json = Self.json(of: card) else { return nil }
                 return (Document(CodeBlock(language: "floo.card", json + "\n")), 0)
+            case .view(let view):
+                guard let json = Self.json(of: view) else { return nil }
+                return (Document(CodeBlock(language: "floo.view", json + "\n")), 0)
             case .database(let id, let view):
                 guard let table = databases[id]?.cells(view: view) else { return nil }
                 func cell(_ text: String) -> Table.Cell {

@@ -468,11 +468,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// selects it and a drag moves it, and the pointer is the I-beam over text only
     /// where a click would edit it. On a phone every row does but while selecting,
     /// when a tap on any block selects it or takes it out, never edits; while the agent
-    /// writes (the page a preview), every row.
+    /// writes (the page a preview), every row. A view's row always does on the Mac (its
+    /// controls are live; its handle selects and moves it).
     func blockTakes(_ id: DocBlockID, editsText: Bool) -> Bool {
         guard !demo.isAgentWriting else { return true }
         guard Self.usesHandles else { return !isSelecting }
-        if selected.contains(id) { return true }
+        if selected.contains(id) || isView(id) { return true }
         guard let editing = typing ?? editor.sources.editing ?? editor.tables.editing?.block else { return false }
         return editing == id || editsText
     }
@@ -486,7 +487,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             !sequence(first: view, next: { $0?.superview }).contains(where: { $0 is UIControl || $0 === handle })
         else { return false }
         let editsText = demo.rows.first { $0.block == id }?.editsText ?? false
-        return !(blockTakes(id, editsText: editsText) && editsText)
+        return !(blockTakes(id, editsText: editsText) && editsText) && !isView(id)
+    }
+
+    private func isView(_ id: DocBlockID) -> Bool {
+        if case .view? = demo.doc.block(id)?.kind { true } else { false }
     }
 
     /// A click on a block (or its handle): it becomes the selection; ⇧ extends the
@@ -1669,7 +1674,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     /// The key window as a PNG at `path`, for screenshots without screen recording.
     static func drawWindow(to path: String) {
-        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { return }
+        // The key window, or (the app not in front) the scene's first.
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene).flatMap { $0.keyWindow ?? $0.windows.first } }).first else { return }
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }

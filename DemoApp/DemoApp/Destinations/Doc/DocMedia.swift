@@ -6,7 +6,8 @@
 //  FlooDesign's cards in the block's layout: small (a pill as wide as its name), regular
 //  (a row: thumbnail, title, details) and card (a column of the page: the preview on
 //  top, the text below). Images fit or fill, at their own size or the page's width.
-//  Cards (floo's) are drawn at their size's design and scaled to the page.
+//  Cards (floo's) are drawn at their size's design and scaled to the page. Views (floo's
+//  too) aren't cards: the page's width, as tall as they draw, nothing round them.
 //
 
 import SwiftUI
@@ -25,6 +26,7 @@ struct DocMediaView: View {
         case .file(let file): DocFileView(file: file)
         case .image(let image): DocImageView(image: image)
         case .card(let card): DocCardView(card: card)
+        case .view(let view): DocViewView(view: view)
         default: EmptyView()
         }
     }
@@ -32,7 +34,7 @@ struct DocMediaView: View {
     /// The kinds this view draws.
     static func draws(_ kind: BlockKind) -> Bool {
         switch kind {
-        case .link, .file, .image, .card: true
+        case .link, .file, .image, .card, .view: true
         default: false
         }
     }
@@ -83,6 +85,18 @@ struct DocCardView: View {
         }
         .flooDesignScaled(designWidth: CGFloat(size.width(grid: DocMediaLayout.cardGrid)))
         .flooDesignMediaBox()
+    }
+}
+
+/// A view: the page's width, as tall as it draws there (ViewFrame), its parts laid out
+/// for that width (not scaled), on the page with no box. Its controls are FlooDesign's
+/// where it doesn't style them itself.
+struct DocViewView: View {
+    let view: DocView
+
+    var body: some View {
+        ViewFrame { CardView(tree: DocMediaLayout.session(for: view).tree) }
+            .flooDesignControls()
     }
 }
 
@@ -209,7 +223,7 @@ enum DocMediaLayout {
             return imageBox(image, width: width)
         case .card(let card):
             return CGSize(width: width, height: width * cardAspect(card))
-        case .link, .file:
+        case .link, .file, .view:
             let key = BoxKey(kind: kind, width: width)
             if let size = boxSizes[key] { return size }
             let host = UIHostingController(rootView: DocMediaView(kind: kind))
@@ -260,6 +274,8 @@ enum DocMediaLayout {
         case .file(let file): file.layout.pick(Card.smallFileHeight, Card.regularFileHeight, cardHeight)
         case .image(let image): imageHeight(image, width: width)
         case .card(let card): width * cardAspect(card)
+        // As tall as it draws, which isn't known until it is.
+        case .view: width * 0.75
         default: nil
         }
     }
@@ -318,16 +334,30 @@ extension DocMediaLayout {
 
     /// A card's session: its source compiled with its data, once per card.
     @MainActor static func session(for card: DocCard) -> CardSession {
-        if let session = sessions[card] { return session }
-        let data = card.data.flatMap { try? JSONEncoder().encode($0) }.flatMap { try? JSONDecoder().decode(CardValue.self, from: $0) }
+        session(SessionKey(source: card.source ?? "", data: card.data))
+    }
+
+    /// A view's session, as a card's.
+    @MainActor static func session(for view: DocView) -> CardSession {
+        session(SessionKey(source: view.source, data: view.data))
+    }
+
+    @MainActor private static func session(_ key: SessionKey) -> CardSession {
+        if let session = sessions[key] { return session }
+        let data = key.data.flatMap { try? JSONEncoder().encode($0) }.flatMap { try? JSONDecoder().decode(CardValue.self, from: $0) }
         let session = CardSession(data: data ?? .object([:]))
-        session.append(card.source ?? "")
+        session.append(key.source)
         session.finish()
-        sessions[card] = session
+        sessions[key] = session
         return session
     }
 
-    @MainActor private static var sessions: [DocCard: CardSession] = [:]
+    private struct SessionKey: Hashable {
+        let source: String
+        let data: JSONValue?
+    }
+
+    @MainActor private static var sessions: [SessionKey: CardSession] = [:]
 }
 
 extension DocLayout {

@@ -157,6 +157,8 @@ final class DocDemo {
     }
 
     var isAgentWriting: Bool { agentStatus != nil }
+    /// What the page's views sent the agent (DocDemoHost): kept, as nothing answers here.
+    var sentToAgent: [String] = []
 
     func reset() {
         stop()
@@ -235,10 +237,11 @@ final class DocDemo {
                 // drawn from the model: text and the rest as their trees, links, files and
                 // images as themselves.
                 let alone = Doc(id: doc.id, blocks: [block])
-                // A card compiles with the document, not when it first shows: the first
-                // starts the card runtime (~240 ms), which mustn't fall in a scroll or an
-                // animation.
+                // A card or a view compiles with the document, not when it first shows: the
+                // first starts the card runtime (~240 ms), which mustn't fall in a scroll or
+                // an animation.
                 if case .card(let card) = block.kind { _ = DocMediaLayout.session(for: card) }
+                if case .view(let view) = block.kind { _ = DocMediaLayout.session(for: view) }
                 let row = if let text = Self.textRow(block, in: alone) {
                     DocRow(id: block.id.description, block: block.id, text: text)
                 } else {

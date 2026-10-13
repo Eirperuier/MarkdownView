@@ -102,6 +102,7 @@ struct MarkdownExportTests {
         let doc = Doc(id: fixedID(0), blocks: [
             block(1, .card(card: DocCard(size: "m", source: "<b/>", data: ["n": 1]))),
             block(2, .database(id: database.id, view: .table(hidden: [], sort: [DatabaseSort(column: column.id)]))),
+            block(3, .view(view: DocView(source: "VStack {}", data: ["n": 2]))),
         ], databases: [database.id: database])
         #expect(doc.markdown == """
             ```floo.card
@@ -112,7 +113,12 @@ struct MarkdownExportTests {
             | --- | --- |
             | a |  |
             | b\\|c | ✓ |
+
+            ```floo.view
+            {"data":{"n":2},"source":"VStack {}"}
+            ```
             """)
+        #expect(parse(doc.markdown).blocks.map(\.kind).last == .view(view: DocView(source: "VStack {}", data: ["n": 2])))
     }
 
     @Test

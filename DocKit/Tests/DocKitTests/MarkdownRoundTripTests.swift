@@ -214,7 +214,8 @@ private enum CanonicalDoc {
                 ], &rng)))
             case 10:
                 let card = DocCard(size: "m", view: pick([nil, "chart"], &rng), source: pick([nil, "<svg/>"], &rng), data: ["n": 1, "s": "x"])
-                blocks.append(DocBlock(id: id, kind: .card(card: card)))
+                let view = DocView(source: pick(["VStack {}", "Text(\"```\")"], &rng), data: pick([nil, ["n": 1]], &rng))
+                blocks.append(DocBlock(id: id, kind: pick([.card(card: card), .view(view: view)], &rng)))
             default:
                 let database = table(&rng)
                 databases[database.id] = database

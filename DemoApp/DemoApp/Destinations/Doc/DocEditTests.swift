@@ -1758,6 +1758,43 @@ final class DocEditTests {
             blocks.openCard = nil
             try self.expect(opened?.0 == cards[2].0 && opened?.1 == cards[2].1, "opened \(String(describing: opened?.1.size))")
         }
+        await test("floo's views: their sources compile; each the page's width and as tall as it draws, its controls live, what it sends the agent's") {
+            let views = self.demo.doc.blocks.compactMap { block -> (DocBlockID, DocView)? in
+                if case .view(let view) = block.kind { (block.id, view) } else { nil }
+            }
+            try self.expect(views.count == 3, "\(views.count) views")
+            let page = blocks.testPageWidth
+            for (index, (id, view)) in views.enumerated() {
+                let session = DocMediaLayout.session(for: view)
+                try self.expect(session.diagnostics.isEmpty && session.tree.issues.isEmpty && !session.tree.roots.isEmpty,
+                                "view \(index): \(session.diagnostics.map(\.message)) \(session.tree.issues)")
+                await show(id)
+                let frame = try self.expectValue(blocks.testContentFrame(id), "no frame for view \(index)")
+                let drawn = try self.expectValue(DocMediaLayout.boxSize(.view(view: view), width: page), "view \(index) not measured")
+                try self.expect(abs(frame.width - page) < 1 && abs(drawn.width - page) < 1, "view \(index) \(frame.width) wide (drawn \(drawn.width)), the page \(page)")
+                // Taller than the guess the list starts from, and its row as tall as it draws.
+                let row = try self.expectValue(blocks.testRowFrame(id), "no row for view \(index)")
+                let spacing = self.demo.rows.first { $0.block == id }.map { $0.spacingAbove + $0.spacingBelow } ?? 0
+                try self.expect(drawn.height > page * 0.75 / 2 && abs(row.height - (drawn.height + spacing)) < 2,
+                                "view \(index): row \(row.height), drawn \(drawn.height), spacing \(spacing)")
+                // Its controls take clicks, unselected (its handle selects it).
+                if DocBlockController.usesHandles {
+                    try self.expect(blocks.blockTakes(id, editsText: false), "view \(index) doesn't take clicks")
+                }
+                // -docViewShots <name>: each drawn to <name>-<n>.png in the app's (sandboxed) temporary folder.
+                if let name = UserDefaults.standard.string(forKey: "docViewShots") {
+                    let path = FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(index).png").path
+                    DocBlockController.drawWindow(to: path)
+                    print("DOCTEST NOTE view shot \(path)")
+                }
+            }
+            // What a view sends goes to the agent; any other tool is refused.
+            let host = try self.expectValue(blocks.cardHost, "no host")
+            let answer = try await host.call("send", arguments: ["message": .string("weekend: relaxed")])
+            try self.expect(answer != .null && self.demo.sentToAgent.last == "weekend: relaxed", "sent \(self.demo.sentToAgent), answer \(answer)")
+            let refused = (try? await host.call("mail_send", arguments: [:])) == nil
+            try self.expect(refused, "another tool ran")
+        }
         await test("cards next to each other share a line; a point on each picks that one") {
             let line = try self.expectValue(self.linkCards(), "no line of cards")
             await show(line[0])

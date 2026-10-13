@@ -98,6 +98,10 @@ extension Doc {
             guard let json = Self.json(of: card) else { return "" }
             let fence = Self.fence(for: json)
             return "\(fence)floo.card\n\(json)\n\(fence)"
+        case .view(let view):
+            guard let json = Self.json(of: view) else { return "" }
+            let fence = Self.fence(for: json)
+            return "\(fence)floo.view\n\(json)\n\(fence)"
         case .database(let id, let view):
             return databases[id].map { $0.markdownTable(view: view) } ?? ""
         }
@@ -112,11 +116,11 @@ extension Doc {
         }.joined(separator: "\n")
     }
 
-    /// A card as its fence holds it: JSON, keys sorted.
-    static func json(of card: DocCard) -> String? {
+    /// A card or a view as its fence holds it: JSON, keys sorted.
+    static func json(of value: some Encodable) -> String? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        guard let data = try? encoder.encode(card) else { return nil }
+        guard let data = try? encoder.encode(value) else { return nil }
         return String(decoding: data, as: UTF8.self)
     }
 

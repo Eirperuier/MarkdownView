@@ -106,24 +106,27 @@ struct DocDestination: View {
         }
         .task {
             editor.blocks.openURL = openURL
+            editor.blocks.cardHost = DocDemoHost { [demo] in demo.sentToAgent.append($0) }
             // Opening a document starts at its top (TiledView's first offset tucks the
             // first row under the bar's edge).
             try? await Task.sleep(for: .milliseconds(150))
             if let first = demo.rows.first?.id { reader.scrollTo(id: first, anchor: .top, animated: false) }
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
             editor.blocks.attach(reader)
-            // -docShow code|math|media: open at the first code, math or link/file/image
-            // block (the top of the first media); -docEdit YES edits code or math.
+            // -docShow code|math|media|view: open at the first code, math, link/file/image
+            // or view block (the top of the first media or view); -docEdit YES edits code
+            // or math.
             if let kind = UserDefaults.standard.string(forKey: "docShow"),
                let row = demo.rows.first(where: { row in
                    switch kind {
                    case "code": if case .code = row.sourceKind { true } else { false }
                    case "media": row.media != nil
+                   case "view": if case .view? = row.media { true } else { false }
                    default: row.sourceKind == .math
                    }
                }),
                let block = row.block {
-                reader.scrollTo(id: row.id, anchor: kind == "media" ? .top : .center, animated: false)
+                reader.scrollTo(id: row.id, anchor: kind == "media" || kind == "view" ? .top : .center, animated: false)
                 if UserDefaults.standard.bool(forKey: "docEdit") {
                     try? await Task.sleep(for: .milliseconds(400))
                     editor.sources.focus(block)

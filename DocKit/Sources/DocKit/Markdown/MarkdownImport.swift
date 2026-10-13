@@ -162,6 +162,10 @@ private struct MarkdownImporter<Generator: RandomNumberGenerator> {
             append(.card(card: card), indent: indent)
             return
         }
+        if language == "floo.view", let view = try? JSONDecoder().decode(DocView.self, from: Data(body.utf8)) {
+            append(.view(view: view), indent: indent)
+            return
+        }
         append(.code(language: language), indent: indent, text: DocText(string: InlineBuilder.cleaned(body)))
     }
 
