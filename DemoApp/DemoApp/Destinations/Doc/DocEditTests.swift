@@ -5,7 +5,8 @@
 //  Scripted editing against the real page: keystrokes go into the on-screen text
 //  views through UIKeyInput (the keyboard's own path), and after each one the model,
 //  the storage and the cursor must agree. Run with `-docDemo YES -docEditTest YES`;
-//  results are printed as `DOCTEST PASS|FAIL <name>` and a `DOCTEST DONE` summary.
+//  results are printed as `DOCTEST PASS|FAIL <name>` and a `DOCTEST DONE` summary, and
+//  written to doctest.log in the app's temporary folder (docTestLog).
 //
 
 import SwiftUI
@@ -14,6 +15,21 @@ import DocKit
 import MarkdownView
 import MessagingUI
 import FlooDesign
+
+/// A test's line: printed, and added to doctest.log in the app's temporary folder, for a
+/// script that can't read the app's console (a simulator's app launched in the background
+/// prints to no one).
+func docTestLog(_ line: String) {
+    print(line)
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("doctest.log")
+    guard let handle = try? FileHandle(forWritingTo: url) else {
+        try? Data((line + "\n").utf8).write(to: url)
+        return
+    }
+    handle.seekToEndOfFile()
+    handle.write(Data((line + "\n").utf8))
+    try? handle.close()
+}
 
 @MainActor
 final class DocEditTests {
@@ -71,10 +87,10 @@ final class DocEditTests {
                 try showsModel(block.id)
                 if !isQuote { try showsModel(try blockAfter(block.id).id) }
                 passed += 1
-                print("DOCTEST PASS \(name)")
+                docTestLog("DOCTEST PASS \(name)")
             } catch {
                 failed += 1
-                print("DOCTEST FAIL \(name): \(error)")
+                docTestLog("DOCTEST FAIL \(name): \(error)")
             }
         }
     }
@@ -137,6 +153,7 @@ final class DocEditTests {
 
     func run() async {
         setvbuf(stdout, nil, _IOLBF, 0)
+        try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("doctest.log"))
         await test("Return, Backspace, Return at a person's pace keeps the line on screen") {
             let block = try self.block("The trap is timing")
             try await self.focus(block.id, at: block.text.length)
@@ -506,7 +523,7 @@ final class DocEditTests {
                 try self.expect(laidOut == length, "only \(laidOut) of \(length) laid out at \(view.bounds.height) high: \(trace)")
                 try self.expect(top + shown <= nextTop + 1, "the text over the next row: \(trace)")
             }
-            print("DOCTEST TRACE title grows " + trace.joined(separator: " "))
+            docTestLog("DOCTEST TRACE title grows " + trace.joined(separator: " "))
             try self.expect(view.bounds.height > before + 30, "at rest \(view.bounds.height) high, from \(before)")
         }
         await test("⌃6 makes the line a caption, drawn smaller; ⌃5 makes it body text again") {
@@ -631,7 +648,7 @@ final class DocEditTests {
             let menu = self.editor.slash
             try self.expect(menu.isOpen, "not open")
             let frame = menu.frame
-            print("DOCTEST NOTE slash anchor \(menu.anchor) room \(menu.room) frame \(frame)")
+            docTestLog("DOCTEST NOTE slash anchor \(menu.anchor) room \(menu.room) frame \(frame)")
             try self.expect(!frame.isNull && frame.height > 40 && menu.room.contains(frame), "frame \(frame) in room \(menu.room)")
             // The page holds still while it's open.
             let list = try self.expectValue(self.editor.textView(for: block.id).flatMap(DocScrolling.list), "no list")
@@ -1218,7 +1235,7 @@ final class DocEditTests {
         }
         await blockTests()
         await keyboardBarTests()
-        print("DOCTEST DONE pass=\(passed) fail=\(failed)")
+        docTestLog("DOCTEST DONE pass=\(passed) fail=\(failed)")
     }
 
     /// The bar over a phone's keyboard (DocKeyboardBar.swift). It exists on the Mac too,
@@ -1685,7 +1702,7 @@ final class DocEditTests {
             }
             let end = try self.expectValue(samples.last, "no samples")
             let trace = samples.map { String(format: "%.3f:%.1f/%.1f", $0.time, $0.edge - end.edge, $0.next - end.next) }.joined(separator: " ")
-            print("DOCTEST TRACE back and forth \(start.edge)/\(start.next) → \(trace)")
+            docTestLog("DOCTEST TRACE back and forth \(start.edge)/\(start.next) → \(trace)")
             try self.expect(abs(end.edge - start.edge) < 0.5 && abs(end.next - start.next) < 0.5, "not back where it began: \(trace)")
             try self.expect(samples.contains { abs($0.edge - end.edge) > 6 }, "the text never moved: \(trace)")
             try self.expect(self.editor.textView(for: paragraph.id) === view, "the text has another view")
@@ -1773,8 +1790,12 @@ final class DocEditTests {
                 let drawn = try self.expectValue(DocMediaLayout.boxSize(.view(view: view), width: page), "view \(index) not measured")
                 try self.expect(abs(frame.width - page) < 1 && abs(drawn.width - page) < 1, "view \(index) \(frame.width) wide (drawn \(drawn.width)), the page \(page)")
                 // Taller than the guess the list starts from, and its row as tall as it draws.
-                let row = try self.expectValue(blocks.testRowFrame(id), "no row for view \(index)")
                 let spacing = self.demo.rows.first { $0.block == id }.map { $0.spacingAbove + $0.spacingBelow } ?? 0
+                // Measured once it's drawn: up to 2 s for a slow device.
+                for _ in 0..<20 where abs((blocks.testRowFrame(id)?.height ?? 0) - (drawn.height + spacing)) >= 2 {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                let row = try self.expectValue(blocks.testRowFrame(id), "no row for view \(index)")
                 try self.expect(drawn.height > page * 0.75 / 2 && abs(row.height - (drawn.height + spacing)) < 2,
                                 "view \(index): row \(row.height), drawn \(drawn.height), spacing \(spacing)")
                 // Its controls take clicks, unselected (its handle selects it).
@@ -1785,7 +1806,7 @@ final class DocEditTests {
                 if let name = UserDefaults.standard.string(forKey: "docViewShots") {
                     let path = FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(index).png").path
                     DocBlockController.drawWindow(to: path)
-                    print("DOCTEST NOTE view shot \(path)")
+                    docTestLog("DOCTEST NOTE view shot \(path)")
                 }
             }
             // What a view sends goes to the agent; any other tool is refused.
@@ -2204,10 +2225,10 @@ final class DocEditTests {
         do {
             try await body()
             passed += 1
-            print("DOCTEST PASS (\(took())) \(name)")
+            docTestLog("DOCTEST PASS (\(took())) \(name)")
         } catch {
             failed += 1
-            print("DOCTEST FAIL (\(took())) \(name): \(error)")
+            docTestLog("DOCTEST FAIL (\(took())) \(name): \(error)")
         }
     }
 
@@ -2275,7 +2296,7 @@ final class DocEditTests {
         }
         let end = try expectValue(samples.last, "no samples")
         let trace = samples.map { String(format: "%.3f:%.1f/%.1f", $0.time, $0.bottom - start.bottom, $0.next - start.next) }.joined(separator: " ")
-        print("DOCTEST TRACE reshape \(start.bottom)/\(start.next) → \(trace)")
+        docTestLog("DOCTEST TRACE reshape \(start.bottom)/\(start.next) → \(trace)")
         func between(_ value: CGFloat, _ a: CGFloat, _ b: CGFloat) -> Bool { value > min(a, b) + 3 && value < max(a, b) - 3 }
         // On its way: some frames show both partway, not one jump.
         let partway = samples.filter { between($0.bottom, start.bottom, end.bottom) && between($0.next, start.next, end.next) }
@@ -2317,7 +2338,7 @@ final class DocEditTests {
         }
         let end = try expectValue(samples.last, "no samples")
         let trace = samples.map { String(format: "%.3f:%.1f/%.1f", $0.time, $0.edge - start.edge, $0.next - start.next) }.joined(separator: " ")
-        print("DOCTEST TRACE in step \(name) \(start.edge)/\(start.next) → \(trace)")
+        docTestLog("DOCTEST TRACE in step \(name) \(start.edge)/\(start.next) → \(trace)")
         func between(_ value: CGFloat, _ a: CGFloat, _ b: CGFloat) -> Bool { value > min(a, b) + 2 && value < max(a, b) - 2 }
         try expect(abs(end.edge - start.edge) > 6 && abs(end.next - start.next) > 6, "\(name): nothing moved: \(trace)")
         let together = samples.filter { between($0.edge, start.edge, end.edge) && between($0.next, start.next, end.next) }
@@ -2364,7 +2385,7 @@ final class DocEditTests {
             String(format: "%.3f:(%.0f,%.0f %.0fx%.0f a%.2f)/%.1f", $0.time, $0.box.minX - start.box.minX, $0.box.minY - start.box.minY,
                    $0.box.width, $0.box.height, $0.opacity, ($0.next ?? .nan) - (start.next ?? .nan))
         }.joined(separator: " ")
-        print("DOCTEST TRACE move \(start.box) → \(trace)")
+        docTestLog("DOCTEST TRACE move \(start.box) → \(trace)")
         let edges: [(CGRect) -> CGFloat] = [\.minX, \.minY, \.width, \.height]
         let changing = edges.filter { abs($0(end.box) - $0(start.box)) >= 8 }
         try expect(!changing.isEmpty, "the box didn't change: \(trace)")
