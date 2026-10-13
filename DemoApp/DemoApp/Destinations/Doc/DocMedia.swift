@@ -90,13 +90,22 @@ struct DocCardView: View {
 
 /// A view: the page's width, as tall as it draws there (ViewFrame), its parts laid out
 /// for that width (not scaled), on the page with no box. Its controls are FlooDesign's
-/// where it doesn't style them itself.
+/// where it doesn't style them itself, and where it names a style FlooDesign has: a
+/// segmented picker FlooDesign's, a prominent button its primary one.
 struct DocViewView: View {
     let view: DocView
 
     var body: some View {
         ViewFrame { CardView(tree: DocMediaLayout.session(for: view).tree) }
+            .environment(\.cardSegmentedPicker, Self.segments)
+            .environment(\.cardButtonStyles, ["borderedProminent": CardHostButtonStyle(FlooDesignButtonStyle(.primary))])
             .flooDesignControls()
+    }
+
+    private static let segments = CardSegmentedPicker { selection, segments in
+        let index = Binding(get: { segments.firstIndex { $0.tag == selection.wrappedValue } ?? -1 },
+                            set: { selection.wrappedValue = segments[$0].tag })
+        return AnyView(FlooDesignSegmentedPicker(selection: index, options: Array(segments.indices)) { segments[$0].label })
     }
 }
 
