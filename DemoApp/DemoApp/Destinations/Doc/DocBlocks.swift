@@ -490,8 +490,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         return !(blockTakes(id, editsText: editsText) && editsText) && !isView(id)
     }
 
+    /// A view or a collection: its controls take clicks (its handle selects it).
     private func isView(_ id: DocBlockID) -> Bool {
-        if case .view? = demo.doc.block(id)?.kind { true } else { false }
+        switch demo.doc.block(id)?.kind {
+        case .view?, .collection?: true
+        default: false
+        }
     }
 
     /// A click on a block (or its handle): it becomes the selection; ⇧ extends the
@@ -1394,6 +1398,13 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
                 database.id = demo.newID()
                 steps.append(.createDatabase(database: database))
                 copy.kind = .database(id: database.id, view: view)
+            }
+            // A collection's copy has records of its own too.
+            if case .collection(var collection) = original.kind, var database = demo.doc.databases[collection.database] {
+                database.id = demo.newID()
+                steps.append(.createDatabase(database: database))
+                collection.database = database.id
+                copy.kind = .collection(collection: collection)
             }
             steps.append(.insertBlock(block: copy, after: after))
             after = copy.id

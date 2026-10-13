@@ -57,6 +57,8 @@ struct DocRow: Identifiable, Equatable {
     let isStreaming: Bool
     /// A database block shown as an editable table (instead of `blocks`).
     let table: DocTableSnapshot?
+    /// A collection block: its name, its views and its records (DocCollection).
+    let collection: DocCollectionSnapshot?
     /// A paragraph, heading, list item or quote, from the model (DocTextRow).
     let text: DocTextRow?
     /// Code, maths, a divider, a card or a table, as the tree DocKit builds from the model.
@@ -82,8 +84,8 @@ struct DocRow: Identifiable, Equatable {
     private let depth: Int?
 
     init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock] = [], text: DocTextRow? = nil, tree: MarkdownTree? = nil,
-         isStreaming: Bool = false, table: DocTableSnapshot? = nil, media: BlockKind? = nil, sourceKind: DocSourceKind? = nil,
-         sourceIsEmpty: Bool = false) {
+         isStreaming: Bool = false, table: DocTableSnapshot? = nil, collection: DocCollectionSnapshot? = nil, media: BlockKind? = nil,
+         sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
         self.id = id
         self.block = block
         self.blocks = blocks
@@ -91,6 +93,7 @@ struct DocRow: Identifiable, Equatable {
         self.tree = tree
         self.isStreaming = isStreaming
         self.table = table
+        self.collection = collection
         self.media = media
         self.sourceKind = sourceKind
         self.sourceIsEmpty = sourceIsEmpty
@@ -100,7 +103,7 @@ struct DocRow: Identifiable, Equatable {
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
         lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.text == rhs.text && lhs.tree == rhs.tree
-            && lhs.table == rhs.table && lhs.media == rhs.media && lhs.run == rhs.run
+            && lhs.table == rhs.table && lhs.collection == rhs.collection && lhs.media == rhs.media && lhs.run == rhs.run
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
             && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role && lhs.box == rhs.box
@@ -223,6 +226,18 @@ final class DocDemo {
             }
             if let live, live.replacing == block.id {
                 emitLayer()
+                continue
+            }
+            if case .collection(let collection) = block.kind, let database = doc.databases[collection.database] {
+                if let cached = rowCache[block.id], cached.block == block, cached.database == database {
+                    result.append(cached.row)
+                } else {
+                    let row = DocRow(id: block.id.description, block: block.id,
+                                     collection: DocCollectionSnapshot(block: block.id, collection: collection, database: database))
+                    rowCache[block.id] = (block, database, row)
+                    result.append(row)
+                }
+                if let live, live.after == block.id { emitLayer() }
                 continue
             }
             if case .database(let id, _) = block.kind, let database = doc.databases[id] {
@@ -673,6 +688,14 @@ extension DocRow {
             return DocMediaLayout.place(run, inPage: page).frame.height + gap + spacing
         }
         if let media, let height = DocMediaLayout.estimatedHeight(media, width: textWidth) { return height + spacing }
+        if let collection {
+            // The header, then the table's rows or a kanban's longest column.
+            guard case .kanban(let group, _, _)? = collection.collection.currentView?.layout else {
+                return 80 + CGFloat(collection.database.rows.count + 2) * 36 + spacing
+            }
+            let lanes = Dictionary(grouping: collection.database.rows) { DocCollectionController.option(of: $0, in: group) }
+            return 80 + 40 + CGFloat(lanes.values.map(\.count).max() ?? 0) * 80 + 42 + spacing
+        }
         switch tree?.document.child(at: 0) {
         case let code as CodeBlock:
             return CGFloat(max(1, code.code.split(separator: "\n", omittingEmptySubsequences: false).count - 1)) * 18 + 46 + spacing

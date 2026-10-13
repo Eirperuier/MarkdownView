@@ -58,6 +58,7 @@ final class DocEditor {
     let slash = DocSlashMenu()
     /// The tables' cells (database blocks).
     lazy var tables = DocTableController(demo: demo, editor: self)
+    lazy var collections = DocCollectionController(demo: demo, editor: self)
     /// Code and math blocks, edited as their source.
     lazy var sources = DocSourceController(demo: demo, editor: self)
     /// The bar over a phone's keyboard: marks, block kinds, inserting (Craft's).

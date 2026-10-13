@@ -72,7 +72,47 @@ enum DocDemoCorpus {
                 continue
             }
         }
+        // A collection before the sections: the same tasks as a kanban and as a table.
+        if let index = doc.blocks.firstIndex(where: { $0.text.string.hasPrefix("第 1 节") }) {
+            let (heading, block, database) = collection()
+            doc.databases[database.id] = database
+            doc.blocks.insert(contentsOf: [heading, block], at: index)
+        }
         return doc
+    }
+
+    /// A project's tasks: who, how far along, when, how long.
+    static func collection() -> (heading: DocBlock, block: DocBlock, database: Database) {
+        func option(_ name: String, _ color: String? = nil) -> SelectOption { SelectOption(id: .generate(), name: name, color: color) }
+        let owners = ["林", "莫", "Priya", "Sam"].map { option($0) }
+        let states = [option("未开始", "gray"), option("进行中", "blue"), option("已完成", "green"), option("逾期", "red")]
+        let task = Column(id: .generate(), name: "任务", type: .text)
+        let owner = Column(id: .generate(), name: "负责人", type: .select(options: owners))
+        let state = Column(id: .generate(), name: "状态", type: .select(options: states))
+        let due = Column(id: .generate(), name: "截止", type: .date)
+        let hours = Column(id: .generate(), name: "工时", type: .number)
+        let reviewed = Column(id: .generate(), name: "已评审", type: .checkbox)
+        func day(_ day: Int) -> CellValue { .date(value: Timestamp(millisecondsSince1970: (1_791_158_400 + Int64(day - 5) * 86_400) * 1000)) }
+        func row(_ title: String, _ who: Int, _ how: Int, _ when: Int, _ time: Double, _ checked: Bool = false) -> Row {
+            var cells: [ColumnID: CellValue] = [task.id: .text(value: title), owner.id: .select(option: owners[who].id),
+                                                state.id: .select(option: states[how].id), due.id: day(when), hours.id: .number(value: time)]
+            if checked { cells[reviewed.id] = .checkbox(value: true) }
+            return Row(id: .generate(), cells: cells)
+        }
+        let database = Database(id: .generate(), columns: [task, owner, state, due, hours, reviewed], rows: [
+            row("配置服务里的排序开关", 0, 2, 10, 6, true),
+            row("新排序的延迟看板", 1, 3, 12, 4),
+            row("上线手册", 1, 2, 11, 3, true),
+            row("2k 查询集的相关性评测", 2, 1, 14, 10),
+            row("迁移自动补全客户端", 3, 0, 16, 8),
+            row("查询时缓存向量", 2, 0, 17, 5),
+        ])
+        let collection = DocCollection(database: database.id, name: "搜索改版", views: [
+            CollectionView(name: "看板", layout: .kanban(groupBy: state.id, hidden: [], sort: [])),
+            CollectionView(name: "表格", layout: .table(hidden: [], sort: []), calculations: [hours.id: .sum]),
+        ])
+        let heading = DocBlock(id: .generate(), kind: .heading(level: 2), text: DocText(string: "任务"))
+        return (heading, DocBlock(id: .generate(), kind: .collection(collection: collection)), database)
     }
 
     static let inserted = """

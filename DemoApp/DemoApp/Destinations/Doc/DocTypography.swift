@@ -50,7 +50,7 @@ enum DocRowRole: Equatable {
     case paragraph
     case caption
     case listItem
-    /// Code, math, a table, a quote, a divider, an image, a view: set apart.
+    /// Code, math, a table, a collection, a quote, a divider, an image, a view: set apart.
     case boxed
     /// A link or a file: set apart, but close to the next one (Craft's).
     case media
@@ -62,7 +62,7 @@ enum DocRowRole: Equatable {
         case .caption: self = .caption
         case .listItem: self = .listItem
         case .link, .file, .card: self = .media
-        case .quote, .code, .math, .divider, .image, .view, .database: self = .boxed
+        case .quote, .code, .math, .divider, .image, .view, .database, .collection: self = .boxed
         }
     }
 

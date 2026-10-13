@@ -35,7 +35,7 @@
 | 同步 | 服务端定序,客户端 rebase(prosemirror-collab 的做法)。不用 CRDT【定】 |
 | 版本记录 | 检查点 + step 日志。恢复旧版本 = 追加新 step,历史只往前走【定】 |
 | reveal | 只在 agent 写文档时用;此时整篇是只读预览。打开文档、本地输入、其他设备的改动都不淡入【定】 |
-| 多维表格 / 看板 | 文档内的一个数据库块,表格和看板是它的两种视图【定】 |
+| 多维表格 / 看板 | 文档内的一个 collection 块:一份数据,表格和看板是它有名字的视图,块头上切换(照 Craft)【定】 |
 | 卡片 | 卡片块,和 `AnswerCard` 同构(source + data + size)【定】 |
 | agent 编辑 | 块级操作(插入、改写、改一句、删除、移动、改类型、改卡片、改数据库),按块 id 定位;边写边经运行事件流显示在原位,每个操作写完才提交,能单独撤回【定】 |
 | Web | 用 TypeScript 再写一份核心,两边跑同一套黄金用例;编辑视图倾向用 ProseMirror【倾向】 |
@@ -160,8 +160,21 @@ enum DatabaseView { case table(…), kanban(groupBy: ColumnID, …) }           
 ```
 
 - 数据库属于文档,存在同一个 Doc 里,改动走同一条 step 日志。
-- 同一个数据库可以放多个视图块,比如一个表格加一个看板,它们看到的是同一份数据。
 - 单元格里的文字先只做纯文本加简单标记,不在格子里嵌整篇文档。
+
+有两种块用数据库。原来的表格块(`.database(id:view:)`)是一张表,不改。collection 块照 Craft:一块里一份数据、几个有名字的视图,块头上是名字和视图标签页,切标签页换着看同一份记录。
+
+```swift
+struct DocCollection { var database: DatabaseID; var name: String; var views: [CollectionView]; var current: CollectionViewID }
+struct CollectionView { var id; var name: String; var layout: DatabaseView; var showsCalculations: Bool; var calculations: [ColumnID: CollectionCalculation] }
+```
+
+- 表格视图:collection 自己的表格,不是表格块。列头带类型图标,格子直接编辑(文字、数字、单选的色块菜单、勾选、日期弹出日历);底下一行加记录,每列的统计(计数、求和、平均……)悬停时显示"Calculate",选了就一直显示。
+- 看板视图:按一个单选列分组,一个选项一栏,栏染选项的颜色;卡片是标题加其余字段的色块。卡片拖到另一栏就改那一格,栏底的 + 在这一栏加一条,最后的 + 加一个选项(新的一栏)。
+- 选项可以带颜色(`SelectOption.color`,调色板里的名字)。
+- 块比正文宽(最宽 1040),和 Craft 一样;控件直接点,选中和拖动交给块的把手。
+- markdown 里是 ` ```floo.collection ` 围栏,内容是 collection 和它的数据库的 JSON。
+- 暂不做:画廊视图,视图的筛选、排序、显示字段面板。
 
 ## 4. 改动:step【定】
 

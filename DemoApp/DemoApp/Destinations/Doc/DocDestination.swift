@@ -304,8 +304,8 @@ struct DocRowCell: TiledCellContent {
 
     func body(context: CellContext<Void>) -> some View {
         let hooks = MainActor.assumeIsolated { [item, editor] in item.block.map { editor.hooks(for: $0) } }
-        let (tables, sources, blocks) = MainActor.assumeIsolated { (editor.tables, editor.sources, editor.blocks) }
-        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks, tables: tables, sources: sources, blocks: blocks)
+        let (tables, collections, sources, blocks) = MainActor.assumeIsolated { (editor.tables, editor.collections, editor.sources, editor.blocks) }
+        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks, tables: tables, collections: collections, sources: sources, blocks: blocks)
     }
 }
 
@@ -314,6 +314,7 @@ private struct DocRowView: View {
     let coordinator: StreamingRevealCoordinator<UUID>
     let hooks: MarkdownSelectableTextHooks?
     let tables: DocTableController
+    let collections: DocCollectionController
     let sources: DocSourceController
     let blocks: DocBlockController
 
@@ -321,6 +322,8 @@ private struct DocRowView: View {
         Group {
             if let run = row.run, let media = row.media, let block = row.block, !row.isStreaming {
                 placed(DocMediaCell(id: block, kind: media, blocks: blocks, inGallery: run.kind == .gallery), in: run)
+            } else if let collection = row.collection, !row.isStreaming {
+                wide(DocCollectionView(snapshot: collection, controller: collections))
             } else {
                 page
             }
@@ -339,6 +342,18 @@ private struct DocRowView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .modifier(DocRowBoxing(box: row.box, spacingAbove: row.spacingAbove, run: run))
             .padding(.bottom, row.spacingBelow)
+    }
+
+    /// A collection, wider than the page's text (Craft's), centred on it.
+    private func wide(_ content: some View) -> some View {
+        content
+            .modifier(DocRowBoxing(box: row.box, spacingAbove: row.spacingAbove))
+            .padding(.bottom, row.spacingBelow)
+            .frame(maxWidth: DocCollectionLayout.maxWidth, alignment: .leading)
+            .padding(.leading, DocBlockController.leadingGutter)
+            .padding(.trailing, DocBlockController.trailingGutter)
+            .frame(maxWidth: .infinity)
+            .modifier(DocRowHeightReporter(isOn: true))
     }
 
     private var page: some View {

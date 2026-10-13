@@ -981,7 +981,7 @@ final class DocEditTests {
 
         /// The first table: its block, database, and a key maker (row 0 = header).
         func table() throws -> (block: DocBlockID, database: Database, key: (Int, Int) -> DocCellKey) {
-            guard let block = self.demo.doc.blocks.first(where: { $0.kind.databaseID != nil }),
+            guard let block = self.demo.doc.blocks.first(where: { if case .database = $0.kind { true } else { false } }),
                   let id = block.kind.databaseID, let database = self.demo.doc.databases[id]
             else { throw Failure(description: "no table") }
             return (block.id, database, { row, column in
@@ -1584,7 +1584,7 @@ final class DocEditTests {
         }
         await test("a copy of the selection goes right after it, a table's with a database of its own") {
             let paragraph = try self.block("Loading older")
-            let table = try self.expectValue(self.demo.doc.blocks.first { $0.kind.databaseID != nil }, "no table")
+            let table = try self.expectValue(self.demo.doc.blocks.first { if case .database = $0.kind { true } else { false } }, "no table")
             blocks.select([paragraph.id, table.id])
             let before = self.demo.doc.blocks.count
             blocks.duplicateSelection()
@@ -1601,7 +1601,7 @@ final class DocEditTests {
         }
         await test("styling the selection turns its text blocks, and leaves the rest") {
             let paragraph = try self.block("Loading older")
-            let table = try self.expectValue(self.demo.doc.blocks.first { $0.kind.databaseID != nil }, "no table")
+            let table = try self.expectValue(self.demo.doc.blocks.first { if case .database = $0.kind { true } else { false } }, "no table")
             blocks.select([paragraph.id, table.id])
             blocks.turnSelection(into: .quote)
             try self.expect(self.demo.doc.block(paragraph.id)?.kind == .quote, "paragraph is \(String(describing: self.demo.doc.block(paragraph.id)?.kind))")
@@ -1815,6 +1815,60 @@ final class DocEditTests {
             try self.expect(answer != .null && self.demo.sentToAgent.last == "weekend: relaxed", "sent \(self.demo.sentToAgent), answer \(answer)")
             let refused = (try? await host.call("mail_send", arguments: [:])) == nil
             try self.expect(refused, "another tool ran")
+        }
+        await test("a collection: one set of records as a kanban and a table, each change a step that undoes") {
+            let collections = self.editor.collections
+            @MainActor func current() throws -> (id: DocBlockID, collection: DocCollection, database: Database) {
+                let block = try self.expectValue(self.demo.doc.blocks.first { if case .collection = $0.kind { true } else { false } }, "no collection")
+                guard case .collection(let collection) = block.kind, let database = self.demo.doc.databases[collection.database] else { throw Failure(description: "no database") }
+                return (block.id, collection, database)
+            }
+            var (id, collection, database) = try current()
+            await show(id)
+            // Drawn, wider than nothing, as tall as its kanban, its controls live.
+            let frame = try self.expectValue(blocks.testContentFrame(id), "no frame")
+            try self.expect(frame.height > 200, "the collection is \(frame.height) tall")
+            if DocBlockController.usesHandles { try self.expect(blocks.blockTakes(id, editsText: false), "its controls don't take clicks") }
+            guard case .kanban(let group, _, _)? = collection.currentView?.layout,
+                  case .select(let options)? = database.columns.first(where: { $0.id == group })?.type else { throw Failure(description: "not a kanban") }
+            @MainActor func lane(_ option: OptionID) throws -> [RowID] {
+                try current().database.rows.filter { DocCollectionController.option(of: $0, in: group) == option }.map(\.id)
+            }
+            // A card added to a column holds its option, at the column's end.
+            let before = try lane(options[1].id)
+            let added = try self.expectValue(collections.addRecord(to: id, in: (group, options[1].id)), "no card added")
+            let holds = try lane(options[1].id)
+            try self.expect(holds == before + [added], "the column holds \(holds)")
+            // A card dropped on another column, before its first card.
+            let target = try lane(options[2].id)
+            collections.move(added, to: options[2].id, groupedBy: group, before: target.first, in: id)
+            let moved = try lane(options[2].id), left = try lane(options[1].id)
+            try self.expect(moved == [added] + target && left == before, "moved: \(moved), left \(left)")
+            try await self.undo()
+            let back = try lane(options[1].id)
+            try self.expect(back == before + [added], "the move undid to \(back)")
+            try await self.undo()
+            let gone = try lane(options[1].id)
+            try self.expect(gone == before, "the card stayed: \(gone)")
+            // A new column, an option of its own.
+            collections.addOption("阻塞", color: "orange", to: group, in: id)
+            (_, _, database) = try current()
+            guard case .select(let more)? = database.columns.first(where: { $0.id == group })?.type else { throw Failure(description: "no select") }
+            try self.expect(more.count == options.count + 1 && more.last?.color == "orange", "options \(more.map(\.name))")
+            try await self.undo()
+            // The table: the same records; a sum in its calculation row.
+            let table = try self.expectValue(collection.views.first { if case .table = $0.layout { true } else { false } }, "no table view")
+            collections.show(table.id, in: id)
+            (_, collection, database) = try current()
+            try self.expect(collection.currentView?.id == table.id, "showing \(collection.currentView?.name ?? "-")")
+            let hours = try self.expectValue(database.columns.first { $0.type == .number }, "no number column")
+            let sum = DocCollectionMath.value(.sum, of: hours, in: database.rows)
+            let numbers: [Double] = database.rows.compactMap { if case .number(let n)? = $0.cells[hours.id] { n } else { nil } }
+            let expected = numbers.reduce(0.0) { $0 + $1 }
+            try self.expect(sum == expected.formatted(.number.precision(.fractionLength(0...2))), "sum \(sum), expected \(expected)")
+            try await self.undo()
+            (_, collection, _) = try current()
+            try self.expect(collection.currentView?.id != table.id, "showing the table after undo")
         }
         await test("cards next to each other share a line; a point on each picks that one") {
             let line = try self.expectValue(self.linkCards(), "no line of cards")
