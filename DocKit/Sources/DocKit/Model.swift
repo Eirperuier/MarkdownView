@@ -60,12 +60,15 @@ public enum BlockKind: Hashable, Sendable, Codable {
     /// A view the page's width, as tall as it draws (not a card: no frame, no size).
     case view(view: DocView)
     case database(id: DatabaseID, view: DatabaseView)
+    /// A collection (Craft's): a database with a name, shown through views the reader
+    /// switches between (a table, a kanban), the same records in each.
+    case collection(collection: DocCollection)
 
     /// The kinds whose `text` holds content; the rest must be empty.
     public var carriesText: Bool {
         switch self {
         case .paragraph, .heading, .listItem, .quote, .caption, .code, .math: true
-        case .divider, .image, .link, .file, .card, .view, .database: false
+        case .divider, .image, .link, .file, .card, .view, .database, .collection: false
         }
     }
 
@@ -73,13 +76,17 @@ public enum BlockKind: Hashable, Sendable, Codable {
     public var allowsMarks: Bool {
         switch self {
         case .paragraph, .heading, .listItem, .quote, .caption: true
-        case .code, .math, .divider, .image, .link, .file, .card, .view, .database: false
+        case .code, .math, .divider, .image, .link, .file, .card, .view, .database, .collection: false
         }
     }
 
-    /// The database a `.database` block displays; nil on other kinds.
+    /// The database a `.database` or `.collection` block displays; nil on other kinds.
     public var databaseID: DatabaseID? {
-        if case .database(let id, _) = self { id } else { nil }
+        switch self {
+        case .database(let id, _): id
+        case .collection(let collection): collection.database
+        default: nil
+        }
     }
 }
 
@@ -186,4 +193,48 @@ public struct DocView: Hashable, Sendable, Codable {
         self.source = source
         self.data = data
     }
+}
+
+/// A collection block: its database, its name, and the views of it, one of them showing.
+public struct DocCollection: Hashable, Sendable, Codable {
+    public var database: DatabaseID
+    public var name: String
+    public var views: [CollectionView]
+    public var current: CollectionViewID
+
+    public init(database: DatabaseID, name: String = "", views: [CollectionView], current: CollectionViewID? = nil) {
+        self.database = database
+        self.name = name
+        self.views = views
+        self.current = current ?? views.first?.id ?? CollectionViewID.generate()
+    }
+
+    /// The view showing: the current one, or the first if that's gone.
+    public var currentView: CollectionView? {
+        views.first { $0.id == current } ?? views.first
+    }
+}
+
+/// One view of a collection: a table or a kanban of its records, named in its tab.
+public struct CollectionView: Hashable, Sendable, Codable, Identifiable {
+    public var id: CollectionViewID
+    public var name: String
+    public var layout: DatabaseView
+    /// A table's calculation row, and what each column's cell in it computes.
+    public var showsCalculations: Bool
+    public var calculations: [ColumnID: CollectionCalculation]
+
+    public init(id: CollectionViewID = .generate(), name: String, layout: DatabaseView,
+                showsCalculations: Bool = true, calculations: [ColumnID: CollectionCalculation] = [:]) {
+        self.id = id
+        self.name = name
+        self.layout = layout
+        self.showsCalculations = showsCalculations
+        self.calculations = calculations
+    }
+}
+
+/// What a column's cell in a table's calculation row computes (Craft's).
+public enum CollectionCalculation: String, Hashable, Sendable, Codable, CaseIterable {
+    case count, countEmpty, countFilled, sum, average, median, min, max, range
 }

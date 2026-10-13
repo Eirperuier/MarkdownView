@@ -159,9 +159,32 @@ extension Doc {
             }
             if updated.kind != existing.kind || updated.indent != existing.indent {
                 // A table's own fields are its database's: a set keeps the database it shows.
+                // Its views name columns of the database read back, which a set rebuilt: they
+                // go to the columns of the same names in the one it keeps.
                 var kind = updated.kind
-                if case .database(_, let view) = updated.kind, case .database(let current, _) = existing.kind {
-                    kind = .database(id: current, view: view)
+                func kept(_ view: DatabaseView, from rebuilt: DatabaseID?, to current: DatabaseID) -> DatabaseView {
+                    guard let rebuilt = rebuilt.flatMap({ created[$0] }), let current = databases[current] else { return view }
+                    return view.mapped(from: rebuilt, to: current)
+                }
+                if case .database(let rebuilt, let view) = updated.kind, case .database(let current, _) = existing.kind {
+                    kind = .database(id: current, view: kept(view, from: rebuilt, to: current))
+                }
+                // So does a collection's: its name and views change.
+                if case .collection(var collection) = updated.kind, case .collection(let current) = existing.kind {
+                    let rebuilt = collection.database
+                    let showing = collection.currentView?.name
+                    collection.database = current.database
+                    for index in collection.views.indices {
+                        collection.views[index].layout = kept(collection.views[index].layout, from: rebuilt, to: current.database)
+                        // A view of the same name keeps what's only in the document (its id, its sums).
+                        if let same = current.views.first(where: { $0.name == collection.views[index].name }) {
+                            collection.views[index].id = same.id
+                            collection.views[index].showsCalculations = same.showsCalculations
+                            collection.views[index].calculations = same.calculations
+                        }
+                    }
+                    collection.current = collection.views.first { $0.name == showing }?.id ?? current.current
+                    kind = .collection(collection: collection)
                 }
                 try step(.setBlock(block: id, kind: kind, indent: updated.indent, previousKind: existing.kind, previousIndent: existing.indent))
             }
@@ -191,5 +214,23 @@ public struct AgentEditResult: Sendable {
     public var json: JSONValue {
         if let error { return .object(["op": .int(Int64(index)), "error": .string(error)]) }
         return .object(["op": .int(Int64(index)), "ok": true, "ids": .array(written.map { .string(AgentBlocks.shortID($0)) })])
+    }
+}
+
+extension DatabaseView {
+    /// The view with the columns it names in `from` named by their namesakes in `to`; a
+    /// column `to` doesn't have is dropped.
+    func mapped(from: Database, to: Database) -> DatabaseView {
+        let ids = Dictionary(from.columns.compactMap { column in
+            to.columns.first { $0.name == column.name }.map { (column.id, $0.id) }
+        }, uniquingKeysWith: { first, _ in first })
+        let hidden: ([ColumnID]) -> [ColumnID] = { $0.compactMap { ids[$0] } }
+        let sorted: ([DatabaseSort]) -> [DatabaseSort] = { $0.compactMap { sort in ids[sort.column].map { DatabaseSort(column: $0, ascending: sort.ascending) } } }
+        switch self {
+        case .table(let hiddenColumns, let sort):
+            return .table(hidden: hidden(hiddenColumns), sort: sorted(sort))
+        case .kanban(let group, let hiddenColumns, let sort):
+            return .kanban(groupBy: ids[group] ?? group, hidden: hidden(hiddenColumns), sort: sorted(sort))
+        }
     }
 }

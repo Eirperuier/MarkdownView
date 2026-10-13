@@ -39,10 +39,13 @@ public enum ColumnType: Hashable, Sendable, Codable {
 public struct SelectOption: Hashable, Sendable, Codable {
     public var id: OptionID
     public var name: String
+    /// One of the document's colours (gray, purple, blue, …); nil takes one by its place.
+    public var color: String?
 
-    public init(id: OptionID, name: String) {
+    public init(id: OptionID, name: String, color: String? = nil) {
         self.id = id
         self.name = name
+        self.color = color
     }
 }
 

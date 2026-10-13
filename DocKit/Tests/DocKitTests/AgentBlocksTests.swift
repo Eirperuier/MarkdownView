@@ -66,26 +66,68 @@ struct AgentBlocksTests {
     }
 
     /// A table is its database: columns typed, rows by column name, a select's options
-    /// gathered from its cells; a kanban groups by a select.
+    /// gathered from its cells.
     @Test
     func tablesBecomeDatabases() throws {
         var databases: [DatabaseID: Database] = [:]
         let written = try AgentBlocks.block(json(#"""
-            {"type": "kanban", "group_by": "Status",
+            {"type": "table", "sort": [{"column": "Hours", "ascending": false}],
              "columns": [{"name": "Task"}, {"name": "Status", "type": "select"}, {"name": "Due", "type": "date"}, {"name": "Hours", "type": "number"}],
              "rows": [{"Task": "Draft", "Status": "Doing", "Due": "2026-10-14", "Hours": 3}, ["Review", "Todo", null, 1.5]]}
             """#), id: fixedID(1), databases: &databases, results: [:])
-        guard case .database(let id, .kanban(let group, _, _)) = written.kind, let database = databases[id] else {
-            Issue.record("not a kanban: \(written.kind)")
+        guard case .database(let id, .table(_, let sort)) = written.kind, let database = databases[id] else {
+            Issue.record("not a table: \(written.kind)")
             return
         }
-        #expect(database.columns.first { $0.id == group }?.name == "Status")
+        #expect(sort.map(\.column) == [database.columns[3].id] && sort.first?.ascending == false)
         #expect(database.rows.count == 2)
         let doc = Doc(id: fixedID(0), blocks: [written], databases: databases)
         let read = AgentBlocks.json(written, in: doc)
         #expect(read["rows"]?[0]?["Due"] == "2026-10-14")
         #expect(read["rows"]?[1]?["Status"] == "Todo")
         #expect(read["columns"]?[1]?["options"] == ["Doing", "Todo"])
+    }
+
+    /// A collection is its records and the views of them: read back, it writes the same
+    /// views over the same columns; a kanban alone also gets a table of its records.
+    @Test
+    func collectionsKeepTheirViews() throws {
+        var databases: [DatabaseID: Database] = [:]
+        let written = try AgentBlocks.block(json(#"""
+            {"type": "collection", "name": "Sprint",
+             "columns": [{"name": "Task"}, {"name": "Status", "type": "select", "options": [{"name": "Doing", "color": "blue"}, "Done"]}],
+             "rows": [{"Task": "Draft", "Status": "Doing"}, {"Task": "Ship", "Status": "Done"}],
+             "views": [{"name": "Board", "layout": "kanban", "group_by": "Status"}, {"name": "All", "layout": "table", "hidden": ["Status"]}],
+             "current": "All"}
+            """#), id: fixedID(1), databases: &databases, results: [:])
+        guard case .collection(let collection) = written.kind, let database = databases[collection.database] else {
+            Issue.record("not a collection: \(written.kind)")
+            return
+        }
+        let status = try #require(database.columns.first { $0.name == "Status" })
+        #expect(collection.name == "Sprint" && collection.currentView?.name == "All")
+        #expect(collection.views.map(\.layout) == [.kanban(groupBy: status.id, hidden: [], sort: []), .table(hidden: [status.id], sort: [])])
+        #expect(status.type == .select(options: [SelectOption(id: optionID(status, "Doing"), name: "Doing", color: "blue"), SelectOption(id: optionID(status, "Done"), name: "Done")]))
+        let doc = Doc(id: fixedID(0), blocks: [written], databases: databases)
+        let read = AgentBlocks.json(written, in: doc)
+        #expect(read["views"]?[0]?["group_by"] == "Status" && read["current"] == "All")
+        #expect(read["columns"]?[1]?["options"]?[0]?["color"] == "blue")
+        var again = databases
+        guard case .collection(let rewritten) = try AgentBlocks.block(read, id: written.id, databases: &again, results: [:]).kind else { return }
+        #expect(rewritten.views.map(\.name) == ["Board", "All"] && rewritten.currentView?.name == "All")
+
+        var kanban: [DatabaseID: Database] = [:]
+        let board = try AgentBlocks.block(json(#"{"type": "kanban", "columns": [{"name": "T"}, {"name": "S", "type": "select"}], "rows": [["a", "x"]]}"#),
+                                          id: fixedID(2), databases: &kanban, results: [:])
+        guard case .collection(let boardCollection) = board.kind else { return }
+        #expect(boardCollection.views.map(\.name) == ["Kanban", "Table"])
+    }
+
+    private func optionID(_ column: Column, _ name: String) -> OptionID {
+        switch column.type {
+        case .select(let options), .multiSelect(let options): options.first { $0.name == name }!.id
+        default: OptionID.generate()
+        }
     }
 
     /// What an agent gets wrong comes back as words it can act on.
@@ -193,6 +235,27 @@ struct AgentEditTests {
         _ = doc.agentEdit([json(#"{"op": "set", "id": "\#(AgentBlocks.shortID(id))", "source": "Text(\"new\")"}"#)])
         guard case .view(let updated)? = doc.block(id)?.kind else { return }
         #expect(updated.source == "Text(\"new\")" && updated.data == week)
+    }
+
+    /// A set changes a collection's views and which one shows, over the database it keeps:
+    /// the columns its views name are the database's own.
+    @Test
+    func aSetKeepsACollectionsRecords() throws {
+        var doc = doc()
+        let results = doc.agentEdit([json(#"""
+            {"op": "insert", "blocks": [{"type": "kanban", "name": "Tasks", "group_by": "Owner",
+             "columns": [{"name": "Task"}, {"name": "Owner", "type": "select"}], "rows": [["Walk", "Ada"], ["Sleep", "Bo"]]}]}
+            """#)])
+        let id = try #require(results[0].written.first)
+        guard case .collection(let before)? = doc.block(id)?.kind, let database = doc.databases[before.database] else { return }
+        let owner = try #require(database.columns.first { $0.name == "Owner" })
+        let set = doc.agentEdit([json(#"{"op": "set", "id": "\#(AgentBlocks.shortID(id))", "current": "Table", "name": "Chores"}"#)])
+        #expect(set[0].error == nil, "\(set.map(\.json))")
+        guard case .collection(let after)? = doc.block(id)?.kind else { return }
+        #expect(after.database == before.database && after.name == "Chores")
+        #expect(after.currentView?.id == before.views[1].id)
+        #expect(after.views[0].layout == .kanban(groupBy: owner.id, hidden: [], sort: []))
+        #expect(doc.databases.count == 1)
     }
 
     /// Data from several results is bound by their tools' names; two of one tool keep their ids.

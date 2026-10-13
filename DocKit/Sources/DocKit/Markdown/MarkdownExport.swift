@@ -104,6 +104,11 @@ extension Doc {
             return "\(fence)floo.view\n\(json)\n\(fence)"
         case .database(let id, let view):
             return databases[id].map { $0.markdownTable(view: view) } ?? ""
+        case .collection(let collection):
+            guard let database = databases[collection.database],
+                  let json = Self.json(of: CollectionFence(collection: collection, database: database)) else { return "" }
+            let fence = Self.fence(for: json)
+            return "\(fence)floo.collection\n\(json)\n\(fence)"
         }
     }
 
@@ -272,4 +277,11 @@ extension Column {
         }
         return "\(pad(year, 4))-\(pad(month, 2))-\(pad(day, 2))"
     }
+}
+
+/// A collection in markdown: a `floo.collection` fence holding the block and its database
+/// as JSON, so it comes back whole when pasted or imported.
+struct CollectionFence: Codable {
+    var collection: DocCollection
+    var database: Database
 }

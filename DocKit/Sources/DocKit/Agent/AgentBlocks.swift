@@ -102,23 +102,46 @@ extension AgentBlocks {
             object["type"] = "table"
             guard let database = doc.databases[id] else { break }
             let names = Dictionary(uniqueKeysWithValues: database.columns.map { ($0.id, $0.name) })
-            object["columns"] = .array(database.columns.map(json))
-            object["rows"] = .array(database.rows.map { row in
-                .object(Dictionary(uniqueKeysWithValues: database.columns.compactMap { column in
-                    row.cells[column.id].map { (column.name, json($0, in: column)) }
-                }))
+            records(database, into: &object)
+            layout(view, names: names, into: &object)
+        case .collection(let collection):
+            object["type"] = "collection"
+            object["name"] = .string(collection.name)
+            guard let database = doc.databases[collection.database] else { break }
+            let names = Dictionary(uniqueKeysWithValues: database.columns.map { ($0.id, $0.name) })
+            records(database, into: &object)
+            object["views"] = .array(collection.views.map { view in
+                var entry: [String: JSONValue] = ["name": .string(view.name)]
+                layout(view.layout, names: names, key: "layout", into: &entry)
+                return .object(entry)
             })
-            switch view {
-            case .table(let hidden, let sort):
-                object["view"] = "table"
-                details(hidden: hidden, sort: sort, names: names, into: &object)
-            case .kanban(let group, let hidden, let sort):
-                object["view"] = "kanban"
-                object["group_by"] = names[group].map(JSONValue.string) ?? .null
-                details(hidden: hidden, sort: sort, names: names, into: &object)
-            }
+            if let current = collection.currentView, collection.views.count > 1 { object["current"] = .string(current.name) }
         }
         return .object(object)
+    }
+
+    /// A database's columns and its rows by column name.
+    private static func records(_ database: Database, into object: inout [String: JSONValue]) {
+        object["columns"] = .array(database.columns.map(json))
+        object["rows"] = .array(database.rows.map { row in
+            .object(Dictionary(uniqueKeysWithValues: database.columns.compactMap { column in
+                row.cells[column.id].map { (column.name, json($0, in: column)) }
+            }))
+        })
+    }
+
+    /// A table's or a kanban's fields: which it is (under `key`), what a kanban groups by,
+    /// what's hidden and how it's sorted.
+    private static func layout(_ view: DatabaseView, names: [ColumnID: String], key: String = "view", into object: inout [String: JSONValue]) {
+        switch view {
+        case .table(let hidden, let sort):
+            object[key] = "table"
+            details(hidden: hidden, sort: sort, names: names, into: &object)
+        case .kanban(let group, let hidden, let sort):
+            object[key] = "kanban"
+            object["group_by"] = names[group].map(JSONValue.string) ?? .null
+            details(hidden: hidden, sort: sort, names: names, into: &object)
+        }
     }
 
     /// A card's or a view's source and data: whole, or how long it is and what its data holds.
@@ -165,6 +188,11 @@ extension AgentBlocks {
         }
     }
 
+    /// An option: its name, or its name and colour.
+    private static func json(_ option: SelectOption) -> JSONValue {
+        option.color.map { .object(["name": .string(option.name), "color": .string($0)]) } ?? .string(option.name)
+    }
+
     private static func json(_ column: Column) -> JSONValue {
         var object: [String: JSONValue] = ["name": .string(column.name)]
         switch column.type {
@@ -172,10 +200,10 @@ extension AgentBlocks {
         case .number: object["type"] = "number"
         case .select(let options):
             object["type"] = "select"
-            object["options"] = .array(options.map { .string($0.name) })
+            object["options"] = .array(options.map(json))
         case .multiSelect(let options):
             object["type"] = "multi_select"
-            object["options"] = .array(options.map { .string($0.name) })
+            object["options"] = .array(options.map(json))
         case .date: object["type"] = "date"
         case .checkbox: object["type"] = "checkbox"
         case .url: object["type"] = "url"
@@ -339,13 +367,17 @@ extension AgentBlocks {
             let source = plain("source")
             guard !source.isEmpty else { throw AgentFormatError("a view needs its \"source\"") }
             kind = .view(view: DocView(source: source, data: try data(object, results: results)))
-        case "table", "database", "kanban":
+        case "table", "database":
             let database = try table(object, generating: id)
             databases[database.id] = database
-            kind = .database(id: database.id, view: try view(object, of: database, kanban: type == "kanban"))
+            kind = .database(id: database.id, view: try view(object, of: database, kanban: false))
+        case "collection", "kanban", "board":
+            let database = try table(object, generating: id)
+            databases[database.id] = database
+            kind = .collection(collection: try collection(object, of: database, kanban: type != "collection"))
         default:
             throw AgentFormatError(
-                "unknown block type \"\(type)\": use paragraph, heading, list, quote, caption, code, math, divider, image, link, file, card, view or table")
+                "unknown block type \"\(type)\": use paragraph, heading, list, quote, caption, code, math, divider, image, link, file, card, view, table or collection")
         }
         if case .listItem = kind {} else if indent > 0, !kind.carriesText { indent = 0 }
         return DocBlock(id: id, kind: kind, indent: indent, text: content, decoration: boxed ? .block : nil)
@@ -476,15 +508,24 @@ extension AgentBlocks {
         }
         var columns: [Column] = []
         for column in columnsJSON {
-            let (name, typeName, optionNames): (String, String, [String]) = switch column {
+            let (name, typeName, optionsJSON): (String, String, [JSONValue]) = switch column {
             case .string(let name): (name, "text", [])
             case .object(let column): (
                 column["name"]?.stringValue ?? "", (column["type"]?.stringValue ?? "text").lowercased(),
-                column["options"].flatMap { if case .array(let names) = $0 { names.compactMap(\.stringValue) } else { nil } } ?? [])
+                column["options"].flatMap { if case .array(let options) = $0 { options } else { nil } } ?? [])
             default: ("", "", [])
             }
             guard !name.isEmpty else { throw AgentFormatError("a column needs its \"name\"") }
-            let options = optionNames.map { SelectOption(id: .generate(), name: $0) }
+            // An option is its name, or {"name", "color"}.
+            var options: [SelectOption] = []
+            for option in optionsJSON {
+                guard let optionName = option.stringValue ?? option["name"]?.stringValue else { continue }
+                let color = option["color"]?.stringValue?.lowercased()
+                if let color, !colors.contains(color) {
+                    throw AgentFormatError("an option's colour is one of \(colors.joined(separator: ", ")), not \(color)")
+                }
+                options.append(SelectOption(id: .generate(), name: optionName, color: color))
+            }
             let type: ColumnType
             switch typeName {
             case "text": type = .text
@@ -551,6 +592,29 @@ extension AgentBlocks {
             column.type = .multiSelect(options: options)
             return .multiSelect(options: ids)
         }
+    }
+
+    /// A collection's name and views: `views` [{"name", "layout": table|kanban, "group_by", …}]
+    /// and the `current` one by name; without `views`, one view from the object's own fields
+    /// (a kanban, then a table of the same records, for `kanban`).
+    private static func collection(_ object: [String: JSONValue], of database: Database, kanban: Bool) throws(AgentFormatError) -> DocCollection {
+        var views: [CollectionView] = []
+        if case .array(let entries)? = object["views"], !entries.isEmpty {
+            for (index, entry) in entries.enumerated() {
+                guard case .object(var fields) = entry else { throw AgentFormatError("a view is {\"name\", \"layout\"}") }
+                let isKanban = (fields["layout"] ?? fields["view"])?.stringValue?.lowercased() == "kanban"
+                fields["view"] = nil
+                let layout = try view(fields, of: database, kanban: isKanban)
+                let name = fields["name"]?.stringValue ?? (isKanban ? "Kanban" : "Table")
+                views.append(CollectionView(name: name.isEmpty ? "View \(index + 1)" : name, layout: layout))
+            }
+        } else {
+            let isKanban = kanban || object["view"]?.stringValue?.lowercased() == "kanban" || object["group_by"] != nil
+            views.append(CollectionView(name: isKanban ? "Kanban" : "Table", layout: try view(object, of: database, kanban: isKanban)))
+            if isKanban { views.append(CollectionView(name: "Table", layout: .table(hidden: [], sort: []))) }
+        }
+        let current = object["current"]?.stringValue.flatMap { name in views.first { $0.name == name }?.id }
+        return DocCollection(database: database.id, name: object["name"]?.stringValue ?? "", views: views, current: current)
     }
 
     private static func view(_ object: [String: JSONValue], of database: Database, kanban: Bool) throws(AgentFormatError) -> DatabaseView {

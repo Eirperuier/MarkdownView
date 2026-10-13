@@ -166,6 +166,14 @@ private struct MarkdownImporter<Generator: RandomNumberGenerator> {
             append(.view(view: view), indent: indent)
             return
         }
+        if language == "floo.collection", var fence = try? JSONDecoder().decode(CollectionFence.self, from: Data(body.utf8)) {
+            // Its database is new where it lands: the same records under an id of its own.
+            fence.database.id = newID()
+            fence.collection.database = fence.database.id
+            databases[fence.database.id] = fence.database
+            append(.collection(collection: fence.collection), indent: indent)
+            return
+        }
         append(.code(language: language), indent: indent, text: DocText(string: InlineBuilder.cleaned(body)))
     }
 

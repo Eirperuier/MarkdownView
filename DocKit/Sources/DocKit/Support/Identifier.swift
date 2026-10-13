@@ -91,6 +91,7 @@ public enum DocTag {
     public enum Column {}
     public enum Row {}
     public enum Option {}
+    public enum CollectionView {}
     public enum Client {}
     public enum Operation {}
 }
@@ -102,6 +103,7 @@ public typealias DatabaseID = Identifier<DocTag.Database>
 public typealias ColumnID = Identifier<DocTag.Column>
 public typealias RowID = Identifier<DocTag.Row>
 public typealias OptionID = Identifier<DocTag.Option>
+public typealias CollectionViewID = Identifier<DocTag.CollectionView>
 /// A device or agent run writing to a doc.
 public typealias DocClientID = Identifier<DocTag.Client>
 /// Idempotency key: the same submission is never applied twice.

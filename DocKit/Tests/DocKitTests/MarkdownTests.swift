@@ -121,6 +121,30 @@ struct MarkdownExportTests {
         #expect(parse(doc.markdown).blocks.map(\.kind).last == .view(view: DocView(source: "VStack {}", data: ["n": 2])))
     }
 
+    /// A collection goes out as a fence with its database and comes back whole, its records
+    /// in a database of its own.
+    @Test
+    func collectionsComeBackWhole() throws {
+        let status = Column(id: fixedID(20), name: "Status", type: .select(options: [SelectOption(id: fixedID(50), name: "Doing", color: "blue")]))
+        let database = Database(id: fixedID(30), columns: [status], rows: [Row(id: fixedID(40), cells: [status.id: .select(option: fixedID(50))])])
+        let collection = DocCollection(database: database.id, name: "Work", views: [
+            CollectionView(id: fixedID(60), name: "Board", layout: .kanban(groupBy: status.id, hidden: [], sort: [])),
+            CollectionView(id: fixedID(61), name: "Table", layout: .table(hidden: [], sort: []), calculations: [status.id: .countFilled]),
+        ], current: fixedID(61))
+        let doc = Doc(id: fixedID(0), blocks: [block(1, .collection(collection: collection))], databases: [database.id: database])
+        #expect(doc.markdown.hasPrefix("```floo.collection\n"))
+        let fragment = parse(doc.markdown)
+        guard case .collection(let back)? = fragment.blocks.first?.kind else {
+            Issue.record("not a collection: \(fragment.blocks.map(\.kind))")
+            return
+        }
+        let records = try #require(fragment.databases[back.database])
+        #expect(back.database != database.id && records.columns == database.columns && records.rows == database.rows)
+        var expected = collection
+        expected.database = back.database
+        #expect(back == expected)
+    }
+
     @Test
     func isoDates() {
         #expect(Column.isoDate(fixedTime(0)) == "1970-01-01")

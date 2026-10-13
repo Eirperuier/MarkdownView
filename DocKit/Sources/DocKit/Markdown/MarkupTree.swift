@@ -69,6 +69,10 @@ extension Doc {
                     header: Table.Head(table.header.map(cell)),
                     body: Table.Body(table.rows.map { Table.Row($0.map(cell)) })
                 )), 0)
+            case .collection(let collection):
+                guard let database = databases[collection.database],
+                      let json = Self.json(of: CollectionFence(collection: collection, database: database)) else { return nil }
+                return (Document(CodeBlock(language: "floo.collection", json + "\n")), 0)
             case .image, .link, .file:
                 return nil
             }
