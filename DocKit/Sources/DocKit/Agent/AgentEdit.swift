@@ -176,11 +176,16 @@ extension Doc {
                     collection.database = current.database
                     for index in collection.views.indices {
                         collection.views[index].layout = kept(collection.views[index].layout, from: rebuilt, to: current.database)
-                        // A view of the same name keeps what's only in the document (its id, its sums).
+                        if let from = created[rebuilt], let to = databases[current.database] {
+                            collection.views[index].filters = collection.views[index].filters.compactMap { $0.mapped(from: from, to: to) }
+                        }
+                        // A view of the same name keeps what's only in the document (its id, its
+                        // sums, its fields' order).
                         if let same = current.views.first(where: { $0.name == collection.views[index].name }) {
                             collection.views[index].id = same.id
                             collection.views[index].showsCalculations = same.showsCalculations
                             collection.views[index].calculations = same.calculations
+                            collection.views[index].order = same.order
                         }
                     }
                     collection.current = collection.views.first { $0.name == showing }?.id ?? current.current
@@ -232,5 +237,28 @@ extension DatabaseView {
         case .kanban(let group, let hiddenColumns, let sort):
             return .kanban(groupBy: ids[group] ?? group, hidden: hidden(hiddenColumns), sort: sorted(sort))
         }
+    }
+}
+
+extension CollectionFilter {
+    /// The filter on `to`'s column of the same name, a select's option by its name; nil
+    /// when `to` has no such column or option.
+    func mapped(from: Database, to: Database) -> CollectionFilter? {
+        guard let old = from.columns.first(where: { $0.id == column }),
+              let new = to.columns.first(where: { $0.name == old.name }) else { return nil }
+        var filter = self
+        filter.column = new.id
+        func options(_ type: ColumnType) -> [SelectOption] {
+            switch type {
+            case .select(let options), .multiSelect(let options): options
+            default: []
+            }
+        }
+        if case .select(let option)? = value {
+            guard let name = options(old.type).first(where: { $0.id == option })?.name,
+                  let found = options(new.type).first(where: { $0.name == name }) else { return nil }
+            filter.value = .select(option: found.id)
+        }
+        return filter
     }
 }

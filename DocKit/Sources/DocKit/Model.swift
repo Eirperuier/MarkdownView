@@ -223,14 +223,41 @@ public struct CollectionView: Hashable, Sendable, Codable, Identifiable {
     /// A table's calculation row, and what each column's cell in it computes.
     public var showsCalculations: Bool
     public var calculations: [ColumnID: CollectionCalculation]
+    /// The records it shows: those every filter lets through.
+    public var filters: [CollectionFilter]
+    /// The order of its fields; columns it doesn't name follow in the database's order.
+    public var order: [ColumnID]
 
     public init(id: CollectionViewID = .generate(), name: String, layout: DatabaseView,
-                showsCalculations: Bool = true, calculations: [ColumnID: CollectionCalculation] = [:]) {
+                showsCalculations: Bool = true, calculations: [ColumnID: CollectionCalculation] = [:],
+                filters: [CollectionFilter] = [], order: [ColumnID] = []) {
         self.id = id
         self.name = name
         self.layout = layout
         self.showsCalculations = showsCalculations
         self.calculations = calculations
+        self.filters = filters
+        self.order = order
+    }
+
+    /// The database's columns in the view's order.
+    public func ordered(_ columns: [Column]) -> [Column] {
+        let named = order.compactMap { id in columns.first { $0.id == id } }
+        return named + columns.filter { !order.contains($0.id) }
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, layout, showsCalculations, calculations, filters, order }
+
+    // What a later version added reads as its default from a document written before it.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(CollectionViewID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        layout = try container.decode(DatabaseView.self, forKey: .layout)
+        showsCalculations = try container.decodeIfPresent(Bool.self, forKey: .showsCalculations) ?? true
+        calculations = try container.decodeIfPresent([ColumnID: CollectionCalculation].self, forKey: .calculations) ?? [:]
+        filters = try container.decodeIfPresent([CollectionFilter].self, forKey: .filters) ?? []
+        order = try container.decodeIfPresent([ColumnID].self, forKey: .order) ?? []
     }
 }
 

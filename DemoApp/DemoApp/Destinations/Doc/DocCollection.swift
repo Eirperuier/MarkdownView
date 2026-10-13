@@ -4,16 +4,17 @@
 //
 //  A collection block, Craft's: its name, a tab for each view of its records (a table,
 //  a kanban), and the view showing. The same records in every view, edited in any:
-//  - the name and the tabs: click a tab to show it; right-click it to rename, duplicate
-//    or delete it; + adds a table or a kanban grouped by a select column;
-//  - the table: a row number, the columns with their type's symbol, a select as its
-//    coloured option, a checkbox as a box; a cell takes typing, a select picks from its
-//    options; the calculation row computes a column (Calculate), + adds a record;
-//  - the kanban: a column per option of the grouping select, tinted with its colour, its
-//    records as cards (the title, the other fields as chips); a card drags to another
-//    column or place, + adds a card to a column, the + after the columns a new option.
-//  Every change is DocKit steps (a database step for the records, a setBlock for the
-//  name and views), so undo, redo and sync treat it like the rest of the document.
+//  - the header: the name; a tab per view (click shows it; right-click for its panels,
+//    rename, duplicate, delete); + adds a table (then names it) or a kanban (Create
+//    Kanban: its name and the select it groups by). On the pointer over the block, the
+//    toolbar: search, a new record, and the view's menu (Layout & Visibility, Filter,
+//    Sort, Group, rename, duplicate, delete, Download as CSV);
+//  - the table (DocCollectionTable): a field's header opens its menu, + adds a field;
+//    the row number turns into a box to pick rows; the title's arrow opens the record;
+//  - the kanban (DocCollectionKanban): a column per option of the grouping select.
+//  Every change is DocKit steps (a database step for the records and fields, a setBlock
+//  for the name and views), so undo, redo and sync treat it like the rest of the document.
+//  What only this window shows (a search, the rows picked, an open panel) isn't.
 //  Sizes are measured from Craft's (Mac, 2026-10-13 recordings).
 //
 
@@ -29,6 +30,28 @@ struct DocCollectionSnapshot: Equatable {
     let database: Database
 }
 
+/// The collection panel open, and the block it's for.
+struct DocCollectionPanel: Hashable {
+    enum Kind: Hashable {
+        case layout, sort, filter
+        case createKanban
+        /// A view just added, to name.
+        case nameView(CollectionViewID)
+        case addField
+        case editField(ColumnID)
+        /// A select or multi-select cell's options.
+        case options(row: RowID, column: ColumnID)
+        /// A new option of a select (a kanban's new column), or one to change.
+        case addOption(ColumnID)
+        case editOption(OptionID)
+        /// A record whole.
+        case record(RowID)
+    }
+
+    let block: DocBlockID
+    let kind: Kind
+}
+
 // MARK: - Controller
 
 @MainActor
@@ -38,9 +61,14 @@ final class DocCollectionController {
     @ObservationIgnored unowned let editor: DocEditor
     /// Typing in one field is one undo step until another is edited.
     @ObservationIgnored private var session: UInt64 = 0
-    @ObservationIgnored private var typing: (row: RowID, column: ColumnID)?
-    /// The card whose title takes typing as it shows (one just added).
+    @ObservationIgnored private var typing: AnyHashable?
+    /// The record whose title takes typing as it shows (one just added).
     var editingTitle: RowID?
+    /// What each block's search looks for (not part of the document).
+    var searches: [DocBlockID: String] = [:]
+    /// The table rows picked in each block.
+    var selectedRows: [DocBlockID: Set<RowID>] = [:]
+    var panel: DocCollectionPanel?
 
     init(demo: DocDemo, editor: DocEditor) {
         self.demo = demo
@@ -49,60 +77,84 @@ final class DocCollectionController {
 
     var isEditable: Bool { editor.isEditable }
 
+    // MARK: Panels
+
+    func isShowing(_ kind: DocCollectionPanel.Kind, in block: DocBlockID) -> Bool {
+        panel == DocCollectionPanel(block: block, kind: kind)
+    }
+
+    func show(_ kind: DocCollectionPanel.Kind, in block: DocBlockID) {
+        panel = DocCollectionPanel(block: block, kind: kind)
+    }
+
+    /// Closes the panel if it's still this one (another may have opened as it went).
+    func close(_ kind: DocCollectionPanel.Kind, in block: DocBlockID) {
+        if isShowing(kind, in: block) { panel = nil }
+    }
+
+    // MARK: Committing
+
     private func snapshot(_ block: DocBlockID) -> (collection: DocCollection, database: Database)? {
         guard case .collection(let collection)? = demo.doc.block(block)?.kind,
               let database = demo.doc.databases[collection.database] else { return nil }
         return (collection, database)
     }
 
-    private func commit(_ block: DocBlockID, _ steps: [DocStep], merging: Bool = false) {
+    /// One undo step; or, with `typing`, one step for all the changes made under the same key
+    /// in a row (each keystroke in one field).
+    private func commit(_ block: DocBlockID, _ steps: [DocStep], typing key: AnyHashable? = nil) {
         guard !steps.isEmpty else { return }
-        if !merging { session &+= 1 }
-        _ = demo.edit(steps, before: nil, after: nil, merge: merging ? .init(block: block, session: session) : nil)
-        if !merging { session &+= 1 }
+        if key == nil || key != typing { session &+= 1 }
+        typing = key
+        _ = demo.edit(steps, before: nil, after: nil, merge: key == nil ? nil : .init(block: block, session: session))
     }
 
-    private func records(_ block: DocBlockID, _ steps: [DatabaseStep], merging: Bool = false) {
+    private func records(_ block: DocBlockID, _ steps: [DatabaseStep], typing key: AnyHashable? = nil) {
         guard let (collection, _) = snapshot(block) else { return }
-        commit(block, steps.map { .database(id: collection.database, step: $0) }, merging: merging)
+        commit(block, steps.map { .database(id: collection.database, step: $0) }, typing: key)
     }
 
     /// The block's name and views changed: one setBlock.
-    private func change(_ block: DocBlockID, _ update: (inout DocCollection) -> Void) {
-        guard let existing = demo.doc.block(block), case .collection(var collection) = existing.kind else { return }
+    private func change(_ block: DocBlockID, typing key: AnyHashable? = nil, _ update: (inout DocCollection) -> Void) {
+        guard let step = setBlock(block, update) else { return }
+        commit(block, [step], typing: key)
+    }
+
+    private func setBlock(_ block: DocBlockID, _ update: (inout DocCollection) -> Void) -> DocStep? {
+        guard let existing = demo.doc.block(block), case .collection(var collection) = existing.kind else { return nil }
         update(&collection)
         let kind = BlockKind.collection(collection: collection)
-        guard kind != existing.kind else { return }
-        commit(block, [.setBlock(block: block, kind: kind, indent: existing.indent, previousKind: existing.kind, previousIndent: existing.indent)])
+        guard kind != existing.kind else { return nil }
+        return .setBlock(block: block, kind: kind, indent: existing.indent, previousKind: existing.kind, previousIndent: existing.indent)
+    }
+
+    private func changeView(_ view: CollectionViewID, in block: DocBlockID, typing key: AnyHashable? = nil, _ update: (inout CollectionView) -> Void) {
+        change(block, typing: key) { collection in
+            guard let index = collection.views.firstIndex(where: { $0.id == view }) else { return }
+            update(&collection.views[index])
+        }
     }
 
     // MARK: Name and views
 
-    func rename(_ block: DocBlockID, to name: String) { change(block) { $0.name = name } }
+    func rename(_ block: DocBlockID, to name: String) { change(block, typing: [AnyHashable(block), "name"]) { $0.name = name } }
 
     func show(_ view: CollectionViewID, in block: DocBlockID) { change(block) { $0.current = view } }
 
-    func addTable(to block: DocBlockID) {
+    /// A new view after the others, showing.
+    @discardableResult
+    func addView(to block: DocBlockID, name: String, layout: DatabaseView) -> CollectionViewID {
+        let view = CollectionView(name: name, layout: layout)
         change(block) { collection in
-            let view = CollectionView(name: String(localized: "Table"), layout: .table(hidden: [], sort: []))
             collection.views.append(view)
             collection.current = view.id
         }
-    }
-
-    func addKanban(to block: DocBlockID, groupedBy column: ColumnID) {
-        change(block) { collection in
-            let view = CollectionView(name: String(localized: "Kanban"), layout: .kanban(groupBy: column, hidden: [], sort: []))
-            collection.views.append(view)
-            collection.current = view.id
-        }
+        return view.id
     }
 
     func rename(_ view: CollectionViewID, in block: DocBlockID, to name: String) {
-        change(block) { collection in
-            guard let index = collection.views.firstIndex(where: { $0.id == view }), !name.isEmpty else { return }
-            collection.views[index].name = name
-        }
+        guard !name.isEmpty else { return }
+        changeView(view, in: block) { $0.name = name }
     }
 
     func duplicate(_ view: CollectionViewID, in block: DocBlockID) {
@@ -124,24 +176,254 @@ final class DocCollectionController {
     }
 
     func setCalculation(_ calculation: CollectionCalculation?, for column: ColumnID, in view: CollectionViewID, of block: DocBlockID) {
-        change(block) { collection in
-            guard let index = collection.views.firstIndex(where: { $0.id == view }) else { return }
-            collection.views[index].calculations[column] = calculation
+        changeView(view, in: block) { $0.calculations[column] = calculation }
+    }
+
+    func setShowsCalculations(_ shows: Bool, in view: CollectionViewID, of block: DocBlockID) {
+        changeView(view, in: block) { $0.showsCalculations = shows }
+    }
+
+    /// A table becomes a kanban grouped by `group` (or the first select), a kanban a table;
+    /// what's hidden and the sorting stay.
+    func setLayout(kanban: Bool, groupedBy group: ColumnID? = nil, in view: CollectionViewID, of block: DocBlockID) {
+        guard let (_, database) = snapshot(block) else { return }
+        changeView(view, in: block) { view in
+            let hidden = view.layout.hidden, sort = view.layout.sort
+            if kanban {
+                guard let group = group ?? view.layout.groupBy ?? Self.selects(in: database).first?.id else { return }
+                view.layout = .kanban(groupBy: group, hidden: hidden, sort: sort)
+            } else {
+                view.layout = .table(hidden: hidden, sort: sort)
+            }
         }
+    }
+
+    func setHidden(_ column: ColumnID, _ hidden: Bool, in view: CollectionViewID, of block: DocBlockID) {
+        changeView(view, in: block) { view in
+            view.layout.hidden.removeAll { $0 == column }
+            if hidden { view.layout.hidden.append(column) }
+        }
+    }
+
+    /// A field moved before `before` (or to the end) in the view's order.
+    func moveField(_ column: ColumnID, before: ColumnID?, in view: CollectionViewID, of block: DocBlockID) {
+        guard let (_, database) = snapshot(block), column != before else { return }
+        changeView(view, in: block) { view in
+            var order = view.ordered(database.columns).map(\.id)
+            order.removeAll { $0 == column }
+            order.insert(column, at: before.flatMap { order.firstIndex(of: $0) } ?? order.endIndex)
+            view.order = order
+        }
+    }
+
+    func setSort(_ sort: [DatabaseSort], in view: CollectionViewID, of block: DocBlockID) {
+        changeView(view, in: block) { $0.layout.sort = sort }
+    }
+
+    /// The view's filters; a value typed in one is one undo step.
+    func setFilters(_ filters: [CollectionFilter], typing key: AnyHashable? = nil, in view: CollectionViewID, of block: DocBlockID) {
+        changeView(view, in: block, typing: key) { $0.filters = filters }
+    }
+
+    // MARK: Fields
+
+    /// A new field after the others.
+    @discardableResult
+    func addField(_ name: String, type: ColumnType, to block: DocBlockID) -> ColumnID? {
+        guard let (_, database) = snapshot(block) else { return nil }
+        let column = Column(id: .generate(), name: name, type: type)
+        records(block, [.insertColumn(column: column, after: database.columns.last?.id, cells: [:])])
+        return column.id
+    }
+
+    /// A field renamed or of another type: each value turned into the new type as far as
+    /// it goes (text into a number, names into options, …), in one undo step.
+    func editField(_ column: ColumnID, name: String, type: ColumnType, in block: DocBlockID) {
+        guard let (_, database) = snapshot(block), let old = database.columns.first(where: { $0.id == column }) else { return }
+        var new = old
+        new.name = name.isEmpty ? old.name : name
+        var steps: [DatabaseStep] = []
+        if !Self.sameKind(old.type, type) {
+            var options = DocFieldText.options(old)
+            var values: [RowID: CellValue?] = [:]
+            for row in database.rows {
+                let value = Self.converted(row.cells[column], from: old, to: type, options: &options)
+                if value != row.cells[column] { values[row.id] = value }
+            }
+            new.type = switch type {
+            case .select: .select(options: options)
+            case .multiSelect: .multiSelect(options: options)
+            default: type
+            }
+            steps.append(.updateColumn(column: new, previous: old))
+            for row in database.rows {
+                guard let value = values[row.id] else { continue }
+                steps.append(.setCell(row: row.id, column: column, value: value, previous: row.cells[column]))
+            }
+        } else if new != old {
+            steps.append(.updateColumn(column: new, previous: old))
+        }
+        records(block, steps)
+    }
+
+    /// A field gone from the records and from every view (a kanban grouped by it becomes a
+    /// table), in one undo step.
+    func deleteField(_ column: ColumnID, in block: DocBlockID) {
+        guard let (collection, database) = snapshot(block), database.columns.count > 1,
+              let index = database.columns.firstIndex(where: { $0.id == column }) else { return }
+        var cells: [RowID: CellValue] = [:]
+        for row in database.rows { cells[row.id] = row.cells[column] }
+        var steps: [DocStep] = [.database(id: collection.database, step: .deleteColumn(
+            column: database.columns[index], after: index == 0 ? nil : database.columns[index - 1].id, cells: cells))]
+        let views = setBlock(block) { collection in
+            for index in collection.views.indices {
+                var view = collection.views[index]
+                view.layout.hidden.removeAll { $0 == column }
+                view.layout.sort.removeAll { $0.column == column }
+                if view.layout.groupBy == column { view.layout = .table(hidden: view.layout.hidden, sort: view.layout.sort) }
+                view.filters.removeAll { $0.column == column }
+                view.calculations[column] = nil
+                view.order.removeAll { $0 == column }
+                collection.views[index] = view
+            }
+        }
+        if let views { steps.append(views) }
+        commit(block, steps)
+    }
+
+    private static func sameKind(_ a: ColumnType, _ b: ColumnType) -> Bool {
+        switch (a, b) {
+        case (.select, .select), (.multiSelect, .multiSelect): true
+        default: a == b
+        }
+    }
+
+    /// A value as the new type holds it; names become options (added to `options`).
+    private static func converted(_ value: CellValue?, from old: Column, to type: ColumnType, options: inout [SelectOption]) -> CellValue? {
+        guard let value else { return nil }
+        let parts: [String] = switch value {
+        case .multiSelect: DocFieldText.text(value, in: old).components(separatedBy: ", ")
+        case .checkbox(let on): on ? ["✓"] : []
+        default: [DocFieldText.text(value, in: old)]
+        }
+        let names = parts.filter { !$0.isEmpty }
+        func option(_ name: String) -> OptionID {
+            if let found = options.first(where: { $0.name == name }) { return found.id }
+            let added = SelectOption(id: .generate(), name: name, color: DocOptionColor.next(after: options))
+            options.append(added)
+            return added.id
+        }
+        let text = names.joined(separator: ", ")
+        switch type {
+        case .text: return text.isEmpty ? nil : .text(value: text)
+        case .url: return text.isEmpty ? nil : .url(value: text)
+        case .person: return text.isEmpty ? nil : .person(value: text)
+        case .number:
+            if case .checkbox(let on) = value { return .number(value: on ? 1 : 0) }
+            return Double(text.trimmingCharacters(in: .whitespaces)).map { .number(value: $0) }
+        case .checkbox:
+            if case .number(let number) = value { return number != 0 ? .checkbox(value: true) : nil }
+            return ["✓", "true", "yes", "1", "x"].contains(text.lowercased()) ? .checkbox(value: true) : nil
+        case .date:
+            if case .date = value { return value }
+            return DocFieldText.day(from: text).map { .date(value: $0) }
+        case .select: return names.first.map { .select(option: option($0)) }
+        case .multiSelect: return names.isEmpty ? nil : .multiSelect(options: names.map(option))
+        }
+    }
+
+    // MARK: Options
+
+    /// A new option of a select or multi-select column.
+    @discardableResult
+    func addOption(_ name: String, color: String? = nil, to column: ColumnID, in block: DocBlockID) -> OptionID? {
+        guard let (_, database) = snapshot(block), let field = database.columns.first(where: { $0.id == column }), !name.isEmpty else { return nil }
+        var options = DocFieldText.options(field)
+        let option = SelectOption(id: .generate(), name: name, color: color ?? DocOptionColor.next(after: options))
+        options.append(option)
+        var updated = field
+        switch field.type {
+        case .select: updated.type = .select(options: options)
+        case .multiSelect: updated.type = .multiSelect(options: options)
+        default: return nil
+        }
+        records(block, [.updateColumn(column: updated, previous: field)])
+        return option.id
+    }
+
+    func updateOption(_ option: OptionID, name: String, color: String, in column: ColumnID, of block: DocBlockID) {
+        guard let (_, database) = snapshot(block), let field = database.columns.first(where: { $0.id == column }), !name.isEmpty else { return }
+        let options = DocFieldText.options(field).map { $0.id == option ? SelectOption(id: option, name: name, color: color) : $0 }
+        var updated = field
+        switch field.type {
+        case .select: updated.type = .select(options: options)
+        case .multiSelect: updated.type = .multiSelect(options: options)
+        default: return
+        }
+        records(block, [.updateColumn(column: updated, previous: field)])
+    }
+
+    /// An option gone, and from every record that had it (a kanban's column of it with them).
+    func deleteOption(_ option: OptionID, in column: ColumnID, of block: DocBlockID) {
+        guard let (_, database) = snapshot(block), let field = database.columns.first(where: { $0.id == column }) else { return }
+        var steps: [DatabaseStep] = []
+        for row in database.rows {
+            let value: CellValue?? = switch row.cells[column] {
+            case .select(option)?: .some(nil)
+            case .multiSelect(let ids)? where ids.contains(option):
+                ids.count == 1 ? .some(nil) : .some(.multiSelect(options: ids.filter { $0 != option }))
+            default: .none
+            }
+            if let value { steps.append(.setCell(row: row.id, column: column, value: value, previous: row.cells[column])) }
+        }
+        let options = DocFieldText.options(field).filter { $0.id != option }
+        var updated = field
+        switch field.type {
+        case .select: updated.type = .select(options: options)
+        case .multiSelect: updated.type = .multiSelect(options: options)
+        default: return
+        }
+        steps.append(.updateColumn(column: updated, previous: field))
+        records(block, steps)
+    }
+
+    /// A select set to the option (picked again, cleared); a multi-select with it added or taken out.
+    func toggle(_ option: OptionID, row: RowID, column: ColumnID, in block: DocBlockID) {
+        guard let (_, database) = snapshot(block), let record = database.rows.first(where: { $0.id == row }),
+              let field = database.columns.first(where: { $0.id == column }) else { return }
+        let value: CellValue?
+        switch (field.type, record.cells[column]) {
+        case (.select, .select(option)?): value = nil
+        case (.select, _): value = .select(option: option)
+        case (.multiSelect, .multiSelect(let ids)?):
+            let toggled = ids.contains(option) ? ids.filter { $0 != option } : ids + [option]
+            value = toggled.isEmpty ? nil : .multiSelect(options: toggled)
+        case (.multiSelect, _): value = .multiSelect(options: [option])
+        default: return
+        }
+        set(value, row: row, column: column, in: block)
     }
 
     // MARK: Records
 
-    /// A new record at the end, or at the end of a kanban's column (its select set to the
-    /// column's option); its title takes typing.
+    /// A new record: at the end, or in a kanban's column (its select set to the column's
+    /// option) at its end or `atTop`; its title takes typing.
     @discardableResult
-    func addRecord(to block: DocBlockID, in group: (column: ColumnID, option: OptionID?)? = nil) -> RowID? {
+    func addRecord(to block: DocBlockID, in group: (column: ColumnID, option: OptionID?)? = nil, atTop: Bool = false) -> RowID? {
         guard let (_, database) = snapshot(block) else { return nil }
         var cells: [ColumnID: CellValue] = [:]
         if let group, let option = group.option { cells[group.column] = .select(option: option) }
         let row = Row(id: .generate(), cells: cells)
-        let after = group.map { group in database.rows.last { Self.option(of: $0, in: group.column) == group.option }?.id } ?? database.rows.last?.id
-        records(block, [.insertRow(row: row, after: after ?? database.rows.last?.id)])
+        var after = database.rows.last?.id
+        if let group {
+            let lane = database.rows.indices.filter { Self.option(of: database.rows[$0], in: group.column) == group.option }
+            if atTop, let first = lane.first {
+                after = first == 0 ? nil : database.rows[first - 1].id
+            } else if let last = lane.last {
+                after = database.rows[last].id
+            }
+        }
+        records(block, [.insertRow(row: row, after: after)])
         editingTitle = row.id
         return row.id
     }
@@ -157,22 +439,33 @@ final class DocCollectionController {
         default: text.isEmpty ? nil : .text(value: text)
         }
         guard value != previous else { return }
-        let merging = typing.map { $0 == (row, column) } ?? false
-        typing = (row, column)
-        records(block, [.setCell(row: row, column: column, value: value, previous: previous)], merging: merging)
+        records(block, [.setCell(row: row, column: column, value: value, previous: previous)], typing: [AnyHashable(row), AnyHashable(column)])
     }
 
     func set(_ value: CellValue?, row: RowID, column: ColumnID, in block: DocBlockID) {
         guard let (_, database) = snapshot(block), let record = database.rows.first(where: { $0.id == row }) else { return }
         let previous = record.cells[column]
         guard value != previous else { return }
-        typing = nil
         records(block, [.setCell(row: row, column: column, value: value, previous: previous)])
     }
 
-    func delete(_ row: RowID, in block: DocBlockID) {
-        guard let (_, database) = snapshot(block), let index = database.rows.firstIndex(where: { $0.id == row }) else { return }
-        records(block, [.deleteRow(row: database.rows[index], after: index == 0 ? nil : database.rows[index - 1].id)])
+    func delete(_ row: RowID, in block: DocBlockID) { delete(rows: [row], in: block) }
+
+    /// Records gone in one undo step (from the bottom up, so each one's place is still there).
+    func delete(rows: Set<RowID>, in block: DocBlockID) {
+        guard let (_, database) = snapshot(block) else { return }
+        let steps: [DatabaseStep] = database.rows.indices.reversed().compactMap { index in
+            guard rows.contains(database.rows[index].id) else { return nil }
+            return .deleteRow(row: database.rows[index], after: index == 0 ? nil : database.rows[index - 1].id)
+        }
+        selectedRows[block]?.subtract(rows)
+        records(block, steps)
+    }
+
+    func togglePicked(_ row: RowID, in block: DocBlockID) {
+        var picked = selectedRows[block] ?? []
+        if picked.remove(row) == nil { picked.insert(row) }
+        selectedRows[block] = picked
     }
 
     /// A card dropped in a kanban's column, before `before` (or at the column's end): its
@@ -193,22 +486,49 @@ final class DocCollectionController {
             after = others.last { Self.option(of: $0, in: column) == option }?.id ?? others.last?.id
         }
         if after != from { steps.append(.moveRow(row: row, after: after, from: from)) }
-        typing = nil
         records(block, steps)
     }
 
-    /// A new option of a select column (a kanban's new column).
-    func addOption(_ name: String, color: String, to column: ColumnID, in block: DocBlockID) {
-        guard let (_, database) = snapshot(block), let field = database.columns.first(where: { $0.id == column }),
-              case .select(var options) = field.type, !name.isEmpty else { return }
-        options.append(SelectOption(id: .generate(), name: name, color: color))
-        var updated = field
-        updated.type = .select(options: options)
-        records(block, [.updateColumn(column: updated, previous: field)])
+    // MARK: What a view shows
+
+    /// The records a view shows: its filters', in its order, then those the search finds.
+    func rows(_ snapshot: DocCollectionSnapshot, _ view: CollectionView) -> [Row] {
+        let rows = view.records(of: snapshot.database)
+        let search = (searches[snapshot.block] ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        guard !search.isEmpty else { return rows }
+        return rows.filter { row in
+            snapshot.database.columns.contains { DocFieldText.text(row.cells[$0.id], in: $0).lowercased().contains(search) }
+        }
+    }
+
+    /// The fields a view shows, in its order.
+    static func fields(_ view: CollectionView, of database: Database) -> [Column] {
+        view.ordered(database.columns).filter { !view.layout.hidden.contains($0.id) }
+    }
+
+    /// The field records are titled by: the first text one.
+    static func titleColumn(of database: Database) -> Column? {
+        database.columns.first { $0.type == .text }
+    }
+
+    static func selects(in database: Database) -> [Column] {
+        database.columns.filter { if case .select = $0.type { true } else { false } }
     }
 
     nonisolated static func option(of row: Row, in column: ColumnID) -> OptionID? {
         if case .select(let option)? = row.cells[column] { option } else { nil }
+    }
+
+    /// The view as CSV: its fields and the records it shows.
+    func csv(_ snapshot: DocCollectionSnapshot, _ view: CollectionView) -> String {
+        let fields = Self.fields(view, of: snapshot.database)
+        func quoted(_ text: String) -> String {
+            text.contains(where: { ",\"\n\r".contains($0) }) ? "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : text
+        }
+        let lines = [fields.map { quoted($0.name) }] + rows(snapshot, view).map { row in
+            fields.map { quoted(DocFieldText.text(row.cells[$0.id], in: $0)) }
+        }
+        return lines.map { $0.joined(separator: ",") }.joined(separator: "\r\n") + "\r\n"
     }
 }
 
@@ -220,19 +540,24 @@ enum DocCollectionLayout {
 }
 
 /// The collection's measurements (Craft's, on a Mac).
-private enum Metrics {
+enum DocCollectionMetrics {
     static let titleSize: CGFloat = 22
     static let tabSize: CGFloat = 14
     static let tabHeight: CGFloat = 26
     static let headerGap = FlooDesignTokens.Space.sm
     static let corner = FlooDesignTokens.Radius.sm
+    static let toolbarHeight: CGFloat = 28
+    static let toolbarButton: CGFloat = 30
+    static let searchWidth: CGFloat = 180
     // Table
     static let rowHeight: CGFloat = 36
     static let headHeight: CGFloat = 32
     static let numberWidth: CGFloat = 46
     static let titleWidth: CGFloat = 200
     static let fieldWidth: CGFloat = 140
+    static let addFieldWidth: CGFloat = 36
     static let cellInset = FlooDesignTokens.Space.sm
+    static let focusWidth: CGFloat = 2
     // Kanban
     static let columnWidth: CGFloat = 268
     static let columnGap: CGFloat = 13
@@ -243,21 +568,37 @@ private enum Metrics {
     static let cardCorner: CGFloat = 8
     static let chipHeight: CGFloat = 21
     static let addHeight: CGFloat = 32
+    // Panels
+    static let panelWidth: CGFloat = 290
+    static let wideFieldsPanel: CGFloat = 340
+    static let recordPanel: CGFloat = 380
+    static let fieldHeight: CGFloat = 30
+    static let swatch: CGFloat = 26
 }
+
+private typealias Metrics = DocCollectionMetrics
 
 /// An option's colour: its own, or one by its place among the column's options.
 enum DocOptionColor {
     static let order = ["purple", "cyan", "yellow", "blue", "green", "red", "orange", "mint", "brown", "slate", "lemon", "gray"]
+    /// The colours a new option is offered, Craft's row of them.
+    static let offered = ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "gray"]
 
     static func token(_ option: SelectOption, in options: [SelectOption]) -> String {
         option.color ?? order[(options.firstIndex(of: option) ?? 0) % order.count]
     }
 
     static func color(_ token: String) -> Color { MarkdownColorToken.text(token) ?? .secondary }
+
+    /// A new option's colour: the first in the order the column doesn't use yet.
+    static func next(after options: [SelectOption]) -> String {
+        let used = Set(options.map { token($0, in: options) })
+        return order.first { !used.contains($0) } ?? order[options.count % order.count]
+    }
 }
 
 /// A field's value as a chip: a select's option in its colour, the rest quiet.
-private struct DocChip: View {
+struct DocChip: View {
     let text: String
     var color: Color?
     var systemImage: String?
@@ -276,10 +617,21 @@ private struct DocChip: View {
         .overlay(RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs + 1, style: .continuous)
             .strokeBorder((color ?? .primary).opacity(color == nil ? FlooDesignTokens.Opacity.faint : 0.22), lineWidth: FlooDesignTokens.Border.hairline))
     }
+
+    /// An option's chip, in its colour.
+    init(_ option: SelectOption, in options: [SelectOption]) {
+        self.init(text: option.name, color: DocOptionColor.color(DocOptionColor.token(option, in: options)))
+    }
+
+    init(text: String, color: Color? = nil, systemImage: String? = nil) {
+        self.text = text
+        self.color = color
+        self.systemImage = systemImage
+    }
 }
 
 /// Chips laid out in lines, as many as fit on each.
-private struct DocFlow: Layout {
+struct DocFlow: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -307,7 +659,7 @@ private struct DocFlow: Layout {
     }
 }
 
-/// What a value reads as, and its chip.
+/// What a value reads as, a field type's name and symbol.
 enum DocFieldText {
     static func text(_ value: CellValue?, in column: Column) -> String {
         switch value {
@@ -328,6 +680,32 @@ enum DocFieldText {
         return style
     }()
 
+    /// A day read from text (as shown, or yyyy-MM-dd), at midnight UTC.
+    static func day(from text: String) -> Timestamp? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        let parsed = (try? Date(trimmed, strategy: day.parseStrategy))
+            ?? (try? Date(trimmed, strategy: Date.ISO8601FormatStyle(timeZone: TimeZone(identifier: "UTC")!).year().month().day().parseStrategy))
+        return parsed.map { timestamp(of: $0) }
+    }
+
+    /// The day a date picker picked (in the person's time zone) at midnight UTC.
+    static func timestamp(of date: Date) -> Timestamp {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        let midnight = calendar.date(from: parts) ?? date
+        return Timestamp(millisecondsSince1970: Int64(midnight.timeIntervalSince1970 * 1000))
+    }
+
+    /// A day to show in a date picker (in the person's time zone).
+    static func date(of timestamp: Timestamp) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let utc = Date(timeIntervalSince1970: TimeInterval(timestamp.millisecondsSince1970) / 1000)
+        return Calendar.current.date(from: calendar.dateComponents([.year, .month, .day], from: utc)) ?? utc
+    }
+
     static func options(_ column: Column) -> [SelectOption] {
         switch column.type {
         case .select(let options), .multiSelect(let options): options
@@ -336,8 +714,8 @@ enum DocFieldText {
     }
 
     /// The column's type as Craft shows it in the header.
-    static func symbol(_ column: Column) -> String {
-        switch column.type {
+    static func symbol(_ type: ColumnType) -> String {
+        switch type {
         case .text: "textformat"
         case .number: "number"
         case .select: "list.bullet.indent"
@@ -348,6 +726,24 @@ enum DocFieldText {
         case .person: "person"
         }
     }
+
+    static func symbol(_ column: Column) -> String { symbol(column.type) }
+
+    /// The types a field can be, in Craft's order.
+    static let types: [ColumnType] = [.text, .number, .checkbox, .date, .url, .person, .select(options: []), .multiSelect(options: [])]
+
+    static func name(_ type: ColumnType) -> String {
+        switch type {
+        case .text: String(localized: "Text")
+        case .number: String(localized: "Number")
+        case .checkbox: String(localized: "Checkbox")
+        case .date: String(localized: "Date")
+        case .url: String(localized: "URL")
+        case .person: String(localized: "Person")
+        case .select: String(localized: "Single Select")
+        case .multiSelect: String(localized: "Multiple Select")
+        }
+    }
 }
 
 // MARK: - The block
@@ -355,23 +751,24 @@ enum DocFieldText {
 struct DocCollectionView: View {
     let snapshot: DocCollectionSnapshot
     let controller: DocCollectionController
+    @State private var hovering = false
 
     private var collection: DocCollection { snapshot.collection }
-    private var database: Database { snapshot.database }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.headerGap) {
-            DocCollectionHeader(snapshot: snapshot, controller: controller)
+            DocCollectionHeader(snapshot: snapshot, controller: controller, hovering: hovering)
             if let view = collection.currentView {
                 switch view.layout {
                 case .table:
                     DocCollectionTable(snapshot: snapshot, view: view, controller: controller)
                 case .kanban(let group, _, _):
-                    DocCollectionKanban(snapshot: snapshot, group: group, controller: controller)
+                    DocCollectionKanban(snapshot: snapshot, view: view, group: group, controller: controller)
                 }
             }
         }
         .padding(.vertical, FlooDesignTokens.Space.sm)
+        .onHover { hovering = $0 }
     }
 }
 
@@ -379,14 +776,18 @@ struct DocCollectionView: View {
 private struct DocCollectionHeader: View {
     let snapshot: DocCollectionSnapshot
     let controller: DocCollectionController
+    let hovering: Bool
     @State private var name = ""
     @State private var renaming: CollectionViewID?
     @State private var viewName = ""
+    @State private var searching = false
+    @State private var exporting: DocCSVFile?
+    @FocusState private var searchFocused: Bool
 
+    private var block: DocBlockID { snapshot.block }
     private var collection: DocCollection { snapshot.collection }
-    private var selects: [Column] {
-        snapshot.database.columns.filter { if case .select = $0.type { true } else { false } }
-    }
+    private var current: CollectionView? { collection.currentView }
+    private var selects: [Column] { DocCollectionController.selects(in: snapshot.database) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: FlooDesignTokens.Space.sm) {
@@ -395,32 +796,192 @@ private struct DocCollectionHeader: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: Metrics.titleSize, weight: .bold))
                     .disabled(!controller.isEditable)
-                    .onSubmit { controller.rename(snapshot.block, to: name) }
-                    .onChange(of: name) { _, name in if name != collection.name { controller.rename(snapshot.block, to: name) } }
+                    .onChange(of: name) { _, name in if name != collection.name { controller.rename(block, to: name) } }
                 Spacer(minLength: FlooDesignTokens.Space.md)
-                if controller.isEditable {
-                    Button {
-                        controller.addRecord(to: snapshot.block, in: kanbanGroup)
-                    } label: {
-                        Image(systemName: "plus.circle.fill").font(.system(size: FlooDesignTokens.Icon.toolbar))
-                    }
-                    .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                    .accessibilityLabel(String(localized: "New Item"))
-                }
+                toolbar
             }
             tabs
         }
         .onAppear { name = collection.name }
         .onChange(of: collection.name) { _, new in if new != name { name = new } }
+        .fileExporter(isPresented: Binding { exporting != nil } set: { if !$0 { exporting = nil } },
+                      document: exporting, contentType: .commaSeparatedText,
+                      defaultFilename: collection.name.isEmpty ? String(localized: "Collection") : collection.name) { _ in exporting = nil }
+    }
+
+    // MARK: Toolbar
+
+    /// Over the block (or with a panel or a search open) on a Mac; always on a phone.
+    private var showsToolbar: Bool {
+        !FlooDesignTokens.Platform.isPointer || hovering || searching || controller.panel?.block == block
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: FlooDesignTokens.Space.sm) {
+            search
+            HStack(spacing: 0) {
+                if controller.isEditable {
+                    toolbarButton("plus.circle.fill", String(localized: "New Item")) {
+                        controller.addRecord(to: block, in: kanbanGroup)
+                    }
+                }
+                viewMenu
+            }
+            .padding(.horizontal, FlooDesignTokens.Space.xxs)
+            .background(toolbarBox)
+        }
+        .opacity(showsToolbar ? 1 : 0)
+        .allowsHitTesting(showsToolbar)
+        // The view's panels open under the toolbar, at its right.
+        .flooDesignAnchoredPanel(isPresented: toolbarPanel != nil, configuration: .init(horizontalAlignment: .trailing),
+                                 onDismiss: { if let toolbarPanel { controller.close(toolbarPanel, in: block) } }) {
+            if let current {
+                switch toolbarPanel {
+                case .layout?: DocLayoutPanel(snapshot: snapshot, view: current, controller: controller)
+                case .sort?: DocSortPanel(snapshot: snapshot, view: current, controller: controller)
+                case .filter?: DocFilterPanel(snapshot: snapshot, view: current, controller: controller)
+                default: EmptyView()
+                }
+            }
+        }
+    }
+
+    private var toolbarPanel: DocCollectionPanel.Kind? {
+        guard let panel = controller.panel, panel.block == block else { return nil }
+        switch panel.kind {
+        case .layout, .sort, .filter: return panel.kind
+        default: return nil
+        }
+    }
+
+    private var toolbarBox: some View {
+        RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.md, style: .continuous)
+            .strokeBorder(FlooDesignTokens.Border.subtle, lineWidth: FlooDesignTokens.Border.standard)
+    }
+
+    private func toolbarButton(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: FlooDesignTokens.Icon.standard))
+                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                .frame(width: Metrics.toolbarButton, height: Metrics.toolbarHeight)
+        }
+        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
+        .help(title)
+        .accessibilityLabel(title)
+    }
+
+    /// The magnifier, or the search field it opens (Escape or ✕ closes it and shows all again).
+    @ViewBuilder
+    private var search: some View {
+        if searching {
+            HStack(spacing: FlooDesignTokens.Space.xs) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: FlooDesignTokens.Icon.compact))
+                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                TextField(String(localized: "Search"), text: Binding {
+                    controller.searches[block] ?? ""
+                } set: {
+                    controller.searches[block] = $0
+                })
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused($searchFocused)
+                .onKeyPress(.escape) {
+                    endSearch()
+                    return .handled
+                }
+                Button(action: endSearch) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: FlooDesignTokens.Icon.compact))
+                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "Close Search"))
+            }
+            .padding(.horizontal, FlooDesignTokens.Space.sm)
+            .frame(width: Metrics.searchWidth, height: Metrics.toolbarHeight)
+            .background(toolbarBox)
+        } else {
+            toolbarButton("magnifyingglass", String(localized: "Search")) {
+                searching = true
+                Task { @MainActor in searchFocused = true }
+            }
+            .padding(.horizontal, FlooDesignTokens.Space.xxs)
+            .background(toolbarBox)
+        }
+    }
+
+    private func endSearch() {
+        controller.searches[block] = nil
+        searching = false
+    }
+
+    private var viewMenu: some View {
+        Menu {
+            if let current { viewItems(current, full: true) }
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: FlooDesignTokens.Icon.standard))
+                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                .frame(width: Metrics.toolbarButton, height: Metrics.toolbarHeight)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
+        .help(String(localized: "View Options"))
+        .accessibilityLabel(String(localized: "View Options"))
+    }
+
+    /// A view's menu: its panels, then renaming, copying and deleting it; the toolbar's
+    /// also downloads it.
+    @ViewBuilder
+    private func viewItems(_ view: CollectionView, full: Bool) -> some View {
+        Button(String(localized: "Layout & Visibility"), systemImage: "tablecells") { open(.layout, for: view) }
+        Divider()
+        Button(String(localized: "Filter"), systemImage: "line.3.horizontal.decrease") { open(.filter, for: view) }
+        Button(String(localized: "Sort"), systemImage: "arrow.up.arrow.down") { open(.sort, for: view) }
+        if case .kanban(let group, _, _) = view.layout {
+            Menu(String(localized: "Group"), systemImage: "circle.grid.3x3") {
+                ForEach(selects, id: \.id) { column in
+                    Toggle(column.name, isOn: Binding { group == column.id } set: { _ in
+                        controller.setLayout(kanban: true, groupedBy: column.id, in: view.id, of: block)
+                    })
+                }
+            }
+        }
+        if controller.isEditable {
+            Divider()
+            Button(String(localized: "Rename View"), systemImage: "character.cursor.ibeam") {
+                viewName = view.name
+                renaming = view.id
+            }
+            Button(String(localized: "Duplicate View"), systemImage: "plus.square.on.square") { controller.duplicate(view.id, in: block) }
+            Button(String(localized: "Delete View"), systemImage: "trash", role: .destructive) { controller.delete(view.id, in: block) }
+                .disabled(collection.views.count < 2)
+        }
+        if full {
+            Divider()
+            Button(String(localized: "Download as CSV"), systemImage: "arrow.down.circle") {
+                exporting = DocCSVFile(text: controller.csv(snapshot, view))
+            }
+        }
+    }
+
+    /// A view's panel, the view showing first.
+    private func open(_ kind: DocCollectionPanel.Kind, for view: CollectionView) {
+        if view.id != current?.id { controller.show(view.id, in: block) }
+        controller.show(kind, in: block)
     }
 
     /// A new card from the toolbar goes to the first column of a kanban.
     private var kanbanGroup: (column: ColumnID, option: OptionID?)? {
-        guard case .kanban(let group, _, _)? = collection.currentView?.layout,
+        guard let group = current?.layout.groupBy,
               let column = snapshot.database.columns.first(where: { $0.id == group }) else { return nil }
         return (group, DocFieldText.options(column).first?.id)
     }
+
+    // MARK: Tabs
 
     private var tabs: some View {
         HStack(spacing: FlooDesignTokens.Space.xxs) {
@@ -428,32 +989,42 @@ private struct DocCollectionHeader: View {
                 tab(view)
             }
             if controller.isEditable {
-                Menu {
-                    Button(String(localized: "Add Table View"), systemImage: "tablecells") { controller.addTable(to: snapshot.block) }
-                    Menu(String(localized: "Add Kanban View")) {
-                        ForEach(selects, id: \.id) { column in
-                            Button(column.name) { controller.addKanban(to: snapshot.block, groupedBy: column.id) }
-                        }
-                    }
-                    .disabled(selects.isEmpty)
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: FlooDesignTokens.Icon.compact, weight: .semibold))
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                        .frame(width: Metrics.tabHeight, height: Metrics.tabHeight)
-                }
-                .menuStyle(.button)
-                .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
-                .accessibilityLabel(String(localized: "Add View"))
+                addView
             }
         }
         // A tab's words line up with the name; its fill reaches out past them (Craft's).
         .padding(.leading, -FlooDesignTokens.Space.sm)
     }
 
+    private var addView: some View {
+        Menu {
+            Button(String(localized: "Add Table View"), systemImage: "tablecells") {
+                let view = controller.addView(to: block, name: String(localized: "New Table"), layout: .table(hidden: [], sort: []))
+                controller.show(.nameView(view), in: block)
+            }
+            Button(String(localized: "Add Kanban View"), systemImage: "rectangle.split.3x1") {
+                controller.show(.createKanban, in: block)
+            }
+            .disabled(selects.isEmpty)
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: FlooDesignTokens.Icon.compact, weight: .semibold))
+                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                .frame(width: Metrics.tabHeight, height: Metrics.tabHeight)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
+        .accessibilityLabel(String(localized: "Add View"))
+        .flooDesignAnchoredPanel(isPresented: controller.isShowing(.createKanban, in: block),
+                                 onDismiss: { controller.close(.createKanban, in: block) }) {
+            DocCreateKanbanPanel(snapshot: snapshot, controller: controller)
+        }
+    }
+
     @ViewBuilder
     private func tab(_ view: CollectionView) -> some View {
-        let isCurrent = view.id == collection.currentView?.id
+        let isCurrent = view.id == current?.id
         if renaming == view.id {
             TextField("", text: $viewName)
                 .textFieldStyle(.plain)
@@ -463,12 +1034,16 @@ private struct DocCollectionHeader: View {
                 .frame(height: Metrics.tabHeight)
                 .background(FlooDesignTokens.ColorRole.Surface.selected, in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
                 .onSubmit {
-                    controller.rename(view.id, in: snapshot.block, to: viewName)
+                    controller.rename(view.id, in: block, to: viewName)
                     renaming = nil
+                }
+                .onKeyPress(.escape) {
+                    renaming = nil
+                    return .handled
                 }
         } else {
             Button {
-                controller.show(view.id, in: snapshot.block)
+                controller.show(view.id, in: block)
             } label: {
                 Text(view.name)
                     .font(.system(size: Metrics.tabSize, weight: .medium))
@@ -479,673 +1054,27 @@ private struct DocCollectionHeader: View {
                                 in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
             }
             .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
-            .contextMenu {
-                if controller.isEditable {
-                    Button(String(localized: "Rename View"), systemImage: "character.cursor.ibeam") {
-                        viewName = view.name
-                        renaming = view.id
-                    }
-                    Button(String(localized: "Duplicate View"), systemImage: "plus.square.on.square") { controller.duplicate(view.id, in: snapshot.block) }
-                    Button(String(localized: "Delete View"), systemImage: "trash", role: .destructive) { controller.delete(view.id, in: snapshot.block) }
-                        .disabled(collection.views.count < 2)
-                }
+            .contextMenu { viewItems(view, full: false) }
+            .flooDesignAnchoredPanel(isPresented: controller.isShowing(.nameView(view.id), in: block),
+                                     onDismiss: { controller.close(.nameView(view.id), in: block) }) {
+                DocNameViewPanel(block: block, view: view, controller: controller)
             }
         }
     }
 }
 
-// MARK: - Table
+/// A view's records as a CSV file to save.
+struct DocCSVFile: FileDocument {
+    static let readableContentTypes: [UTType] = [.commaSeparatedText]
+    let text: String
 
-private struct DocCollectionTable: View {
-    let snapshot: DocCollectionSnapshot
-    let view: CollectionView
-    let controller: DocCollectionController
-    @State private var width: CGFloat = 0
-    /// The pointer on the calculation row: its empty cells offer Calculate (Craft's).
-    @State private var overFoot = false
+    init(text: String) { self.text = text }
 
-    private var columns: [Column] {
-        guard case .table(let hidden, _) = view.layout else { return snapshot.database.columns }
-        return snapshot.database.columns.filter { !hidden.contains($0.id) }
+    init(configuration: ReadConfiguration) throws {
+        text = configuration.file.regularFileContents.flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
 
-    private var rows: [Row] {
-        guard case .table(_, let sort) = view.layout, !sort.isEmpty else { return snapshot.database.rows }
-        return DocCollectionSorting.sorted(snapshot.database.rows, by: sort, in: snapshot.database)
-    }
-
-    /// Each column's width: the title wider, the rest alike, stretched to fill the block
-    /// when there's room; past it the table scrolls sideways.
-    private func widths() -> [CGFloat] {
-        let natural = columns.enumerated().map { index, _ in index == 0 ? Metrics.titleWidth : Metrics.fieldWidth }
-        let total = natural.reduce(Metrics.numberWidth, +)
-        guard width > total, total > 0 else { return natural }
-        let scale = (width - Metrics.numberWidth) / (total - Metrics.numberWidth)
-        return natural.map { $0 * scale }
-    }
-
-    var body: some View {
-        let widths = widths()
-        ScrollView(.horizontal, showsIndicators: false) {
-            VStack(spacing: 0) {
-                head(widths)
-                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                    Divider().overlay(FlooDesignTokens.Border.subtle)
-                    record(row, number: index + 1, widths: widths)
-                }
-                Divider().overlay(FlooDesignTokens.Border.subtle)
-                foot(widths)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-            .overlay(RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)
-                .strokeBorder(FlooDesignTokens.Border.subtle, lineWidth: FlooDesignTokens.Border.standard))
-            .clipShape(RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
-        }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-    }
-
-    private func head(_ widths: [CGFloat]) -> some View {
-        HStack(spacing: 0) {
-            Image(systemName: "number")
-                .font(.system(size: FlooDesignTokens.Icon.compact))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
-                .frame(width: Metrics.numberWidth)
-            ForEach(Array(zip(columns, widths)), id: \.0.id) { column, width in
-                separator
-                Label(column.name, systemImage: DocFieldText.symbol(column))
-                    .labelStyle(DocHeadLabelStyle())
-                    .padding(.horizontal, Metrics.cellInset)
-                    .frame(width: width, alignment: .leading)
-            }
-        }
-        .frame(height: Metrics.headHeight)
-        .background(FlooDesignTokens.ColorRole.Surface.decoration)
-    }
-
-    private func record(_ row: Row, number: Int, widths: [CGFloat]) -> some View {
-        HStack(spacing: 0) {
-            Text("\(number)")
-                .font(.system(size: 13).monospacedDigit())
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
-                .frame(width: Metrics.numberWidth)
-            ForEach(Array(zip(columns, widths)), id: \.0.id) { column, width in
-                separator
-                DocCollectionCell(block: snapshot.block, row: row, column: column, controller: controller)
-                    .padding(.horizontal, Metrics.cellInset)
-                    .frame(width: width, alignment: column.type == .number ? .trailing : .leading)
-            }
-        }
-        .frame(minHeight: Metrics.rowHeight)
-        .contextMenu {
-            if controller.isEditable {
-                Button(String(localized: "Delete Row"), systemImage: "trash", role: .destructive) { controller.delete(row.id, in: snapshot.block) }
-            }
-        }
-    }
-
-    /// The calculation row, with + for a new record under the row numbers.
-    private func foot(_ widths: [CGFloat]) -> some View {
-        HStack(spacing: 0) {
-            Button {
-                controller.addRecord(to: snapshot.block)
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                    .frame(width: Metrics.numberWidth, height: Metrics.rowHeight)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!controller.isEditable)
-            .accessibilityLabel(String(localized: "Add Row"))
-            if view.showsCalculations {
-                ForEach(Array(zip(columns, widths)), id: \.0.id) { column, width in
-                    DocCalculationCell(snapshot: snapshot, view: view, column: column, controller: controller,
-                                       offers: overFoot || !FlooDesignTokens.Platform.isPointer)
-                        .padding(.horizontal, Metrics.cellInset)
-                        .frame(width: width, alignment: .trailing)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(height: Metrics.rowHeight)
-        .onHover { overFoot = $0 }
-    }
-
-    private var separator: some View {
-        Rectangle().fill(FlooDesignTokens.Border.subtle).frame(width: FlooDesignTokens.Border.standard)
-    }
-}
-
-private struct DocHeadLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: FlooDesignTokens.Space.xs + 2) {
-            configuration.icon.font(.system(size: FlooDesignTokens.Icon.compact)).foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
-            configuration.title.font(.system(size: 13, weight: .medium)).foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary).lineLimit(1)
-        }
-    }
-}
-
-/// One field of one record in the table.
-private struct DocCollectionCell: View {
-    let block: DocBlockID
-    let row: Row
-    let column: Column
-    let controller: DocCollectionController
-    @State private var text = ""
-    @State private var picking = false
-
-    private var value: CellValue? { row.cells[column.id] }
-
-    /// A date cell's day as a date to pick (days are midnight UTC).
-    private var day: Binding<Date> {
-        Binding {
-            if case .date(let value)? = value { return Date(timeIntervalSince1970: TimeInterval(value.millisecondsSince1970) / 1000) }
-            return .now
-        } set: { date in
-            var calendar = Calendar(identifier: .gregorian)
-            calendar.timeZone = TimeZone(identifier: "UTC")!
-            let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
-            guard let midnight = calendar.date(from: parts) else { return }
-            controller.set(.date(value: Timestamp(millisecondsSince1970: Int64(midnight.timeIntervalSince1970 * 1000))),
-                           row: row.id, column: column.id, in: block)
-        }
-    }
-
-    var body: some View {
-        switch column.type {
-        case .select(let options):
-            Menu {
-                ForEach(options, id: \.id) { option in
-                    Button {
-                        controller.set(.select(option: option.id), row: row.id, column: column.id, in: block)
-                    } label: {
-                        if DocCollectionController.option(of: row, in: column.id) == option.id { Label(option.name, systemImage: "checkmark") } else { Text(option.name) }
-                    }
-                }
-                if value != nil {
-                    Divider()
-                    Button(String(localized: "Clear"), role: .destructive) { controller.set(nil, row: row.id, column: column.id, in: block) }
-                }
-            } label: {
-                HStack {
-                    if case .select(let id)? = value, let option = options.first(where: { $0.id == id }) {
-                        DocChip(text: option.name, color: DocOptionColor.color(DocOptionColor.token(option, in: options)))
-                    }
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight)
-                .contentShape(Rectangle())
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .disabled(!controller.isEditable)
-        case .multiSelect(let options):
-            DocFlow {
-                ForEach(options.filter { if case .multiSelect(let ids)? = value { ids.contains($0.id) } else { false } }, id: \.id) { option in
-                    DocChip(text: option.name, color: DocOptionColor.color(DocOptionColor.token(option, in: options)))
-                }
-            }
-        case .checkbox:
-            let on = value == .checkbox(value: true)
-            Button {
-                controller.set(on ? nil : .checkbox(value: true), row: row.id, column: column.id, in: block)
-            } label: {
-                Image(systemName: on ? "checkmark.square.fill" : "square")
-                    .font(.system(size: FlooDesignTokens.Icon.standard))
-                    .foregroundStyle(on ? FlooDesignTokens.ColorRole.Content.primary : FlooDesignTokens.ColorRole.Content.tertiary)
-                    .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight)
-            }
-            .buttonStyle(.plain)
-            .disabled(!controller.isEditable)
-        case .date:
-            Button {
-                picking = true
-            } label: {
-                Text(DocFieldText.text(value, in: column))
-                    .font(.system(size: 14))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.primary)
-                    .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!controller.isEditable)
-            .popover(isPresented: $picking) {
-                VStack(spacing: FlooDesignTokens.Space.sm) {
-                    DatePicker("", selection: day, displayedComponents: [.date])
-                        .datePickerStyle(.graphical)
-                        .labelsHidden()
-                    if value != nil {
-                        Button(String(localized: "Clear")) {
-                            controller.set(nil, row: row.id, column: column.id, in: block)
-                            picking = false
-                        }
-                        .buttonStyle(FlooDesignButtonStyle(.secondary))
-                    }
-                }
-                .padding(FlooDesignTokens.Component.FloatingPanel.roomyInset)
-            }
-        default:
-            // One line, as Craft's cells are: a longer text runs on out of sight.
-            TextField("", text: $text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 14))
-                .lineLimit(1)
-                .multilineTextAlignment(column.type == .number ? .trailing : .leading)
-                .frame(minHeight: Metrics.rowHeight)
-                .disabled(!controller.isEditable)
-                .onAppear { text = DocFieldText.text(value, in: column) }
-                .onChange(of: value) { _, value in
-                    let shown = DocFieldText.text(value, in: column)
-                    if shown != text, column.type != .number || Double(text) != value.flatMap({ if case .number(let n) = $0 { n } else { nil } }) { text = shown }
-                }
-                .onChange(of: text) { _, text in
-                    if text != DocFieldText.text(value, in: column) { controller.setText(text, row: row.id, column: column.id, in: block) }
-                }
-        }
-    }
-}
-
-/// A column's cell in the calculation row: Calculate, or what it computes.
-private struct DocCalculationCell: View {
-    let snapshot: DocCollectionSnapshot
-    let view: CollectionView
-    let column: Column
-    let controller: DocCollectionController
-    /// Whether an empty cell shows Calculate.
-    let offers: Bool
-
-    private var calculation: CollectionCalculation? { view.calculations[column.id] }
-
-    var body: some View {
-        Menu {
-            ForEach(DocCollectionMath.available(for: column), id: \.self) { calculation in
-                Button(DocCollectionMath.title(calculation)) {
-                    controller.setCalculation(calculation, for: column.id, in: view.id, of: snapshot.block)
-                }
-            }
-            if calculation != nil {
-                Divider()
-                Button(String(localized: "None")) { controller.setCalculation(nil, for: column.id, in: view.id, of: snapshot.block) }
-            }
-        } label: {
-            HStack(spacing: FlooDesignTokens.Space.xs) {
-                Spacer(minLength: 0)
-                if let calculation {
-                    Text(DocCollectionMath.label(calculation))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
-                    Text(DocCollectionMath.value(calculation, of: column, in: snapshot.database.rows))
-                        .font(.system(size: 14).monospacedDigit())
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                } else {
-                    Text(String(localized: "Calculate"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
-                        .opacity(controller.isEditable && offers ? 1 : 0)
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight)
-            .contentShape(Rectangle())
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .disabled(!controller.isEditable)
-    }
-}
-
-/// What a calculation row computes.
-enum DocCollectionMath {
-    static func available(for column: Column) -> [CollectionCalculation] {
-        column.type == .number ? CollectionCalculation.allCases : [.count, .countEmpty, .countFilled]
-    }
-
-    static func title(_ calculation: CollectionCalculation) -> String {
-        switch calculation {
-        case .count: String(localized: "Count All")
-        case .countEmpty: String(localized: "Count Empty")
-        case .countFilled: String(localized: "Count Filled")
-        case .sum: String(localized: "Sum")
-        case .average: String(localized: "Average")
-        case .median: String(localized: "Median")
-        case .min: String(localized: "Min")
-        case .max: String(localized: "Max")
-        case .range: String(localized: "Range")
-        }
-    }
-
-    static func label(_ calculation: CollectionCalculation) -> String {
-        switch calculation {
-        case .count: "COUNT"
-        case .countEmpty: "EMPTY"
-        case .countFilled: "FILLED"
-        case .sum: "SUM"
-        case .average: "AVG"
-        case .median: "MEDIAN"
-        case .min: "MIN"
-        case .max: "MAX"
-        case .range: "RANGE"
-        }
-    }
-
-    static func value(_ calculation: CollectionCalculation, of column: Column, in rows: [Row]) -> String {
-        let numbers = rows.compactMap { if case .number(let value)? = $0.cells[column.id] { value } else { nil } }.sorted()
-        let filled = rows.filter { $0.cells[column.id] != nil }.count
-        let result: Double? = switch calculation {
-        case .count: Double(rows.count)
-        case .countEmpty: Double(rows.count - filled)
-        case .countFilled: Double(filled)
-        case .sum: numbers.reduce(0, +)
-        case .average: numbers.isEmpty ? nil : numbers.reduce(0, +) / Double(numbers.count)
-        case .median: numbers.isEmpty ? nil : numbers.count % 2 == 1 ? numbers[numbers.count / 2] : (numbers[numbers.count / 2 - 1] + numbers[numbers.count / 2]) / 2
-        case .min: numbers.first
-        case .max: numbers.last
-        case .range: numbers.last.flatMap { last in numbers.first.map { last - $0 } }
-        }
-        return result.map { $0.formatted(.number.precision(.fractionLength(0...2))) } ?? "–"
-    }
-}
-
-/// A view's sorting: by each sort column in turn, empties last.
-enum DocCollectionSorting {
-    static func sorted(_ rows: [Row], by sort: [DatabaseSort], in database: Database) -> [Row] {
-        rows.sorted { a, b in
-            for entry in sort {
-                guard let column = database.columns.first(where: { $0.id == entry.column }) else { continue }
-                let x = key(a.cells[entry.column], column), y = key(b.cells[entry.column], column)
-                if x == y { continue }
-                guard let x else { return false }
-                guard let y else { return true }
-                return entry.ascending ? x < y : x > y
-            }
-            return false
-        }
-    }
-
-    private static func key(_ value: CellValue?, _ column: Column) -> String? {
-        switch value {
-        case .number(let number)?: String(format: "%020.6f", number + 1e12)
-        case .date(let date)?: String(format: "%020lld", date.millisecondsSince1970)
-        case .select(let option)?: DocFieldText.options(column).firstIndex { $0.id == option }.map { String(format: "%05d", $0) }
-        case nil: nil
-        default: DocFieldText.text(value, in: column).lowercased()
-        }
-    }
-}
-
-// MARK: - Kanban
-
-private struct DocCollectionKanban: View {
-    let snapshot: DocCollectionSnapshot
-    let group: ColumnID
-    let controller: DocCollectionController
-    @State private var addingGroup = false
-
-    private var column: Column? { snapshot.database.columns.first { $0.id == group } }
-    private var options: [SelectOption] { column.map(DocFieldText.options) ?? [] }
-    /// The column the records are titled by: the first text one.
-    private var titleColumn: Column? { snapshot.database.columns.first { $0.type == .text } }
-
-    private func records(_ option: OptionID?) -> [Row] {
-        snapshot.database.rows.filter { row in
-            let value = DocCollectionController.option(of: row, in: group)
-            return option == nil ? (value == nil || !options.contains { $0.id == value }) : value == option
-        }
-    }
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: Metrics.columnGap) {
-                // Records with no option in a column of their own, first, when there are any.
-                if !records(nil).isEmpty {
-                    lane(nil)
-                }
-                ForEach(options, id: \.id) { option in
-                    lane(option)
-                }
-                if controller.isEditable {
-                    Button {
-                        addingGroup = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
-                            .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                            .frame(width: Metrics.columnHead, height: Metrics.columnHead)
-                    }
-                    .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
-                    .accessibilityLabel(String(localized: "Add New Group"))
-                    .popover(isPresented: $addingGroup) {
-                        DocNewGroupForm(column: column?.name ?? "") { name, color in
-                            controller.addOption(name, color: color, to: group, in: snapshot.block)
-                            addingGroup = false
-                        } cancel: {
-                            addingGroup = false
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func lane(_ option: SelectOption?) -> some View {
-        DocKanbanLane(snapshot: snapshot, group: group, option: option, options: options, records: records(option?.id),
-                      titleColumn: titleColumn, controller: controller)
-    }
-}
-
-/// One column of a kanban: its option and how many, its cards, + for a new card.
-private struct DocKanbanLane: View {
-    let snapshot: DocCollectionSnapshot
-    let group: ColumnID
-    let option: SelectOption?
-    let options: [SelectOption]
-    let records: [Row]
-    let titleColumn: Column?
-    let controller: DocCollectionController
-    @State private var hovering = false
-    @State private var targeted = false
-
-    private var tint: Color {
-        option.map { DocOptionColor.color(DocOptionColor.token($0, in: options)) } ?? .secondary
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.cardGap) {
-            HStack(spacing: FlooDesignTokens.Space.sm) {
-                if let option {
-                    DocChip(text: option.name, color: tint)
-                } else {
-                    DocChip(text: String(localized: "No Value"))
-                }
-                Text("\(records.count)")
-                    .font(.system(size: 14))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                Spacer(minLength: 0)
-                if controller.isEditable {
-                    Button {
-                        controller.addRecord(to: snapshot.block, in: (group, option?.id))
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
-                            .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                            .frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs, style: .continuous)))
-                    .opacity(hovering || !FlooDesignTokens.Platform.isPointer ? 1 : 0)
-                    .accessibilityLabel(String(localized: "New Item"))
-                }
-            }
-            .frame(height: Metrics.columnHead - Metrics.columnInset)
-            ForEach(records, id: \.id) { row in
-                DocKanbanCard(snapshot: snapshot, row: row, group: group, titleColumn: titleColumn, controller: controller)
-                    .draggable(row.id.description)
-                    .dropDestination(for: String.self) { items, _ in
-                        drop(items, before: row.id)
-                    }
-            }
-            if controller.isEditable {
-                Button {
-                    controller.addRecord(to: snapshot.block, in: (group, option?.id))
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: Metrics.addHeight)
-                        .overlay(RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
-                            .strokeBorder(FlooDesignTokens.Border.subtle, lineWidth: FlooDesignTokens.Border.standard))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)))
-                .accessibilityLabel(String(localized: "New Item"))
-            }
-        }
-        .padding(Metrics.columnInset)
-        .frame(width: Metrics.columnWidth, alignment: .topLeading)
-        .background(tint.opacity(targeted ? 0.2 : 0.1), in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
-        .onHover { hovering = $0 }
-        .dropDestination(for: String.self) { items, _ in
-            drop(items, before: nil)
-        } isTargeted: { targeted = $0 }
-    }
-
-    private func drop(_ items: [String], before: RowID?) -> Bool {
-        guard let item = items.first, let row = snapshot.database.rows.first(where: { $0.id.description == item }) else { return false }
-        controller.move(row.id, to: option?.id, groupedBy: group, before: before, in: snapshot.block)
-        return true
-    }
-}
-
-/// A record as a card: its title (typed in place), then its other fields as chips.
-private struct DocKanbanCard: View {
-    let snapshot: DocCollectionSnapshot
-    let row: Row
-    let group: ColumnID
-    let titleColumn: Column?
-    let controller: DocCollectionController
-    @State private var title = ""
-    @State private var editing = false
-    @FocusState private var focused: Bool
-
-    private var fields: [Column] {
-        snapshot.database.columns.filter { $0.id != titleColumn?.id && row.cells[$0.id] != nil }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: FlooDesignTokens.Space.sm) {
-            titleView
-            if !fields.isEmpty {
-                DocFlow {
-                    ForEach(fields, id: \.id) { column in
-                        chip(column)
-                    }
-                }
-            }
-        }
-        .padding(Metrics.cardInset)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(FlooDesignTokens.ColorRole.Surface.canvas, in: RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
-            .strokeBorder(editing ? Color.accentColor : FlooDesignTokens.Border.subtle, lineWidth: editing ? 2 : FlooDesignTokens.Border.standard))
-        .contextMenu {
-            if controller.isEditable {
-                Button(String(localized: "Delete"), systemImage: "trash", role: .destructive) { controller.delete(row.id, in: snapshot.block) }
-            }
-        }
-        .onAppear {
-            title = titleColumn.map { DocFieldText.text(row.cells[$0.id], in: $0) } ?? ""
-            if controller.editingTitle == row.id { startEditing() }
-        }
-        .onChange(of: row) { _, row in
-            let shown = titleColumn.map { DocFieldText.text(row.cells[$0.id], in: $0) } ?? ""
-            if !editing, shown != title { title = shown }
-        }
-    }
-
-    @ViewBuilder
-    private var titleView: some View {
-        if editing, let titleColumn {
-            TextField(String(localized: "Title"), text: $title, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.system(size: 15, weight: .semibold))
-                .focused($focused)
-                .onChange(of: title) { _, title in controller.setText(title, row: row.id, column: titleColumn.id, in: snapshot.block) }
-                .onChange(of: focused) { _, focused in if !focused { editing = false } }
-                .onSubmit { focused = false }
-        } else {
-            Text(title.isEmpty ? String(localized: "Title") : title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(title.isEmpty ? FlooDesignTokens.ColorRole.Content.tertiary : FlooDesignTokens.ColorRole.Content.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture { if controller.isEditable, titleColumn != nil { startEditing() } }
-        }
-    }
-
-    private func startEditing() {
-        editing = true
-        if controller.editingTitle == row.id { controller.editingTitle = nil }
-        Task { @MainActor in focused = true }
-    }
-
-    @ViewBuilder
-    private func chip(_ column: Column) -> some View {
-        let value = row.cells[column.id]
-        switch (column.type, value) {
-        case (.select(let options), .select(let id)?):
-            if let option = options.first(where: { $0.id == id }) {
-                DocChip(text: option.name, color: DocOptionColor.color(DocOptionColor.token(option, in: options)))
-            }
-        case (.multiSelect(let options), .multiSelect(let ids)?):
-            ForEach(options.filter { ids.contains($0.id) }, id: \.id) { option in
-                DocChip(text: option.name, color: DocOptionColor.color(DocOptionColor.token(option, in: options)))
-            }
-        case (.checkbox, .checkbox(let on)?):
-            DocChip(text: column.name, systemImage: on ? "checkmark.square.fill" : "square")
-        default:
-            DocChip(text: DocFieldText.text(value, in: column))
-        }
-    }
-}
-
-/// Craft's Add Option: a name and a colour for a kanban's new column.
-private struct DocNewGroupForm: View {
-    let column: String
-    let add: (String, String) -> Void
-    let cancel: () -> Void
-    @State private var name = ""
-    @State private var color = DocOptionColor.order[0]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: FlooDesignTokens.Space.md) {
-            Text(String(localized: "Add Option to \(column)"))
-                .font(FlooDesignTokens.Typography.panelTitle.font)
-            TextField(String(localized: "Name"), text: $name)
-                .textFieldStyle(FlooDesignTextFieldStyle())
-                .onSubmit { add(name, color) }
-            HStack(spacing: FlooDesignTokens.Space.xs + 2) {
-                ForEach(DocOptionColor.order, id: \.self) { token in
-                    Button {
-                        color = token
-                    } label: {
-                        Circle()
-                            .fill(DocOptionColor.color(token))
-                            .frame(width: 18, height: 18)
-                            .overlay(Circle().strokeBorder(FlooDesignTokens.ColorRole.Content.primary, lineWidth: color == token ? 2 : 0).padding(-3))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(token)
-                }
-            }
-            HStack {
-                Button(String(localized: "Cancel"), action: cancel)
-                    .buttonStyle(FlooDesignButtonStyle(.secondary))
-                Button(String(localized: "Add")) { add(name, color) }
-                    .buttonStyle(FlooDesignButtonStyle(.primary))
-                    .disabled(name.isEmpty)
-            }
-        }
-        .padding(FlooDesignTokens.Component.FloatingPanel.roomyInset)
-        .frame(width: 280)
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: Data(text.utf8))
     }
 }

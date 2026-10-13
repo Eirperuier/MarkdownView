@@ -1870,6 +1870,120 @@ final class DocEditTests {
             (_, collection, _) = try current()
             try self.expect(collection.currentView?.id != table.id, "showing the table after undo")
         }
+        await test("a collection's fields, sorting, filters and search: each a step that undoes, the views kept whole") {
+            let collections = self.editor.collections
+            @MainActor func current() throws -> (id: DocBlockID, collection: DocCollection, database: Database) {
+                let block = try self.expectValue(self.demo.doc.blocks.first { if case .collection = $0.kind { true } else { false } }, "no collection")
+                guard case .collection(let collection) = block.kind, let database = self.demo.doc.databases[collection.database] else { throw Failure(description: "no database") }
+                return (block.id, collection, database)
+            }
+            @MainActor func snapshot() throws -> DocCollectionSnapshot {
+                let (id, collection, database) = try current()
+                return DocCollectionSnapshot(block: id, collection: collection, database: database)
+            }
+            let (id, start, original) = try current()
+            let kanban = try self.expectValue(start.views.first { $0.layout.groupBy != nil }, "no kanban")
+            let table = try self.expectValue(start.views.first { $0.layout.groupBy == nil }, "no table")
+            let group = try self.expectValue(kanban.layout.groupBy, "no group")
+            let title = try self.expectValue(DocCollectionController.titleColumn(of: original), "no title")
+            let hours = try self.expectValue(original.columns.first { $0.type == .number }, "no number column")
+            @MainActor func view(_ id: CollectionViewID) throws -> CollectionView {
+                try self.expectValue(current().collection.views.first { $0.id == id }, "no view")
+            }
+            @MainActor func titles(_ view: CollectionView) throws -> [String] {
+                try collections.rows(snapshot(), view).map { DocFieldText.text($0.cells[title.id], in: title) }
+            }
+
+            // A field added, typed into, then made a select: its words become its options.
+            let note = try self.expectValue(collections.addField("标签", type: .text, to: id), "no field")
+            collections.setText("前端", row: original.rows[0].id, column: note, in: id)
+            collections.setText("后端", row: original.rows[1].id, column: note, in: id)
+            collections.setText("前端", row: original.rows[2].id, column: note, in: id)
+            collections.editField(note, name: "方向", type: .select(options: []), in: id)
+            var database = try current().database
+            let field = try self.expectValue(database.columns.first { $0.id == note }, "the field is gone")
+            try self.expect(field.name == "方向" && DocFieldText.options(field).map(\.name) == ["前端", "后端"], "options \(DocFieldText.options(field).map(\.name))")
+            try self.expect(DocFieldText.text(database.rows[2].cells[note], in: field) == "前端", "a value didn't become its option")
+            try await self.undo()
+            database = try current().database
+            try self.expect(database.rows[2].cells[note] == .text(value: "前端"), "the type change undid to \(String(describing: database.rows[2].cells[note]))")
+            // Deleting it takes it out of the views too; undo brings both back.
+            collections.setHidden(note, true, in: table.id, of: id)
+            collections.deleteField(note, in: id)
+            try self.expect(try current().database.columns.allSatisfy { $0.id != note } && !(try view(table.id).layout.hidden.contains(note)), "the field stayed")
+            try await self.undo()
+            try self.expect(try view(table.id).layout.hidden.contains(note), "the view didn't get its hidden field back")
+            try await self.undo()
+            for _ in 0..<4 { try await self.undo() }
+            try self.expect(try current().database == original, "the field's steps didn't all undo")
+
+            // Sorting by hours, most first; a filter on the group; a search over every field.
+            collections.setSort([DatabaseSort(column: hours.id, ascending: false)], in: table.id, of: id)
+            let hoursShown = try collections.rows(snapshot(), view(table.id)).compactMap { if case .number(let n)? = $0.cells[hours.id] { n } else { nil } }
+            try self.expect(hoursShown == hoursShown.sorted(by: >), "sorted \(hoursShown)")
+            guard case .select(let options)? = original.columns.first(where: { $0.id == group })?.type else { throw Failure(description: "no options") }
+            let doing = options[1]
+            collections.setFilters([CollectionFilter(column: group, condition: .is, value: .select(option: doing.id))], in: table.id, of: id)
+            let kept = try collections.rows(snapshot(), view(table.id))
+            try self.expect(!kept.isEmpty && kept.allSatisfy { DocCollectionController.option(of: $0, in: group) == doing.id }, "the filter kept \(kept.count)")
+            // A value typed into a filter is one step.
+            let typed = CollectionFilter(column: title.id, condition: .contains)
+            for text in ["评", "评测"] {
+                var filter = typed
+                filter.value = .text(value: text)
+                collections.setFilters([filter], typing: "value", in: table.id, of: id)
+            }
+            let typedKept = try titles(view(table.id))
+            try self.expect(typedKept.allSatisfy { $0.contains("评测") }, "the typed filter kept \(typedKept)")
+            try await self.undo()
+            try self.expect(try view(table.id).filters.first?.condition == .is, "the typing took more than one undo")
+            try await self.undo()
+            try await self.undo()
+            try self.expect(try view(table.id) == table, "the view didn't undo whole")
+            collections.searches[id] = "手册"
+            let found = try titles(view(table.id))
+            try self.expect(found == ["上线手册"], "the search found \(found)")
+            collections.searches[id] = nil
+
+            // Hidden and moved fields; the table as a kanban and back.
+            collections.setHidden(hours.id, true, in: table.id, of: id)
+            collections.moveField(group, before: title.id, in: table.id, of: id)
+            let fields = DocCollectionController.fields(try view(table.id), of: original).map(\.id)
+            try self.expect(fields.first == group && !fields.contains(hours.id), "fields \(fields)")
+            collections.setLayout(kanban: true, in: table.id, of: id)
+            let firstSelect = try self.expectValue(DocCollectionController.selects(in: original).first, "no select")
+            try self.expect(try view(table.id).layout == .kanban(groupBy: firstSelect.id, hidden: [hours.id], sort: []), "not a kanban")
+            for _ in 0..<3 { try await self.undo() }
+            try self.expect(try view(table.id) == table, "the layout steps didn't undo")
+
+            // A card at the top of a column; picked rows go together.
+            let top = try self.expectValue(collections.addRecord(to: id, in: (group, doing.id), atTop: true), "no card")
+            let lane = try current().database.rows.filter { DocCollectionController.option(of: $0, in: group) == doing.id }
+            try self.expect(lane.first?.id == top, "the card isn't at the top")
+            try await self.undo()
+            collections.togglePicked(original.rows[0].id, in: id)
+            collections.togglePicked(original.rows[2].id, in: id)
+            collections.delete(rows: collections.selectedRows[id] ?? [], in: id)
+            try self.expect(try current().database.rows.count == original.rows.count - 2, "picked rows stayed")
+            try await self.undo()
+            let back = try current().database
+            try self.expect(back == original, "the rows came back as \(back.rows.count)")
+
+            // A multi-select ticked from its options; a new option typed in.
+            let tags = try self.expectValue(collections.addField("标记", type: .multiSelect(options: []), to: id), "no field")
+            let urgent = try self.expectValue(collections.addOption("紧急", to: tags, in: id), "no option")
+            let later = try self.expectValue(collections.addOption("以后", to: tags, in: id), "no option")
+            collections.toggle(urgent, row: original.rows[0].id, column: tags, in: id)
+            collections.toggle(later, row: original.rows[0].id, column: tags, in: id)
+            collections.toggle(urgent, row: original.rows[0].id, column: tags, in: id)
+            let ticked = try current().database.rows[0].cells[tags]
+            try self.expect(ticked == .multiSelect(options: [later]), "ticked \(String(describing: ticked))")
+            collections.deleteOption(later, in: tags, of: id)
+            try self.expect(try current().database.rows[0].cells[tags] == nil, "the option stayed on the record")
+            for _ in 0..<7 { try await self.undo() }
+            try self.expect(try current().database == original, "the multi-select steps didn't all undo")
+            try self.expect(try current().collection == start, "the collection didn't come back whole")
+        }
         await test("cards next to each other share a line; a point on each picks that one") {
             let line = try self.expectValue(self.linkCards(), "no line of cards")
             await show(line[0])

@@ -258,6 +258,42 @@ struct AgentEditTests {
         #expect(doc.databases.count == 1)
     }
 
+    /// A view's filters are read and written by column and option names; a set keeps them
+    /// on the records it keeps, and the fields' order the document gave the view.
+    @Test
+    func collectionFiltersRoundTrip() throws {
+        var doc = doc()
+        let results = doc.agentEdit([json(#"""
+            {"op": "insert", "blocks": [{"type": "collection", "name": "Tasks",
+             "columns": [{"name": "Task"}, {"name": "Owner", "type": "select"}, {"name": "Hours", "type": "number"}],
+             "rows": [["Walk", "Ada", 2], ["Sleep", "Bo", 8], ["Read", "Ada", 1]],
+             "views": [{"name": "Ada's", "layout": "table", "filter": [{"column": "Owner", "condition": "is", "value": "Ada"},
+                                                                       {"column": "Hours", "condition": "greater_than", "value": 1}]}]}]}
+            """#)])
+        #expect(results[0].error == nil, "\(results.map(\.json))")
+        let id = try #require(results[0].written.first)
+        guard case .collection(var collection)? = doc.block(id)?.kind, let database = doc.databases[collection.database] else { return }
+        #expect(collection.views[0].records(of: database).map { $0.cells[database.columns[0].id] } == [.text(value: "Walk")])
+        let read = AgentBlocks.json(doc.block(id)!, in: doc)
+        #expect(read["views"]?[0]?["filter"]?[0]?["value"] == "Ada" && read["views"]?[0]?["filter"]?[1]?["condition"] == "greater_than")
+
+        // The person's own order of the fields stays through a set.
+        collection.views[0].order = [database.columns[2].id]
+        doc.blocks[doc.blocks.firstIndex { $0.id == id }!].kind = .collection(collection: collection)
+        let set = doc.agentEdit([json(#"""
+            {"op": "set", "id": "\#(AgentBlocks.shortID(id))", "views": [{"name": "Ada's", "layout": "table", "filter": {"column": "Owner", "condition": "is", "value": "Bo"}}]}
+            """#)])
+        #expect(set[0].error == nil, "\(set.map(\.json))")
+        guard case .collection(let after)? = doc.block(id)?.kind else { return }
+        #expect(after.views[0].order == [database.columns[2].id])
+        #expect(after.views[0].records(of: database).map { $0.cells[database.columns[0].id] } == [.text(value: "Sleep")])
+
+        let wrong = doc.agentEdit([json(#"""
+            {"op": "set", "id": "\#(AgentBlocks.shortID(id))", "views": [{"name": "x", "filter": {"column": "Owner", "condition": "is", "value": "Cy"}}]}
+            """#)])
+        #expect(wrong[0].error?.contains("no option") == true)
+    }
+
     /// Data from several results is bound by their tools' names; two of one tool keep their ids.
     @Test
     func severalResultsAreBoundByTool() throws {

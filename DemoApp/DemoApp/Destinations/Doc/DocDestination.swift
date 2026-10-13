@@ -132,6 +132,42 @@ struct DocDestination: View {
                     editor.sources.focus(block)
                 }
             }
+            // -docCollectionPanel KIND: the first collection with a panel open (screenshots):
+            // layout, sort, filter, createKanban, addField, editField, options, record, addOption;
+            // -docCollectionView table|kanban shows that view of it first.
+            if let name = UserDefaults.standard.string(forKey: "docCollectionPanel"),
+               let block = demo.doc.blocks.first(where: { if case .collection = $0.kind { true } else { false } }),
+               case .collection(var collection) = block.kind, let database = demo.doc.databases[collection.database] {
+                let collections = editor.collections
+                if let layout = UserDefaults.standard.string(forKey: "docCollectionView"),
+                   let view = collection.views.first(where: { ($0.layout.groupBy != nil) == (layout == "kanban") }) {
+                    collections.show(view.id, in: block.id)
+                    collection.current = view.id
+                }
+                let view = collection.currentView
+                let select = database.columns.first { if case .select = $0.type { true } else { false } }
+                let kind: DocCollectionPanel.Kind? = switch name {
+                case "layout": .layout
+                case "sort": .sort
+                case "filter": .filter
+                case "createKanban": .createKanban
+                case "addField": .addField
+                case "editField": database.columns.last.map { .editField($0.id) }
+                case "options": database.rows.first.flatMap { row in select.map { .options(row: row.id, column: $0.id) } }
+                case "record": database.rows.first.map { .record($0.id) }
+                case "addOption": view?.layout.groupBy.map { .addOption($0) }
+                default: nil
+                }
+                if let view, name == "sort", view.layout.sort.isEmpty, let column = database.columns.last {
+                    collections.setSort([DatabaseSort(column: column.id, ascending: false)], in: view.id, of: block.id)
+                }
+                if let view, name == "filter", view.filters.isEmpty, let select, case .select(let options) = select.type, let option = options.first {
+                    collections.setFilters([CollectionFilter(column: select.id, condition: .is, value: .select(option: option.id)),
+                                            CollectionFilter(column: database.columns[0].id, condition: .contains)], in: view.id, of: block.id)
+                }
+                try? await Task.sleep(for: .milliseconds(800))
+                if let kind { collections.show(kind, in: block.id) }
+            }
             // -docPageShots NAME: the page a screen at a time, top to bottom, to NAME-<n>.png in
             // the app's (sandboxed) temporary folder; then the app quits.
             if let name = UserDefaults.standard.string(forKey: "docPageShots") {

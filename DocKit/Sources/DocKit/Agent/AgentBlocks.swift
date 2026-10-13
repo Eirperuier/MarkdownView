@@ -113,6 +113,7 @@ extension AgentBlocks {
             object["views"] = .array(collection.views.map { view in
                 var entry: [String: JSONValue] = ["name": .string(view.name)]
                 layout(view.layout, names: names, key: "layout", into: &entry)
+                if !view.filters.isEmpty { entry["filter"] = .array(view.filters.compactMap { json($0, in: database) }) }
                 return .object(entry)
             })
             if let current = collection.currentView, collection.views.count > 1 { object["current"] = .string(current.name) }
@@ -187,6 +188,19 @@ extension AgentBlocks {
         case .null: "null"
         }
     }
+
+    /// A filter: its column by name, the condition, and the value it tests against.
+    private static func json(_ filter: CollectionFilter, in database: Database) -> JSONValue? {
+        guard let column = database.columns.first(where: { $0.id == filter.column }) else { return nil }
+        var object: [String: JSONValue] = ["column": .string(column.name), "condition": .string(conditionNames[filter.condition] ?? "is")]
+        if let value = filter.value { object["value"] = json(value, in: column) }
+        return .object(object)
+    }
+
+    static let conditionNames: [CollectionFilter.Condition: String] = [
+        .contains: "contains", .doesNotContain: "does_not_contain", .is: "is", .isNot: "is_not",
+        .greaterThan: "greater_than", .lessThan: "less_than", .isEmpty: "is_empty", .isNotEmpty: "is_not_empty",
+    ]
 
     /// An option: its name, or its name and colour.
     private static func json(_ option: SelectOption) -> JSONValue {
@@ -606,15 +620,48 @@ extension AgentBlocks {
                 fields["view"] = nil
                 let layout = try view(fields, of: database, kanban: isKanban)
                 let name = fields["name"]?.stringValue ?? (isKanban ? "Kanban" : "Table")
-                views.append(CollectionView(name: name.isEmpty ? "View \(index + 1)" : name, layout: layout))
+                views.append(CollectionView(name: name.isEmpty ? "View \(index + 1)" : name, layout: layout,
+                                            filters: try filters(fields["filter"], of: database)))
             }
         } else {
             let isKanban = kanban || object["view"]?.stringValue?.lowercased() == "kanban" || object["group_by"] != nil
-            views.append(CollectionView(name: isKanban ? "Kanban" : "Table", layout: try view(object, of: database, kanban: isKanban)))
+            views.append(CollectionView(name: isKanban ? "Kanban" : "Table", layout: try view(object, of: database, kanban: isKanban),
+                                        filters: try filters(object["filter"], of: database)))
             if isKanban { views.append(CollectionView(name: "Table", layout: .table(hidden: [], sort: []))) }
         }
         let current = object["current"]?.stringValue.flatMap { name in views.first { $0.name == name }?.id }
         return DocCollection(database: database.id, name: object["name"]?.stringValue ?? "", views: views, current: current)
+    }
+
+    /// A view's filters: [{"column", "condition", "value"}], a select's value an option it has.
+    private static func filters(_ value: JSONValue?, of database: Database) throws(AgentFormatError) -> [CollectionFilter] {
+        guard let value, value != .null else { return [] }
+        let entries: [JSONValue] = if case .array(let entries) = value { entries } else { [value] }
+        var filters: [CollectionFilter] = []
+        for entry in entries {
+            guard let name = entry["column"]?.stringValue, var column = database.columns.first(where: { $0.name == name }) else {
+                throw AgentFormatError("a filter is {\"column\", \"condition\", \"value\"} on one of the columns: \(database.columns.map(\.name).joined(separator: ", "))")
+            }
+            let allowed = CollectionFilter.conditions(for: column.type)
+            let conditionName = entry["condition"]?.stringValue ?? conditionNames[allowed[0]]!
+            guard let condition = conditionNames.first(where: { $0.value == conditionName })?.key, allowed.contains(condition) else {
+                throw AgentFormatError("a filter on \(name) is \(allowed.compactMap { conditionNames[$0] }.joined(separator: ", ")), not \(conditionName)")
+            }
+            var tested: CellValue?
+            if let raw = entry["value"], raw != .null, condition != .isEmpty, condition != .isNotEmpty {
+                switch column.type {
+                case .select(let options), .multiSelect(let options):
+                    guard let option = options.first(where: { $0.name == raw.stringValue }) else {
+                        throw AgentFormatError("\(name) has no option \(describe(raw)); its options are \(options.map(\.name).joined(separator: ", "))")
+                    }
+                    tested = .select(option: option.id)
+                default:
+                    tested = try cell(raw, in: &column)
+                }
+            }
+            filters.append(CollectionFilter(column: column.id, condition: condition, value: tested))
+        }
+        return filters
     }
 
     private static func view(_ object: [String: JSONValue], of database: Database, kanban: Bool) throws(AgentFormatError) -> DatabaseView {

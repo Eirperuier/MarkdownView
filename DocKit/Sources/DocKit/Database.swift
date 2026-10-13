@@ -78,6 +78,43 @@ public enum DatabaseView: Hashable, Sendable, Codable {
     case kanban(groupBy: ColumnID, hidden: [ColumnID], sort: [DatabaseSort])
 }
 
+extension DatabaseView {
+    /// The columns it leaves out.
+    public var hidden: [ColumnID] {
+        get {
+            switch self {
+            case .table(let hidden, _), .kanban(_, let hidden, _): hidden
+            }
+        }
+        set {
+            switch self {
+            case .table(_, let sort): self = .table(hidden: newValue, sort: sort)
+            case .kanban(let group, _, let sort): self = .kanban(groupBy: group, hidden: newValue, sort: sort)
+            }
+        }
+    }
+
+    /// How its records are ordered, by each column in turn.
+    public var sort: [DatabaseSort] {
+        get {
+            switch self {
+            case .table(_, let sort), .kanban(_, _, let sort): sort
+            }
+        }
+        set {
+            switch self {
+            case .table(let hidden, _): self = .table(hidden: hidden, sort: newValue)
+            case .kanban(let group, let hidden, _): self = .kanban(groupBy: group, hidden: hidden, sort: newValue)
+            }
+        }
+    }
+
+    /// The select column a kanban groups by; nil for a table.
+    public var groupBy: ColumnID? {
+        if case .kanban(let group, _, _) = self { group } else { nil }
+    }
+}
+
 public struct DatabaseSort: Hashable, Sendable, Codable {
     public var column: ColumnID
     public var ascending: Bool

@@ -166,15 +166,20 @@ enum DatabaseView { case table(…), kanban(groupBy: ColumnID, …) }           
 
 ```swift
 struct DocCollection { var database: DatabaseID; var name: String; var views: [CollectionView]; var current: CollectionViewID }
-struct CollectionView { var id; var name: String; var layout: DatabaseView; var showsCalculations: Bool; var calculations: [ColumnID: CollectionCalculation] }
+struct CollectionView { var id; var name: String; var layout: DatabaseView; var showsCalculations: Bool
+                        var calculations: [ColumnID: CollectionCalculation]; var filters: [CollectionFilter]; var order: [ColumnID] }
 ```
 
-- 表格视图:collection 自己的表格,不是表格块。列头带类型图标,格子直接编辑(文字、数字、单选的色块菜单、勾选、日期弹出日历);底下一行加记录,每列的统计(计数、求和、平均……)悬停时显示"Calculate",选了就一直显示。
-- 看板视图:按一个单选列分组,一个选项一栏,栏染选项的颜色;卡片是标题加其余字段的色块。卡片拖到另一栏就改那一格,栏底的 + 在这一栏加一条,最后的 + 加一个选项(新的一栏)。
+- 视图各管各的:布局(表格或看板,看板按哪个单选列分组)、隐藏哪些字段、字段顺序、排序、筛选(每条都满足才显示)、表格的统计行。筛选和排序在 DocKit 里算(`CollectionView.records(of:)`),agent 读写的也是同一份。
+- 块头:名字;标签页(点一下切换,右键是这个视图的面板、改名、复制、删除);+ 加表格视图(随后命名)或看板视图(Create Kanban:名字和分组列)。指针在块上时右上角是工具栏:搜索(只在这个窗口里,不进文档)、新建记录、视图菜单(Layout & Visibility、Filter、Sort、Group、改名、复制、删除、Download as CSV)。
+- 表格视图:collection 自己的表格,不是表格块。列头点开是字段菜单(编辑字段的名字和类型、按它排序或筛选、隐藏、删除),最后的 + 加字段;改类型时已有的值尽量转过去(文字变数字、名字变选项)。格子直接编辑,正在输入的格子描边;单选和多选点开是选项面板(搜索、勾选、回车新建);日期弹出日历。指针在行上时行号变成勾选框,勾选的行一起删;标题格的箭头打开整条记录。统计行每列的统计(计数、求和、平均……)悬停时显示"Calculate",选了就一直显示。
+- 看板视图:一个选项一栏,栏染选项的颜色;卡片是标题加这个视图里其余字段的色块。栏头悬停时有 …(改选项的名字和颜色、删除这一栏)和 +(在栏顶加卡片);卡片拖到另一栏就改那一格,悬停时箭头打开整条记录;栏底的 + 在这一栏末尾加一条,最后的 + 加一个选项(新的一栏)。
 - 选项可以带颜色(`SelectOption.color`,调色板里的名字)。
+- 面板都是 FlooDesign 的锚定浮层,一次只开一个(`DocCollectionController.panel`)。
 - 块比正文宽(最宽 1040),和 Craft 一样;控件直接点,选中和拖动交给块的把手。
+- 每个改动都是 step(记录和字段是数据库的 step,名字和视图是一次 setBlock),在一个格子或一条筛选里连续输入合成一步撤销。
 - markdown 里是 ` ```floo.collection ` 围栏,内容是 collection 和它的数据库的 JSON。
-- 暂不做:画廊视图,视图的筛选、排序、显示字段面板。
+- 暂不做:画廊视图、全屏打开、Configure Collection。
 
 ## 4. 改动:step【定】
 
