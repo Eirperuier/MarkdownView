@@ -151,7 +151,15 @@ final class DocDemo {
     }
 
     init() {
-        doc = DocDemoCorpus.doc(id: Identifier(rawValue: UUID()))
+        // -docFile NAME: a document (DocKit's JSON) in the app's temporary folder, in place of
+        // the corpus: what a model wrote (floo's Apps/CardLab/Eval/doc_agent.py).
+        if let name = UserDefaults.standard.string(forKey: "docFile"),
+           let data = try? Data(contentsOf: FileManager.default.temporaryDirectory.appendingPathComponent(name)),
+           let written = try? JSONDecoder().decode(Doc.self, from: data) {
+            doc = written
+        } else {
+            doc = DocDemoCorpus.doc(id: Identifier(rawValue: UUID()))
+        }
         previews.onPreview = { [weak self] url, preview in self?.fill(url, with: preview) }
         publish()
     }

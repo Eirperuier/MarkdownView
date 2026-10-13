@@ -132,6 +132,22 @@ struct DocDestination: View {
                     editor.sources.focus(block)
                 }
             }
+            // -docPageShots NAME: the page a screen at a time, top to bottom, to NAME-<n>.png in
+            // the app's (sandboxed) temporary folder; then the app quits.
+            if let name = UserDefaults.standard.string(forKey: "docPageShots") {
+                try? await Task.sleep(for: .seconds(2))
+                for page in 0..<40 {
+                    let path = FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(page).png").path
+                    DocBlockController.drawWindow(to: path)
+                    // Rows are measured as they show, so the page's end is asked again each time.
+                    let offset = reader.contentOffsetY(), visible = reader.visibleContentHeight() ?? 600
+                    let end = demo.rows.last.flatMap { reader.frame(forItem: $0.id)?.maxY } ?? 0
+                    guard offset + visible < end - 1 else { break }
+                    reader.scrollToContentOffsetY(min(offset + visible - 48, end - visible), animated: false)
+                    try? await Task.sleep(for: .milliseconds(1500))
+                }
+                exit(0)
+            }
             // -docShowTable YES: open at the first table (screenshots, trying tables out).
             if UserDefaults.standard.bool(forKey: "docShowTable"), let table = demo.rows.first(where: { $0.table != nil }) {
                 reader.scrollTo(id: table.id, anchor: .center, animated: false)
