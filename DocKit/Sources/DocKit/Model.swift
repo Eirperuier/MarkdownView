@@ -99,8 +99,8 @@ public struct DocImage: Hashable, Sendable, Codable {
     /// Its natural size up to the page's width, or the page's width.
     public var size: Size
 
-    public enum Fit: String, Hashable, Sendable, Codable { case fit, fill }
-    public enum Size: String, Hashable, Sendable, Codable { case auto, large }
+    public enum Fit: String, Hashable, Sendable, Codable, CaseIterable { case fit, fill }
+    public enum Size: String, Hashable, Sendable, Codable, CaseIterable { case auto, large }
 
     public init(source: String, alt: String = "", fit: Fit = .fit, size: Size = .auto) {
         self.source = source
