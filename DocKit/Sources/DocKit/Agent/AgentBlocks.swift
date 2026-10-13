@@ -259,8 +259,8 @@ extension AgentBlocks {
     public static func block(
         _ json: JSONValue, id: DocBlockID, databases: inout [DatabaseID: Database], results: [String: JSONValue]
     ) throws(AgentFormatError) -> DocBlock {
-        // A bare string is a paragraph of it.
-        if case .string = json { return try block(.object(["text": json]), id: id, databases: &databases, results: results) }
+        // Bare text (a string, or runs) is a paragraph of it.
+        if json.stringValue != nil || { if case .array = json { true } else { false } }() { return try block(.object(["text": json]), id: id, databases: &databases, results: results) }
         guard case .object(let object) = json else { throw AgentFormatError("a block is an object with a \"type\"") }
         let type = (object["type"]?.stringValue ?? "paragraph").lowercased()
         var indent = Int(object["indent"]?.intValue ?? 0)
@@ -361,13 +361,16 @@ extension AgentBlocks {
         }
         guard !names.isEmpty else { return nil }
         var found: [String: JSONValue] = [:]
-        for name in names {
+        // Several are bound by their tools' names (a result id is `<tool>_<6 hex>`), as
+        // the answer's cards take them; two of one tool keep their ids.
+        let tools = names.map { $0.replacing(/_[0-9a-f]{6}$/, with: "") }
+        for (name, tool) in zip(names, tools) {
             guard let result = results[name] else {
                 throw AgentFormatError("no result \"\(name)\"; the results are: \(results.keys.sorted().joined(separator: ", "))")
             }
-            found[name] = result
+            found[tools.filter { $0 == tool }.count == 1 ? tool : name] = result
         }
-        return names.count == 1 ? found[names[0]] : .object(found)
+        return names.count == 1 ? found.values.first : .object(found)
     }
 
     private static func choice<Value: RawRepresentable<String>>(

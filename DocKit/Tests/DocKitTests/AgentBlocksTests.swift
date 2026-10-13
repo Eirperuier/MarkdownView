@@ -194,4 +194,14 @@ struct AgentEditTests {
         guard case .view(let updated)? = doc.block(id)?.kind else { return }
         #expect(updated.source == "Text(\"new\")" && updated.data == week)
     }
+
+    /// Data from several results is bound by their tools' names; two of one tool keep their ids.
+    @Test
+    func severalResultsAreBoundByTool() throws {
+        let results: [String: JSONValue] = ["weather_a1b2c3": 1, "calendar_d4e5f6": 2, "calendar_0a0b0c": 3]
+        let two = try AgentBlocks.data(["from": ["weather_a1b2c3", "calendar_d4e5f6"]], results: results)
+        #expect(two == ["weather": 1, "calendar": 2])
+        let same = try AgentBlocks.data(["from": ["calendar_d4e5f6", "calendar_0a0b0c"]], results: results)
+        #expect(same == ["calendar_d4e5f6": 2, "calendar_0a0b0c": 3])
+    }
 }

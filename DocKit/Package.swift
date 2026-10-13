@@ -19,6 +19,7 @@ let package = Package(
     platforms: [.iOS(.v18), .macOS(.v15), .watchOS(.v11)],
     products: [
         .library(name: "DocKit", targets: ["DocKit"]),
+        .executable(name: "doclab", targets: ["doclab"]),
     ],
     dependencies: [
         // The CJK-friendly fork MarkdownView parses with, at the same revision.
@@ -29,6 +30,8 @@ let package = Package(
             name: "DocKit",
             dependencies: [.product(name: "Markdown", package: "swift-markdown")]
         ),
+        // The agent's doc tools from the command line, for evaluating how a model writes.
+        .executableTarget(name: "doclab", dependencies: ["DocKit"]),
         .testTarget(
             name: "DocKitTests",
             dependencies: ["DocKit"],
