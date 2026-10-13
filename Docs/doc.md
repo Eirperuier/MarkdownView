@@ -134,7 +134,7 @@ enum Mark { case bold, italic, strike, code, link(URL), highlight(color), mentio
 - agent 可以重画一张卡(替换 source),也可以只更新 data。
 - 用户能把聊天里的卡片直接拖进或复制进文档。
 
-视图块 `DocView{source, data: JSONValue?}`(markdown 里是 ` ```floo.view ` 围栏,内容为 JSON):不是卡片,没有尺寸档,和页面同宽、按内容取高、不加外框(Cards 的 `ViewFrame`),用来放看板、对比、表单这类 OpenUI 式的内联应用。源码里没写样式的控件用 FlooDesign 的(`flooDesignControls()`),链接除外,仍按链接画;源码点名的分段选择器画成 FlooDesign 的分段选择器,`.borderedProminent` 画成 FlooDesign 的主按钮;视图里的控件可以直接点,选中和拖动都交给块的把手。它的工具由宿主执行,其中 `send(message:)` 把内容发回会话。
+视图块 `DocView{source, data: JSONValue?}`(markdown 里是 ` ```floo.view ` 围栏,内容为 JSON):不是卡片,没有尺寸档,和页面同宽、按内容取高、不加外框(Cards 的 `ViewFrame`),用来放对比、表单这类 OpenUI 式的内联应用(看板是数据库块的视图,人能编辑,不用视图画)。源码里没写样式的控件用 FlooDesign 的(`flooDesignControls()`),链接除外,仍按链接画;源码点名的分段选择器画成 FlooDesign 的分段选择器,`.borderedProminent` 画成 FlooDesign 的主按钮;视图里的控件可以直接点,选中和拖动都交给块的把手。它的工具由宿主执行,其中 `send(message:)` 把内容发回会话。
 
 ### 3.4.1 链接、附件、图片、卡片的布局【定】
 
