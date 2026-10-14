@@ -124,6 +124,10 @@ final class DocTableController {
     /// It stays while a menu or button of the table is used, and goes when the focus
     /// goes elsewhere in the document or Esc leaves the table.
     private(set) var editing: DocCellKey?
+    /// The cell edited before, while the focus goes from it to the edited one: its editor
+    /// stays until the next one has the focus. Taken out with the focus, it would put the
+    /// keyboard away for the next to bring back (a long frame on a phone).
+    private var handingOver: DocCellKey?
     /// The cell whose text view has the focus.
     private(set) var active: DocCellKey?
     /// The edited cell's row or column, picked by its bar: the menu acts on all of it.
@@ -305,6 +309,7 @@ final class DocTableController {
         if active != key { session &+= 1 }
         active = key
         editing = key
+        handingOver = nil
         // Typing in the cell again: the cell, not its row or column.
         line = nil
         editor.sources.endEditing()
@@ -317,6 +322,7 @@ final class DocTableController {
     /// it was.
     func ended(_ key: DocCellKey, in view: UITextView) {
         if active == key { active = nil }
+        if handingOver == key { handingOver = nil }
         guard key.row == nil, editing == key else { return }
         pendingFocus = (key, true)
         Task { @MainActor [weak self, weak view] in
@@ -342,6 +348,7 @@ final class DocTableController {
     func endEditing() {
         pendingFocus = nil
         editing = nil
+        handingOver = nil
         line = nil
         menu = nil
         editor.leaveCells()
@@ -365,16 +372,21 @@ final class DocTableController {
         return DocCellKey(block: table.block, row: row, column: database.columns[position.column].id)
     }
 
-    /// Where the edited cell is in this table, if it's in it: its editor shows there.
+    /// Where the edited cell is in this table (and the one handing the focus over), if
+    /// they're in it: their editors show there.
     func replaced(in table: DocTableSnapshot) -> Set<MarkdownTableCellPosition> {
-        guard let editing, editing.block == table.block, let column = table.database.columns.firstIndex(where: { $0.id == editing.column }) else { return [] }
-        guard let row = editing.row else { return [MarkdownTableCellPosition(row: 0, column: column)] }
-        return table.database.rows.firstIndex { $0.id == row }.map { [MarkdownTableCellPosition(row: $0 + 1, column: column)] } ?? []
+        Set([editing, handingOver].compactMap { $0.flatMap { position(of: $0, in: table) } })
+    }
+
+    private func position(of key: DocCellKey, in table: DocTableSnapshot) -> MarkdownTableCellPosition? {
+        guard key.block == table.block, let column = table.database.columns.firstIndex(where: { $0.id == key.column }) else { return nil }
+        guard let row = key.row else { return MarkdownTableCellPosition(row: 0, column: column) }
+        return table.database.rows.firstIndex { $0.id == row }.map { MarkdownTableCellPosition(row: $0 + 1, column: column) }
     }
 
     /// The editor MarkdownView shows instead of the edited cell's content.
     func replacement(in table: DocTableSnapshot, at position: MarkdownTableCellPosition) -> AnyView? {
-        guard let editing, editing.block == table.block, let key = key(in: table, at: position), key == editing else { return nil }
+        guard let key = key(in: table, at: position), key == editing || key == handingOver else { return nil }
         return AnyView(DocTableCellEditor(key: key, controller: self))
     }
 
@@ -383,6 +395,7 @@ final class DocTableController {
     func willEdit(_ key: DocCellKey) {
         if menu?.key != key { menu = nil }
         if editing != key { line = nil }
+        if let editing, editing != key, view(for: editing)?.isFirstResponder == true { handingOver = editing }
         editing = key
     }
 
