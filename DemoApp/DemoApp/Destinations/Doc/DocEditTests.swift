@@ -1119,9 +1119,56 @@ final class DocEditTests {
             _ = try await click(2, 1)
             let key = try editedKey()
             self.editor.tables.showMenu(key)
-            try self.expect(self.editor.tables.menu == key, "the menu isn't the cell's")
+            try self.expect(self.editor.tables.menu == DocTableMenuTarget(key: key), "the menu isn't the cell's")
             _ = try await click(1, 1)
             try self.expect(self.editor.tables.menu == nil, "the menu stayed after another cell was edited")
+        }
+        await test("Table: a picked column or row: copied as a spreadsheet does, cleared and filled whole in one undo step") {
+            let saved = UIPasteboard.general.string
+            defer { UIPasteboard.general.string = saved }
+            _ = try await click(2, 1)
+            let key = try editedKey()
+            let before = try database()
+            let column = before.rows.map { DocTableController.text(of: $0.cells[key.column]) }
+            self.editor.tables.pick(.column, of: key)
+            try self.expect(self.editor.tables.line == .column && self.editor.tables.menu == DocTableMenuTarget(key: key, line: .column), "the column isn't picked")
+            try self.expect(self.editor.tables.view(for: key)?.isFirstResponder == false, "the caret stayed in the cell")
+            try self.expect(!self.editor.tables.isAvailable(.insertFormula, at: key, on: .column), "a formula for a column")
+            self.editor.tables.perform(.copy, at: key, on: .column)
+            try self.expect(UIPasteboard.general.string == column.joined(separator: "\n"), "the column copied as \(String(describing: UIPasteboard.general.string))")
+            self.editor.tables.perform(.clearCell, at: key, on: .column)
+            try self.expect(try database().rows.allSatisfy { DocTableController.text(of: $0.cells[key.column]).isEmpty }, "the column isn't clear")
+            UIPasteboard.general.string = "x"
+            self.editor.tables.perform(.paste, at: key, on: .column)
+            try self.expect(try database().rows.allSatisfy { DocTableController.text(of: $0.cells[key.column]) == "x" }, "one value isn't in every cell")
+            try await self.undo()
+            try await self.undo()
+            try self.expect(try database() == before, "two undos didn't put the column back")
+            _ = try await click(2, 1)
+            let cell = try editedKey()
+            self.editor.tables.pick(.row, of: cell)
+            self.editor.tables.perform(.copy, at: cell, on: .row)
+            let row = before.rows[1]
+            try self.expect(UIPasteboard.general.string == before.columns.map { DocTableController.text(of: row.cells[$0.id]) }.joined(separator: "\t"),
+                            "the row copied as \(String(describing: UIPasteboard.general.string))")
+            _ = try await click(2, 1)
+            try self.expect(self.editor.tables.line == nil, "editing the cell again kept the row picked")
+        }
+        await test("Table: the dots on the edges add a column and a row, and edit the new cell beside or below") {
+            _ = try await click(2, 1)
+            let key = try editedKey()
+            let before = try database()
+            self.editor.tables.appendColumn(beside: key)
+            let column = try database().columns.last!.id
+            try self.expect(try database().columns.count == before.columns.count + 1, "no column")
+            _ = try await cellEditor(DocCellKey(block: key.block, row: key.row, column: column), step: "the new column's cell")
+            self.editor.tables.appendRow(below: key)
+            let row = try database().rows.last!.id
+            try self.expect(try database().rows.count == before.rows.count + 1, "no row")
+            _ = try await cellEditor(DocCellKey(block: key.block, row: row, column: key.column), step: "the new row's cell")
+            try await self.undo()
+            try await self.undo()
+            try self.expect(try database() == before, "undo left the table changed")
         }
         await test("Table: sorting orders the rows by the column, numbers as numbers, the header stays") {
             _ = try await click(1, 2)

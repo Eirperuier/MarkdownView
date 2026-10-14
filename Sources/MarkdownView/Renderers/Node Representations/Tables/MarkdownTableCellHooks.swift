@@ -21,6 +21,16 @@ public struct MarkdownTableCellPosition: Hashable, Sendable {
     }
 }
 
+/// Where a scrolling table's cells are, all of them (also those scrolled out of sight),
+/// for a host drawing at the table's edges.
+public struct MarkdownTableBoundsKey: PreferenceKey {
+    public static let defaultValue: Anchor<CGRect>? = nil
+
+    public static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+
 struct MarkdownTableCellHooks {
     var onTap: (@MainActor (MarkdownTableCellPosition) -> Void)?
     var replacement: (@MainActor (MarkdownTableCellPosition) -> AnyView?)?

@@ -1343,6 +1343,26 @@
         }
       }
     },
+    "Select Column" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择列"
+          }
+        }
+      }
+    },
+    "Select Row" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择行"
+          }
+        }
+      }
+    },
     "Separate what is above and below" : {
       "localizations" : {
         "zh-Hans" : {

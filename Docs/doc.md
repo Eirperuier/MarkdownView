@@ -164,7 +164,7 @@ enum DatabaseView { case table(…), kanban(groupBy: ColumnID, …) }           
 - 数据库属于文档,存在同一个 Doc 里,改动走同一条 step 日志。
 - 单元格里的文字先只做纯文本加简单标记,不在格子里嵌整篇文档。
 
-有两种块用数据库。原来的表格块(`.database(id:view:)`)是一张表,不改。它的格子菜单照 Craft,是 FlooDesign 自己画的动作菜单(`flooDesignActionMenu`),不是系统菜单:编辑中格子的 ⋮ 或 Mac 上右键格子打开,在格子旁边;Edit Table › 在旁边再开一块(插入、移动、删除行列,删除表格),然后是插入公式、按这一列排序、剪切/拷贝/粘贴、清除格子(红字)。手机上是 sheet:Edit Table 和 Sort 是两块瓷片,插入公式是宽按钮,Actions › 里是剪切/拷贝/粘贴,最后是清除格子;› 的内容在 sheet 里换上来,左上角返回。Craft 的 Select Cells、Format、Header、Add Content、Reset Column Size、Clear Cell Style 我们没有对应功能,不放。collection 块照 Craft:一块里一份数据、几个有名字的视图,块头上是名字和视图标签页,切标签页换着看同一份记录。
+有两种块用数据库。原来的表格块(`.database(id:view:)`)是一张表,不改。它的格子菜单照 Craft,是 FlooDesign 自己画的动作菜单(`flooDesignActionMenu`),不是系统菜单:编辑中格子的 ⋮ 或 Mac 上右键格子打开,在格子旁边;Edit Table › 在旁边再开一块(插入、移动、删除行列,删除表格),然后是插入公式、按这一列排序、剪切/拷贝/粘贴、清除格子(红字)。手机上是 sheet:Edit Table 和 Sort 是两块瓷片,插入公式是宽按钮,Actions › 里是剪切/拷贝/粘贴,最后是清除格子;› 的内容在 sheet 里换上来,左上角返回。Craft 的 Select Cells、Format、Header、Add Content、Reset Column Size、Clear Cell Style 我们没有对应功能,不放。编辑中的格子照 Craft:描边在上边中间和左边中间断开,各有一小段横条;点上面的选中这一列、左边的选中这一行(光标离开格子,整列或整行描边),同时打开同一个菜单,剪切、拷贝、粘贴、清除对整列或整行(拷贝像表格软件:一行用 Tab 隔开,一列分行;粘贴一个值填满每一格),排序只对列,插入公式不可用;再点格子回到编辑这一格。表格右边缘对着这一行、下边缘对着这一列各有一个小圆点,点了在最后加一列或一行,并编辑新的那一格(新列在同一行,新行在同一列);表格比页面宽、横向滚动时,右边的点在表格真正的右边缘(MarkdownView 报出表格的范围,`MarkdownTableBoundsKey`)。原来表格旁边和下面的 + 长条去掉了。collection 块照 Craft:一块里一份数据、几个有名字的视图,块头上是名字和视图标签页,切标签页换着看同一份记录。
 
 ```swift
 struct DocCollection { var database: DatabaseID; var name: String; var views: [CollectionView]; var current: CollectionViewID }

@@ -95,13 +95,21 @@ extension FlooDesignTokens.Component {
         static let captionLabel: CGFloat = 15
     }
 
-    /// A table's + strips beside and below it (Craft's).
-    enum TableAdder {
-        static let thickness: CGFloat = 16
-        static let gap = Tokens.Space.xs
-        /// The column's strip stops above the row's.
-        static let bottomInset: CGFloat = 18
-        static let cornerRadius = Tokens.Radius.xs
+    /// An edited table cell's handles (Craft's): its ring, the bars in the ring that pick
+    /// its column and row, the dots on the table's edges that add one.
+    enum TableHandles {
+        /// How far the ring goes out over the cell's padding (MarkdownView's: 8 across, 13 down).
+        static let ringOutset = CGSize(width: 6, height: 9)
+        static let ringRadius = Tokens.Radius.sm
+        static let columnGrip = CGSize(width: 18, height: 3)
+        static let rowGrip = CGSize(width: 3, height: 12)
+        /// The ring's break on each side of a bar.
+        static let gripGap: CGFloat = 3
+        static let gripOpacity: Double = 0.45
+        /// What a bar or a dot answers to a click or a tap.
+        static let target: CGFloat = Tokens.Platform.value(pointer: 20, finger: 32)
+        static let dot: CGFloat = Tokens.Platform.value(pointer: 6, finger: 8)
+        static let dotHoverScale: CGFloat = 1.6
     }
 
     /// The colours over the phone's highlight key (Craft's): text colours, then highlights.

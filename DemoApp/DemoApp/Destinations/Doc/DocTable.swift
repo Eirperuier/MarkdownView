@@ -13,7 +13,11 @@
 //    action menu, a sheet on a phone): Edit Table (insert, move, delete rows and
 //    columns, delete the table), a formula, sorting by the column, cut / copy / paste,
 //    clearing the cell;
-//  - the + below and beside the table add a row and a column.
+//  - the edited cell's ring has a bar on its top and one on its left (Craft's): a click
+//    picks the cell's column or row (the caret goes) and opens the menu for all of it
+//    (copy, cut, paste, clear the lot; sort by the column);
+//  - the dots where the edited cell's row and column meet the table's right and bottom
+//    edges add a column and a row there, and edit the new cell beside or below.
 //  Every change is one DocKit step (typing in a cell merges into one undo step), so
 //  undo, redo and sync treat the table like the rest of the document.
 //
@@ -34,6 +38,15 @@ struct DocCellKey: Hashable {
     let block: DocBlockID
     let row: RowID?
     let column: ColumnID
+}
+
+/// The edited cell's row or column, picked by its bar on the cell's ring.
+enum DocTableLine: Hashable { case row, column }
+
+/// Whose menu is open: a cell's (its ⋮, a right-click), or its row's or column's (the bar).
+struct DocTableMenuTarget: Equatable {
+    let key: DocCellKey
+    var line: DocTableLine?
 }
 
 enum DocTableAction: CaseIterable, Identifiable {
@@ -108,8 +121,10 @@ final class DocTableController {
     private(set) var editing: DocCellKey?
     /// The cell whose text view has the focus.
     private(set) var active: DocCellKey?
-    /// The cell whose menu is open (by its ⋮, or a right-click).
-    private(set) var menu: DocCellKey?
+    /// The edited cell's row or column, picked by its bar: the menu acts on all of it.
+    private(set) var line: DocTableLine?
+    /// Whose menu is open.
+    private(set) var menu: DocTableMenuTarget?
     @ObservationIgnored private var views: [DocCellKey: [WeakCellView]] = [:]
     @ObservationIgnored private var pendingFocus: (key: DocCellKey, atEnd: Bool)?
     /// Typing in one cell is one undo step until another cell is edited.
@@ -190,6 +205,8 @@ final class DocTableController {
         if active != key { session &+= 1 }
         active = key
         editing = key
+        // Typing in the cell again: the cell, not its row or column.
+        line = nil
         editor.sources.endEditing()
     }
 
@@ -222,6 +239,7 @@ final class DocTableController {
     func endEditing() {
         pendingFocus = nil
         editing = nil
+        line = nil
         menu = nil
     }
 
@@ -245,7 +263,8 @@ final class DocTableController {
     }
 
     func focus(_ key: DocCellKey, atEnd: Bool = true) {
-        if menu != key { menu = nil }
+        if menu?.key != key { menu = nil }
+        if editing != key { line = nil }
         editing = key
         guard let view = view(for: key) else {
             focusSoon(key, atEnd: atEnd)
@@ -311,7 +330,17 @@ final class DocTableController {
 
     func showMenu(_ key: DocCellKey) {
         if editing != key { focus(key) }
-        menu = key
+        line = nil
+        menu = DocTableMenuTarget(key: key)
+    }
+
+    /// The bar on the edited cell's ring: its row or column picked (the caret goes), and
+    /// the menu for it.
+    func pick(_ line: DocTableLine, of key: DocCellKey) {
+        guard editing == key else { return }
+        view(for: key)?.resignFirstResponder()
+        self.line = line
+        menu = DocTableMenuTarget(key: key, line: line)
     }
 
     func closeMenu() {
@@ -343,20 +372,87 @@ final class DocTableController {
         }
     }
 
-    /// Adds a row at the bottom (the + below the table) and edits its first cell.
-    func appendRow(_ block: DocBlockID) {
-        guard let (_, database) = database(block), let column = database.columns.first else { return }
+    /// Adds a row at the bottom (the dot on the table's bottom edge) and edits its cell
+    /// in the column of `key`.
+    func appendRow(below key: DocCellKey) {
+        guard let (_, database) = database(key.block) else { return }
         let row = Row(id: demo.newID())
-        commit(block, [.insertRow(row: row, after: database.rows.last?.id)])
-        focusSoon(DocCellKey(block: block, row: row.id, column: column.id), atEnd: true)
+        commit(key.block, [.insertRow(row: row, after: database.rows.last?.id)])
+        focusSoon(DocCellKey(block: key.block, row: row.id, column: key.column), atEnd: true)
     }
 
-    /// Adds a column at the end (the + beside the table) and edits its header.
-    func appendColumn(_ block: DocBlockID) {
-        guard let (_, database) = database(block) else { return }
+    /// Adds a column at the end (the dot on the table's right edge) and edits its cell in
+    /// the row of `key`.
+    func appendColumn(beside key: DocCellKey) {
+        guard let (_, database) = database(key.block) else { return }
         let column = Column(id: demo.newID(), name: "", type: .text)
-        commit(block, [.insertColumn(column: column, after: database.columns.last?.id, cells: [:])])
-        focusSoon(DocCellKey(block: block, row: nil, column: column.id), atEnd: true)
+        commit(key.block, [.insertColumn(column: column, after: database.columns.last?.id, cells: [:])])
+        focusSoon(DocCellKey(block: key.block, row: key.row, column: column.id), atEnd: true)
+    }
+
+    // MARK: A row or a column
+
+    /// A row's cells (the header's are the column names), or a column's below its name.
+    private func cells(_ line: DocTableLine, of key: DocCellKey) -> [DocCellKey] {
+        guard let (_, database) = database(key.block) else { return [] }
+        return switch line {
+        case .row: database.columns.map { DocCellKey(block: key.block, row: key.row, column: $0.id) }
+        case .column: database.rows.map { DocCellKey(block: key.block, row: $0.id, column: key.column) }
+        }
+    }
+
+    /// As a spreadsheet copies them: a row's cells between tabs, a column's on lines.
+    private func text(of cells: [DocCellKey], _ line: DocTableLine) -> String {
+        cells.map(text).joined(separator: line == .row ? "\t" : "\n")
+    }
+
+    /// Every cell to `text` (as its column takes it; the header's are names): one undo step.
+    private func set(_ cells: [DocCellKey], to text: String) {
+        guard let block = cells.first?.block, let (_, database) = database(block) else { return }
+        let steps: [DatabaseStep] = cells.compactMap { key in
+            guard self.text(key) != text, let column = database.columns.first(where: { $0.id == key.column }) else { return nil }
+            guard let row = key.row else {
+                var renamed = column
+                renamed.name = text
+                return .updateColumn(column: renamed, previous: column)
+            }
+            guard DocFieldText.takes(text, in: column) else { return nil }
+            return .setCell(row: row, column: column.id, value: DocFieldText.value(typed: text, in: column),
+                            previous: database.rows.first { $0.id == row }?.cells[column.id])
+        }
+        commit(block, steps)
+    }
+
+    func isAvailable(_ action: DocTableAction, at key: DocCellKey, on line: DocTableLine?) -> Bool {
+        guard let line else { return isAvailable(action, at: key) }
+        switch action {
+        case .insertFormula: return false
+        case .sortAscending, .sortDescending: return line == .column && isAvailable(action, at: key)
+        case .cut, .copy, .clearCell: return isEditable && cells(line, of: key).contains { !text($0).isEmpty }
+        default: return isAvailable(action, at: key)
+        }
+    }
+
+    /// The menu's action on the edited cell, or on all of its picked row or column.
+    func perform(_ action: DocTableAction, at key: DocCellKey, on line: DocTableLine?) {
+        guard let line else { return perform(action, at: key) }
+        guard isAvailable(action, at: key, on: line) else { return }
+        let cells = cells(line, of: key)
+        switch action {
+        case .copy:
+            UIPasteboard.general.string = text(of: cells, line)
+        case .cut:
+            UIPasteboard.general.string = text(of: cells, line)
+            set(cells, to: "")
+        case .paste:
+            // A range fills the cells from the line's first; one value goes in every cell.
+            guard let string = UIPasteboard.general.string, let first = cells.first else { return }
+            if !paste(string, at: first) { set(cells, to: string) }
+        case .clearCell:
+            set(cells, to: "")
+        default:
+            perform(action, at: key)
+        }
     }
 
     func perform(_ action: DocTableAction, at key: DocCellKey) {
@@ -693,11 +789,11 @@ struct DocTableCellField: UIViewRepresentable {
 
 // MARK: - The table
 
-/// The edited cell: its text view, Craft's blue frame around the cell, its ⋯.
-struct DocTableCellEditor: View {
-    /// How far the editing ring goes out over the cell's padding.
-    private static let ringOutset = CGSize(width: 6, height: 9)
+private typealias Handles = FlooDesignTokens.Component.TableHandles
 
+/// The edited cell: its text view, Craft's ring around the cell with the bars that pick
+/// its column and row, its ⋮.
+struct DocTableCellEditor: View {
     let key: DocCellKey
     let text: String
     let isHeader: Bool
@@ -706,13 +802,25 @@ struct DocTableCellEditor: View {
     var body: some View {
         DocTableCellField(key: key, text: text, isHeader: isHeader, controller: controller)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .anchorPreference(key: DocTableRingKey.self, value: .bounds) { DocTableRingAnchor(key: key, bounds: $0) }
             .overlay {
-                // Out over the cell's padding (MarkdownView's: 8 across, 13 down).
-                RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.sm, style: .continuous)
-                    .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
-                    .padding(.horizontal, -Self.ringOutset.width)
-                    .padding(.vertical, -Self.ringOutset.height)
+                // Out over the cell's padding (MarkdownView's: 8 across, 13 down). While its
+                // row or column is picked, that one is ringed instead (DocTableEdges).
+                DocTableRing()
+                    .stroke(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
+                    .opacity(controller.line == nil ? 1 : 0)
+                    .padding(.horizontal, -Handles.ringOutset.width)
+                    .padding(.vertical, -Handles.ringOutset.height)
                     .allowsHitTesting(false)
+            }
+            // On the ring's line (its stroke is inside its edge).
+            .overlay(alignment: .top) {
+                DocTableGrip(line: .column, key: key, controller: controller)
+                    .offset(y: -Handles.ringOutset.height - Handles.target / 2 + FlooDesignTokens.Border.focus / 2)
+            }
+            .overlay(alignment: .leading) {
+                DocTableGrip(line: .row, key: key, controller: controller)
+                    .offset(x: -Handles.ringOutset.width - Handles.target / 2 + FlooDesignTokens.Border.focus / 2)
             }
             .overlay(alignment: .trailing) {
                 DocTableCellMenu(key: key, controller: controller)
@@ -730,48 +838,164 @@ struct DocTableCellEditor: View {
     }
 }
 
-/// The table: MarkdownView renders it; clicks on cells edit them; the + strips add a
-/// row and a column.
-struct DocTableRowView: View {
-    private typealias Adder = FlooDesignTokens.Component.TableAdder
-
-    let table: DocTableSnapshot
-    let tree: MarkdownTree
-    let controller: DocTableController
-    @State private var hovering = false
-
-    private var showsAdders: Bool {
-        controller.isEditable && (hovering || controller.editing?.block == table.block)
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: Adder.gap) {
-            VStack(spacing: FlooDesignTokens.Space.xxs) {
-                MarkdownBlockView(tree: tree)
-                    .markdownDisplayMathRendersSynchronously()
-                    .markdownTableCellsSelectable()
-                    .markdownTableCellTap { [table, controller] position in controller.tapped(table, at: position) }
-                    .markdownTableCellReplacement { [table, controller] position in controller.replacement(in: table, at: position) }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                DocTableAdder(systemImage: "plus", label: String(localized: "Add Row"), isVisible: showsAdders) { controller.appendRow(table.block) }
-                    .frame(height: Adder.thickness)
-            }
-            DocTableAdder(systemImage: "plus", label: String(localized: "Add Column"), isVisible: showsAdders) { controller.appendColumn(table.block) }
-                .frame(width: Adder.thickness)
-                .padding(.bottom, Adder.bottomInset)
-        }
-        .onHover { hovering = $0 }
+/// The edited cell's ring (Craft's), broken where its bars are: the middle of its top
+/// and of its left.
+struct DocTableRing: Shape {
+    func path(in rect: CGRect) -> Path {
+        let rect = rect.insetBy(dx: FlooDesignTokens.Border.focus / 2, dy: FlooDesignTokens.Border.focus / 2)
+        let r = min(Handles.ringRadius, rect.width / 2, rect.height / 2)
+        let top = Handles.columnGrip.width / 2 + Handles.gripGap
+        let left = Handles.rowGrip.height / 2 + Handles.gripGap
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX + top, y: rect.minY))
+        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.maxY), radius: r)
+        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.maxY), radius: r)
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.minY), radius: r)
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.midY + left))
+        path.move(to: CGPoint(x: rect.minX, y: rect.midY - left))
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.minY), radius: r)
+        path.addLine(to: CGPoint(x: rect.midX - top, y: rect.minY))
+        return path
     }
 }
 
-/// The edited cell's ⋮ and its menu (Craft's): beside it, or a sheet on a phone.
+/// A bar on the edited cell's ring: a click picks the cell's column (the top's) or row
+/// (the left's) and opens the menu for it.
+struct DocTableGrip: View {
+    let line: DocTableLine
+    let key: DocCellKey
+    let controller: DocTableController
+
+    var body: some View {
+        let size = line == .column ? Handles.columnGrip : Handles.rowGrip
+        Button {
+            controller.pick(line, of: key)
+        } label: {
+            Capsule()
+                .fill(FlooDesignTokens.ColorRole.Accent.primary.opacity(Handles.gripOpacity))
+                .frame(width: size.width, height: size.height)
+                .frame(width: max(size.width, Handles.target), height: max(size.height, Handles.target))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(line == .column ? String(localized: "Select Column") : String(localized: "Select Row"))
+        .docTableMenu(DocTableMenuTarget(key: key, line: line), controller: controller)
+    }
+}
+
+/// Where the edited cell's text is (its ring is out over its padding), for the table's edges.
+struct DocTableRingAnchor {
+    let key: DocCellKey
+    let bounds: Anchor<CGRect>
+}
+
+struct DocTableRingKey: PreferenceKey {
+    static let defaultValue: DocTableRingAnchor? = nil
+    static func reduce(value: inout DocTableRingAnchor?, nextValue: () -> DocTableRingAnchor?) {
+        value = value ?? nextValue()
+    }
+}
+
+/// The table: MarkdownView renders it; clicks on cells edit them; around the edited cell,
+/// the dots on the table's edges and the picked row or column (DocTableEdges).
+struct DocTableRowView: View {
+    let table: DocTableSnapshot
+    let tree: MarkdownTree
+    let controller: DocTableController
+    @State private var tableBounds: Anchor<CGRect>?
+
+    var body: some View {
+        MarkdownBlockView(tree: tree)
+            .markdownDisplayMathRendersSynchronously()
+            .markdownTableCellsSelectable()
+            .markdownTableCellTap { [table, controller] position in controller.tapped(table, at: position) }
+            .markdownTableCellReplacement { [table, controller] position in controller.replacement(in: table, at: position) }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlayPreferenceValue(DocTableRingKey.self) { ring in
+                // The table's own edges: wider than the page it scrolls, so its right edge
+                // can be out of sight.
+                GeometryReader { proxy in
+                    if let ring, ring.key.block == table.block, controller.editing == ring.key {
+                        DocTableEdges(key: ring.key, table: tableBounds.map { proxy[$0] } ?? CGRect(origin: .zero, size: proxy.size), controller: controller,
+                                      cell: proxy[ring.bounds].insetBy(dx: -Handles.ringOutset.width, dy: -Handles.ringOutset.height))
+                    }
+                }
+            }
+            .onPreferenceChange(MarkdownTableBoundsKey.self) { tableBounds = $0 }
+            // Room for the dots on the right and bottom edges, in the row (a touch out of it
+            // goes nowhere).
+            .padding(.trailing, Handles.target / 2)
+            .padding(.bottom, Handles.target / 2)
+    }
+}
+
+/// Around the edited cell (Craft's): a dot where its row meets the table's right edge
+/// and one where its column meets the bottom, each adding a column or a row; the picked
+/// row or column ringed.
+struct DocTableEdges: View {
+    let key: DocCellKey
+    /// The table's cells, in the row's space.
+    let table: CGRect
+    let controller: DocTableController
+    /// The cell's ring, in the table's space.
+    let cell: CGRect
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let line = controller.line {
+                let rect = line == .column
+                    ? CGRect(x: cell.minX, y: table.minY, width: cell.width, height: table.height)
+                    // Out over the first and last cells' text, as the cell's ring is.
+                    : CGRect(x: table.minX - Handles.ringOutset.width, y: cell.minY,
+                             width: table.width + 2 * Handles.ringOutset.width, height: cell.height)
+                RoundedRectangle(cornerRadius: Handles.ringRadius, style: .continuous)
+                    .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
+                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+                    .allowsHitTesting(false)
+            }
+            if controller.isEditable {
+                DocTableEdgeDot(label: String(localized: "Add Column")) { controller.appendColumn(beside: key) }
+                    .position(x: table.maxX, y: cell.midY)
+                DocTableEdgeDot(label: String(localized: "Add Row")) { controller.appendRow(below: key) }
+                    .position(x: cell.midX, y: table.maxY)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+/// A dot on the table's edge that adds a row or a column (Craft's); it swells under the pointer.
+struct DocTableEdgeDot: View {
+    let label: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Circle()
+                .fill(FlooDesignTokens.ColorRole.Accent.primary)
+                .frame(width: Handles.dot, height: Handles.dot)
+                .scaleEffect(hovering ? Handles.dotHoverScale : 1)
+                .frame(width: Handles.target, height: Handles.target)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(FlooDesignTokens.Motion.feedbackCurve, value: hovering)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+/// The edited cell's ⋮.
 struct DocTableCellMenu: View {
     let key: DocCellKey
     let controller: DocTableController
 
     var body: some View {
         Button {
-            controller.menu == key ? controller.closeMenu() : controller.showMenu(key)
+            controller.menu == DocTableMenuTarget(key: key) ? controller.closeMenu() : controller.showMenu(key)
         } label: {
             Image(systemName: "ellipsis")
                 .rotationEffect(.degrees(90))
@@ -781,21 +1005,36 @@ struct DocTableCellMenu: View {
         }
         .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.sm, style: .continuous)))
         .accessibilityLabel("Table Actions")
-        .flooDesignActionMenu(isPresented: controller.menu == key, onDismiss: { if controller.menu == key { controller.closeMenu() } }) { presentation in
-            sections(for: presentation)
+        .docTableMenu(DocTableMenuTarget(key: key), controller: controller)
+    }
+}
+
+extension View {
+    /// The table's menu (Craft's, FlooDesign's action menu) from this view while it's
+    /// `target`'s: beside it, or a sheet on a phone.
+    func docTableMenu(_ target: DocTableMenuTarget, controller: DocTableController) -> some View {
+        flooDesignActionMenu(isPresented: controller.menu == target,
+                             onDismiss: { if controller.menu == target { controller.closeMenu() } }) { presentation in
+            DocTableMenuSections(target: target, controller: controller).sections(for: presentation)
         }
     }
+}
+
+/// The menu's sections, Craft's: beside the cell, Edit Table opens a panel and the rest
+/// are rows; on a phone the groups are tiles and buttons, the rest rows that open more.
+@MainActor
+struct DocTableMenuSections {
+    let target: DocTableMenuTarget
+    let controller: DocTableController
 
     private func item(_ action: DocTableAction, symbol: Bool = true) -> FlooDesignActionMenuItem {
         .action(action.title, symbol: symbol ? action.symbol : nil, role: action.isDestructive ? .destructive : .standard,
-                isEnabled: controller.isAvailable(action, at: key), id: "\(action)") { [controller, key] in
-            controller.perform(action, at: key)
+                isEnabled: controller.isAvailable(action, at: target.key, on: target.line), id: "\(action)") { [controller, target] in
+            controller.perform(action, at: target.key, on: target.line)
         }
     }
 
-    /// Craft's: beside the cell, Edit Table opens a panel and the rest are rows; on a
-    /// phone the groups are tiles and buttons, the rest rows that open more.
-    private func sections(for presentation: FlooDesignPanelPresentation) -> [FlooDesignActionMenuSection] {
+    func sections(for presentation: FlooDesignPanelPresentation) -> [FlooDesignActionMenuSection] {
         let editTable = FlooDesignActionMenuItem.submenu(String(localized: "Edit Table"), symbol: "tablecells.badge.ellipsis", sections: [
             .init(.rows, [item(.insertRowAbove), item(.insertRowBelow), item(.insertColumnLeft), item(.insertColumnRight)]),
             .init(.rows, [item(.moveRowUp), item(.moveRowDown), item(.moveColumnLeft), item(.moveColumnRight)]),
@@ -827,28 +1066,6 @@ struct DocTableCellMenu: View {
                 clear,
             ]
         }
-    }
-}
-
-/// Craft's thin + strip beside and below the table.
-struct DocTableAdder: View {
-    let systemImage: String
-    let label: String
-    let isVisible: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: FlooDesignTokens.Icon.inline, weight: .bold))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(FlooDesignTokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: FlooDesignTokens.Component.TableAdder.cornerRadius, style: .continuous))
-        }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Component.TableAdder.cornerRadius, style: .continuous)))
-        .accessibilityLabel(label)
-        .opacity(isVisible ? 1 : 0)
-        .allowsHitTesting(isVisible)
     }
 }
 

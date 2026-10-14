@@ -409,6 +409,7 @@ struct MarkdownTableContent: View {
                         .tableCellHash(item.contentHash ^ (upgraded ? 0x5e1ec7 : 0) ^ (isReplaced ? Self.replacedHashSalt : 0))
                 }
             }
+            .anchorPreference(key: MarkdownTableBoundsKey.self, value: .bounds) { $0 }
         }
         .markdownTableCellPadding(.horizontal, horizontalPadding)
         .markdownTableCellPadding(.vertical, verticalPadding)
