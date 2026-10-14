@@ -1199,9 +1199,18 @@ final class DocEditor {
         tables.syncEditedText()
     }
 
-    func resetHistory() {
-        undoManager.removeAllActions()
+    /// Puts the document back as it started (DocDemo.reset), with no history, nothing
+    /// edited or selected. The focus goes before the rows do: an editor taken out of the
+    /// list while it has the focus (or while letting it go, the keyboard going down)
+    /// leaves UIKit's list holding its row.
+    func resetDocument() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        tables.endEditing()
+        sources.endEditing()
+        blocks.reset()
         selection = nil
+        demo.reset()
+        undoManager.removeAllActions()
     }
 }
 

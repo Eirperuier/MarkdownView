@@ -55,13 +55,11 @@ final class DocEditTests {
     /// document there was.
     private func sweepReturn() async {
         if let filter, !"Return at the end of".contains(filter) { return }
-        demo.reset()
-        editor.resetHistory()
+        editor.resetDocument()
         try? await Task.sleep(for: .milliseconds(300))
         let targets = demo.doc.blocks.prefix(40).enumerated().filter { $0.element.kind.allowsMarks }.map(\.offset)
         for index in targets {
-            demo.reset()
-            editor.resetHistory()
+            editor.resetDocument()
             try? await Task.sleep(for: .milliseconds(250))
             let before = demo.doc.blocks.map { ($0.kind, $0.indent, $0.text.string) }
             let block = demo.doc.blocks[index]
@@ -408,8 +406,7 @@ final class DocEditTests {
         for prefix in ["编号也一样", "行首输入", "嵌套列表", "Loading older"] {
             await test("A click right of “\(prefix)” (outside its text) puts the caret at the end of the line") {
                 let block = try self.block(prefix)
-                self.demo.bringIntoView(block.id)
-                try? await Task.sleep(for: .milliseconds(400))
+                await self.bringIntoView(block.id)
                 let view = try self.expectValue(self.editor.textView(for: block.id), "no text view")
                 view.resignFirstResponder()
                 await self.rest(view)
@@ -1221,7 +1218,8 @@ final class DocEditTests {
             MarkdownRenderProbe.reset()
             var adds: [Double] = []
             var undos: [Double] = []
-            for _ in 0..<5 {
+            let repeats = max(5, UserDefaults.standard.integer(forKey: "docPerfRepeats"))
+            for _ in 0..<repeats {
                 let key = try editedKey()
                 adds.append(await frame { self.editor.tables.perform(.insertRowBelow, at: key) })
                 try await Task.sleep(for: .milliseconds(400))
@@ -1232,13 +1230,20 @@ final class DocEditTests {
             let add = median(adds)
             let undo = median(undos)
             let rowsProbe = MarkdownRenderProbe.snapshot()
-            let menu = await frame { self.editor.tables.showMenu(try! editedKey()) }
-            try await Task.sleep(for: .milliseconds(400))
-            self.editor.tables.closeMenu()
+            docTestLog("DOCPERF table menus begin")
+            var menus: [Double] = []
+            let menuKey = try editedKey()
+            for _ in 0..<repeats {
+                menus.append(await frame { self.editor.tables.showMenu(menuKey) })
+                try await Task.sleep(for: .milliseconds(400))
+                self.editor.tables.closeMenu()
+                try await Task.sleep(for: .milliseconds(300))
+            }
+            let menu = median(menus)
             MarkdownRenderProbe.setEnabled(false)
 
             docTestLog("DOCPERF table \(size) rows (ms): click \(ms(clicked)); keystroke median \(ms(median(keys))) max \(ms(keys.max() ?? 0)), rows published median \(ms(median(publish))); add row \(ms(add)); undo \(ms(undo)); menu \(ms(menu))")
-            docTestLog("DOCPERF table probe click: layout \(clickProbe.adaptiveTableLayoutSizeCalls)× \(ms(clickProbe.adaptiveTableLayoutSizeMs)) ms, cell bodies \(clickProbe.adaptiveTableCellBodyCalls), info \(clickProbe.tableInfoEnsureFreshCalls)× \(ms(clickProbe.tableInfoEnsureFreshMs)) ms; typing 26 keys: layout \(typeProbe.adaptiveTableLayoutSizeCalls)× \(ms(typeProbe.adaptiveTableLayoutSizeMs)) ms, measures \(typeProbe.adaptiveTableLayoutIdealMeasures)+\(typeProbe.adaptiveTableLayoutConstrainedMeasures), cell bodies \(typeProbe.adaptiveTableCellBodyCalls), info \(typeProbe.tableInfoEnsureFreshCalls)× \(ms(typeProbe.tableInfoEnsureFreshMs)) ms; 5 rows added and undone: layout \(rowsProbe.adaptiveTableLayoutSizeCalls)× \(ms(rowsProbe.adaptiveTableLayoutSizeMs)) ms, measures \(rowsProbe.adaptiveTableLayoutIdealMeasures)+\(rowsProbe.adaptiveTableLayoutConstrainedMeasures), cell bodies \(rowsProbe.adaptiveTableCellBodyCalls)")
+            docTestLog("DOCPERF table probe click: layout \(clickProbe.adaptiveTableLayoutSizeCalls)× \(ms(clickProbe.adaptiveTableLayoutSizeMs)) ms, cell bodies \(clickProbe.adaptiveTableCellBodyCalls), info \(clickProbe.tableInfoEnsureFreshCalls)× \(ms(clickProbe.tableInfoEnsureFreshMs)) ms; typing 26 keys: layout \(typeProbe.adaptiveTableLayoutSizeCalls)× \(ms(typeProbe.adaptiveTableLayoutSizeMs)) ms, measures \(typeProbe.adaptiveTableLayoutIdealMeasures)+\(typeProbe.adaptiveTableLayoutConstrainedMeasures), cell bodies \(typeProbe.adaptiveTableCellBodyCalls), info \(typeProbe.tableInfoEnsureFreshCalls)× \(ms(typeProbe.tableInfoEnsureFreshMs)) ms; \(repeats) rows added and undone: layout \(rowsProbe.adaptiveTableLayoutSizeCalls)× \(ms(rowsProbe.adaptiveTableLayoutSizeMs)) ms, measures \(rowsProbe.adaptiveTableLayoutIdealMeasures)+\(rowsProbe.adaptiveTableLayoutConstrainedMeasures), cell bodies \(rowsProbe.adaptiveTableCellBodyCalls)")
             for (name, value) in [("click", clicked), ("keystroke", median(keys)), ("add row", add), ("undo", undo), ("menu", menu)] {
                 try self.expect(value < 1000, "\(name) \(ms(value)) ms")
             }
@@ -1656,8 +1661,7 @@ final class DocEditTests {
         let blocks = editor.blocks
         func order() -> [DocBlockID] { demo.doc.blocks.map(\.id) }
         func show(_ id: DocBlockID) async {
-            demo.bringIntoView(id)
-            try? await Task.sleep(for: .milliseconds(500))
+            await self.bringIntoView(id)
         }
         if DocBlockController.usesHandles {
             await test("the handle shows beside the block under the pointer, at its first line") {
@@ -2759,8 +2763,7 @@ final class DocEditTests {
 
     private func test(_ name: String, _ body: @MainActor () async throws -> Void) async {
         if let filter, !filter.split(separator: "|").contains(where: { name.contains($0) }) { return }
-        demo.reset()
-        editor.resetHistory()
+        editor.resetDocument()
         blockCountAtStart = demo.doc.blocks.count
         try? await Task.sleep(for: .milliseconds(300))
         let started = CACurrentMediaTime()
@@ -3001,6 +3004,20 @@ final class DocEditTests {
     }
 
     /// Until a view stops moving on screen (a scroll to it comes to rest).
+    /// Brings a block's row on screen and waits for the list to be still: it scrolls
+    /// there with a spring, longer the farther it goes.
+    private func bringIntoView(_ id: DocBlockID) async {
+        demo.bringIntoView(id)
+        var offset: CGFloat?
+        for _ in 0..<150 {
+            try? await Task.sleep(for: .milliseconds(20))
+            guard let list = editor.allTextViews.lazy.compactMap({ DocScrolling.list(of: $0) }).first,
+                  let frame = demo.rowFrame(id.description), DocScrolling.visible(in: list).intersects(frame) else { continue }
+            if offset == list.contentOffset.y { return }
+            offset = list.contentOffset.y
+        }
+    }
+
     private func rest(_ view: UIView) async {
         var shown = view.convert(view.bounds, to: nil)
         for _ in 0..<40 {

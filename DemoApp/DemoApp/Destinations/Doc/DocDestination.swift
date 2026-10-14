@@ -400,8 +400,7 @@ private struct DocPageView: View {
                 // The demo's own controls, on its first page.
                 if page === pages.root {
                     Button("Reset") {
-                        demo.reset()
-                        editor.resetHistory()
+                        editor.resetDocument()
                     }
                     .buttonStyle(FlooDesignButtonStyle(.borderless))
                     Button("Agent Demo") { demo.runScript() }

@@ -497,9 +497,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// with nothing in it to edit (a link, file, image, divider: a click selects it
     /// again, a drag moves it).
     private func pressTakes(_ view: UIView?, at point: CGPoint) -> Bool {
-        guard Self.usesHandles, !demo.isAgentWriting, drag == nil, let id = block(at: point),
-            !sequence(first: view, next: { $0?.superview }).contains(where: { $0 is UIControl || $0 === handle })
-        else { return false }
+        guard let id = block(at: point), pressTakes(id) else { return false }
+        return !sequence(first: view, next: { $0?.superview }).contains(where: { $0 is UIControl || $0 === handle })
+    }
+
+    /// The same, but for what's under the press in the block: whether the block's row
+    /// gives presses to the list.
+    private func pressTakes(_ id: DocBlockID) -> Bool {
+        guard Self.usesHandles, !demo.isAgentWriting, drag == nil else { return false }
         let editsText = demo.rows.first { $0.block == id }?.editsText ?? false
         return !(blockTakes(id, editsText: editsText) && editsText) && !isView(id)
     }
@@ -576,6 +581,13 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     func textEditingEnded(_ id: DocBlockID) {
         if typing == id { typing = nil }
+    }
+
+    /// The document was put back (DocEditor.resetDocument): nothing in it is typed in or
+    /// selected. A text view taken out with the old rows may not have said it ended.
+    func reset() {
+        typing = nil
+        clear()
     }
 
     /// Whether a drag can start now. On the Mac, where the pointer is: from the handle,
@@ -909,12 +921,15 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// phone: any, but not from the text being typed in or a control.
     private func pickUp(at point: CGPoint) -> DocBlockID? {
         guard let list, drag == nil, !demo.isAgentWriting else { return nil }
-        let hit = list.hitTest(point, with: nil)
-        let chain = sequence(first: hit, next: { $0?.superview })
         if Self.usesHandles {
-            if chain.contains(where: { $0 === handle }) { return hovered }
-            return pressTakes(hit, at: point) ? block(at: point) : nil
+            if !handle.isHidden, handle.point(inside: handle.convert(point, from: list), with: nil) { return hovered }
+            // What's under the point only where the block would be picked up: a hit test
+            // goes through the row's whole tree (a big table's is costly), and this follows
+            // the pointer and every change to the rows.
+            guard let id = block(at: point), pressTakes(id) else { return nil }
+            return pressTakes(list.hitTest(point, with: nil), at: point) ? id : nil
         }
+        let chain = sequence(first: list.hitTest(point, with: nil), next: { $0?.superview })
         guard !chain.contains(where: { $0 is UIControl || $0?.isFirstResponder == true }) else { return nil }
         return block(at: point)
     }
