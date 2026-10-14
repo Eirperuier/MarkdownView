@@ -478,9 +478,16 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// writes (the page a preview), every row. A view's row always does on the Mac (its
     /// controls are live; its handle selects and moves it).
     func blockTakes(_ id: DocBlockID, editsText: Bool) -> Bool {
+        blockTakes(id, editsText: editsText, isView: isView(id))
+    }
+
+    /// The same, `isView` told by the caller: a row's view knows it from its row. Reading
+    /// it from the document would make every row's view depend on the whole document,
+    /// and render again on each edit anywhere in it.
+    func blockTakes(_ id: DocBlockID, editsText: Bool, isView: Bool) -> Bool {
         guard !demo.isAgentWriting else { return true }
         guard Self.usesHandles else { return !isSelecting }
-        if selected.contains(id) || isView(id) { return true }
+        if selected.contains(id) || isView { return true }
         guard let editing = typing ?? editor.sources.editing ?? editor.tables.editing?.block else { return false }
         return editing == id || editsText
     }

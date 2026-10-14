@@ -76,6 +76,12 @@ struct DocRow: Identifiable, Equatable {
     let sourceIsEmpty: Bool
     /// Whether the row has text to edit: a text block's, a cell's, code's or maths'.
     var editsText: Bool { text != nil || sourceKind != nil || table != nil }
+    /// A view or a collection: its controls take clicks.
+    var isView: Bool {
+        if collection != nil { return true }
+        if case .view? = media { return true }
+        return false
+    }
     /// Space above the row and below it (the page's bottom, on the last row): the
     /// document's rhythm, set when the rows are published (DocTypography).
     var spacingAbove: CGFloat = 0

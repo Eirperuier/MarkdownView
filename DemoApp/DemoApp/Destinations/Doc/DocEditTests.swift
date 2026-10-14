@@ -763,10 +763,17 @@ final class DocEditTests {
             var publish: [Double] = []
             var rows: [Double] = []
             var total: [Double] = []
+            var frames: [Double] = []
             for character in "abcdefghijklmnopqrstuvwxyz" {
                 let start = CFAbsoluteTimeGetCurrent()
-                try self.key(String(character))
-                publish.append((CFAbsoluteTimeGetCurrent() - start) * 1000)
+                var handled = 0.0
+                var failure: Error?
+                frames.append(await self.frameTime {
+                    do { try self.key(String(character)) } catch { failure = error }
+                    handled = (CFAbsoluteTimeGetCurrent() - start) * 1000
+                })
+                if let failure { throw failure }
+                publish.append(handled)
                 rows.append(self.demo.lastPublishMs)
                 for _ in 0..<60 {
                     if self.editor.mismatch() == nil { break }
@@ -776,7 +783,7 @@ final class DocEditTests {
                 total.append((CFAbsoluteTimeGetCurrent() - start) * 1000)
             }
             func median(_ values: [Double]) -> Double { values.sorted()[values.count / 2] }
-            docTestLog("DOCPERF keystroke (ms): rows \(String(format: "%.1f", median(rows))); handling median \(String(format: "%.1f", median(publish))) max \(String(format: "%.1f", publish.max() ?? 0)); on screen median \(String(format: "%.1f", median(total))) max \(String(format: "%.1f", total.max() ?? 0)); text \(self.text(block.id).count) chars, \(self.demo.doc.blocks.count) blocks")
+            docTestLog("DOCPERF keystroke (ms): rows \(String(format: "%.1f", median(rows))); handling median \(String(format: "%.1f", median(publish))) max \(String(format: "%.1f", publish.max() ?? 0)); on screen median \(String(format: "%.1f", median(total))) max \(String(format: "%.1f", total.max() ?? 0)); frame median \(String(format: "%.1f", median(frames))) max \(String(format: "%.1f", frames.max() ?? 0)); text \(self.text(block.id).count) chars, \(self.demo.doc.blocks.count) blocks")
             try self.expect(median(total) < 50, "median \(median(total)) ms")
         }
 
@@ -1171,7 +1178,8 @@ final class DocEditTests {
             let databaseID = try self.expectValue(self.demo.doc.block(t.block)?.kind.databaseID, "no database")
             var after = t.database.rows.last?.id
             var steps: [DocStep] = []
-            for index in 0..<(80 - t.database.rows.count) {
+            let size = UserDefaults.standard.integer(forKey: "docPerfRows") > 0 ? UserDefaults.standard.integer(forKey: "docPerfRows") : 80
+            for index in 0..<max(0, size - t.database.rows.count) {
                 var cells: [ColumnID: CellValue] = [:]
                 for (column, field) in t.database.columns.enumerated() { cells[field.id] = .text(value: "r\(index) c\(column)") }
                 let row = Row(id: self.demo.newID(), cells: cells)
@@ -1180,19 +1188,7 @@ final class DocEditTests {
             }
             _ = self.demo.edit(steps, before: nil, after: nil)
             try await Task.sleep(for: .milliseconds(800))
-            /// From the action to the end of the run loop pass it happens in: after Core
-            /// Animation's commit (its observer comes before ours), so its layout and drawing.
-            @MainActor func frame(_ action: () -> Void) async -> Double {
-                let start = CFAbsoluteTimeGetCurrent()
-                action()
-                return await withCheckedContinuation { continuation in
-                    let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max) { observer, _ in
-                        CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
-                        continuation.resume(returning: (CFAbsoluteTimeGetCurrent() - start) * 1000)
-                    }
-                    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
-                }
-            }
+            @MainActor func frame(_ action: @MainActor () -> Void) async -> Double { await self.frameTime(action) }
             func median(_ values: [Double]) -> Double { values.sorted()[values.count / 2] }
             func ms(_ value: Double) -> String { String(format: "%.1f", value) }
 
@@ -1201,10 +1197,12 @@ final class DocEditTests {
             try await Task.sleep(for: .milliseconds(400))
             MarkdownRenderProbe.setEnabled(true)
             MarkdownRenderProbe.reset()
-            let clicked = await frame { self.editor.tables.tapped(snapshot, at: MarkdownTableCellPosition(row: 40, column: 1)) }
-            let view = try await cellEditor(try table().key(40, 1))
+            let clicked = await frame { self.editor.tables.tapped(snapshot, at: MarkdownTableCellPosition(row: size / 2, column: 1)) }
+            let view = try await cellEditor(try table().key(size / 2, 1))
             let clickProbe = MarkdownRenderProbe.snapshot()
             try await self.settle()
+            // The list scrolls the cell into view: typing starts once it's still.
+            try await Task.sleep(for: .milliseconds(700))
 
             MarkdownRenderProbe.reset()
             docTestLog("DOCPERF table typing begins")
@@ -1216,21 +1214,28 @@ final class DocEditTests {
                 try await self.settle()
             }
             let typeProbe = MarkdownRenderProbe.snapshot()
-            let typed = try cellText(40, 1)
+            let typed = try cellText(size / 2, 1)
             try self.expect(typed.hasSuffix("xyz"), "typing went to \(typed.suffix(10))")
 
-            let key = try editedKey()
-            let add = await frame { self.editor.tables.perform(.insertRowBelow, at: key) }
-            try await Task.sleep(for: .milliseconds(400))
-            let undo = await frame { self.editor.requestUndo() }
-            try await Task.sleep(for: .milliseconds(400))
-            _ = try await click(40, 1)
+            docTestLog("DOCPERF table rows begin")
+            var adds: [Double] = []
+            var undos: [Double] = []
+            for _ in 0..<5 {
+                let key = try editedKey()
+                adds.append(await frame { self.editor.tables.perform(.insertRowBelow, at: key) })
+                try await Task.sleep(for: .milliseconds(400))
+                undos.append(await frame { self.editor.requestUndo() })
+                try await Task.sleep(for: .milliseconds(400))
+                _ = try await click(size / 2, 1)
+            }
+            let add = median(adds)
+            let undo = median(undos)
             let menu = await frame { self.editor.tables.showMenu(try! editedKey()) }
             try await Task.sleep(for: .milliseconds(400))
             self.editor.tables.closeMenu()
             MarkdownRenderProbe.setEnabled(false)
 
-            docTestLog("DOCPERF table 80 rows (ms): click \(ms(clicked)); keystroke median \(ms(median(keys))) max \(ms(keys.max() ?? 0)), rows published median \(ms(median(publish))); add row \(ms(add)); undo \(ms(undo)); menu \(ms(menu))")
+            docTestLog("DOCPERF table \(size) rows (ms): click \(ms(clicked)); keystroke median \(ms(median(keys))) max \(ms(keys.max() ?? 0)), rows published median \(ms(median(publish))); add row \(ms(add)); undo \(ms(undo)); menu \(ms(menu))")
             docTestLog("DOCPERF table probe click: layout \(clickProbe.adaptiveTableLayoutSizeCalls)× \(ms(clickProbe.adaptiveTableLayoutSizeMs)) ms, cell bodies \(clickProbe.adaptiveTableCellBodyCalls), info \(clickProbe.tableInfoEnsureFreshCalls)× \(ms(clickProbe.tableInfoEnsureFreshMs)) ms; typing 26 keys: layout \(typeProbe.adaptiveTableLayoutSizeCalls)× \(ms(typeProbe.adaptiveTableLayoutSizeMs)) ms, measures \(typeProbe.adaptiveTableLayoutIdealMeasures)+\(typeProbe.adaptiveTableLayoutConstrainedMeasures), cell bodies \(typeProbe.adaptiveTableCellBodyCalls), info \(typeProbe.tableInfoEnsureFreshCalls)× \(ms(typeProbe.tableInfoEnsureFreshMs)) ms")
             for (name, value) in [("click", clicked), ("keystroke", median(keys)), ("add row", add), ("undo", undo), ("menu", menu)] {
                 try self.expect(value < 1000, "\(name) \(ms(value)) ms")
@@ -3001,6 +3006,20 @@ final class DocEditTests {
             let now = view.convert(view.bounds, to: nil)
             if now == shown { return }
             shown = now
+        }
+    }
+
+    /// From the action to the end of the run loop pass it happens in: after Core
+    /// Animation's commit (its observer comes before ours), so its layout and drawing.
+    @MainActor private func frameTime(_ action: @MainActor () -> Void) async -> Double {
+        let start = CFAbsoluteTimeGetCurrent()
+        action()
+        return await withCheckedContinuation { continuation in
+            let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max) { observer, _ in
+                CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+                continuation.resume(returning: (CFAbsoluteTimeGetCurrent() - start) * 1000)
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
         }
     }
 
