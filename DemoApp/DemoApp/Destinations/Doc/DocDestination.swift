@@ -167,9 +167,9 @@ private struct DocPageView: View {
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
             editor.blocks.attach(reader)
             editor.blocks.openPage = { [pages] block in pages.open(block) }
-            // The launch options below are the window's first page's, once.
-            guard !pages.ranLaunchOptions else { return }
-            pages.ranLaunchOptions = true
+            // The launch options below run once a process (DocPages.ranLaunchOptions).
+            guard !DocPages.ranLaunchOptions else { return }
+            DocPages.ranLaunchOptions = true
             // -docOpenPage YES: the first page block's page open (-docShot draws it there).
             if UserDefaults.standard.bool(forKey: "docOpenPage"),
                let block = demo.doc.blocks.first(where: { if case .page = $0.kind { true } else { false } }) {

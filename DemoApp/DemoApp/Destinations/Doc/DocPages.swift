@@ -71,8 +71,10 @@ final class DocPages {
     private(set) var path: [DocOpenPage]
     /// Pages opened before, kept as they were left.
     @ObservationIgnored private var opened: [DocID: DocOpenPage] = [:]
-    /// The window's launch options run once, on its first page.
-    @ObservationIgnored var ranLaunchOptions = false
+    /// The app's launch options (-docOpenPage and the rest) run once a process, on the
+    /// first page of the first window that shows a document: going to the documents again
+    /// (a phone's sidebar makes this window anew) doesn't run them again.
+    static var ranLaunchOptions = false
 
     init(root: DocDemo) {
         let page = DocOpenPage(demo: root)
