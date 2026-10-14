@@ -486,6 +486,7 @@ final class DocEditTests {
         /// A new empty paragraph after "Loading older…", focused.
         func emptyLine() async throws -> DocBlock {
             let block = try self.block("Loading older")
+            await self.bringIntoView(block.id)
             try await self.focus(block.id, at: block.text.length)
             try await self.enter()
             return try self.blockAfter(block.id)
@@ -1218,19 +1219,25 @@ final class DocEditTests {
             MarkdownRenderProbe.reset()
             var adds: [Double] = []
             var undos: [Double] = []
+            var syncs: [Double] = []
             let repeats = max(5, UserDefaults.standard.integer(forKey: "docPerfRepeats"))
             for _ in 0..<repeats {
                 let key = try editedKey()
-                adds.append(await frame { self.editor.tables.perform(.insertRowBelow, at: key) })
+                var sync = 0.0
+                adds.append(await frame { let t = CACurrentMediaTime(); self.editor.tables.perform(.insertRowBelow, at: key); sync = (CACurrentMediaTime() - t) * 1000 })
+                syncs.append(sync)
                 try await Task.sleep(for: .milliseconds(400))
                 undos.append(await frame { self.editor.requestUndo() })
                 try await Task.sleep(for: .milliseconds(400))
                 _ = try await click(size / 2, 1)
             }
             let add = median(adds)
+            docTestLog("DOCPERF add row in its call \(ms(median(syncs))) of \(ms(add))")
             let undo = median(undos)
             let rowsProbe = MarkdownRenderProbe.snapshot()
             docTestLog("DOCPERF table menus begin")
+            MarkdownRenderProbe.setEnabled(true)
+            MarkdownRenderProbe.reset()
             var menus: [Double] = []
             let menuKey = try editedKey()
             for _ in 0..<repeats {
@@ -1240,6 +1247,8 @@ final class DocEditTests {
                 try await Task.sleep(for: .milliseconds(300))
             }
             let menu = median(menus)
+            let menuProbe = MarkdownRenderProbe.snapshot()
+            docTestLog("DOCPERF table probe \(repeats) menus: table bodies \(menuProbe.markdownTableBodyCalls), contents \(menuProbe.markdownTableContentBodyCalls), layout \(menuProbe.adaptiveTableLayoutSizeCalls)× \(String(format: "%.1f", menuProbe.adaptiveTableLayoutSizeMs)) ms, cell bodies \(menuProbe.adaptiveTableCellBodyCalls)")
             MarkdownRenderProbe.setEnabled(false)
 
             docTestLog("DOCPERF table \(size) rows (ms): click \(ms(clicked)); keystroke median \(ms(median(keys))) max \(ms(keys.max() ?? 0)), rows published median \(ms(median(publish))); add row \(ms(add)); undo \(ms(undo)); menu \(ms(menu))")
