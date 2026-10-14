@@ -77,10 +77,31 @@ enum DocDemoCorpus {
             let (heading, block, database) = collection()
             doc.databases[database.id] = database
             // A page of the project's own, after the tasks.
-            let page = DocBlock(id: .generate(), kind: .page(page: DocPage(doc: .generate(), title: "上线计划")))
+            let summary = DocPage.summary(of: plan(planID))
+            let page = DocBlock(id: .generate(), kind: .page(page: DocPage(doc: planID, title: summary.title, preview: summary.preview)))
             doc.blocks.insert(contentsOf: [heading, block, page], at: index)
         }
         return doc
+    }
+
+    /// The project's launch plan: the page its page block opens.
+    static let planID = DocID(rawValue: UUID(uuidString: "5D1F3A62-8C4B-4E2A-9B17-2F6C0E8A4D31")!)
+
+    /// The pages the corpus's page blocks open, as they first are.
+    static func page(_ id: DocID) -> Doc? {
+        id == planID ? plan(id) : nil
+    }
+
+    private static func plan(_ id: DocID) -> Doc {
+        Doc(id: id, markdown: """
+            # 上线计划
+
+            先灰度，再全量；每一步看完指标再往下走。
+
+            - [ ] 灰度 10%，周三上午
+            - [ ] 看两天崩溃率和搜索点击率
+            - [ ] 全量，周五
+            """)
     }
 
     /// A project's tasks: who, how far along, when, how long.

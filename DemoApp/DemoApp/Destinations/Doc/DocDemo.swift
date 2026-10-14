@@ -175,10 +175,12 @@ final class DocDemo {
         publish()
     }
 
-    /// A page block's title, as the page now has it: one undo step here.
-    func setPageTitle(_ title: String, of block: DocBlockID) {
-        guard let existing = doc.block(block), case .page(var page) = existing.kind, page.title != title else { return }
-        page.title = title
+    /// A page block's title and preview, as its page now has them: one undo step here.
+    func setPageSummary(of block: DocBlockID, from page: Doc) {
+        guard let existing = doc.block(block), case .page(var kept) = existing.kind else { return }
+        (kept.title, kept.preview) = DocPage.summary(of: page)
+        guard existing.kind != .page(page: kept) else { return }
+        let page = kept
         edit([.setBlock(block: block, kind: .page(page: page), indent: existing.indent, previousKind: existing.kind, previousIndent: existing.indent)],
              before: nil, after: nil)
     }

@@ -218,15 +218,39 @@ public struct DocCollection: Hashable, Sendable, Codable {
     }
 }
 
-/// A page block's page: the document it opens, and its title (the page's first heading,
-/// as it was when the page was last left).
+/// A page block's page: the document it opens, its title (the page's first heading) and
+/// a preview of what's under it, both as they were when the page was last left.
 public struct DocPage: Hashable, Sendable, Codable {
     public var doc: DocID
     public var title: String
+    /// The words of the page's first blocks after its title, one after another (Craft's
+    /// page block shows them under the title).
+    public var preview: String
 
-    public init(doc: DocID, title: String = "") {
+    public init(doc: DocID, title: String = "", preview: String = "") {
         self.doc = doc
         self.title = title
+        self.preview = preview
+    }
+
+    /// What a page block keeps of `page`: its first heading, and the words of the first
+    /// few blocks with words after it.
+    public static func summary(of page: Doc) -> (title: String, preview: String) {
+        let heading = page.blocks.firstIndex { if case .heading = $0.kind { true } else { false } }
+        let title = heading.map { page.blocks[$0].text.string } ?? ""
+        let rest = page.blocks.indices.filter { $0 != heading }.lazy
+            .map { page.blocks[$0].text.string.split(separator: "\n").first.map(String.init) ?? "" }
+            .filter { !$0.isEmpty }
+        return (title, rest.prefix(4).joined(separator: " · "))
+    }
+
+    private enum CodingKeys: String, CodingKey { case doc, title, preview }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        doc = try container.decode(DocID.self, forKey: .doc)
+        title = try container.decode(String.self, forKey: .title)
+        preview = try container.decodeIfPresent(String.self, forKey: .preview) ?? ""
     }
 }
 

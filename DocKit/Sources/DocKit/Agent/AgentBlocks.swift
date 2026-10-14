@@ -107,6 +107,7 @@ extension AgentBlocks {
         case .page(let page):
             object["type"] = "page"
             object["title"] = .string(page.title)
+            if !page.preview.isEmpty { object["preview"] = .string(page.preview) }
             object["page"] = .string(page.doc.description)
         case .collection(let collection):
             object["type"] = "collection"
@@ -392,7 +393,7 @@ extension AgentBlocks {
         case "page":
             // A page an agent names keeps its document; a new one gets one of its own.
             let doc = object["page"]?.stringValue.flatMap { DocID($0) } ?? .generate()
-            kind = .page(page: DocPage(doc: doc, title: plain("title")))
+            kind = .page(page: DocPage(doc: doc, title: plain("title"), preview: plain("preview")))
         case "collection", "kanban", "board":
             let database = try table(object, generating: id)
             databases[database.id] = database

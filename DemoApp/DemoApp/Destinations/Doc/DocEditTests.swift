@@ -1987,7 +1987,7 @@ final class DocEditTests {
             try self.expect(try current().database == original, "the multi-select steps didn't all undo")
             try self.expect(try current().collection == start, "the collection didn't come back whole")
         }
-        await test("a page block opens its page; its title, changed there, goes back up as one undo step") {
+        await test("a page block opens its page; its title and preview, changed there, go back up as one undo step") {
             let pages = try self.expectValue(self.pages, "no pages")
             let block = try self.expectValue(self.demo.doc.blocks.first { if case .page = $0.kind { true } else { false } }, "no page block")
             guard case .page(let page) = block.kind else { return }
@@ -2005,6 +2005,7 @@ final class DocEditTests {
             try self.expect(pages.current === root, "not back")
             guard case .page(let renamed)? = self.demo.doc.block(block.id)?.kind else { throw Failure(description: "the block isn't a page") }
             try self.expect(renamed.title == page.title + "（草稿）" && renamed.doc == page.doc, "the block says \(renamed.title)")
+            try self.expect(!page.preview.isEmpty && renamed.preview == DocPage.summary(of: inside.demo.doc).preview, "the block's preview says \(renamed.preview)")
             try await self.undo()
             guard case .page(let undone)? = self.demo.doc.block(block.id)?.kind else { throw Failure(description: "the block isn't a page") }
             try self.expect(undone.title == page.title, "the title's undo left \(undone.title)")

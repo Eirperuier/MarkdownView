@@ -148,10 +148,18 @@ struct MarkdownExportTests {
     /// A page block keeps the page it opens and its title.
     @Test
     func pagesComeBack() {
-        let page = DocPage(doc: fixedID(70), title: "Trip notes")
+        let page = DocPage(doc: fixedID(70), title: "Trip notes", preview: "Flights · Hotel")
         let doc = Doc(id: fixedID(0), blocks: [block(1, .page(page: page))])
         #expect(doc.markdown.hasPrefix("```floo.page\n"))
         #expect(parse(doc.markdown).blocks.first?.kind == .page(page: page))
+    }
+
+    @Test
+    func aPageIsSummedUpByItsHeadingAndWhatFollows() {
+        let page = Doc(id: fixedID(0), markdown: "Intro\n\n# Trip notes\n\n- Flights\n\n---\n\nHotel\nby the sea\n\nCar\n\nBikes\n")
+        let summary = DocPage.summary(of: page)
+        #expect(summary.title == "Trip notes")
+        #expect(summary.preview == "Intro · Flights · Hotel · Car")
     }
 
     @Test
