@@ -364,13 +364,19 @@ struct DocCollectionCell: View {
         default:
             // The title opens the record (Craft's arrow, over the row): over the room kept
             // for it at the title's end, so its coming and going moves nothing.
-            field
-                .padding(.trailing, isTitle && !compact ? Metrics.openButton + FlooDesignTokens.Space.xs : 0)
-                .overlay(alignment: .trailing) {
-                    if isTitle, !compact, rowHovered || !FlooDesignTokens.Platform.isPointer || controller.isShowing(.record(row.id), in: block) {
-                        DocOpenRecordButton(snapshot: snapshot, row: row, controller: controller)
-                    }
+            HStack(spacing: FlooDesignTokens.Space.sm) {
+                // A record with a page written shows it before its title (Craft's).
+                if isTitle, !compact, controller.hasPage?(row.id) == true {
+                    DocRecordPageMark()
                 }
+                field
+            }
+            .padding(.trailing, isTitle && !compact ? Metrics.openButton + FlooDesignTokens.Space.xs : 0)
+            .overlay(alignment: .trailing) {
+                if isTitle, !compact, rowHovered || !FlooDesignTokens.Platform.isPointer {
+                    DocOpenRecordButton(snapshot: snapshot, row: row, controller: controller)
+                }
+            }
         }
     }
 
@@ -443,7 +449,7 @@ struct DocCollectionCell: View {
     }
 }
 
-/// The arrow that opens a record whole, in a panel under it.
+/// The arrow that opens a record as a page (Craft's; DocRecordPage).
 struct DocOpenRecordButton: View {
     let snapshot: DocCollectionSnapshot
     let row: Row
@@ -451,7 +457,7 @@ struct DocOpenRecordButton: View {
 
     var body: some View {
         Button {
-            controller.show(.record(row.id), in: snapshot.block)
+            controller.openRecord?(row.id, snapshot.block)
         } label: {
             Image(systemName: "arrow.right.circle")
                 .font(.system(size: FlooDesignTokens.Icon.standard))
@@ -461,10 +467,6 @@ struct DocOpenRecordButton: View {
         .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
         .help(String(localized: "Open"))
         .accessibilityLabel(String(localized: "Open"))
-        .flooDesignAnchoredPanel(isPresented: controller.isShowing(.record(row.id), in: snapshot.block),
-                                 onDismiss: { controller.close(.record(row.id), in: snapshot.block) }) {
-            DocRecordPanel(snapshot: snapshot, row: row.id, controller: controller)
-        }
     }
 }
 

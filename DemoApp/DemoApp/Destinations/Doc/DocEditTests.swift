@@ -2040,6 +2040,45 @@ final class DocEditTests {
             try? await Task.sleep(for: .milliseconds(300))
             blocks.clear()
         }
+        await test("a record opens as its page: the record's title over its fields, edited where the collection is; the title and what's written come back") {
+            let pages = try self.expectValue(self.pages, "no pages")
+            let block = try self.expectValue(self.demo.doc.blocks.first { if case .collection = $0.kind { true } else { false } }, "no collection")
+            guard case .collection(let collection) = block.kind, let database = self.demo.doc.databases[collection.database] else { return }
+            let title = try self.expectValue(DocCollectionController.titleColumn(of: database), "no title field")
+            let record = database.rows[0]
+            let named = DocFieldText.text(record.cells[title.id], in: title)
+            let before = self.demo.doc
+            pages.openRecord(record.id, in: block.id)
+            try? await Task.sleep(for: .milliseconds(300))
+            let inside = pages.current
+            let link = try self.expectValue(inside.record, "not a record's page")
+            try self.expect(inside.id.rawValue == record.id.rawValue && inside.title == named, "the page \(inside.title), \(inside.id)")
+            let heading = try self.expectValue(inside.demo.doc.blocks.first, "an empty page")
+            let fieldsRow = inside.demo.rows.firstIndex { $0.recordFields != nil }
+            try self.expect(fieldsRow == 1 && inside.demo.rows[1].recordFields == database.columns.count - 1, "fields at \(String(describing: fieldsRow))")
+            // A field set on the page is the record's, one step in the collection's document.
+            let number = try self.expectValue(database.columns.first { $0.type == .number }, "no number field")
+            link.controller.set(.number(value: 42), row: record.id, column: number.id, in: block.id)
+            try self.expect(link.record?.cells[number.id] == .number(value: 42), "the field didn't take it")
+            // A new title and a line written: back above, the record's title, and its page shows.
+            inside.demo.edit([.insertText(block: heading.id, at: heading.text.length, text: DocText(string: "!"))], before: nil, after: nil)
+            let line = try self.expectValue(inside.demo.doc.blocks.last, "no line")
+            inside.demo.edit([.insertText(block: line.id, at: 0, text: DocText(string: "notes"))], before: nil, after: nil)
+            try self.expect(!pages.recordHasPage(record.id), "written before it was left")
+            pages.back()
+            try? await Task.sleep(for: .milliseconds(300))
+            try self.expect(link.title == named + "!" && pages.recordHasPage(record.id), "the record \(link.title ?? "-"), page \(pages.recordHasPage(record.id))")
+            // Opened again, the page takes the record's title as it is now.
+            self.editor.collections.setText(named, row: record.id, column: title.id, in: block.id)
+            pages.openRecord(record.id, in: block.id)
+            try? await Task.sleep(for: .milliseconds(300))
+            try self.expect(pages.current === inside && inside.title == named, "the page came back as \(inside.title)")
+            pages.back()
+            try? await Task.sleep(for: .milliseconds(300))
+            // Each change was a step in the collection's document: undone, it's as it was.
+            for _ in 0..<3 where self.demo.doc != before { try await self.undo() }
+            try self.expect(self.demo.doc == before, "the undos left the collection changed")
+        }
         await test("/page makes the line a page of its words and goes into it") {
             let pages = try self.expectValue(self.pages, "no pages")
             let paragraph = try self.block("Loading older")

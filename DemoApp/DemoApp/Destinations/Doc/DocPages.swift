@@ -9,7 +9,10 @@
 //  preview of what follows, brought up to date (one undo step there) when the page is left.
 //  - a page block (Craft's Page style): a small sheet with lines, the title, the preview
 //    under it; a click goes in;
-//  - the navigation bar in a page: its title, the way to it as the subtitle.
+//  - the navigation bar in a page: its title, the way to it as the subtitle;
+//  - a collection's record opens as a page too (Craft's arrow): the document with the
+//    record's id, its title the record's title, its fields under the title, then what's
+//    written about it.
 //
 
 import SwiftUI
@@ -56,6 +59,9 @@ final class DocOpenPage {
         }
         return pages
     }
+
+    /// A record's page: its collection, and its record.
+    var record: DocRecordLink? { demo.record }
 
     /// Its title: the first heading's words, or "Untitled".
     var title: String {
@@ -120,13 +126,55 @@ final class DocPages {
         path.append(opening)
     }
 
+    /// Goes into a record's page (Craft's arrow on a record): the document with the record's
+    /// id, as it was left (its title brought up to the record's), or new: the record's title
+    /// as its first heading, an empty line under it.
+    func openRecord(_ row: RowID, in block: DocBlockID) {
+        let from = current
+        let link = DocRecordLink(parent: from.demo, editor: from.editor, block: block, row: row)
+        guard let title = link.title else { return }
+        let id = DocID(rawValue: row.rawValue)
+        let opening: DocOpenPage
+        if let known = opened[id] {
+            opening = known
+            if let heading = known.demo.doc.blocks.first(where: { if case .heading = $0.kind { true } else { false } }), heading.text.string != title {
+                known.demo.edit([.deleteText(block: heading.id, range: 0..<heading.text.length, removed: heading.text),
+                                 .insertText(block: heading.id, at: 0, text: DocText(string: title))], before: nil, after: nil)
+            }
+        } else {
+            let doc = Doc(id: id, blocks: [
+                DocBlock(id: .generate(), kind: .heading(level: 1), text: DocText(string: title)),
+                DocBlock(id: .generate(), kind: .paragraph),
+            ])
+            opening = DocOpenPage(demo: DocDemo(doc: doc, record: link), parent: (from, block))
+            opened[id] = opening
+        }
+        from.editor.blocks.clear()
+        path.append(opening)
+    }
+
+    /// The records whose pages have something written in them past the title, as they
+    /// were left.
+    private(set) var written: Set<RowID> = []
+
+    /// Whether a record's page has something written in it (its title cell shows a page).
+    func recordHasPage(_ row: RowID) -> Bool { written.contains(row) }
+
+    private static func isWritten(_ doc: Doc) -> Bool {
+        doc.blocks.dropFirst().contains { !$0.text.isEmpty || !$0.kind.carriesText }
+    }
+
     /// Back out to the page at `index` of the path (the one above, by default); each page
-    /// left brings its block's title and preview up to date.
+    /// left brings its block's title and preview up to date (a record's page, its record's
+    /// title).
     func back(to index: Int? = nil) {
         let target = index ?? path.count - 2
         guard target >= 0, target < path.count - 1 else { return }
         for page in path[(target + 1)...].reversed() {
-            if let parent = page.parent {
+            if let record = page.record {
+                record.setTitle(DocPage.summary(of: page.demo.doc).title)
+                if Self.isWritten(page.demo.doc) { written.insert(record.row) } else { written.remove(record.row) }
+            } else if let parent = page.parent {
                 parent.page.demo.setPageSummary(of: parent.block, from: page.demo.doc)
             }
         }

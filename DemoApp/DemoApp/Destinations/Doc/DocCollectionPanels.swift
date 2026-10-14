@@ -8,8 +8,7 @@
 //    which fields show and in what order (drag a field by its handle);
 //  - Sort By and Filter: a rule per line, each change at once;
 //  - Create Kanban, Name View, Add/Edit Field, Add/Edit Option: a form, Cancel and Save;
-//  - a select's options: find one, tick it, or type a new one;
-//  - a record whole: its title and every field.
+//  - a select's options: find one, tick it, or type a new one.
 //
 
 import SwiftUI
@@ -820,67 +819,5 @@ struct DocOptionPanel: View {
             controller.addOption(name, color: color, to: column, in: block)
         }
         close()
-    }
-}
-
-// MARK: - A record
-
-/// A record whole: its title, then every field, each edited in place.
-struct DocRecordPanel: View {
-    let snapshot: DocCollectionSnapshot
-    let row: RowID
-    let controller: DocCollectionController
-    @State private var title = ""
-
-    private var block: DocBlockID { snapshot.block }
-    private var record: Row? { snapshot.database.rows.first { $0.id == row } }
-    private var titleColumn: Column? { DocCollectionController.titleColumn(of: snapshot.database) }
-    private var fields: [Column] {
-        let ordered = snapshot.collection.currentView?.ordered(snapshot.database.columns) ?? snapshot.database.columns
-        return ordered.filter { $0.id != titleColumn?.id }
-    }
-
-    var body: some View {
-        FlooDesignFloatingPanelSurface(contentInset: Tokens.Component.FloatingPanel.roomyInset) {
-            VStack(alignment: .leading, spacing: Tokens.Space.md) {
-                HStack(alignment: .top) {
-                    if let titleColumn {
-                        TextField(String(localized: "Title"), text: $title, axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 20, weight: .bold))
-                            .disabled(!controller.isEditable)
-                            .onChange(of: title) { _, title in
-                                if title != DocFieldText.text(record?.cells[titleColumn.id], in: titleColumn) {
-                                    controller.setText(title, row: row, column: titleColumn.id, in: block)
-                                }
-                            }
-                    }
-                    Spacer(minLength: Tokens.Space.sm)
-                    Button { controller.close(.record(row), in: block) } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 18))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(Tokens.ColorRole.Content.secondary)
-                    }
-                    .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
-                    .accessibilityLabel(String(localized: "Close"))
-                }
-                FlooDesignDivider()
-                if let record {
-                    ForEach(fields, id: \.id) { column in
-                        HStack(spacing: Tokens.Space.md) {
-                            Label(column.name, systemImage: DocFieldText.symbol(column))
-                                .font(.system(size: 13))
-                                .foregroundStyle(Tokens.ColorRole.Content.secondary)
-                                .lineLimit(1)
-                                .frame(width: 120, alignment: .leading)
-                            DocCollectionCell(snapshot: snapshot, row: record, column: column, controller: controller, compact: true)
-                        }
-                    }
-                }
-            }
-            .frame(width: Metrics.recordPanel, alignment: .leading)
-        }
-        .onAppear { title = titleColumn.map { DocFieldText.text(record?.cells[$0.id], in: $0) } ?? "" }
     }
 }

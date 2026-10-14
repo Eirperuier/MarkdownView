@@ -167,6 +167,8 @@ private struct DocPageView: View {
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
             editor.blocks.attach(reader)
             editor.blocks.openPage = { [pages] block in pages.open(block) }
+            editor.collections.openRecord = { [pages] row, block in pages.openRecord(row, in: block) }
+            editor.collections.hasPage = { [pages] row in pages.recordHasPage(row) }
             // The launch options below run once a process (DocPages.ranLaunchOptions).
             guard !DocPages.ranLaunchOptions else { return }
             DocPages.ranLaunchOptions = true
@@ -222,7 +224,6 @@ private struct DocPageView: View {
                 case "addField": .addField
                 case "editField": database.columns.last.map { .editField($0.id) }
                 case "options": database.rows.first.flatMap { row in select.map { .options(row: row.id, column: $0.id) } }
-                case "record": database.rows.first.map { .record($0.id) }
                 case "addOption": view?.layout.groupBy.map { .addOption($0) }
                 default: nil
                 }
@@ -413,7 +414,8 @@ struct DocRowCell: TiledCellContent {
     func body(context: CellContext<Void>) -> some View {
         let hooks = MainActor.assumeIsolated { [item, editor] in item.block.map { editor.hooks(for: $0) } }
         let (tables, collections, sources, blocks) = MainActor.assumeIsolated { (editor.tables, editor.collections, editor.sources, editor.blocks) }
-        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks, tables: tables, collections: collections, sources: sources, blocks: blocks)
+        DocRowView(row: item, coordinator: demo.coordinator, hooks: hooks, tables: tables, collections: collections, sources: sources, blocks: blocks,
+                   demo: demo)
     }
 }
 
@@ -425,6 +427,7 @@ private struct DocRowView: View {
     let collections: DocCollectionController
     let sources: DocSourceController
     let blocks: DocBlockController
+    let demo: DocDemo
 
     var body: some View {
         let _ = DocTiming.firstRow()
@@ -435,6 +438,8 @@ private struct DocRowView: View {
                 wide(DocCollectionView(snapshot: collection, controller: collections))
             } else if let page = row.page, !row.isStreaming {
                 inPage(DocPageRowView(page: page))
+            } else if row.recordFields != nil, let record = demo.record {
+                inPage(DocRecordFields(link: record, page: demo))
             } else {
                 page
             }

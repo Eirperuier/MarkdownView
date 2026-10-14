@@ -61,6 +61,8 @@ struct DocRow: Identifiable, Equatable {
     let collection: DocCollectionSnapshot?
     /// A page block: the page it opens and its title.
     let page: DocPage?
+    /// A record's page: the record's fields, under the title (DocRecordFields).
+    let recordFields: Int?
     /// A paragraph, heading, list item or quote, from the model (DocTextRow).
     let text: DocTextRow?
     /// Code, maths, a divider, a card or a table, as the tree DocKit builds from the model.
@@ -87,7 +89,7 @@ struct DocRow: Identifiable, Equatable {
 
     init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock] = [], text: DocTextRow? = nil, tree: MarkdownTree? = nil,
          isStreaming: Bool = false, table: DocTableSnapshot? = nil, collection: DocCollectionSnapshot? = nil, page: DocPage? = nil,
-         media: BlockKind? = nil, sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
+         recordFields: Int? = nil, media: BlockKind? = nil, sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
         self.id = id
         self.block = block
         self.blocks = blocks
@@ -97,6 +99,7 @@ struct DocRow: Identifiable, Equatable {
         self.table = table
         self.collection = collection
         self.page = page
+        self.recordFields = recordFields
         self.media = media
         self.sourceKind = sourceKind
         self.sourceIsEmpty = sourceIsEmpty
@@ -106,7 +109,7 @@ struct DocRow: Identifiable, Equatable {
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
         lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.text == rhs.text && lhs.tree == rhs.tree
-            && lhs.table == rhs.table && lhs.collection == rhs.collection && lhs.page == rhs.page && lhs.media == rhs.media && lhs.run == rhs.run
+            && lhs.table == rhs.table && lhs.collection == rhs.collection && lhs.page == rhs.page && lhs.recordFields == rhs.recordFields && lhs.media == rhs.media && lhs.run == rhs.run
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
             && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role && lhs.box == rhs.box
@@ -169,8 +172,14 @@ final class DocDemo {
         }
     }
 
-    /// A document of its own: the corpus's, or a page opened from another.
-    init(doc: Doc) {
+    /// A record's page: the collection whose record it is, whose fields show under its
+    /// title (DocPages.openRecord).
+    @ObservationIgnored let record: DocRecordLink?
+
+    /// A document of its own: the corpus's, or a page opened from another (a record's, its
+    /// collection given).
+    init(doc: Doc, record: DocRecordLink? = nil) {
+        self.record = record
         DocTiming.mark("demo: doc in (\(doc.blocks.count) blocks)")
         self.doc = doc
         previews.onPreview = { [weak self] url, preview in self?.fill(url, with: preview) }
@@ -191,6 +200,9 @@ final class DocDemo {
     var isAgentWriting: Bool { agentStatus != nil }
     /// What the page's views sent the agent (DocDemoHost): kept, as nothing answers here.
     var sentToAgent: [String] = []
+
+    /// Rows again: a record's fields came or went in its collection.
+    func republish() { publish() }
 
     func reset() {
         stop()
@@ -310,6 +322,11 @@ final class DocDemo {
                 result.append(row)
             }
             if let live, live.after == block.id { emitLayer() }
+        }
+        if let record, let fields = record.fieldCount,
+           let heading = doc.blocks.first(where: { if case .heading = $0.kind { true } else { false } }),
+           let index = result.firstIndex(where: { $0.block == heading.id }) {
+            result.insert(DocRow(id: "record-fields", block: nil, recordFields: fields), at: index + 1)
         }
         place(&result)
         space(&result)
@@ -743,6 +760,7 @@ extension DocRow {
         }
         if let media, let height = DocMediaLayout.estimatedHeight(media, width: textWidth) { return height + spacing }
         if page != nil { return DocPageMetrics.rowHeight + spacing }
+        if let recordFields { return CGFloat(recordFields + 1) * DocCollectionMetrics.rowHeight + 1 + spacing }
         if let collection {
             // The header, then the table's rows or a kanban's longest column.
             guard case .kanban(let group, _, _)? = collection.collection.currentView?.layout else {

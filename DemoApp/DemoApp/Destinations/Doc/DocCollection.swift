@@ -45,7 +45,6 @@ struct DocCollectionPanel: Hashable {
         case addOption(ColumnID)
         case editOption(OptionID)
         /// A record whole.
-        case record(RowID)
     }
 
     let block: DocBlockID
@@ -69,6 +68,10 @@ final class DocCollectionController {
     /// The table rows picked in each block.
     var selectedRows: [DocBlockID: Set<RowID>] = [:]
     var panel: DocCollectionPanel?
+    /// Opens a record as a page (the window's pages; DocRecordPage).
+    @ObservationIgnored var openRecord: ((RowID, DocBlockID) -> Void)?
+    /// Whether a record's page has something written in it (its title cell shows a page).
+    @ObservationIgnored var hasPage: ((RowID) -> Bool)?
 
     init(demo: DocDemo, editor: DocEditor) {
         self.demo = demo
@@ -573,7 +576,6 @@ enum DocCollectionMetrics {
     // Panels
     static let panelWidth: CGFloat = 290
     static let wideFieldsPanel: CGFloat = 340
-    static let recordPanel: CGFloat = 380
     static let fieldHeight: CGFloat = 30
     static let swatch: CGFloat = 26
 }
