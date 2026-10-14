@@ -362,13 +362,15 @@ struct DocCollectionCell: View {
                 .padding(FlooDesignTokens.Component.FloatingPanel.roomyInset)
             }
         default:
-            HStack(spacing: FlooDesignTokens.Space.xs) {
-                field
-                // The title opens the record (Craft's arrow, over the row).
-                if isTitle, !compact, rowHovered || !FlooDesignTokens.Platform.isPointer || controller.isShowing(.record(row.id), in: block) {
-                    DocOpenRecordButton(snapshot: snapshot, row: row, controller: controller)
+            // The title opens the record (Craft's arrow, over the row): over the room kept
+            // for it at the title's end, so its coming and going moves nothing.
+            field
+                .padding(.trailing, isTitle && !compact ? Metrics.openButton + FlooDesignTokens.Space.xs : 0)
+                .overlay(alignment: .trailing) {
+                    if isTitle, !compact, rowHovered || !FlooDesignTokens.Platform.isPointer || controller.isShowing(.record(row.id), in: block) {
+                        DocOpenRecordButton(snapshot: snapshot, row: row, controller: controller)
+                    }
                 }
-            }
         }
     }
 
@@ -454,7 +456,7 @@ struct DocOpenRecordButton: View {
             Image(systemName: "arrow.right.circle")
                 .font(.system(size: FlooDesignTokens.Icon.standard))
                 .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                .frame(width: 24, height: 24)
+                .frame(width: Metrics.openButton, height: Metrics.openButton)
         }
         .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
         .help(String(localized: "Open"))

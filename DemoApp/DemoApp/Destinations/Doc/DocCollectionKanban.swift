@@ -213,13 +213,9 @@ private struct DocKanbanCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: FlooDesignTokens.Space.sm) {
-            HStack(alignment: .top, spacing: FlooDesignTokens.Space.xs) {
-                titleView
-                if !editing, hovering || !FlooDesignTokens.Platform.isPointer || controller.isShowing(.record(row.id), in: snapshot.block) {
-                    DocOpenRecordButton(snapshot: snapshot, row: row, controller: controller)
-                        .padding(.top, -2)
-                }
-            }
+            // Room at the title's end for the arrow, there or not.
+            titleView
+                .padding(.trailing, Metrics.openButton + FlooDesignTokens.Space.xs)
             if !fields.isEmpty {
                 DocFlow {
                     ForEach(fields, id: \.id) { column in
@@ -230,6 +226,14 @@ private struct DocKanbanCard: View {
         }
         .padding(Metrics.cardInset)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // The arrow over the card's corner, by the title's first line: it moves nothing.
+        .overlay(alignment: .topTrailing) {
+            if !editing, hovering || !FlooDesignTokens.Platform.isPointer || controller.isShowing(.record(row.id), in: snapshot.block) {
+                DocOpenRecordButton(snapshot: snapshot, row: row, controller: controller)
+                    .padding(.top, Metrics.cardInset - 2)
+                    .padding(.trailing, Metrics.cardInset - FlooDesignTokens.Space.xs)
+            }
+        }
         .background(FlooDesignTokens.ColorRole.Surface.canvas, in: RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
             .strokeBorder(editing ? FlooDesignTokens.ColorRole.Accent.primary : FlooDesignTokens.Border.subtle,

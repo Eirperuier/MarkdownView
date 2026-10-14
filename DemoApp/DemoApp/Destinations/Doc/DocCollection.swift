@@ -566,6 +566,8 @@ enum DocCollectionMetrics {
     static let cardGap: CGFloat = 10
     static let cardInset = FlooDesignTokens.Space.md
     static let cardCorner: CGFloat = 8
+    /// The arrow that opens a record (a card's, a title cell's).
+    static let openButton: CGFloat = 24
     static let chipHeight: CGFloat = 21
     static let addHeight: CGFloat = 32
     // Panels
