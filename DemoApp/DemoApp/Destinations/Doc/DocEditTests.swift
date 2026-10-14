@@ -1133,6 +1133,27 @@ final class DocEditTests {
                 try self.expect(try database() == before, "undo after \(action) left the table changed")
             }
         }
+        await test("Table: a row added and undone leaves the table as tall as it was") {
+            _ = try await click(2, 1)
+            let key = try editedKey()
+            // Measured with no cell edited, as the undo leaves it (its cell is gone).
+            self.editor.tables.endEditing()
+            try await Task.sleep(for: .milliseconds(400))
+            let id = try table().block.description
+            @MainActor func height() throws -> CGFloat { try self.expectValue(self.demo.rowFrame(id), "no row").height }
+            let before = try height()
+            self.editor.tables.perform(.insertRowBelow, at: key)
+            try await Task.sleep(for: .milliseconds(500))
+            let grown = try height()
+            try self.expect(grown > before + 20, "row \(before) → \(grown) with a row more")
+            try await self.undo()
+            var after = try height()
+            for _ in 0..<40 where abs(after - before) >= 1 {
+                try await Task.sleep(for: .milliseconds(50))
+                after = try height()
+            }
+            try self.expect(abs(after - before) < 1, "row \(before) → \(grown) → \(after) after the undo")
+        }
         await test("Table: the menu's Cut, Copy and Paste take the cell's text through the pasteboard; each is an undo step") {
             let saved = UIPasteboard.general.string
             defer { UIPasteboard.general.string = saved }

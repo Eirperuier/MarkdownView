@@ -917,11 +917,13 @@ struct AdaptiveTableLayout: Layout {
             && !cache.cellIdealWidths.isEmpty
 
         var cellIdealWidths = hasCellCache
-            ? cache.cellIdealWidths + [CGFloat](repeating: 0, count: max(0, currentHashes.count - cache.cellIdealWidths.count))
+            ? Array(cache.cellIdealWidths.prefix(currentHashes.count))
+                + [CGFloat](repeating: 0, count: max(0, currentHashes.count - cache.cellIdealWidths.count))
             : [CGFloat](repeating: 0, count: currentHashes.count)
 
         var cellConstrainedHeights = hasCellCache
-            ? cache.cellConstrainedHeights + [CGFloat](repeating: 0, count: max(0, currentHashes.count - cache.cellConstrainedHeights.count))
+            ? Array(cache.cellConstrainedHeights.prefix(currentHashes.count))
+                + [CGFloat](repeating: 0, count: max(0, currentHashes.count - cache.cellConstrainedHeights.count))
             : [CGFloat](repeating: 0, count: currentHashes.count)
 
         var changedCols = Set<Int>()
@@ -1001,10 +1003,11 @@ struct AdaptiveTableLayout: Layout {
                 rowHeights[row] = max(rowHeights[row], height)
             }
         } else {
+            // The rows there are now: fewer than cached (a row removed) drops the rest,
+            // which would otherwise stay in the table's height.
             let prevRowCount = cache.rowHeights.count
-            rowHeights = prevRowCount == rowCount
-                ? cache.rowHeights
-                : cache.rowHeights + [CGFloat](repeating: 0, count: max(0, rowCount - prevRowCount))
+            rowHeights = Array(cache.rowHeights.prefix(rowCount))
+                + [CGFloat](repeating: 0, count: max(0, rowCount - prevRowCount))
 
             var changedRows = Set<Int>()
             for (i, hash) in currentHashes.enumerated() {
