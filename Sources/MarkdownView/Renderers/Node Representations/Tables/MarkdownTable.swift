@@ -24,6 +24,15 @@ struct MarkdownTableCellKey: Hashable, Sendable {
     var column: Int
 }
 
+/// A cell by its row's identity, not its position: a row keeps its identity while it
+/// moves (rows added or removed above it) and while its cells are edited, so its views
+/// and measurements stay with it.
+struct MarkdownTableCellIdentity: Hashable, Sendable {
+    /// 0 for the header; body rows' identities start at 1.
+    var row: Int
+    var column: Int
+}
+
 struct MarkdownTableFreshCellKey: Hashable, Sendable {
     var cellKey: MarkdownTableCellKey
     var contentHash: Int
@@ -48,6 +57,11 @@ final class TableInfoCache {
     fileprivate var bodyItems: [AdaptiveTableCellItem] = []
     private(set) var freshCellKeys: Set<MarkdownTableFreshCellKey> = []
     private(set) var revision: Int = 0
+    /// Each body row's identity (MarkdownTableCellIdentity), in order.
+    private var bodyRowIdentities: [Int] = []
+    private var nextRowIdentity = 1
+    /// Rows' positions by their identities.
+    private(set) var rowsByIdentity: [Int: Int] = [:]
     private var cachedHash: Int? = nil
 
     func ensureFresh(for table: Markdown.Table) {
@@ -68,6 +82,12 @@ final class TableInfoCache {
         MarkdownRenderProbe.increment(\.tableInfoCacheMisses)
 
         let previousHashesByRow = hashesByRow
+        let bodyRows = table.body.children.compactMap { $0 as? Markdown.Table.Row }
+        let bodyHashes = bodyRows.map { Array($0.cells.map(\.stableContentHash)) }
+        let rowIdentities = identities(
+            of: bodyHashes,
+            previous: Array(previousHashesByRow.dropFirst())
+        )
         var infos: [[CellInfo]] = []
         var hashes: [[Int]] = []
         var flatInfos: [MarkdownTableFlatCellInfo] = []
@@ -101,6 +121,7 @@ final class TableInfoCache {
                 AdaptiveTableCellItem(
                     row: 0,
                     column: column,
+                    rowIdentity: 0,
                     flatIndex: flatIndex,
                     cell: cell,
                     isHeader: true,
@@ -122,14 +143,13 @@ final class TableInfoCache {
         infos.append(headerInfos)
         hashes.append(headerHashes)
 
-        for (bodyRowIndex, child) in table.body.children.enumerated() {
-            guard let bodyRow = child as? Markdown.Table.Row else { continue }
+        for (bodyRowIndex, bodyRow) in bodyRows.enumerated() {
             let row = bodyRowIndex + 1
             var rowInfos: [CellInfo] = []
             var rowHashes: [Int] = []
             for (column, cell) in bodyRow.cells.enumerated() {
                 let count = cell.markdownRevealPlainText.count
-                let cellHash = cell.stableContentHash
+                let cellHash = bodyHashes[bodyRowIndex][column]
                 rowInfos.append(CellInfo(offset: cursor, count: count))
                 rowHashes.append(cellHash)
                 flatInfos.append(
@@ -145,6 +165,7 @@ final class TableInfoCache {
                     AdaptiveTableCellItem(
                         row: row,
                         column: column,
+                        rowIdentity: rowIdentities[bodyRowIndex],
                         flatIndex: flatIndex,
                         cell: cell,
                         isHeader: false,
@@ -173,9 +194,38 @@ final class TableInfoCache {
         self.headerItems = headerItems
         self.bodyItems = bodyItems
         freshCellKeys = freshKeys
+        bodyRowIdentities = rowIdentities
+        rowsByIdentity = Dictionary(uniqueKeysWithValues: rowIdentities.enumerated().map { ($1, $0 + 1) } + [(0, 0)])
         cachedHash = hash
         revision &+= 1
         MarkdownRenderProbe.increment(\.markdownTableBodyItemBuildCalls)
+    }
+
+    /// The identity of the row at this position (0 is the header's).
+    func rowIdentity(at row: Int) -> Int? {
+        row == 0 ? 0 : bodyRowIdentities.indices.contains(row - 1) ? bodyRowIdentities[row - 1] : nil
+    }
+
+    /// The body rows' identities: the rows the table starts and ends with, as before,
+    /// keep theirs; the rows between, where it changed, take the identities of the rows
+    /// there before in order (a row edited keeps its own), and new ones past those.
+    private func identities(of rows: [[Int]], previous: [[Int]]) -> [Int] {
+        guard previous.count == bodyRowIdentities.count else {
+            defer { nextRowIdentity += rows.count }
+            return rows.indices.map { nextRowIdentity + $0 }
+        }
+        var start = 0
+        while start < rows.count, start < previous.count, rows[start] == previous[start] { start += 1 }
+        var end = 0
+        while end < min(rows.count, previous.count) - start,
+              rows[rows.count - 1 - end] == previous[previous.count - 1 - end] { end += 1 }
+        return rows.indices.map { index in
+            if index < start { return bodyRowIdentities[index] }
+            if index >= rows.count - end { return bodyRowIdentities[index - rows.count + previous.count] }
+            if index < previous.count - end { return bodyRowIdentities[index] }
+            defer { nextRowIdentity += 1 }
+            return nextRowIdentity
+        }
     }
 
     private func insertFreshCellKeyIfNeeded(
@@ -234,7 +284,7 @@ struct MarkdownTableContent: View {
     /// 表格 cell 可选中的**惰性升级(逐 cell)**:初载全部走原版 Text(大表逐 cell UITextView
     /// 实测把初载拖到 ~4×),某个 cell 第一次被点按才升级为可选中 —— 双击选字的第一击即完成
     /// 该 cell 升级,第二击已落在 UITextView 上;粒度=单 cell(整表升级在超大表上会卡一帧)。
-    @State private var upgradedCells: Set<MarkdownTableCellKey> = []
+    @State private var upgradedCells: Set<MarkdownTableCellIdentity> = []
     @State private var containerWidth: CGFloat = MarkdownTableContent.estimatedContainerWidth
     /// Held via `@State` (not `@StateObject`) so SwiftUI does not subscribe
     /// to the class's `objectWillChange`. The scrollable path doesn't read
@@ -360,6 +410,7 @@ struct MarkdownTableContent: View {
         let replaced = replacedCells
         let hooks = hookBox
         let _ = hooks.hooks = cellHooks
+        let _ = hooks.rows = cache.rowsByIdentity
         // Where each cell is in the block's text matters only to a reveal. Without one, the
         // cells after an edited cell would all render again for having moved along.
         let offsets = revealManager != nil
@@ -377,7 +428,7 @@ struct MarkdownTableContent: View {
                 ForEach(stripeRows) { item in
                     AdaptiveTableRowStripe(
                         blockTextOffset: offsets ? item.blockTextOffset : 0,
-                        characterCount: item.characterCount
+                        characterCount: offsets ? item.characterCount : 0
                     )
                 }
                 ForEach(cache.headerItems) { item in
@@ -389,12 +440,13 @@ struct MarkdownTableContent: View {
                         blockTextOffset: offsets ? item.blockTextOffset : 0,
                         characterCount: info.count,
                         isHeader: item.isHeader,
+                        identity: item.id,
                         position: MarkdownTableCellPosition(row: item.row, column: item.column),
                         hooks: hooks,
                         isReplaced: isReplaced
                     )
                         .equatable()
-                        .tableCellHash(item.contentHash ^ (isReplaced ? Self.replacedHashSalt : 0))
+                        .tableCellHash(item.contentHash ^ (isReplaced ? Self.replacedHashSalt : 0), identity: item.id)
                 }
                 ForEach(cache.bodyItems) { item in
                     let info = cache.flatCellInfos[item.flatIndex]
@@ -406,6 +458,7 @@ struct MarkdownTableContent: View {
                         blockTextOffset: offsets ? item.blockTextOffset : 0,
                         characterCount: info.count,
                         isHeader: item.isHeader,
+                        identity: item.id,
                         position: MarkdownTableCellPosition(row: item.row, column: item.column),
                         hooks: hooks,
                         isReplaced: isReplaced,
@@ -415,7 +468,7 @@ struct MarkdownTableContent: View {
                         .equatable()
                         // 升级混入 hash:该 cell 切可选中后高度会变(UITextView 行盒),
                         // 让 AdaptiveTableLayout 重测,不能吃原版的缓存尺寸。
-                        .tableCellHash(item.contentHash ^ (upgraded ? 0x5e1ec7 : 0) ^ (isReplaced ? Self.replacedHashSalt : 0))
+                        .tableCellHash(item.contentHash ^ (upgraded ? 0x5e1ec7 : 0) ^ (isReplaced ? Self.replacedHashSalt : 0), identity: item.id)
                 }
             }
             .anchorPreference(key: MarkdownTableBoundsKey.self, value: .bounds) { $0 }
@@ -438,11 +491,11 @@ struct MarkdownTableContent: View {
     private static let replacedHashSalt = 0x7e9a1ace
 
     /// The cells the host's `markdownTableCellReplacement` shows a view in.
-    private var replacedCells: Set<MarkdownTableCellKey> {
-        guard let replacement = cellHooks.replacement else { return [] }
-        return Set((cache.headerItems + cache.bodyItems).lazy
-            .filter { replacement(MarkdownTableCellPosition(row: $0.row, column: $0.column)) != nil }
-            .map(\.id))
+    private var replacedCells: Set<MarkdownTableCellIdentity> {
+        guard cellHooks.replacement != nil else { return [] }
+        return Set(cellHooks.replaced.compactMap { position in
+            cache.rowIdentity(at: position.row).map { MarkdownTableCellIdentity(row: $0, column: position.column) }
+        })
     }
 
     private var scrollableTableStripeRows: [AdaptiveTableRowStripeItem] {
@@ -482,7 +535,7 @@ struct MarkdownTableRevealSnapshot: Equatable, Sendable {
     var freshCellCount: Int = 0
 
     fileprivate func phase(for item: AdaptiveTableCellItem) -> MarkdownTableCellPhase {
-        if activeKeys.contains(item.id) { return .active }
+        if activeKeys.contains(item.key) { return .active }
         if item.flatIndex < pastCellCount { return .past }
         return .before
     }
@@ -807,6 +860,7 @@ private final class MarkdownTableRevealState: ObservableObject {
 private struct AdaptiveTableCellItem: Identifiable {
     var row: Int
     var column: Int
+    var rowIdentity: Int
     var flatIndex: Int
     var cell: Markdown.Table.Cell
     var isHeader: Bool
@@ -816,7 +870,11 @@ private struct AdaptiveTableCellItem: Identifiable {
     /// recursive `cell.stableContentHash` walk every body re-evaluation.
     var contentHash: Int = 0
 
-    var id: MarkdownTableCellKey {
+    var id: MarkdownTableCellIdentity {
+        MarkdownTableCellIdentity(row: rowIdentity, column: column)
+    }
+
+    var key: MarkdownTableCellKey {
         MarkdownTableCellKey(row: row, column: column)
     }
 }
@@ -835,9 +893,14 @@ private struct TableCellHashKey: LayoutValueKey {
     static let defaultValue: Int = 0
 }
 
+private struct TableCellIdentityKey: LayoutValueKey {
+    static let defaultValue: MarkdownTableCellIdentity? = nil
+}
+
 private extension View {
-    func tableCellHash(_ hash: Int) -> some View {
+    func tableCellHash(_ hash: Int, identity: MarkdownTableCellIdentity) -> some View {
         layoutValue(key: TableCellHashKey.self, value: hash)
+            .layoutValue(key: TableCellIdentityKey.self, value: identity)
     }
 }
 
@@ -863,15 +926,23 @@ struct AdaptiveTableLayout: Layout {
         var cellMaxWidth: CGFloat = 0
         var columnWidthBuckets: [CGFloat] = []
         var cachedSize: CGSize = .zero
-        var cellHashes: [Int] = []
-        var cellIdealWidths: [CGFloat] = []
-        var cellConstrainedHeights: [CGFloat] = []
+        /// What each cell measured, by its identity: a cell moved along keeps it.
+        var measured: [MarkdownTableCellIdentity: MeasuredCell] = [:]
         var columnOffsets: [CGFloat] = []
         var rowOffsets: [CGFloat] = []
         var relativeCellOrigins: [CGPoint] = []
         var cellProposals: [ProposedViewSize] = []
         var absoluteCellOrigins: [CGPoint] = []
         var absoluteOriginBase: CGPoint?
+    }
+
+    struct MeasuredCell {
+        /// The content measured (TableCellHashKey).
+        var hash: Int
+        var idealWidth: CGFloat
+        /// The column's width its height was measured at.
+        var width: CGFloat
+        var height: CGFloat
     }
 
     func makeCache(subviews: Subviews) -> CacheData { CacheData() }
@@ -917,125 +988,77 @@ struct AdaptiveTableLayout: Layout {
         let currentHashes = (0..<cellSubviewCount).map { index in
             subviews[rowBackgroundCount + index][TableCellHashKey.self]
         }
+        let identities = (0..<cellSubviewCount).map { index in
+            subviews[rowBackgroundCount + index][TableCellIdentityKey.self]
+                ?? MarkdownTableCellIdentity(row: -1, column: index)
+        }
 
-        // Build per-cell ideal widths, measuring only changed/new cells
-        let hasCellCache = cache.columnCount == columnCount
+        // Cells measured before, with the content they have now, aren't measured again:
+        // their widths stand, and their heights where the column's width is the same, or
+        // they fit on one line in both widths.
+        let measured = cache.columnCount == columnCount
             && cache.cellMaxWidth == cellMaxWidth
             && cache.columnWidthBuckets == widthBuckets
-            && cache.cellIdealWidths.count == cache.cellHashes.count
-            && !cache.cellIdealWidths.isEmpty
+            ? cache.measured : [:]
 
-        var cellIdealWidths = hasCellCache
-            ? Array(cache.cellIdealWidths.prefix(currentHashes.count))
-                + [CGFloat](repeating: 0, count: max(0, currentHashes.count - cache.cellIdealWidths.count))
-            : [CGFloat](repeating: 0, count: currentHashes.count)
-
-        var cellConstrainedHeights = hasCellCache
-            ? Array(cache.cellConstrainedHeights.prefix(currentHashes.count))
-                + [CGFloat](repeating: 0, count: max(0, currentHashes.count - cache.cellConstrainedHeights.count))
-            : [CGFloat](repeating: 0, count: currentHashes.count)
-
-        var changedCols = Set<Int>()
-        for (i, hash) in currentHashes.enumerated() {
-            let changed = !hasCellCache || i >= cache.cellHashes.count || cache.cellHashes[i] != hash
-            if changed {
-                let col = i % columnCount
-                MarkdownRenderProbe.increment(\.adaptiveTableLayoutIdealMeasures)
-                let ideal = subviews[rowBackgroundCount + i].sizeThatFits(.unspecified)
-                cellIdealWidths[i] = Self.snappedWidth(
-                    min(ideal.width, cellMaxWidth),
-                    buckets: widthBuckets,
-                    cellMaxWidth: cellMaxWidth
-                )
-                changedCols.insert(col)
+        var cellIdealWidths = [CGFloat](repeating: 0, count: cellSubviewCount)
+        for index in 0..<cellSubviewCount {
+            if let old = measured[identities[index]], old.hash == currentHashes[index] {
+                cellIdealWidths[index] = old.idealWidth
+                continue
             }
+            MarkdownRenderProbe.increment(\.adaptiveTableLayoutIdealMeasures)
+            let ideal = subviews[rowBackgroundCount + index].sizeThatFits(.unspecified)
+            cellIdealWidths[index] = Self.snappedWidth(
+                min(ideal.width, cellMaxWidth),
+                buckets: widthBuckets,
+                cellMaxWidth: cellMaxWidth
+            )
         }
 
-        // Recompute column widths only when affected columns changed, or the width to
-        // fill did (a row measured off screen at an estimated width, then shown).
-        var colWidths: [CGFloat]
-        if changedCols.isEmpty, cache.columnWidths.count == columnCount, cache.containerWidth == containerWidth {
-            colWidths = cache.columnWidths
+        var colIdeals = [CGFloat](repeating: 0, count: columnCount)
+        for (index, width) in cellIdealWidths.enumerated() {
+            colIdeals[index % columnCount] = max(colIdeals[index % columnCount], width)
+        }
+        let colWidths: [CGFloat]
+        let totalIdeal = colIdeals.reduce(0, +) + totalSpacing
+        if totalIdeal < containerWidth, containerWidth > 0, colIdeals.reduce(0, +) > 0 {
+            let excess = containerWidth - totalIdeal
+            let idealSum = colIdeals.reduce(0, +)
+            colWidths = colIdeals.map { $0 + excess * ($0 / idealSum) }
         } else {
-            var colIdeals = [CGFloat](repeating: 0, count: columnCount)
-            for (i, w) in cellIdealWidths.enumerated() where i < currentHashes.count {
-                let col = i % columnCount
-                colIdeals[col] = max(colIdeals[col], w)
-            }
-            let totalIdeal = colIdeals.reduce(0, +) + totalSpacing
-            if totalIdeal < containerWidth, containerWidth > 0, colIdeals.reduce(0, +) > 0 {
-                let excess = containerWidth - totalIdeal
-                let idealSum = colIdeals.reduce(0, +)
-                colWidths = colIdeals.map { $0 + excess * ($0 / idealSum) }
+            colWidths = colIdeals
+        }
+
+        // 列宽变化时只重测「真正会随宽度改变高度」的 cell:一个 cell 只有在它的自然宽度
+        // (idealWidth)≥ 列宽、即会换行时,高度才依赖列宽;能在更窄一侧单行放下的 cell 高度
+        // 与宽度无关,直接复用。流式时最后一格变宽 → 该列变宽,整列重测曾是几百次 Core Text
+        // 排版挤在一帧(240ms 卡顿)。
+        var rowHeights = [CGFloat](repeating: 0, count: rowCount)
+        var nextMeasured: [MarkdownTableCellIdentity: MeasuredCell] = [:]
+        nextMeasured.reserveCapacity(cellSubviewCount)
+        for index in 0..<cellSubviewCount {
+            let row = index / columnCount
+            guard row < rowCount else { continue }
+            let width = colWidths[index % columnCount]
+            let ideal = cellIdealWidths[index]
+            let height: CGFloat
+            if let old = measured[identities[index]], old.hash == currentHashes[index],
+               old.width == width || ideal < min(old.width, width) - 0.5 {
+                height = old.height
             } else {
-                colWidths = colIdeals
+                MarkdownRenderProbe.increment(\.adaptiveTableLayoutConstrainedMeasures)
+                height = subviews[rowBackgroundCount + index]
+                    .sizeThatFits(ProposedViewSize(width: width, height: nil))
+                    .height
             }
-        }
-
-        // Recompute row heights for changed rows only (or all if colWidths changed)
-        let colWidthsChanged = colWidths != cache.columnWidths
-        var rowHeights: [CGFloat]
-
-        if colWidthsChanged {
-            // 列宽变化时只重测「真正会随宽度改变高度」的 cell。关键事实:一个 cell 只有在它的
-            // 自然宽度(idealWidth)≥ 列宽、即会换行时,高度才依赖列宽;能在更窄一侧单行放下的
-            // cell(idealWidth < min(新,旧列宽))高度与宽度无关,直接复用缓存高度。
-            // 流式时最后一格变宽 → 该列变宽,原来这里 O(整列行数) 全部重测,几百次 Core Text
-            // 排版挤在一帧 → 240ms 卡顿(实测 mainCPU 86–95%、maxFrameMs 200+)。改成只测会换行
-            // 的少数 cell 后,长表格某列变宽不再触发整列重测。
-            let canReuseHeights = hasCellCache
-                && cache.cellConstrainedHeights.count == cache.cellHashes.count
-                && cache.cellIdealWidths.count == cache.cellHashes.count
-            rowHeights = [CGFloat](repeating: 0, count: rowCount)
-            for i in 0..<cellSubviewCount {
-                let col = i % columnCount
-                let row = i / columnCount
-                guard row < rowCount else { continue }
-                let contentChanged = i >= cache.cellHashes.count || cache.cellHashes[i] != currentHashes[i]
-                let oldColWidth = col < cache.columnWidths.count ? cache.columnWidths[col] : .infinity
-                let newColWidth = colWidths[col]
-                let wrapThreshold = min(oldColWidth, newColWidth) - 0.5
-                let widthSensitive = i < cellIdealWidths.count && cellIdealWidths[i] >= wrapThreshold
-                let needMeasure = !canReuseHeights
-                    || contentChanged
-                    || (oldColWidth != newColWidth && widthSensitive)
-                let height: CGFloat
-                if needMeasure {
-                    MarkdownRenderProbe.increment(\.adaptiveTableLayoutConstrainedMeasures)
-                    height = subviews[rowBackgroundCount + i]
-                        .sizeThatFits(ProposedViewSize(width: newColWidth, height: nil))
-                        .height
-                } else {
-                    height = cache.cellConstrainedHeights[i]
-                }
-                cellConstrainedHeights[i] = height
-                rowHeights[row] = max(rowHeights[row], height)
-            }
-        } else {
-            // The rows there are now: fewer than cached (a row removed) drops the rest,
-            // which would otherwise stay in the table's height.
-            let prevRowCount = cache.rowHeights.count
-            rowHeights = Array(cache.rowHeights.prefix(rowCount))
-                + [CGFloat](repeating: 0, count: max(0, rowCount - prevRowCount))
-
-            var changedRows = Set<Int>()
-            for (i, hash) in currentHashes.enumerated() {
-                let changed = !hasCellCache || i >= cache.cellHashes.count || cache.cellHashes[i] != hash
-                if changed { changedRows.insert(i / columnCount) }
-            }
-            for row in changedRows {
-                var h: CGFloat = 0
-                for col in 0..<columnCount {
-                    let i = row * columnCount + col
-                    guard i < cellSubviewCount else { break }
-                    MarkdownRenderProbe.increment(\.adaptiveTableLayoutConstrainedMeasures)
-                    let size = subviews[rowBackgroundCount + i]
-                        .sizeThatFits(ProposedViewSize(width: colWidths[col], height: nil))
-                    cellConstrainedHeights[i] = size.height
-                    h = max(h, size.height)
-                }
-                rowHeights[row] = h
-            }
+            rowHeights[row] = max(rowHeights[row], height)
+            nextMeasured[identities[index]] = MeasuredCell(
+                hash: currentHashes[index],
+                idealWidth: ideal,
+                width: width,
+                height: height
+            )
         }
 
         cache.columnWidths = colWidths
@@ -1046,9 +1069,7 @@ struct AdaptiveTableLayout: Layout {
         cache.containerWidth = containerWidth
         cache.cellMaxWidth = cellMaxWidth
         cache.columnWidthBuckets = widthBuckets
-        cache.cellHashes = currentHashes
-        cache.cellIdealWidths = cellIdealWidths
-        cache.cellConstrainedHeights = cellConstrainedHeights
+        cache.measured = nextMeasured
         let columnOffsets = Self.offsets(for: colWidths, spacing: columnSpacing)
         let rowOffsets = Self.offsets(for: rowHeights, spacing: 0)
         cache.columnOffsets = columnOffsets
@@ -1380,7 +1401,9 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     /// `endOffset = blockTextOffset + characterCount`.
     var characterCount: Int
     var isHeader: Bool
-    /// Where the cell is, for the host's tap and replacement hooks.
+    var identity: MarkdownTableCellIdentity
+    /// Where the cell is, for the host's replacement. Its tap asks where it is then: a
+    /// cell moved along (rows added above it) needn't render again.
     var position: MarkdownTableCellPosition
     /// The table's hooks: the same object as long as the table is there.
     var hooks: MarkdownTableCellHookBox
@@ -1399,7 +1422,8 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         && lhs.blockTextOffset == rhs.blockTextOffset
         && lhs.characterCount == rhs.characterCount
         && lhs.isHeader == rhs.isHeader
-        && lhs.position == rhs.position
+        && lhs.identity == rhs.identity
+        && (!lhs.isReplaced || lhs.position == rhs.position)
         && lhs.hooks === rhs.hooks
         && lhs.isReplaced == rhs.isReplaced
         && lhs.selectableUpgraded == rhs.selectableUpgraded
@@ -1435,18 +1459,21 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
             .onChange(of: blockTextOffset) { _, _ in configurePhaseHolder() }
             .onChange(of: characterCount) { _, _ in configurePhaseHolder() }
             .onChange(of: settleDuration) { _, _ in configurePhaseHolder() }
-            .modifier(AdaptiveTableCellTap(position: position, onTap: tap))
+            .modifier(AdaptiveTableCellTap(onTap: tap))
     }
 
     /// The host's tap as it is when the cell is tapped, not as it was at the cell's last render.
-    private var tap: (@MainActor (MarkdownTableCellPosition) -> Void)? {
+    private var tap: (@MainActor () -> Void)? {
         guard hooks.hooks.onTap != nil else { return nil }
-        return { [hooks] position in hooks.hooks.onTap?(position) }
+        return { [hooks, identity] in
+            guard let row = hooks.rows[identity.row] else { return }
+            hooks.hooks.onTap?.call(MarkdownTableCellPosition(row: row, column: identity.column))
+        }
     }
 
     @ViewBuilder
     private var cellContent: some View {
-        if isReplaced, let replacement = hooks.hooks.replacement?(position) {
+        if isReplaced, let replacement = hooks.hooks.replacement?.call(position) {
             replacement
         } else {
             renderedContent
@@ -1547,14 +1574,13 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
 
 /// The host's tap on a cell (`markdownTableCellTap`), anywhere in the cell.
 private struct AdaptiveTableCellTap: ViewModifier {
-    var position: MarkdownTableCellPosition
-    var onTap: (@MainActor (MarkdownTableCellPosition) -> Void)?
+    var onTap: (@MainActor () -> Void)?
 
     func body(content: Content) -> some View {
         if let onTap {
             content
                 .contentShape(Rectangle())
-                .simultaneousGesture(TapGesture().onEnded { onTap(position) })
+                .simultaneousGesture(TapGesture().onEnded { onTap() })
         } else {
             content
         }

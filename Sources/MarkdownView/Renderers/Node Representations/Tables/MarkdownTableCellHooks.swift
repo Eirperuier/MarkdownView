@@ -31,16 +31,35 @@ public struct MarkdownTableBoundsKey: PreferenceKey {
     }
 }
 
-struct MarkdownTableCellHooks {
-    var onTap: (@MainActor (MarkdownTableCellPosition) -> Void)?
-    var replacement: (@MainActor (MarkdownTableCellPosition) -> AnyView?)?
+/// The host's hooks, in the environment. The same as long as the host's hooks are there
+/// and replace the same cells: the closures are new on each of the host's renders, and
+/// an environment changing on each would have every view in the table look at it again.
+struct MarkdownTableCellHooks: Equatable, Sendable {
+    var onTap: MarkdownTableCellHook<MarkdownTableCellPosition, Void>?
+    var replacement: MarkdownTableCellHook<MarkdownTableCellPosition, AnyView?>?
+    /// The cells `replacement` shows a view in.
+    var replaced: Set<MarkdownTableCellPosition> = []
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.onTap === rhs.onTap && lhs.replacement === rhs.replacement && lhs.replaced == rhs.replaced
+    }
 }
 
-/// The hooks a table's cells call: one per table, holding the latest the host gave. The
-/// environment's are new closures on each of the host's renders, and every cell reading
-/// them would render again (a whole table's on each keystroke in one of its cells).
+/// A host's closure, the latest it gave, held for as long as its modifier is there.
+@MainActor final class MarkdownTableCellHook<Input, Output> {
+    var call: @MainActor (Input) -> Output
+
+    init(_ call: @escaping @MainActor (Input) -> Output) {
+        self.call = call
+    }
+}
+
+/// What a table's cells call: the hooks, and where the rows are now (by their
+/// identities, MarkdownTableCellIdentity). One per table, the same while it's there,
+/// so a cell rendered once calls the latest.
 @MainActor final class MarkdownTableCellHookBox {
     var hooks = MarkdownTableCellHooks()
+    var rows: [Int: Int] = [:]
 }
 
 private struct MarkdownTableCellHooksKey: EnvironmentKey {
@@ -54,15 +73,51 @@ extension EnvironmentValues {
     }
 }
 
+private struct MarkdownTableCellTapModifier: ViewModifier {
+    var action: @MainActor (MarkdownTableCellPosition) -> Void
+    @State private var hook = MarkdownTableCellHook<MarkdownTableCellPosition, Void> { _ in }
+    @Environment(\.markdownTableCellHooks) private var hooks
+
+    func body(content: Content) -> some View {
+        let _ = hook.call = action
+        content.environment(\.markdownTableCellHooks, with(hooks) { $0.onTap = hook })
+    }
+}
+
+private struct MarkdownTableCellReplacementModifier: ViewModifier {
+    var cells: Set<MarkdownTableCellPosition>
+    var replacement: @MainActor (MarkdownTableCellPosition) -> AnyView?
+    @State private var hook = MarkdownTableCellHook<MarkdownTableCellPosition, AnyView?> { _ in nil }
+    @Environment(\.markdownTableCellHooks) private var hooks
+
+    func body(content: Content) -> some View {
+        let _ = hook.call = replacement
+        content.environment(\.markdownTableCellHooks, with(hooks) {
+            $0.replacement = hook
+            $0.replaced = cells
+        })
+    }
+}
+
+private func with<Value>(_ value: Value, _ change: (inout Value) -> Void) -> Value {
+    var value = value
+    change(&value)
+    return value
+}
+
 extension View {
     /// Called with the cell a click (or tap) lands on, in tables MarkdownView renders.
     public func markdownTableCellTap(_ action: @escaping @MainActor (MarkdownTableCellPosition) -> Void) -> some View {
-        transformEnvironment(\.markdownTableCellHooks) { $0.onTap = action }
+        modifier(MarkdownTableCellTapModifier(action: action))
     }
 
-    /// A view to show instead of a cell's rendered content (nil keeps the content). It
-    /// sits inside the cell's padding, with the cell's font.
-    public func markdownTableCellReplacement(_ replacement: @escaping @MainActor (MarkdownTableCellPosition) -> AnyView?) -> some View {
-        transformEnvironment(\.markdownTableCellHooks) { $0.replacement = replacement }
+    /// Views to show instead of these cells' rendered content (nil keeps the content).
+    /// Each sits inside the cell's padding, with the cell's font. A cell's view is asked
+    /// for when the cells change, and when the table renders again.
+    public func markdownTableCellReplacement(
+        _ cells: Set<MarkdownTableCellPosition>,
+        _ replacement: @escaping @MainActor (MarkdownTableCellPosition) -> AnyView?
+    ) -> some View {
+        modifier(MarkdownTableCellReplacementModifier(cells: cells, replacement: replacement))
     }
 }

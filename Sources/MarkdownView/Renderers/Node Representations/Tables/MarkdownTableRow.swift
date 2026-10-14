@@ -59,7 +59,7 @@ struct MarkdownTableRow: View {
             let position = MarkdownTableCellPosition(row: rowIndex, column: column)
             content
                 .contentShape(Rectangle())
-                .simultaneousGesture(TapGesture().onEnded { onTap(position) })
+                .simultaneousGesture(TapGesture().onEnded { onTap.call(position) })
         } else {
             content
         }
@@ -67,7 +67,8 @@ struct MarkdownTableRow: View {
 
     @ViewBuilder
     private func renderedCell(_ cell: Markdown.Table.Cell, at index: Int) -> some View {
-        if let replacement = hooks.replacement?(MarkdownTableCellPosition(row: rowIndex, column: index)) {
+        let position = MarkdownTableCellPosition(row: rowIndex, column: index)
+        if hooks.replaced.contains(position), let replacement = hooks.replacement?.call(position) {
             replacement
         } else {
             CmarkNodeVisitor(configuration: configuration)

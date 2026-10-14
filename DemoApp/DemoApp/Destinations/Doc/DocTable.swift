@@ -365,6 +365,13 @@ final class DocTableController {
         return DocCellKey(block: table.block, row: row, column: database.columns[position.column].id)
     }
 
+    /// Where the edited cell is in this table, if it's in it: its editor shows there.
+    func replaced(in table: DocTableSnapshot) -> Set<MarkdownTableCellPosition> {
+        guard let editing, editing.block == table.block, let column = table.database.columns.firstIndex(where: { $0.id == editing.column }) else { return [] }
+        guard let row = editing.row else { return [MarkdownTableCellPosition(row: 0, column: column)] }
+        return table.database.rows.firstIndex { $0.id == row }.map { [MarkdownTableCellPosition(row: $0 + 1, column: column)] } ?? []
+    }
+
     /// The editor MarkdownView shows instead of the edited cell's content.
     func replacement(in table: DocTableSnapshot, at position: MarkdownTableCellPosition) -> AnyView? {
         guard let editing, editing.block == table.block, let key = key(in: table, at: position), key == editing else { return nil }
@@ -1074,7 +1081,7 @@ struct DocTableRowView: View {
             .markdownDisplayMathRendersSynchronously()
             .markdownTableCellsSelectable()
             .markdownTableCellTap { [table, controller] position in controller.tapped(table, at: position) }
-            .markdownTableCellReplacement { [table, controller] position in controller.replacement(in: table, at: position) }
+            .markdownTableCellReplacement(controller.replaced(in: table)) { [table, controller] position in controller.replacement(in: table, at: position) }
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlayPreferenceValue(DocTableRingKey.self) { ring in
                 // The table's own edges: wider than the page it scrolls, so its right edge
