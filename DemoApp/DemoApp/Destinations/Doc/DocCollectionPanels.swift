@@ -492,7 +492,7 @@ private struct DocFilterRule: View {
                 .onChange(of: text) { _, text in
                     guard text != shownText else { return }
                     let value: CellValue? = switch column.type {
-                    case .number: Double(text.trimmingCharacters(in: .whitespaces)).map { .number(value: $0) }
+                    case .number: DocFieldText.number(text).map { .number(value: $0) }
                     case .url: .url(value: text)
                     case .person: .person(value: text)
                     default: .text(value: text)
@@ -755,6 +755,161 @@ struct DocOptionsPanel: View {
         } else if let added = controller.addOption(query, to: column.id, in: block) {
             pick(added)
         }
+    }
+}
+
+/// Craft's date picker, on a date cell: a day typed ("Oct 20, 2026", 2026-10-20) and
+/// Return, or one picked from the month; ‹ and › go a month, the dot back to today's.
+struct DocDatePanel: View {
+    let row: Row
+    let column: Column
+    let block: DocBlockID
+    let controller: DocCollectionController
+    @State private var text = ""
+    /// A day of the month shown.
+    @State private var month = Date.now
+    @FocusState private var focused: Bool
+    @Environment(\.self) private var environment
+
+    private var calendar: Calendar { .current }
+    private var panel: DocCollectionPanel.Kind { .date(row: row.id, column: column.id) }
+    private var chosen: Date? {
+        if case .date(let day)? = row.cells[column.id] { DocFieldText.date(of: day) } else { nil }
+    }
+
+    /// Six weeks from the one the month starts in, as the calendar starts its weeks.
+    private var days: [Date] {
+        guard let start = calendar.dateInterval(of: .month, for: month)?.start else { return [] }
+        let lead = (calendar.component(.weekday, from: start) - calendar.firstWeekday + 7) % 7
+        let first = calendar.date(byAdding: .day, value: -lead, to: start) ?? start
+        return (0..<42).compactMap { calendar.date(byAdding: .day, value: $0, to: first) }
+    }
+
+    private var weekdays: [String] {
+        let symbols = calendar.shortStandaloneWeekdaySymbols
+        guard symbols.count == 7 else { return [] }
+        return Array(symbols[(calendar.firstWeekday - 1)...] + symbols[..<(calendar.firstWeekday - 1)])
+    }
+
+    private var title: String {
+        calendar.isDate(month, equalTo: .now, toGranularity: .year)
+            ? month.formatted(.dateTime.month(.wide)) : month.formatted(.dateTime.month(.wide).year())
+    }
+
+    var body: some View {
+        FlooDesignFloatingPanelSurface {
+            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                HStack(spacing: Tokens.Space.sm) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: Tokens.Icon.compact))
+                        .foregroundStyle(Tokens.ColorRole.Content.tertiary)
+                    TextField(column.name, text: $text)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14))
+                        .foregroundStyle(text.isEmpty || DocFieldText.day(from: text) != nil
+                                         ? Tokens.ColorRole.Content.primary : Tokens.ColorRole.Content.tertiary)
+                        .focused($focused)
+                        .onSubmit(submit)
+                }
+                .padding(.horizontal, Tokens.Space.sm)
+                .frame(minHeight: Metrics.fieldHeight)
+                FlooDesignDivider()
+                HStack(spacing: 0) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                    Spacer(minLength: 0)
+                    step("chevron.left", String(localized: "Previous Month")) { shift(-1) }
+                    step("smallcircle.filled.circle", String(localized: "Today")) { month = .now }
+                    step("chevron.right", String(localized: "Next Month")) { shift(1) }
+                }
+                .padding(.leading, Tokens.Space.sm)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 7), spacing: 2) {
+                    ForEach(weekdays, id: \.self) { weekday in
+                        Text(weekday)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Tokens.ColorRole.Content.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .frame(maxWidth: .infinity, minHeight: 22)
+                    }
+                    ForEach(days, id: \.self) { day in
+                        dayButton(day)
+                    }
+                }
+                if chosen != nil {
+                    FlooDesignDivider()
+                    Button(String(localized: "Clear")) {
+                        controller.set(nil, row: row.id, column: column.id, in: block)
+                        controller.close(panel, in: block)
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Tokens.ColorRole.Content.secondary)
+                    .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
+                    .frame(maxWidth: .infinity, minHeight: Metrics.fieldHeight)
+                }
+            }
+            .frame(width: 240)
+        }
+        .onAppear {
+            month = chosen ?? .now
+            Task { @MainActor in focused = true }
+        }
+    }
+
+    private func step(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: Tokens.Icon.compact, weight: .semibold))
+                .foregroundStyle(Tokens.ColorRole.Content.secondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
+        .accessibilityLabel(label)
+    }
+
+    private func dayButton(_ day: Date) -> some View {
+        let isChosen = chosen.map { calendar.isDate($0, inSameDayAs: day) } ?? false
+        let isToday = calendar.isDateInToday(day)
+        let inMonth = calendar.isDate(day, equalTo: month, toGranularity: .month)
+        return Button {
+            pick(day)
+        } label: {
+            Text(day.formatted(.dateTime.day()))
+                .font(.system(size: 13, weight: isToday || isChosen ? .semibold : .regular))
+                // The chosen day's ink resolved: on the panel's glass it would be drawn vibrant, a grey.
+                .foregroundStyle(isChosen ? Color(Tokens.ColorRole.Content.onAccent.resolve(in: environment))
+                                 : inMonth ? Tokens.ColorRole.Content.primary : Tokens.ColorRole.Content.tertiary)
+                .frame(maxWidth: .infinity, minHeight: 28)
+                .background {
+                    if isChosen {
+                        RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+                            .fill(Color(Tokens.ColorRole.Accent.primary.resolve(in: environment)))
+                    } else if isToday {
+                        RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous).fill(Tokens.ColorRole.Accent.subtle)
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
+        .accessibilityLabel(day.formatted(date: .complete, time: .omitted))
+        .accessibilityAddTraits(isChosen ? .isSelected : [])
+    }
+
+    private func shift(_ months: Int) {
+        month = calendar.date(byAdding: .month, value: months, to: month) ?? month
+    }
+
+    private func pick(_ day: Date) {
+        controller.set(.date(value: DocFieldText.timestamp(of: day)), row: row.id, column: column.id, in: block)
+        controller.close(panel, in: block)
+    }
+
+    /// Return: the day typed; text that isn't one stays to be corrected.
+    private func submit() {
+        guard let day = DocFieldText.day(from: text) else { return }
+        controller.set(.date(value: day), row: row.id, column: column.id, in: block)
+        controller.close(panel, in: block)
     }
 }
 

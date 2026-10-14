@@ -286,20 +286,10 @@ struct DocCollectionCell: View {
     var rowHovered = false
     var compact = false
     @State private var text = ""
-    @State private var picking = false
     @FocusState private var focused: Bool
 
     private var block: DocBlockID { snapshot.block }
     private var value: CellValue? { row.cells[column.id] }
-
-    private var day: Binding<Date> {
-        Binding {
-            if case .date(let value)? = value { return DocFieldText.date(of: value) }
-            return .now
-        } set: { date in
-            controller.set(.date(value: DocFieldText.timestamp(of: date)), row: row.id, column: column.id, in: block)
-        }
-    }
 
     var body: some View {
         content
@@ -335,8 +325,9 @@ struct DocCollectionCell: View {
             .buttonStyle(.plain)
             .disabled(!controller.isEditable)
         case .date:
+            let panel = DocCollectionPanel.Kind.date(row: row.id, column: column.id)
             Button {
-                picking = true
+                controller.show(panel, in: block)
             } label: {
                 Text(DocFieldText.text(value, in: column))
                     .font(.system(size: 14))
@@ -346,20 +337,10 @@ struct DocCollectionCell: View {
             }
             .buttonStyle(.plain)
             .disabled(!controller.isEditable)
-            .popover(isPresented: $picking) {
-                VStack(spacing: FlooDesignTokens.Space.sm) {
-                    DatePicker("", selection: day, displayedComponents: [.date])
-                        .datePickerStyle(.graphical)
-                        .labelsHidden()
-                    if value != nil {
-                        Button(String(localized: "Clear")) {
-                            controller.set(nil, row: row.id, column: column.id, in: block)
-                            picking = false
-                        }
-                        .buttonStyle(FlooDesignButtonStyle(.secondary))
-                    }
-                }
-                .padding(FlooDesignTokens.Component.FloatingPanel.roomyInset)
+            .flooDesignAnchoredPanel(isPresented: controller.isShowing(panel, in: block),
+                                     configuration: .init(anchorGap: 0),
+                                     onDismiss: { controller.close(panel, in: block) }) {
+                DocDatePanel(row: row, column: column, block: block, controller: controller)
             }
         default:
             // The title opens the record (Craft's arrow, over the row): over the room kept
@@ -385,6 +366,10 @@ struct DocCollectionCell: View {
         TextField("", text: $text)
             .textFieldStyle(.plain)
             .font(.system(size: 14))
+            // Text the field doesn't take (a word in a number, a link without a host) shows
+            // faint while it's typed; it goes when the editing ends (Craft's).
+            .foregroundStyle(DocFieldText.takes(text, in: column) ? FlooDesignTokens.ColorRole.Content.primary
+                                                                 : FlooDesignTokens.ColorRole.Content.tertiary)
             .lineLimit(1)
             .multilineTextAlignment(column.type == .number && !compact ? .trailing : .leading)
             .frame(minHeight: Metrics.rowHeight)
@@ -397,12 +382,16 @@ struct DocCollectionCell: View {
                     Task { @MainActor in focused = true }
                 }
             }
+            // What's typed stays as typed while it reads as the cell's value ("1,5" is 1.5,
+            // "example.com" is its https link); a change from elsewhere replaces it.
             .onChange(of: value) { _, value in
-                let shown = DocFieldText.text(value, in: column)
-                if shown != text, column.type != .number || Double(text) != value.flatMap({ if case .number(let n) = $0 { n } else { nil } }) { text = shown }
+                if DocFieldText.value(typed: text, in: column) != value { text = DocFieldText.text(value, in: column) }
             }
             .onChange(of: text) { _, text in
                 if text != DocFieldText.text(value, in: column) { controller.setText(text, row: row.id, column: column.id, in: block) }
+            }
+            .onChange(of: focused) { _, focused in
+                if !focused { text = DocFieldText.text(value, in: column) }
             }
             .onSubmit { focused = false }
     }

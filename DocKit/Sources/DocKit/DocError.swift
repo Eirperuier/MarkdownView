@@ -19,6 +19,9 @@ public enum DocError: Error, Equatable, Sendable {
     case columnAnchorNotFound(ColumnID)
     /// A block, database, row, column or option id already exists.
     case duplicateID
+    /// A cell's value isn't what its column holds (a finite number, one of the select's
+    /// options, a link, …), or its column is gone.
+    case cellNotOfColumn(RowID, ColumnID)
     /// A text offset outside `0...length`.
     case offsetOutOfRange
     /// A text offset that would split a surrogate pair.

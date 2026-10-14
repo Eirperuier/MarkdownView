@@ -16,8 +16,69 @@ extension Doc {
                 throw .marksNotAllowed
             }
             try block.text.validate()
-            if case .database(let id, _) = block.kind, databases[id] == nil {
+            if let id = block.kind.databaseID, databases[id] == nil {
                 throw .databaseNotFound(id)
+            }
+        }
+    }
+}
+
+extension Database {
+    /// Ids are unique and every cell is what its column holds (`Column.holds`); a cell
+    /// left of a column a collaborator deleted is no matter. A new database must pass.
+    public func validate() throws(DocError) {
+        var byID: [ColumnID: Column] = [:]
+        for column in columns {
+            guard byID.updateValue(column, forKey: column.id) == nil else { throw .duplicateID }
+        }
+        var seen: Set<RowID> = []
+        for row in rows {
+            guard seen.insert(row.id).inserted else { throw .duplicateID }
+            for (column, value) in row.cells {
+                if let owner = byID[column], !owner.holds(value) { throw .cellNotOfColumn(row.id, column) }
+            }
+        }
+    }
+}
+
+/// The cells a local transaction wrote, checked against their columns at its end
+/// (`Doc.apply(_:DocTransaction)`): in between, a field changing type holds values of
+/// the old type. Only these: what concurrent edits leave elsewhere (a value of a type
+/// a collaborator just changed) isn't this writer's to answer for.
+struct WrittenCells {
+    private struct Cell: Hashable { let row: RowID, column: ColumnID }
+    private var cells: [DatabaseID: Set<Cell>] = [:]
+    /// Columns whose definition changed: every cell of theirs.
+    private var columns: [DatabaseID: Set<ColumnID>] = [:]
+
+    mutating func note(_ step: DatabaseStep, in database: DatabaseID) {
+        switch step {
+        case .setCell(let row, let column, _, _):
+            cells[database, default: []].insert(Cell(row: row, column: column))
+        case .insertRow(let row, _):
+            for column in row.cells.keys { cells[database, default: []].insert(Cell(row: row.id, column: column)) }
+        case .insertColumn(let column, _, _), .updateColumn(let column, _):
+            columns[database, default: []].insert(column.id)
+        case .deleteRow, .moveRow, .deleteColumn:
+            break
+        }
+    }
+
+    func check(in doc: Doc) throws(DocError) {
+        for (id, written) in cells {
+            guard let database = doc.databases[id] else { continue }
+            for cell in written {
+                guard let column = database.columns.first(where: { $0.id == cell.column }),
+                      let value = database.rows.first(where: { $0.id == cell.row })?.cells[cell.column] else { continue }
+                if !column.holds(value) { throw .cellNotOfColumn(cell.row, cell.column) }
+            }
+        }
+        for (id, changed) in columns {
+            guard let database = doc.databases[id] else { continue }
+            for column in database.columns where changed.contains(column.id) {
+                for row in database.rows {
+                    if let value = row.cells[column.id], !column.holds(value) { throw .cellNotOfColumn(row.id, column.id) }
+                }
             }
         }
     }

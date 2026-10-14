@@ -124,6 +124,34 @@ struct AgentBlocksTests {
         #expect(boardCollection.views.map(\.name) == ["Kanban", "Table"])
     }
 
+    /// A table's cells are taken as their columns hold them, or explained: a bare domain is
+    /// a link, the same option twice is once, and a value of the wrong kind or for a column
+    /// that isn't there is an error naming what fits.
+    @Test
+    func cellsAreWhatTheirColumnsHold() throws {
+        var databases: [DatabaseID: Database] = [:]
+        func table(_ row: String) throws(AgentFormatError) -> Database? {
+            let written = try AgentBlocks.block(json(#"{"type": "table", "columns": [{"name": "Link", "type": "url"}, {"name": "Done", "type": "checkbox"}, {"name": "Tags", "type": "multi_select"}, {"name": "Who", "type": "person"}], "rows": ["# + row + #"]}"#),
+                                                id: fixedID(1), databases: &databases, results: [:])
+            guard case .database(let id, _) = written.kind else { return nil }
+            return databases[id]
+        }
+        func error(_ row: String) -> String? {
+            do { _ = try table(row); return nil } catch { return error.message }
+        }
+        let database = try #require(try table(#"{"Link": "example.com/a", "Done": true, "Tags": ["x", "x", "y"], "Who": ""}"#))
+        let row = try #require(database.rows.first)
+        #expect(row.cells[database.columns[0].id] == .url(value: "https://example.com/a"))
+        #expect(row.cells[database.columns[2].id].map { if case .multiSelect(let ids) = $0 { ids.count } else { 0 } } == 2)
+        #expect(row.cells[database.columns[3].id] == nil)
+        #expect(error(#"{"Link": "not a link"}"#)?.contains("holds links") == true)
+        #expect(error(#"{"Done": "yes"}"#)?.contains("true or false") == true)
+        #expect(error(#"{"Tags": [1]}"#)?.contains("option names") == true)
+        #expect(error(#"{"Who": 3}"#)?.contains("names") == true)
+        #expect(error(#"{"Owner": "Sam"}"#)?.contains("the columns are Link, Done, Tags, Who") == true)
+        #expect(error(#"["a", true, [], "b", "extra"]"#)?.contains("5 values for 4 columns") == true)
+    }
+
     private func optionID(_ column: Column, _ name: String) -> OptionID {
         switch column.type {
         case .select(let options), .multiSelect(let options): options.first { $0.name == name }!.id

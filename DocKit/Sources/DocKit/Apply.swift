@@ -34,6 +34,7 @@ extension Doc {
             return .setDecoration(block: block, decoration: decoration, previous: previous)
         case .createDatabase(let database):
             guard databases[database.id] == nil else { throw .duplicateID }
+            try database.validate()
             databases[database.id] = database
             return step
         case .deleteDatabase(let database):
@@ -53,14 +54,18 @@ extension Doc {
     }
 
     /// Applies a whole transaction atomically: on any error the doc is left
-    /// untouched. Returns the transaction with every step resolved.
+    /// untouched. Returns the transaction with every step resolved. The cells it
+    /// wrote must be what their columns hold at its end (`WrittenCells`).
     @discardableResult
     public mutating func apply(_ transaction: DocTransaction) throws(DocError) -> DocTransaction {
         var copy = self
         var resolved: [DocStep] = []
+        var written = WrittenCells()
         for step in transaction.steps {
             resolved.append(try copy.apply(step))
+            if case .database(let id, let inner) = step { written.note(inner, in: id) }
         }
+        try written.check(in: copy)
         self = copy
         return DocTransaction(
             steps: resolved,

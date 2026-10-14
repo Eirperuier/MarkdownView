@@ -1873,6 +1873,42 @@ final class DocEditTests {
             (_, collection, _) = try current()
             try self.expect(collection.currentView?.id != table.id, "showing the table after undo")
         }
+        await test("a collection's cells take what their fields hold: a number as written here, a link made whole, other text not at all") {
+            let collections = self.editor.collections
+            let block = try self.expectValue(self.demo.doc.blocks.first { if case .collection = $0.kind { true } else { false } }, "no collection")
+            guard case .collection(let collection) = block.kind, let original = self.demo.doc.databases[collection.database] else { throw Failure(description: "no database") }
+            @MainActor func cell(_ row: RowID, _ column: ColumnID) -> CellValue? {
+                self.demo.doc.databases[collection.database]?.rows.first { $0.id == row }?.cells[column]
+            }
+            let row = original.rows[0].id
+            let hours = try self.expectValue(original.columns.first { $0.type == .number }, "no number column")
+            let before = cell(row, hours.id)
+            collections.setText("12abc", row: row, column: hours.id, in: block.id)
+            try self.expect(cell(row, hours.id) == before, "a word went into the number: \(String(describing: cell(row, hours.id)))")
+            let thousands = 1234.5.formatted()
+            collections.setText(thousands, row: row, column: hours.id, in: block.id)
+            try self.expect(cell(row, hours.id) == .number(value: 1234.5), "\(thousands) is \(String(describing: cell(row, hours.id)))")
+
+            let link = try self.expectValue(collections.addField("链接", type: .url, to: block.id), "no field")
+            collections.setText("example.com/plan", row: row, column: link, in: block.id)
+            try self.expect(cell(row, link) == .url(value: "https://example.com/plan"), "the link is \(String(describing: cell(row, link)))")
+            collections.setText("not a link", row: row, column: link, in: block.id)
+            try self.expect(cell(row, link) == .url(value: "https://example.com/plan"), "words went into the link")
+
+            // A day typed is yyyy-MM-dd or as days show, never a lenient guess.
+            try self.expect(DocFieldText.day(from: "2026-10-20") == DocFieldText.timestamp(of: DateComponents(calendar: .current, year: 2026, month: 10, day: 20).date!), "2026-10-20 isn't that day")
+            try self.expect(DocFieldText.day(from: "2026-13-40") == nil, "2026-13-40 read as a day")
+            // A date cell's calendar is the collection's panel, one at a time.
+            let due = try self.expectValue(original.columns.first { $0.type == .date }, "no date column")
+            collections.show(.date(row: row, column: due.id), in: block.id)
+            try self.expect(collections.isShowing(.date(row: row, column: due.id), in: block.id), "the calendar isn't showing")
+            collections.show(.options(row: row, column: original.columns.first { if case .select = $0.type { true } else { false } }!.id), in: block.id)
+            try self.expect(!collections.isShowing(.date(row: row, column: due.id), in: block.id), "two panels at once")
+            collections.close(.options(row: row, column: original.columns.first { if case .select = $0.type { true } else { false } }!.id), in: block.id)
+
+            for _ in 0..<4 where self.demo.doc.databases[collection.database] != original { try await self.undo() }
+            try self.expect(self.demo.doc.databases[collection.database] == original, "the cells didn't undo")
+        }
         await test("a collection's fields, sorting, filters and search: each a step that undoes, the views kept whole") {
             let collections = self.editor.collections
             @MainActor func current() throws -> (id: DocBlockID, collection: DocCollection, database: Database) {

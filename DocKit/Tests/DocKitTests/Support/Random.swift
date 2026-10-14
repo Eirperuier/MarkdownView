@@ -319,7 +319,9 @@ enum RandomStep {
             guard let row = database.rows.randomElement(using: &rng),
                 let column = database.columns.randomElement(using: &rng)
             else { return nil }
-            let value = rng.next() % 3 == 0 ? nil : CellValue.text(value: "x\(rng.next() % 50)")
+            // What the column holds (Database.validate).
+            let value: CellValue? = rng.next() % 3 == 0 ? nil
+                : column.type == .number ? .number(value: Double(rng.next() % 50)) : .text(value: "x\(rng.next() % 50)")
             return .database(id: database.id, step: .setCell(row: row.id, column: column.id, value: value, previous: nil))
         case 1:
             let row = Row(id: Identifier.generate(at: fixedTime(7), using: &rng))

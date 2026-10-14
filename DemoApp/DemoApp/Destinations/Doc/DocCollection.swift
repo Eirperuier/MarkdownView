@@ -44,7 +44,8 @@ struct DocCollectionPanel: Hashable {
         /// A new option of a select (a kanban's new column), or one to change.
         case addOption(ColumnID)
         case editOption(OptionID)
-        /// A record whole.
+        /// A date cell's calendar.
+        case date(row: RowID, column: ColumnID)
     }
 
     let block: DocBlockID
@@ -319,11 +320,11 @@ final class DocCollectionController {
         let text = names.joined(separator: ", ")
         switch type {
         case .text: return text.isEmpty ? nil : .text(value: text)
-        case .url: return text.isEmpty ? nil : .url(value: text)
+        case .url: return CellFormat.link(text).map { .url(value: $0) }
         case .person: return text.isEmpty ? nil : .person(value: text)
         case .number:
             if case .checkbox(let on) = value { return .number(value: on ? 1 : 0) }
-            return Double(text.trimmingCharacters(in: .whitespaces)).map { .number(value: $0) }
+            return DocFieldText.number(text).map { .number(value: $0) }
         case .checkbox:
             if case .number(let number) = value { return number != 0 ? .checkbox(value: true) : nil }
             return ["✓", "true", "yes", "1", "x"].contains(text.lowercased()) ? .checkbox(value: true) : nil
@@ -435,12 +436,10 @@ final class DocCollectionController {
         guard let (_, database) = snapshot(block), let record = database.rows.first(where: { $0.id == row }),
               let field = database.columns.first(where: { $0.id == column }) else { return }
         let previous = record.cells[column]
-        let value: CellValue? = switch field.type {
-        case .number: Double(text.trimmingCharacters(in: .whitespaces)).map { .number(value: $0) } ?? (text.isEmpty ? nil : previous)
-        case .url: text.isEmpty ? nil : .url(value: text)
-        case .person: text.isEmpty ? nil : .person(value: text)
-        default: text.isEmpty ? nil : .text(value: text)
-        }
+        // Text the field doesn't take (a word in a number) isn't written; the cell shows
+        // what it holds when the editing ends.
+        guard DocFieldText.takes(text, in: field) else { return }
+        let value = DocFieldText.value(typed: text, in: field)
         guard value != previous else { return }
         records(block, [.setCell(row: row, column: column, value: value, previous: previous)], typing: [AnyHashable(row), AnyHashable(column)])
     }
@@ -677,6 +676,31 @@ enum DocFieldText {
         }
     }
 
+    /// Typed text as the column holds it (`CellFormat`, `Column.holds`): nil when it's empty
+    /// or isn't one of its values (`takes`). A select's names are its panel's to pick.
+    static func value(typed text: String, in column: Column) -> CellValue? {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return switch column.type {
+        case .text: .text(value: text)
+        case .person: .person(value: text)
+        case .number: number(text).map { .number(value: $0) }
+        case .url: CellFormat.link(text).map { .url(value: $0) }
+        case .date: day(from: text).map { .date(value: $0) }
+        case .checkbox: ["✓", "true", "yes", "1", "x"].contains(text.lowercased()) ? .checkbox(value: true) : nil
+        case .select, .multiSelect: nil
+        }
+    }
+
+    /// Whether the column takes the typed text: nothing (no value), or one of its values.
+    static func takes(_ text: String, in column: Column) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || value(typed: text, in: column) != nil
+    }
+
+    /// A number as this person writes one ("1,234.5" here, "1.234,5" in Germany), as it shows.
+    static func number(_ text: String) -> Double? {
+        CellFormat.number(text, grouping: Locale.current.groupingSeparator ?? "", decimal: Locale.current.decimalSeparator ?? ".")
+    }
+
     /// A day as Craft shows it ("Oct 15 2026"): dates are days at midnight UTC.
     private static let day: Date.FormatStyle = {
         var style = Date.FormatStyle.dateTime.month(.abbreviated).day().year()
@@ -688,9 +712,17 @@ enum DocFieldText {
     static func day(from text: String) -> Timestamp? {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
-        let parsed = (try? Date(trimmed, strategy: day.parseStrategy))
-            ?? (try? Date(trimmed, strategy: Date.ISO8601FormatStyle(timeZone: TimeZone(identifier: "UTC")!).year().month().day().parseStrategy))
-        return parsed.map { timestamp(of: $0) }
+        // Both readings are in UTC: the day's midnight there is the value as it is (not a
+        // picked day in the person's zone, `timestamp(of:)`).
+        func utc(_ date: Date) -> Timestamp { Timestamp(millisecondsSince1970: Int64(date.timeIntervalSince1970 * 1000)) }
+        if let iso = try? Date(trimmed, strategy: Date.ISO8601FormatStyle(timeZone: TimeZone(identifier: "UTC")!).year().month().day().parseStrategy) {
+            return utc(iso)
+        }
+        // The shown form's reading is lenient ("2026-13-40" is a day in 2208): a day counts
+        // when it shows as what was typed, spaces and commas aside.
+        func letters(_ text: String) -> String { text.lowercased().filter { $0.isLetter || $0.isNumber } }
+        guard let shown = try? Date(trimmed, strategy: day.parseStrategy), letters(shown.formatted(day)) == letters(trimmed) else { return nil }
+        return utc(shown)
     }
 
     /// The day a date picker picked (in the person's time zone) at midnight UTC.

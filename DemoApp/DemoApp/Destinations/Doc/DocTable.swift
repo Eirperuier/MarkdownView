@@ -153,8 +153,11 @@ final class DocTableController {
     func changed(_ key: DocCellKey, to text: String) {
         guard let (_, database) = database(key.block), text != self.text(key) else { return }
         if let row = key.row {
+            // As the column holds it; text it doesn't take (a word in an agent's number
+            // column) isn't written.
+            guard let column = database.columns.first(where: { $0.id == key.column }), DocFieldText.takes(text, in: column) else { return }
             let previous = database.rows.first { $0.id == row }?.cells[key.column]
-            commit(key.block, [.setCell(row: row, column: key.column, value: text.isEmpty ? nil : .text(value: text), previous: previous)], merging: true)
+            commit(key.block, [.setCell(row: row, column: key.column, value: DocFieldText.value(typed: text, in: column), previous: previous)], merging: true)
         } else if let column = database.columns.first(where: { $0.id == key.column }) {
             var renamed = column
             renamed.name = text
@@ -461,7 +464,8 @@ final class DocTableController {
                 } else {
                     let row = rows[r0 + i - 1]
                     let previous = row.cells[column.id]
-                    let next: CellValue? = value.isEmpty ? nil : .text(value: value)
+                    guard DocFieldText.takes(value, in: column) else { continue }
+                    let next = DocFieldText.value(typed: value, in: column)
                     if next != previous { steps.append(.setCell(row: row.id, column: column.id, value: next, previous: previous)) }
                 }
             }

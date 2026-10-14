@@ -566,6 +566,18 @@ extension AgentBlocks {
         var rows: [Row] = []
         let rowsJSON: [JSONValue] = if case .array(let rows)? = object["rows"] { rows } else { [] }
         for rowJSON in rowsJSON {
+            switch rowJSON {
+            case .object(let row):
+                if let unknown = row.keys.sorted().first(where: { key in !columns.contains { $0.name == key } }) {
+                    throw AgentFormatError("a row has no column \"\(unknown)\"; the columns are \(columns.map(\.name).joined(separator: ", "))")
+                }
+            case .array(let values):
+                guard values.count <= columns.count else {
+                    throw AgentFormatError("a row has \(values.count) values for \(columns.count) columns")
+                }
+            default:
+                throw AgentFormatError("a row is an object of column names to values, or a list of values in the columns' order")
+            }
             var cells: [ColumnID: CellValue] = [:]
             for (index, column) in columns.enumerated() {
                 let value: JSONValue? = switch rowJSON {
@@ -581,7 +593,8 @@ extension AgentBlocks {
         return Database(id: .generate(), columns: columns, rows: rows)
     }
 
-    /// A cell's value; a select's option it doesn't have yet is added to its column.
+    /// A cell's value, as its column holds it (`Column.holds`); a select's option it doesn't
+    /// have yet is added to its column. Empty text is no value.
     private static func cell(_ value: JSONValue, in column: inout Column) throws(AgentFormatError) -> CellValue? {
         func option(_ name: String, in options: inout [SelectOption]) -> OptionID {
             if let found = options.first(where: { $0.name == name }) { return found.id }
@@ -589,31 +602,56 @@ extension AgentBlocks {
             options.append(added)
             return added.id
         }
+        func string(_ holds: String) throws(AgentFormatError) -> String {
+            guard let text = value.stringValue else { throw AgentFormatError("column \(column.name) holds \(holds), not \(describe(value))") }
+            return text
+        }
         switch column.type {
-        case .text: return .text(value: value.stringValue ?? describe(value))
-        case .url: return .url(value: value.stringValue ?? "")
-        case .person: return .person(value: value.stringValue ?? "")
+        case .text:
+            let text = value.stringValue ?? describe(value)
+            return text.isEmpty ? nil : .text(value: text)
+        case .url:
+            let text = try string("links")
+            if text.isEmpty { return nil }
+            guard let link = CellFormat.link(text) else {
+                throw AgentFormatError("column \(column.name) holds links (https://example.com/page), not \(describe(value))")
+            }
+            return .url(value: link)
+        case .person:
+            let name = try string("people's names")
+            return name.isEmpty ? nil : .person(value: name)
         case .number:
-            guard let number = value.doubleValue ?? value.stringValue.flatMap(Double.init) else {
+            guard let number = value.doubleValue ?? value.stringValue.flatMap({ CellFormat.number($0) }) else {
                 throw AgentFormatError("column \(column.name) holds numbers, not \(describe(value))")
             }
             return .number(value: number)
-        case .checkbox: return .checkbox(value: value.boolValue ?? false)
+        case .checkbox:
+            guard let on = value.boolValue else { throw AgentFormatError("column \(column.name) holds true or false, not \(describe(value))") }
+            return .checkbox(value: on)
         case .date:
             guard let day = value.stringValue.flatMap(ISODay.timestamp) else {
                 throw AgentFormatError("column \(column.name) holds dates as \"yyyy-MM-dd\", not \(describe(value))")
             }
             return .date(value: day)
         case .select(var options):
-            guard let name = value.stringValue else { return nil }
+            let name = try string("one option's name")
+            if name.isEmpty { return nil }
             let id = option(name, in: &options)
             column.type = .select(options: options)
             return .select(option: id)
         case .multiSelect(var options):
-            let names: [String] = if case .array(let names) = value { names.compactMap(\.stringValue) } else { value.stringValue.map { [$0] } ?? [] }
-            let ids = names.map { option($0, in: &options) }
+            let entries: [JSONValue] = if case .array(let entries) = value { entries } else { [value] }
+            var ids: [OptionID] = []
+            for entry in entries {
+                guard let name = entry.stringValue else {
+                    throw AgentFormatError("column \(column.name) holds a list of option names, not \(describe(value))")
+                }
+                guard !name.isEmpty else { continue }
+                let id = option(name, in: &options)
+                if !ids.contains(id) { ids.append(id) }
+            }
             column.type = .multiSelect(options: options)
-            return .multiSelect(options: ids)
+            return ids.isEmpty ? nil : .multiSelect(options: ids)
         }
     }
 
