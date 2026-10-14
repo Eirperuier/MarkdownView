@@ -140,6 +140,32 @@ public struct DocText: Hashable, Sendable, Codable {
         normalize()
     }
 
+    /// Replaces the marks of `kind` within `range` by `spans` (of that kind, inside
+    /// the range); a mark reaching past the range keeps its parts outside. Returns
+    /// the marks it took away, clipped to the range: what undo puts back.
+    @discardableResult
+    public mutating func setMarks(_ kind: MarkKind, in range: Range<Int>, to spans: [MarkSpan]) -> [MarkSpan] {
+        var kept: [MarkSpan] = []
+        var previous: [MarkSpan] = []
+        for span in marks where span.mark.kind == kind {
+            if span.range.upperBound <= range.lowerBound || span.range.lowerBound >= range.upperBound {
+                kept.append(span)
+            } else {
+                if span.range.lowerBound < range.lowerBound {
+                    kept.append(MarkSpan(range: span.range.lowerBound..<range.lowerBound, mark: span.mark))
+                }
+                if span.range.upperBound > range.upperBound {
+                    kept.append(MarkSpan(range: range.upperBound..<span.range.upperBound, mark: span.mark))
+                }
+                let clipped = max(span.range.lowerBound, range.lowerBound)..<min(span.range.upperBound, range.upperBound)
+                previous.append(MarkSpan(range: clipped, mark: span.mark))
+            }
+        }
+        marks = marks.filter { $0.mark.kind != kind } + kept + spans
+        normalize()
+        return previous
+    }
+
     /// The marks new text typed at `at` should get (editor helper; steps
     /// don't use it). Bold, italic, strike and highlight extend at their
     /// edges; code, link and atoms only apply strictly inside.

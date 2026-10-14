@@ -61,12 +61,17 @@ extension Doc {
                 return (Document(CodeBlock(language: "floo.view", json + "\n")), 0)
             case .database(let id, let view):
                 guard let table = databases[id]?.cells(view: view) else { return nil }
-                func cell(_ text: String) -> Table.Cell {
-                    text.isEmpty ? Table.Cell() : Table.Cell(Text(text.replacing("\n", with: " ")))
+                func cell(_ text: DocText) -> Table.Cell {
+                    guard !text.isEmpty else { return Table.Cell() }
+                    // A cell is one line: a line break reads as a space (same length, so the
+                    // marks stay put).
+                    var line = text
+                    line.string = text.string.replacing("\n", with: " ")
+                    return Table.Cell(InlineTreeBuilder.inlines(line, singleLine: true))
                 }
                 return (Document(Table(
                     columnAlignments: Array(repeating: nil, count: table.header.count),
-                    header: Table.Head(table.header.map(cell)),
+                    header: Table.Head(table.header.map { cell(DocText(string: $0)) }),
                     body: Table.Body(table.rows.map { Table.Row($0.map(cell)) })
                 )), 0)
             case .collection(let collection):
@@ -84,6 +89,14 @@ extension Doc {
 /// A block's text as inline nodes, nested the way the markdown writer nests its
 /// delimiters (InlineWriter): at each cut the marks that end close, innermost first,
 /// and the ones that start open, the longest outermost.
+extension DocText {
+    /// The text as one paragraph's tree, on one line: a table cell's text, as its editor
+    /// shows it (a block's text is `Doc.markupTree(of:)`).
+    public var lineTree: Document {
+        Document(Paragraph(InlineTreeBuilder.inlines(self, singleLine: true)))
+    }
+}
+
 enum InlineTreeBuilder {
     static func inlines(_ text: DocText, singleLine: Bool) -> [any InlineMarkup] {
         // An empty block, or an empty last line, keeps its line with a zero-width space

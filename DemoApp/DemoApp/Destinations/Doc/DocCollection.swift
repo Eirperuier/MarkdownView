@@ -667,6 +667,7 @@ enum DocFieldText {
     static func text(_ value: CellValue?, in column: Column) -> String {
         switch value {
         case .text(let value)?, .url(let value)?, .person(let value)?: value
+        case .richText(let text)?: text.string
         case .number(let value)?: value.formatted()
         case .date(let value)?: Date(timeIntervalSince1970: TimeInterval(value.millisecondsSince1970) / 1000).formatted(day)
         case .select(let option)?: options(column).first { $0.id == option }?.name ?? ""

@@ -79,7 +79,7 @@ final class DocSelectionToolbarController {
     /// Selected text in one block of text, being edited.
     private func target() -> (block: DocBlockID, range: Range<Int>, view: UITextView)? {
         guard editor.isEditable, let selection = editor.selection, selection.anchor.block == selection.head.block,
-              let block = editor.demo.doc.block(selection.head.block), block.kind.allowsMarks,
+              let block = editor.textBlock(selection.head.block), block.kind.allowsMarks,
               let view = editor.textView(for: block.id), view.isFirstResponder
         else { return nil }
         let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
@@ -173,7 +173,7 @@ struct DocSelectionToolbar: View {
     ]
 
     private func covers(_ kind: MarkKind) -> Bool {
-        guard let block = model.block, let text = editor.demo.doc.block(block)?.text else { return false }
+        guard let block = model.block, let text = editor.textBlock(block)?.text else { return false }
         return DocEditor.covers(text, model.range, with: kind)
     }
 

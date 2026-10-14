@@ -88,7 +88,7 @@ struct DocFormatSheet: View {
                 .buttonStyle(FlooDesignPlainButtonStyle())
                 .accessibilityIdentifier("sheet-more-styles")
             }
-            .disabled(formatting.targets.isEmpty)
+            .disabled(formatting.targets.isEmpty || formatting.inCell)
             HStack(spacing: Tokens.Component.Tile.spacing) {
                 ForEach(DocFormatting.lists, id: \.id) { item in
                     tile(isOn: formatting.kindIsOn(item.kind), identifier: "sheet-\(item.id)") {
@@ -96,7 +96,7 @@ struct DocFormatSheet: View {
                     } label: {
                         Image(systemName: item.symbol).font(.system(size: Tokens.Icon.toolbar))
                     }
-                    .disabled(formatting.targets.isEmpty)
+                    .disabled(formatting.targets.isEmpty || formatting.inCell)
                     .accessibilityLabel(item.title)
                 }
                 Spacer().frame(width: Metrics.groupGap - Tokens.Component.Tile.spacing * 2)
@@ -118,7 +118,7 @@ struct DocFormatSheet: View {
                         Text("Quote").font(Metrics.label)
                     }
                 }
-                .disabled(formatting.targets.isEmpty)
+                .disabled(formatting.targets.isEmpty || formatting.inCell)
                 .frame(maxWidth: .infinity)
                 tile(isOn: formatting.isBoxed, identifier: "sheet-block") { formatting.toggleBox() } label: {
                     Text("Block")
@@ -178,7 +178,7 @@ struct DocFormatSheet: View {
                 .frame(height: (Metrics.page - Tokens.Border.hairline) / 2)
             }
         }
-        .disabled(formatting.targets.isEmpty)
+        .disabled(formatting.targets.isEmpty || formatting.inCell)
     }
 
     /// A style's name in its own type (Craft's: titles bigger and bolder, the caption smaller and quieter).

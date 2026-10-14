@@ -76,7 +76,7 @@ final class DocKeyboardBar: UIView {
 
     /// Follows the cursor: called when the selection changes, and after a key's action.
     func update() {
-        guard let editor, let selection = editor.selection, let block = editor.demo.doc.block(selection.head.block) else { return }
+        guard let editor, let selection = editor.selection, let block = editor.textBlock(selection.head.block) else { return }
         let next: Shown
         if selection.anchor.block == selection.head.block, selection.anchor.offset != selection.head.offset, block.kind.allowsMarks {
             let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)

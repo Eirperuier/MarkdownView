@@ -239,6 +239,7 @@ extension AgentBlocks {
         func name(_ id: OptionID) -> JSONValue { options.first { $0.id == id }.map { .string($0.name) } ?? .null }
         return switch cell {
         case .text(let value), .url(let value), .person(let value): .string(value)
+        case .richText(let text): json(text)
         case .number(let value): .double(value)
         case .select(let option): name(option)
         case .multiSelect(let ids): .array(ids.map(name))
@@ -608,6 +609,10 @@ extension AgentBlocks {
         }
         switch column.type {
         case .text:
+            if case .array = value {
+                let text = try text(value)
+                return text.isEmpty ? nil : .text(text)
+            }
             let text = value.stringValue ?? describe(value)
             return text.isEmpty ? nil : .text(value: text)
         case .url:

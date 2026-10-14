@@ -39,8 +39,13 @@ struct DocFormatting {
         if !selected.isEmpty {
             return demo.doc.blocks.filter { selected.contains($0.id) && $0.kind.carriesText }
         }
-        guard let id = editor.cursor.selection?.head.block, let block = demo.doc.block(id), block.kind.carriesText else { return [] }
+        guard let id = editor.cursor.selection?.head.block, let block = editor.textBlock(id), block.kind.carriesText else { return [] }
         return [block]
+    }
+
+    /// Whether the cursor is in a table's cell: its text takes marks, not a kind or a box.
+    var inCell: Bool {
+        editor.blocks.selected.isEmpty && editor.cursor.selection.map { editor.tables.cell(of: $0.head.block) != nil } ?? false
     }
 
     /// The selected blocks of any kind, else the one the cursor is in: what a box goes around.
@@ -64,7 +69,7 @@ struct DocFormatting {
     func markIsOn(_ mark: Mark) -> Bool {
         let ranges = markRanges
         return !ranges.isEmpty && ranges.allSatisfy { range in
-            demo.doc.block(range.block).map { DocEditor.covers($0.text, range.range, with: mark.kind) } ?? false
+            editor.textBlock(range.block).map { DocEditor.covers($0.text, range.range, with: mark.kind) } ?? false
         }
     }
 

@@ -89,6 +89,29 @@ struct AgentBlocksTests {
         #expect(read["columns"]?[1]?["options"] == ["Doing", "Todo"])
     }
 
+    /// A text cell an agent writes as runs keeps its styles, and reads back as runs.
+    @Test
+    func richCellsAreRuns() throws {
+        var databases: [DatabaseID: Database] = [:]
+        let written = try AgentBlocks.block(json(#"""
+            {"type": "table", "columns": [{"name": "Task"}],
+             "rows": [{"Task": ["Ship ", {"text": "now", "bold": true}]}, {"Task": "plain"}]}
+            """#), id: fixedID(1), databases: &databases, results: [:])
+        guard case .database(let id, _) = written.kind, let database = databases[id] else {
+            Issue.record("not a table: \(written.kind)")
+            return
+        }
+        let task = database.columns[0].id
+        #expect(database.rows.map { $0.cells[task] } == [
+            .richText(text: DocText(string: "Ship now", marks: [MarkSpan(range: 5..<8, mark: .bold)])),
+            .text(value: "plain"),
+        ])
+        let doc = Doc(id: fixedID(0), blocks: [written], databases: databases)
+        let read = AgentBlocks.json(written, in: doc)
+        #expect(read["rows"]?[0]?["Task"] == json(#"["Ship ", {"text": "now", "bold": true}]"#))
+        #expect(read["rows"]?[1]?["Task"] == "plain")
+    }
+
     /// A collection is its records and the views of them: read back, it writes the same
     /// views over the same columns; a kanban alone also gets a table of its records.
     @Test

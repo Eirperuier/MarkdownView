@@ -993,7 +993,7 @@ final class DocEditTests {
         }
         func database() throws -> Database { try table().database }
         /// Clicks a cell (what MarkdownView's cell tap does) and waits for its editor.
-        func click(_ row: Int, _ column: Int) async throws -> DocCellTextView {
+        func click(_ row: Int, _ column: Int) async throws -> UITextView {
             let t = try table()
             let snapshot = DocTableSnapshot(block: t.block, database: t.database)
             self.demo.bringIntoView(t.block)
@@ -1001,7 +1001,7 @@ final class DocEditTests {
             self.editor.tables.tapped(snapshot, at: MarkdownTableCellPosition(row: row, column: column))
             return try await cellEditor(t.key(row, column))
         }
-        func cellEditor(_ key: DocCellKey, step: String = "") async throws -> DocCellTextView {
+        func cellEditor(_ key: DocCellKey, step: String = "") async throws -> UITextView {
             for _ in 0..<60 {
                 if let view = self.editor.tables.view(for: key), view.isFirstResponder { return view }
                 try? await Task.sleep(for: .milliseconds(16))
@@ -1018,8 +1018,8 @@ final class DocEditTests {
             throw Failure(description: "\(step): cell \(position(key)) never got an editor with the focus; editing \(position(self.editor.tables.editing)), active \(position(self.editor.tables.active)), table \(t.database.rows.count + 1)×\(t.database.columns.count); row \(String(describing: row)) visible \(String(describing: list.map { DocScrolling.visible(in: $0) })) bounds \(String(describing: list?.bounds)) view \(self.editor.tables.view(for: key) != nil)")
         }
         /// A key as UIKit sends it: the delegate first (Tab and Return move between cells).
-        func press(_ view: DocCellTextView, _ key: String) {
-            if view.textView(view, shouldChangeTextIn: view.selectedRange, replacementText: key) { view.insertText(key) }
+        func press(_ view: UITextView, _ key: String) {
+            if view.delegate?.textView?(view, shouldChangeTextIn: view.selectedRange, replacementText: key) ?? true { view.insertText(key) }
         }
         func cellText(_ row: Int, _ column: Int) throws -> String {
             try self.editor.tables.text(table().key(row, column))
@@ -1039,16 +1039,54 @@ final class DocEditTests {
         await test("Table: clicking a cell edits it in place; typing changes the cell; one undo takes the typing back") {
             let view = try await click(2, 1)
             try self.expect(view.text == "6:10", "editor shows \(view.text.debugDescription)")
-            view.insertText("!")
+            press(view, "!")
             try? await Task.sleep(for: .milliseconds(100))
             try self.expect(self.editor.tables.view(for: try editedKey()) === view && view.isFirstResponder, "the editor was replaced while typing (focused \(view.isFirstResponder))")
-            view.insertText("?")
+            press(view, "?")
             try self.expect(try cellText(2, 1) == "6:10!?", "cell \(String(describing: try? cellText(2, 1)))")
             try await self.undo()
             try self.expect(try cellText(2, 1) == "6:10", "undo: \(String(describing: try? cellText(2, 1)))")
             try? await Task.sleep(for: .milliseconds(100))
             let shown = self.editor.tables.view(for: try table().key(2, 1))
             try self.expect(shown?.text == "6:10", "editor after undo \(String(describing: shown?.text)) same view \(shown === view)")
+        }
+        await test("Table: a cell's text takes marks as a paragraph's does: ⌘B bolds it, typing on stays bold, undo takes it back") {
+            let view = try await click(2, 1)
+            let key = try editedKey()
+            let id = self.editor.tables.textID(key)
+            let before = try database()
+            view.selectedRange = NSRange(location: 0, length: 4)
+            try? await Task.sleep(for: .milliseconds(50))
+            self.editor.keyCommand(.bold, in: id)
+            try? await Task.sleep(for: .milliseconds(100))
+            let bold = DocText(string: "6:10", marks: [MarkSpan(range: 0..<4, mark: .bold)])
+            let row = try self.expectValue(try database().rows.first { $0.id == key.row }, "no row")
+            try self.expect(row.cells[key.column] == .richText(text: bold), "cell \(String(describing: row.cells[key.column]))")
+            let shown = try self.expectValue(self.editor.tables.view(for: key), "no editor")
+            let font = shown.textStorage.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+            try self.expect(font?.fontDescriptor.symbolicTraits.contains(.traitBold) == true, "the editor shows \(String(describing: font))")
+            shown.selectedRange = NSRange(location: 4, length: 0)
+            try? await Task.sleep(for: .milliseconds(50))
+            press(shown, "!")
+            try self.expect(self.editor.tables.docText(key) == DocText(string: "6:10!", marks: [MarkSpan(range: 0..<5, mark: .bold)]),
+                            "typed \(self.editor.tables.docText(key))")
+            try await self.undo()
+            try await self.undo()
+            try self.expect(try database() == before, "undo left the cell \(self.editor.tables.docText(key))")
+        }
+        await test("Table: the cell menu's Format marks all of the cell's text, or what is selected in it; ticked when on") {
+            _ = try await click(3, 1)
+            let key = try editedKey()
+            let before = try database()
+            self.editor.tables.toggleFormat(.italic, at: key)
+            let all = self.editor.tables.docText(key)
+            try self.expect(all.marks == [MarkSpan(range: 0..<all.length, mark: .italic)], "marks \(all.marks)")
+            try self.expect(self.editor.tables.formatIsOn(.italic, at: key), "italic not ticked")
+            self.editor.tables.setColor("red", at: key)
+            try self.expect(self.editor.tables.color(at: key) == .color("red"), "colour \(String(describing: self.editor.tables.color(at: key)))")
+            try await self.undo()
+            try await self.undo()
+            try self.expect(try database() == before, "undo left \(self.editor.tables.docText(key))")
         }
         await test("Table: the header row renames columns") {
             let view = try await click(0, 2)
@@ -1076,7 +1114,7 @@ final class DocEditTests {
             press(view, "\n")
             try self.expect(try database().rows.count == rows + 1, "rows \(String(describing: try? database().rows.count))")
             view = try await cellEditor(try table().key(rows + 1, columns), step: "step 8")
-            view.insertText("n")
+            press(view, "n")
             try self.expect(try cellText(rows + 1, columns) == "n", "new cell \(String(describing: try? cellText(rows + 1, columns)))")
         }
         await test("Table: every menu action changes the table, and one undo puts it back exactly") {
@@ -1091,7 +1129,7 @@ final class DocEditTests {
                 self.editor.tables.perform(action, at: key)
                 try? await Task.sleep(for: .milliseconds(100))
                 try self.expect(try database() != before, "\(action) changed nothing")
-                try await self.undo()
+                do { try await self.undo() } catch { throw Failure(description: "undo after \(action): \(error)") }
                 try self.expect(try database() == before, "undo after \(action) left the table changed")
             }
         }
@@ -1213,9 +1251,9 @@ final class DocEditTests {
             try self.expect(try database() == before, "undo left changes")
         }
         await test("Table: Esc leaves it; it renders as MarkdownView's table again") {
-            _ = try await click(1, 1)
+            let view = try await click(1, 1)
             try self.expect(self.editor.tables.editing != nil, "not editing")
-            UIApplication.shared.sendAction(Selector(("leaveTable")), to: nil, from: nil, for: nil)
+            try self.expect(self.escape(view), "no Esc command")
             try? await Task.sleep(for: .milliseconds(100))
             try self.expect(self.editor.tables.editing == nil, "still editing")
         }
@@ -2605,11 +2643,12 @@ final class DocEditTests {
 
     private var blockCountAtStart = 0
 
-    /// -docTestFilter <text>: only the tests whose names contain it.
+    /// -docTestFilter <text>: only the tests whose names contain it (or any of its
+    /// `|`-separated parts).
     private let filter = UserDefaults.standard.string(forKey: "docTestFilter")
 
     private func test(_ name: String, _ body: @MainActor () async throws -> Void) async {
-        if let filter, !name.contains(filter) { return }
+        if let filter, !filter.split(separator: "|").contains(where: { name.contains($0) }) { return }
         demo.reset()
         editor.resetHistory()
         blockCountAtStart = demo.doc.blocks.count

@@ -76,6 +76,19 @@ struct CellFormatTests {
         }
     }
 
+    /// A text column holds marked text; text without marks is only ever `.text`, and
+    /// marks that break the text's rules are refused.
+    @Test
+    func textColumnsHoldMarkedText() {
+        let bold = DocText(string: "Ship now", marks: [MarkSpan(range: 5..<8, mark: .bold)])
+        #expect(title.holds(.richText(text: bold)))
+        #expect(CellValue.text(bold) == .richText(text: bold))
+        #expect(CellValue.text(DocText(string: "plain")) == .text(value: "plain"))
+        #expect(!title.holds(.richText(text: DocText(string: "plain"))))
+        #expect(!title.holds(.richText(text: DocText(string: "x", marks: [MarkSpan(range: 0..<1, mark: .mention(kind: "p", id: "1", label: "A"))]))))
+        #expect(!hours.holds(.richText(text: bold)))
+    }
+
     /// A cell left of a column a collaborator deleted stops nothing: the next edit of the
     /// database goes through.
     @Test

@@ -69,6 +69,24 @@ public enum CellValue: Hashable, Sendable, Codable {
     case checkbox(value: Bool)
     case url(value: String)
     case person(value: String)
+    /// Text with marks (bold, a link, a mention…); text without marks is `.text`.
+    case richText(text: DocText)
+}
+
+extension CellValue {
+    /// A text cell: `.text` when it carries no marks, else `.richText`.
+    public static func text(_ text: DocText) -> CellValue {
+        text.marks.isEmpty ? .text(value: text.string) : .richText(text: text)
+    }
+
+    /// The text of a text cell, marks and all; nil for other kinds.
+    public var docText: DocText? {
+        switch self {
+        case .text(let value): DocText(string: value)
+        case .richText(let text): text
+        default: nil
+        }
+    }
 }
 
 /// How a database block presents its database. Two blocks on the same

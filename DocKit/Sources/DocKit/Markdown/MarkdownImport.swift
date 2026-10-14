@@ -190,8 +190,8 @@ private struct MarkdownImporter<Generator: RandomNumberGenerator> {
         for row in table.body.rows {
             var cells: [ColumnID: CellValue] = [:]
             for (column, cell) in zip(columns, row.cells) {
-                let text = cellText(cell)
-                if !text.isEmpty { cells[column.id] = .text(value: text) }
+                let text = inline(cell)
+                if !text.isEmpty { cells[column.id] = .text(text) }
             }
             rows.append(Row(id: newID(), cells: cells))
         }
@@ -200,7 +200,7 @@ private struct MarkdownImporter<Generator: RandomNumberGenerator> {
         append(.database(id: database.id, view: .table(hidden: [], sort: [])), indent: indent)
     }
 
-    /// A cell's plain text; atoms read back as their source.
+    /// A header cell's plain text (a column's name); atoms read back as their source.
     private func cellText(_ cell: Table.Cell) -> String {
         let text = inline(cell)
         var atoms: [Int: Mark] = [:]

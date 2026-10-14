@@ -42,6 +42,7 @@ extension Column {
     public func holds(_ value: CellValue) -> Bool {
         switch (type, value) {
         case (.text, .text), (.date, .date), (.checkbox, .checkbox), (.person, .person): true
+        case (.text, .richText(let text)): !text.marks.isEmpty && (try? text.validate()) != nil
         case (.number, .number(let number)): number.isFinite
         case (.url, .url(let link)): CellFormat.link(link) == link
         case (.select(let options), .select(let id)): options.contains { $0.id == id }

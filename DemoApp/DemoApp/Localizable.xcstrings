@@ -240,6 +240,16 @@
         }
       }
     },
+    "Bottom Cell" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "底部单元格"
+          }
+        }
+      }
+    },
     "Brown" : {
       "localizations" : {
         "zh-Hans" : {
@@ -296,6 +306,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "卡片"
+          }
+        }
+      }
+    },
+    "Cell Above" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上方单元格"
+          }
+        }
+      }
+    },
+    "Cell Below" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下方单元格"
           }
         }
       }
@@ -660,6 +690,16 @@
         }
       }
     },
+    "First Cell" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "行首单元格"
+          }
+        }
+      }
+    },
     "Fit" : {
       "localizations" : {
         "zh-Hans" : {
@@ -943,12 +983,32 @@
         }
       }
     },
+    "Last Cell" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "行尾单元格"
+          }
+        }
+      }
+    },
     "Layout" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "布局"
+          }
+        }
+      }
+    },
+    "Leave Table" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "离开表格"
           }
         }
       }
@@ -1229,6 +1289,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "笔迹"
+          }
+        }
+      }
+    },
+    "Previous Cell" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上一个单元格"
           }
         }
       }
@@ -1579,6 +1649,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "折叠列表"
+          }
+        }
+      }
+    },
+    "Top Cell" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顶部单元格"
           }
         }
       }

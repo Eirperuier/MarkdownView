@@ -184,15 +184,17 @@ extension Database {
     /// Kanban views export the same table; grouping is a view concern.
     func markdownTable(view: DatabaseView) -> String {
         guard let table = cells(view: view) else { return "" }
-        func line(_ cells: [String]) -> String { "| " + cells.map(Self.cellMarkdown).joined(separator: " | ") + " |" }
+        func line(_ cells: [DocText]) -> String {
+            "| " + cells.map { $0.markdown(singleLine: true, escapingPipes: true) }.joined(separator: " | ") + " |"
+        }
         let rule = "| " + table.header.map { _ in "---" }.joined(separator: " | ") + " |"
-        return ([line(table.header), rule] + table.rows.map(line)).joined(separator: "\n")
+        return ([line(table.header.map { DocText(string: $0) }), rule] + table.rows.map(line)).joined(separator: "\n")
     }
 
     /// What the view shows: its visible columns' names, and each row's cells as they
-    /// read (formulas as what they compute), rows in the view's order. Nil when no
-    /// column is visible.
-    func cells(view: DatabaseView) -> (header: [String], rows: [[String]])? {
+    /// read (text with its marks, formulas as what they compute), rows in the view's
+    /// order. Nil when no column is visible.
+    func cells(view: DatabaseView) -> (header: [String], rows: [[DocText]])? {
         let (hidden, sort): ([ColumnID], [DatabaseSort]) = switch view {
         case .table(let hidden, let sort): (hidden, sort)
         case .kanban(_, let hidden, let sort): (hidden, sort)
@@ -212,16 +214,14 @@ extension Database {
         let columnIndex = Dictionary(uniqueKeysWithValues: columns.enumerated().map { ($1.id, $0) })
         return (visible.map(\.name), ordered.map { row in
             visible.map { column in
-                let text = column.display(row.cells[column.id])
-                return DatabaseFormula.isFormula(text)
-                    ? DatabaseFormula.displayed(text, in: self, row: rowIndex[row.id] ?? 0, column: columnIndex[column.id] ?? 0)
-                    : text
+                let value = row.cells[column.id]
+                let text = column.display(value)
+                if DatabaseFormula.isFormula(text) {
+                    return DocText(string: DatabaseFormula.displayed(text, in: self, row: rowIndex[row.id] ?? 0, column: columnIndex[column.id] ?? 0))
+                }
+                return value?.docText ?? DocText(string: text)
             }
         })
-    }
-
-    static func cellMarkdown(_ text: String) -> String {
-        DocText(string: text).markdown(singleLine: true, escapingPipes: true)
     }
 }
 
@@ -231,6 +231,7 @@ extension Column {
         switch value {
         case nil: return ""
         case .text(let value), .url(let value), .person(let value): return value
+        case .richText(let text): return text.string
         case .number(let value):
             return value == value.rounded() && abs(value) < 1e15 ? String(Int64(value)) : String(value)
         case .select(let option): return optionName(option)

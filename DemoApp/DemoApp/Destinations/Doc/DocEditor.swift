@@ -119,6 +119,23 @@ final class DocEditor {
 
     private var allViews: [UITextView] { views.values.flatMap { $0 }.compactMap(\.view) }
 
+    /// A block's text, or a table cell's (DocTableController.textBlock): the texts the
+    /// editor edits.
+    func textBlock(_ id: DocBlockID) -> DocBlock? {
+        demo.doc.block(id) ?? tables.textBlock(id)
+    }
+
+    /// The model edit, with what was done to cells' texts as their cells' new values.
+    @discardableResult
+    private func edit(_ steps: [DocStep], before: DocSelection?, after: DocSelection?, merge: DocHistory.MergeKey? = nil) -> DocTransaction? {
+        demo.edit(tables.modelSteps(steps), before: before, after: after, merge: merge)
+    }
+
+    /// The cursor was in a table's cell, which no longer is edited: it is nowhere.
+    func leaveCells() {
+        if let selection, tables.cell(of: selection.head.block) != nil { self.selection = nil }
+    }
+
     /// The keyboard bar is up while the keyboard is, for a block's text; it comes and
     /// goes in the keyboard's animation, sliding in and out from behind it.
     func updateKeyboardBar(duration: Double? = nil, curve: UInt? = nil) {
@@ -204,7 +221,7 @@ final class DocEditor {
     private func selectionChanged(_ textView: UITextView, in id: DocBlockID) {
         guard !placingSelection, textView.window?.isKeyWindow == true,
             rendered[ObjectIdentifier(textView)] == textView.text,
-            let block = demo.doc.block(id), let start = textStart(in: textView, block: block)
+            let block = textBlock(id), let start = textStart(in: textView, block: block)
         else { return }
         let range = textView.selectedRange
         // A click in an empty block can land before its zero-width space, where the caret
@@ -226,7 +243,7 @@ final class DocEditor {
 
     /// Shows a model selection in a text view that is in sync; a no-op otherwise.
     private func apply(_ selection: DocSelection, to textView: UITextView) {
-        guard let block = demo.doc.block(selection.head.block), let start = textStart(in: textView, block: block) else { return }
+        guard let block = textBlock(selection.head.block), let start = textStart(in: textView, block: block) else { return }
         let lower = min(selection.anchor.offset, selection.head.offset)
         let upper = max(selection.anchor.offset, selection.head.offset)
         // An empty block shows a zero-width space; TextKit draws a caret before it at the
@@ -247,7 +264,7 @@ final class DocEditor {
     /// place in the text, as a click beside a line does in a text editor. Clicks on the
     /// text view itself are the text view's.
     func click(_ id: DocBlockID, at point: CGPoint) {
-        guard isEditable, let block = demo.doc.block(id), block.kind.carriesText,
+        guard isEditable, let block = textBlock(id), block.kind.carriesText,
             let textView = textView(for: id), let start = textStart(in: textView, block: block)
         else { return }
         let local = textView.convert(point, from: nil)
@@ -262,11 +279,14 @@ final class DocEditor {
     /// in sync, else at its next render.
     func place(_ next: DocSelection) {
         // Code and math blocks have their own editor.
-        if let block = demo.doc.block(next.head.block), DocSourceKind(block.kind) != nil {
+        if let block = textBlock(next.head.block), DocSourceKind(block.kind) != nil {
             selection = nil
             sources.focus(block.id, at: next.head.offset)
             return
         }
+        // A cell's text shows its editor once the cell is the one edited.
+        let cell = tables.cell(of: next.head.block)
+        if let cell { tables.willEdit(cell) }
         selection = next
         wantsFocus = true
         if let textView = textView(for: next.head.block) {
@@ -275,7 +295,7 @@ final class DocEditor {
         } else {
             // The row isn't on screen (Return on the last visible line, an undo far
             // away): scroll to it; it renders, and the placement below catches it.
-            demo.bringIntoView(next.head.block)
+            demo.bringIntoView(cell?.block ?? next.head.block)
         }
         settlePlacement()
     }
@@ -319,7 +339,7 @@ final class DocEditor {
     /// cursor where the model says. For the edit tests.
     func mismatch() -> String? {
         guard let selection else { return nil }
-        guard let block = demo.doc.block(selection.head.block) else { return "selection in a missing block" }
+        guard let block = textBlock(selection.head.block) else { return "selection in a missing block" }
         guard let textView = textView(for: block.id) else { return "block not on screen" }
         guard let start = textStart(in: textView, block: block) else {
             return "storage \((textView.text ?? "").debugDescription) is not the model \(block.text.string.debugDescription)"
@@ -362,7 +382,8 @@ final class DocEditor {
     }
 
     /// A change UIKit proposes; always handled here, never applied by UIKit.
-    func replace(_ range: NSRange, with replacement: String, in textView: UITextView, block id: DocBlockID) {
+    func replace(_ range: NSRange, with typed: String, in textView: UITextView, block id: DocBlockID) {
+        var replacement = typed
         // Keys typed right after Return (or an undo) still arrive at the old block's
         // text view, before the new one has rendered and taken focus: they belong where
         // the selection already is.
@@ -375,7 +396,18 @@ final class DocEditor {
             slash.back()
             return
         }
-        guard let block = demo.doc.block(id), block.kind.carriesText,
+        // A cell's text is one line: Tab and Return go on to the next cell; text with tabs
+        // or line breaks (cells copied from a spreadsheet) fills the cells from this one.
+        let cell = tables.cell(of: id)
+        if let cell {
+            if replacement == "\t" { return tables.move(.next, from: cell) }
+            if replacement == "\n" || replacement == "\r" { return tables.move(.down, from: cell) }
+            if replacement.contains(where: { $0 == "\t" || $0.isNewline }) {
+                if tables.paste(replacement, at: cell) { return }
+                replacement = replacement.replacing(/[\n\t\r]/, with: " ")
+            }
+        }
+        guard let block = textBlock(id), block.kind.carriesText,
             let modelRange = modelRange(range, deleting: replacement.isEmpty, in: textView, block: block)
         else { return }
         if replacement == "\t" {
@@ -395,7 +427,7 @@ final class DocEditor {
         }
         // A web page's address pasted on an empty line is its bookmark (Craft's); the
         // cursor goes on to a new line under it.
-        if block.kind == .paragraph, block.text.isEmpty, let url = Self.webAddress(replacement), !url.lowercased().hasPrefix("mailto:") {
+        if cell == nil, block.kind == .paragraph, block.text.isEmpty, let url = Self.webAddress(replacement), !url.lowercased().hasPrefix("mailto:") {
             let next = demo.newBlockID()
             let start = DocPosition(block: block.id, offset: 0), after = DocPosition(block: next, offset: 0)
             commit([.setBlock(block: block.id, kind: .link(link: DocLink(url: url)), indent: block.indent, previousKind: block.kind, previousIndent: block.indent),
@@ -421,7 +453,7 @@ final class DocEditor {
 
     /// Links the range to `url`; nil removes the links in it.
     func setLink(_ url: String?, over range: Range<Int>, in id: DocBlockID) {
-        guard let block = demo.doc.block(id), block.kind.allowsMarks, !range.isEmpty else { return }
+        guard let block = textBlock(id), block.kind.allowsMarks, !range.isEmpty else { return }
         let selected = DocSelection(anchor: .init(block: id, offset: range.lowerBound), head: .init(block: id, offset: range.upperBound))
         commit([.setMarks(block: id, range: range, kind: .link, spans: url.map { [MarkSpan(range: range, mark: .link(url: $0))] } ?? [], previous: [])],
                from: selected, to: selected)
@@ -442,7 +474,7 @@ final class DocEditor {
     /// Asks for the address of a link on the range (⌘K, 格式 ▸ 链接…), prefilled with the
     /// range's link or a web address on the pasteboard.
     func promptLink(over range: Range<Int>, in id: DocBlockID, from view: UIView) {
-        guard let block = demo.doc.block(id), block.kind.allowsMarks, !range.isEmpty,
+        guard let block = textBlock(id), block.kind.allowsMarks, !range.isEmpty,
               var presenter = view.window?.rootViewController
         else { return }
         while let presented = presenter.presentedViewController { presenter = presented }
@@ -473,8 +505,19 @@ final class DocEditor {
 
     /// Shift-Tab, Shift-Return, ⌘B, ⌘I from the text view's key commands.
     func keyCommand(_ command: DocKeyCommand, in id: DocBlockID) {
-        guard isEditable, let block = movedSelection(from: id) ?? demo.doc.block(id) else { return }
+        guard isEditable, let block = movedSelection(from: id) ?? textBlock(id) else { return }
+        if let cell = tables.cell(of: block.id) {
+            switch command {
+            case .outdent: return tables.move(.previous, from: cell)
+            case .cell(let move): return tables.move(move, from: cell)
+            case .leaveCell: return tables.leaveByEscape(cell)
+            case .lineBreak, .style, .selectBlock, .slashUp, .slashDown, .slashClose: return
+            default: break
+            }
+        }
         switch command {
+        case .cell, .leaveCell:
+            return
         case .slashUp, .slashDown:
             slash.move(by: command == .slashUp ? -1 : 1)
         case .slashClose:
@@ -513,7 +556,7 @@ final class DocEditor {
 
     /// The selection's block, when it isn't the block of the text view a key came from.
     private func movedSelection(from id: DocBlockID) -> DocBlock? {
-        guard let selection, selection.head.block != id, let block = demo.doc.block(selection.head.block),
+        guard let selection, selection.head.block != id, let block = textBlock(selection.head.block),
             block.kind.carriesText
         else { return nil }
         return block
@@ -543,7 +586,7 @@ final class DocEditor {
             redirect("", to: moved)
             return true
         }
-        guard let block = demo.doc.block(id), let range = modelRange(textView.selectedRange, deleting: false, in: textView, block: block),
+        guard let block = textBlock(id), let range = modelRange(textView.selectedRange, deleting: false, in: textView, block: block),
             range.isEmpty, range.lowerBound == 0
         else { return false }
         return deleteBackward(atStartOf: block)
@@ -551,7 +594,7 @@ final class DocEditor {
 
     /// The marked text changed: a slash query being composed filters the menu as it goes.
     func compositionChanged(in textView: UITextView, block id: DocBlockID) {
-        guard let origin = slashOrigin, origin.block == id, let block = demo.doc.block(id),
+        guard let origin = slashOrigin, origin.block == id, let block = textBlock(id),
             let old = rendered[ObjectIdentifier(textView)], let start = Self.textStart(of: old, block: block)
         else { return }
         let storage = Array((textView.text ?? "").utf16)
@@ -564,7 +607,7 @@ final class DocEditor {
     /// The marked text is gone: whatever the IME left in the storage is one insertion.
     func commitComposition(in textView: UITextView, block id: DocBlockID) {
         undoManager.enableUndoRegistration()
-        guard let block = demo.doc.block(id), let old = rendered[ObjectIdentifier(textView)],
+        guard let block = textBlock(id), let old = rendered[ObjectIdentifier(textView)],
             let start = Self.textStart(of: old, block: block)
         else { return }
         let before = Array(old.utf16)
@@ -642,7 +685,7 @@ final class DocEditor {
         commit(steps, from: DocSelection(anchor: .init(block: block.id, offset: range.lowerBound), head: .init(block: block.id, offset: range.upperBound)),
                to: DocSelection(anchor: caret, head: caret), merge: typing ? .init(block: block.id, session: session) : nil, beforePlacing: patch)
         if !typing { session &+= 1 }
-        if Self.slashes.contains(string), block.kind.allowsMarks { slashTyped(in: block, at: range.lowerBound) }
+        if Self.slashes.contains(string), block.kind.allowsMarks, tables.cell(of: block.id) == nil { slashTyped(in: block, at: range.lowerBound) }
     }
 
     /// The same edit made straight in the block's text view, when it can be: the view in
@@ -675,7 +718,7 @@ final class DocEditor {
 
     /// An edit that leaves the text (a table took its place): the focus goes to the table.
     func commitLeavingText(_ steps: [DocStep], from before: DocSelection) {
-        guard demo.edit(steps, before: before, after: nil) != nil else { return }
+        guard edit(steps, before: before, after: nil) != nil else { return }
         selection = nil
         session &+= 1
     }
@@ -745,6 +788,8 @@ final class DocEditor {
     /// paragraph joins the block before it (or deletes a divider or image there).
     private func deleteBackward(atStartOf block: DocBlock) -> Bool {
         let id = block.id
+        // A cell's text has nothing before it to join.
+        if tables.cell(of: id) != nil { return true }
         switch block.kind {
         case .listItem where block.indent > 0:
             indent(block, by: -1)
@@ -785,7 +830,7 @@ final class DocEditor {
 
     private func commit(_ steps: [DocStep], from before: DocSelection, to after: DocSelection, merge: DocHistory.MergeKey? = nil,
                         beforePlacing: (() -> Void)? = nil) {
-        guard demo.edit(steps, before: before, after: after, merge: merge) != nil else { return }
+        guard edit(steps, before: before, after: after, merge: merge) != nil else { return }
         beforePlacing?()
         place(after)
         if UserDefaults.standard.bool(forKey: "docTrace") {
@@ -832,7 +877,15 @@ final class DocEditor {
 
     /// The selection's edit menu, with the inline marks added (Composer had them).
     private func editMenu(_ textView: UITextView, range: NSRange, suggested: [UIMenuElement], in id: DocBlockID) -> UIMenu? {
-        guard isEditable, range.length > 0, let block = demo.doc.block(id), block.kind.allowsMarks,
+        #if targetEnvironment(macCatalyst)
+        // Right-click in a cell: the cell's menu (ours, by its ⋮), which has the text's
+        // Cut, Copy, Paste and Format, instead of the system's.
+        if let cell = tables.cell(of: id) {
+            tables.showMenu(cell)
+            return UIMenu(children: [])
+        }
+        #endif
+        guard isEditable, range.length > 0, let block = textBlock(id), block.kind.allowsMarks,
             let start = textStart(in: textView, block: block)
         else { return nil }
         let modelRange = modelOffset(range.location, start: start, block: block)..<modelOffset(NSMaxRange(range), start: start, block: block)
@@ -890,7 +943,7 @@ final class DocEditor {
         if let selection {
             commit(steps, from: selection, to: selection)
         } else {
-            demo.edit(steps, before: nil, after: nil)
+            edit(steps, before: nil, after: nil)
         }
     }
 
@@ -907,7 +960,7 @@ final class DocEditor {
             return .setBlock(block: block.id, kind: kind, indent: indent, previousKind: block.kind, previousIndent: block.indent)
         }
         guard !steps.isEmpty else { return }
-        demo.edit(steps, before: selection, after: selection)
+        edit(steps, before: selection, after: selection)
     }
 
     /// The keyboard bar's keyboard key: the text being edited lets the focus go.
@@ -945,19 +998,19 @@ final class DocEditor {
             }
         }
         guard !steps.isEmpty else { return }
-        demo.edit(steps, before: selection, after: selection)
+        edit(steps, before: selection, after: selection)
     }
 
     /// Marks each range, or clears the mark when all of them already have it, in one
     /// transaction.
     func toggle(_ mark: Mark, over ranges: [(block: DocBlockID, range: Range<Int>)]) {
-        let ranges = ranges.filter { !$0.range.isEmpty && demo.doc.block($0.block)?.kind.allowsMarks == true }
+        let ranges = ranges.filter { !$0.range.isEmpty && textBlock($0.block)?.kind.allowsMarks == true }
         guard !ranges.isEmpty else { return }
-        let on = !ranges.allSatisfy { Self.covers(demo.doc.block($0.block)!.text, $0.range, with: mark.kind) }
+        let on = !ranges.allSatisfy { Self.covers(textBlock($0.block)!.text, $0.range, with: mark.kind) }
         let steps: [DocStep] = ranges.map {
             .setMarks(block: $0.block, range: $0.range, kind: mark.kind, spans: on ? [MarkSpan(range: $0.range, mark: mark)] : [], previous: [])
         }
-        demo.edit(steps, before: selection, after: selection)
+        edit(steps, before: selection, after: selection)
     }
 
     /// List items nest one level deeper or come out one, in one transaction; an item
@@ -978,37 +1031,37 @@ final class DocEditor {
             previous = (block.kind, indent)
         }
         guard !steps.isEmpty else { return }
-        demo.edit(steps, before: selection, after: selection)
+        edit(steps, before: selection, after: selection)
     }
 
     /// Gives the ranges `mark` in place of their marks of its kind, or clears that
     /// kind (`mark` nil), one undo step: a colour, a highlight's colour, a pen mark.
     /// `merge` joins a run of changes into one step (a colour being picked).
     func set(_ kind: MarkKind, to mark: Mark?, over ranges: [(block: DocBlockID, range: Range<Int>)], merge: DocHistory.MergeKey? = nil) {
-        let ranges = ranges.filter { !$0.range.isEmpty && demo.doc.block($0.block)?.kind.allowsMarks == true }
+        let ranges = ranges.filter { !$0.range.isEmpty && textBlock($0.block)?.kind.allowsMarks == true }
         guard !ranges.isEmpty else { return }
         let steps: [DocStep] = ranges.map { target in
             .setMarks(block: target.block, range: target.range, kind: kind,
                       spans: mark.map { [MarkSpan(range: target.range, mark: $0)] } ?? [], previous: [])
         }
-        demo.edit(steps, before: selection, after: selection, merge: merge)
+        edit(steps, before: selection, after: selection, merge: merge)
     }
 
     /// Takes the ranges' highlight and text colour off, one undo step.
     func clearColors(over ranges: [(block: DocBlockID, range: Range<Int>)]) {
-        let ranges = ranges.filter { !$0.range.isEmpty && demo.doc.block($0.block)?.kind.allowsMarks == true }
+        let ranges = ranges.filter { !$0.range.isEmpty && textBlock($0.block)?.kind.allowsMarks == true }
         let steps: [DocStep] = ranges.flatMap { target in
             [MarkKind.highlight, .color].map { .setMarks(block: target.block, range: target.range, kind: $0, spans: [], previous: []) }
         }
         guard !steps.isEmpty else { return }
-        demo.edit(steps, before: selection, after: selection)
+        edit(steps, before: selection, after: selection)
     }
 
     /// The mark of `kind` that covers all of the ranges, if one does (the same one throughout).
     func common(_ kind: MarkKind, over ranges: [(block: DocBlockID, range: Range<Int>)]) -> Mark? {
         var found: Mark?
         for target in ranges where !target.range.isEmpty {
-            guard let text = demo.doc.block(target.block)?.text else { return nil }
+            guard let text = textBlock(target.block)?.text else { return nil }
             let spans = text.marks.filter { $0.mark.kind == kind }
             for offset in target.range {
                 guard let mark = spans.first(where: { $0.range.contains(offset) })?.mark, found == nil || found == mark else { return nil }
@@ -1030,7 +1083,7 @@ final class DocEditor {
 
     /// Marks the range, or clears the mark when all of it already has one.
     func toggle(_ mark: Mark, over range: Range<Int>, in id: DocBlockID) {
-        guard let block = demo.doc.block(id), block.kind.allowsMarks else { return }
+        guard let block = textBlock(id), block.kind.allowsMarks else { return }
         let on = !Self.covers(block.text, range, with: mark.kind)
         let selected = DocSelection(anchor: .init(block: id, offset: range.lowerBound), head: .init(block: id, offset: range.upperBound))
         commit([.setMarks(block: id, range: range, kind: mark.kind, spans: on ? [MarkSpan(range: range, mark: mark)] : [], previous: [])],
@@ -1044,7 +1097,9 @@ final class DocEditor {
     /// a word become bold and code (§6.2). Each is part of the keystroke's transaction,
     /// so one undo takes it back.
     private func shortcut(after steps: [DocStep], in block: DocBlock, caret: Int) -> (steps: [DocStep], caret: DocPosition)? {
-        var scratch = demo.doc
+        // In a cell's text only the marks: a cell keeps being a cell.
+        let inCell = tables.cell(of: block.id) != nil
+        var scratch = inCell ? Doc(id: demo.doc.id, blocks: [block]) : demo.doc
         guard (try? scratch.apply(DocTransaction(steps: steps, author: demo.person, time: .now))) != nil,
             let edited = scratch.block(block.id)
         else { return nil }
@@ -1055,11 +1110,11 @@ final class DocEditor {
             ([.deleteText(block: block.id, range: 0..<count, removed: DocText()),
               .setBlock(block: block.id, kind: kind, indent: block.indent, previousKind: block.kind, previousIndent: block.indent)], start)
         }
-        if block.kind == .paragraph, typed.hasSuffix(" "), let kind = Self.prefixKind(String(typed.dropLast())) {
+        if !inCell, block.kind == .paragraph, typed.hasSuffix(" "), let kind = Self.prefixKind(String(typed.dropLast())) {
             return becomes(kind, removing: typed.utf16.count)
         }
-        if block.kind == .paragraph, text == "```" { return becomes(.code(language: nil), removing: 3) }
-        if block.kind == .paragraph, text == "---" {
+        if !inCell, block.kind == .paragraph, text == "```" { return becomes(.code(language: nil), removing: 3) }
+        if !inCell, block.kind == .paragraph, text == "---" {
             let next = demo.newBlockID()
             var result = becomes(.divider, removing: 3)
             result.steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph), after: block.id))
@@ -1111,13 +1166,28 @@ final class DocEditor {
     func requestUndo() {
         let selection = demo.undo()
         syncEditors()
-        if let selection { place(selection) }
+        if let selection { place(selection) } else { settleSelection() }
     }
 
     func requestRedo() {
         let selection = demo.redo()
         syncEditors()
-        if let selection { place(selection) }
+        if let selection { place(selection) } else { settleSelection() }
+    }
+
+    /// After a change that says nothing of the cursor (a table's own, or its undo): a
+    /// cursor whose text went is nowhere; one past its text's end goes to the end.
+    func settleSelection() {
+        guard let selection else { return }
+        guard let block = textBlock(selection.head.block) else { return self.selection = nil }
+        let length = block.text.length
+        if max(selection.anchor.offset, selection.head.offset) > length {
+            place(DocPosition(block: block.id, offset: length))
+        } else if tables.cell(of: block.id) != nil {
+            // A cell's editor can come anew with the change (its row moved): the cursor
+            // goes back into it.
+            place(selection)
+        }
     }
 
     /// An editor typed into natively (a code block's, a table cell's) shows what it was
@@ -1165,6 +1235,9 @@ final class DocUndoManager: UndoManager {
 
 enum DocKeyCommand: Equatable {
     case outdent, bold, italic, strike, code, highlight, link, lineBreak, slashUp, slashDown, slashClose, selectBlock
+    /// In a table's cell: to another cell (↑ ↓ at the text's first / last line, ⌘ + arrows),
+    /// and Esc out of the table.
+    case cell(DocTableController.Move), leaveCell
     /// ⌃1–⌃6: the block takes a text style (DocFormatting.styles).
     case style(BlockKind)
 }
@@ -1227,7 +1300,7 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
     /// Typing in the document's text again: no table cell is edited any more.
     func textViewDidBeginEditing(_ textView: UITextView) {
         original?.textViewDidBeginEditing?(textView)
-        editor?.tables.endEditing()
+        if let cell = editor?.tables.cell(of: block) { editor?.tables.began(cell) } else { editor?.tables.endEditing() }
         editor?.sources.endEditing()
         editor?.blocks.textEditingBegan(block)
         editor?.updateKeyboardBar()
@@ -1237,6 +1310,7 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
 
     func textViewDidEndEditing(_ textView: UITextView) {
         original?.textViewDidEndEditing?(textView)
+        if let cell = editor?.tables.cell(of: block) { editor?.tables.ended(cell, in: textView) }
         editor?.blocks.textEditingEnded(block)
     }
 
@@ -1278,21 +1352,32 @@ private enum TextViewHooks {
     /// the text style (Craft's).
     /// ↑, ↓ and Esc are the slash menu's only while it is open; otherwise Esc selects the
     /// block (on the Mac: the editing ends, the block it was in selected).
-    private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String, slashMenu: Bool?)] = DocFormatting.styles.map { style in
-        (style.key, .control, Selector(("docStyle\(style.key):")), .style(style.kind), style.title, nil)
+    /// In a table's cell (`cell` true; false: only in a block's text): Tab and Return are
+    /// the next cell (DocEditor.replace), Shift-Tab the previous, ↑ ↓ at the text's first /
+    /// last line the cell above / below, ⌘ + arrows the table's edges, Esc leaves the table.
+    private static let commands: [(input: String, flags: UIKeyModifierFlags, selector: Selector, command: DocKeyCommand, title: String, slashMenu: Bool?, cell: Bool?)] = DocFormatting.styles.map { style in
+        (style.key, .control, Selector(("docStyle\(style.key):")), .style(style.kind), style.title, nil, false)
     } + [
-        ("\t", .shift, Selector(("docOutdent:")), .outdent, String(localized: "Outdent"), nil),
-        ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, String(localized: "Line Break"), nil),
-        ("b", .command, Selector(("docBold:")), .bold, String(localized: "Bold"), nil),
-        ("i", .command, Selector(("docItalic:")), .italic, String(localized: "Italic"), nil),
-        ("x", [.command, .shift], Selector(("docStrike:")), .strike, String(localized: "Strikethrough"), nil),
-        ("e", .command, Selector(("docCode:")), .code, String(localized: "Code"), nil),
-        ("b", [.command, .shift], Selector(("docHighlight:")), .highlight, String(localized: "Highlight"), nil),
-        ("k", .command, Selector(("docLink:")), .link, String(localized: "Link"), nil),
-        (UIKeyCommand.inputUpArrow, [], Selector(("docSlashUp:")), .slashUp, String(localized: "Previous Item"), true),
-        (UIKeyCommand.inputDownArrow, [], Selector(("docSlashDown:")), .slashDown, String(localized: "Next Item"), true),
-        (UIKeyCommand.inputEscape, [], Selector(("docSlashClose:")), .slashClose, String(localized: "Close Menu"), true),
-        (UIKeyCommand.inputEscape, [], Selector(("docSelectBlock:")), .selectBlock, String(localized: "Select Block"), false),
+        ("\t", .shift, Selector(("docOutdent:")), .outdent, String(localized: "Outdent"), nil, false),
+        ("\r", .shift, Selector(("docLineBreak:")), .lineBreak, String(localized: "Line Break"), nil, false),
+        ("b", .command, Selector(("docBold:")), .bold, String(localized: "Bold"), nil, nil),
+        ("i", .command, Selector(("docItalic:")), .italic, String(localized: "Italic"), nil, nil),
+        ("x", [.command, .shift], Selector(("docStrike:")), .strike, String(localized: "Strikethrough"), nil, nil),
+        ("e", .command, Selector(("docCode:")), .code, String(localized: "Code"), nil, nil),
+        ("b", [.command, .shift], Selector(("docHighlight:")), .highlight, String(localized: "Highlight"), nil, nil),
+        ("k", .command, Selector(("docLink:")), .link, String(localized: "Link"), nil, nil),
+        (UIKeyCommand.inputUpArrow, [], Selector(("docSlashUp:")), .slashUp, String(localized: "Previous Item"), true, false),
+        (UIKeyCommand.inputDownArrow, [], Selector(("docSlashDown:")), .slashDown, String(localized: "Next Item"), true, false),
+        (UIKeyCommand.inputEscape, [], Selector(("docSlashClose:")), .slashClose, String(localized: "Close Menu"), true, false),
+        (UIKeyCommand.inputEscape, [], Selector(("docSelectBlock:")), .selectBlock, String(localized: "Select Block"), false, false),
+        ("\t", .shift, Selector(("docCellPrevious:")), .cell(.previous), String(localized: "Previous Cell"), nil, true),
+        (UIKeyCommand.inputUpArrow, [], Selector(("docCellUp:")), .cell(.up), String(localized: "Cell Above"), nil, true),
+        (UIKeyCommand.inputDownArrow, [], Selector(("docCellDown:")), .cell(.down), String(localized: "Cell Below"), nil, true),
+        (UIKeyCommand.inputUpArrow, .command, Selector(("docCellTop:")), .cell(.top), String(localized: "Top Cell"), nil, true),
+        (UIKeyCommand.inputDownArrow, .command, Selector(("docCellBottom:")), .cell(.bottom), String(localized: "Bottom Cell"), nil, true),
+        (UIKeyCommand.inputLeftArrow, .command, Selector(("docCellFirst:")), .cell(.first), String(localized: "First Cell"), nil, true),
+        (UIKeyCommand.inputRightArrow, .command, Selector(("docCellLast:")), .cell(.last), String(localized: "Last Cell"), nil, true),
+        (UIKeyCommand.inputEscape, [], Selector(("docLeaveCell:")), .leaveCell, String(localized: "Leave Table"), nil, true),
     ]
 
     private static func installKeyCommands(on type: AnyClass) {
@@ -1311,10 +1396,14 @@ private enum TextViewHooks {
         let original = unsafeBitCast(method_getImplementation(method), to: Implementation.self)
         let replacement: @convention(block) (AnyObject) -> [UIKeyCommand]? = { object in
             let ours = MainActor.assumeIsolated { () -> [UIKeyCommand] in
-                guard let (_, _, editor) = editor(of: object) else { return [] }
+                guard let (textView, delegate, editor) = editor(of: object) else { return [] }
+                let inCell = editor.tables.cell(of: delegate.block) != nil
                 return commands.filter { entry in
                     entry.slashMenu.map { $0 == editor.slash.isOpen } ?? true
+                        && entry.cell.map { $0 == inCell } ?? true
                         && (entry.command != .selectBlock || DocBlockController.usesHandles)
+                        && (entry.command != .cell(.up) || onEdgeLine(textView, first: true))
+                        && (entry.command != .cell(.down) || onEdgeLine(textView, first: false))
                 }.map { entry in
                     let command = UIKeyCommand(title: entry.title, action: entry.selector, input: entry.input, modifierFlags: entry.flags)
                     command.wantsPriorityOverSystemBehavior = true
@@ -1324,6 +1413,15 @@ private enum TextViewHooks {
             return (original(object, selector) ?? []) + ours
         }
         override(type, selector, with: imp_implementationWithBlock(replacement), types: method_getTypeEncoding(method))
+    }
+
+    /// Whether the caret is on the text's first (or last) line, nothing being composed.
+    private static func onEdgeLine(_ textView: UITextView, first: Bool) -> Bool {
+        guard let caret = textView.selectedTextRange?.start, textView.markedTextRange == nil else { return false }
+        let line = textView.caretRect(for: caret)
+        return first
+            ? line.minY <= textView.caretRect(for: textView.beginningOfDocument).minY + 1
+            : line.minY >= textView.caretRect(for: textView.endOfDocument).minY - 1
     }
 
     private static func editor(of object: AnyObject) -> (UITextView, DocTextDelegate, DocEditor)? {

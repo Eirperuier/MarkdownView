@@ -142,24 +142,7 @@ extension Doc {
             try require(span.mark.kind == kind, .marksNotNormalized)
         }
         var edited = text
-        var kept: [MarkSpan] = []
-        var previous: [MarkSpan] = []
-        for span in text.marks where span.mark.kind == kind {
-            if span.range.upperBound <= range.lowerBound || span.range.lowerBound >= range.upperBound {
-                kept.append(span)
-            } else {
-                if span.range.lowerBound < range.lowerBound {
-                    kept.append(MarkSpan(range: span.range.lowerBound..<range.lowerBound, mark: span.mark))
-                }
-                if span.range.upperBound > range.upperBound {
-                    kept.append(MarkSpan(range: range.upperBound..<span.range.upperBound, mark: span.mark))
-                }
-                let clipped = max(span.range.lowerBound, range.lowerBound)..<min(span.range.upperBound, range.upperBound)
-                previous.append(MarkSpan(range: clipped, mark: span.mark))
-            }
-        }
-        edited.marks = edited.marks.filter { $0.mark.kind != kind } + kept + spans
-        edited.normalize()
+        let previous = edited.setMarks(kind, in: range, to: spans)
         try edited.validate()
         blocks[index].text = edited
         return .setMarks(block: block, range: range, kind: kind, spans: spans, previous: previous)

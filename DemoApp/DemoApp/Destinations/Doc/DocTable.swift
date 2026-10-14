@@ -5,14 +5,19 @@
 //  Editing a database block as a table, the way Craft does it. The table is
 //  MarkdownView's, read or edited: clicking a cell puts an editor in that cell only
 //  (MarkdownView's cell replacement), so the table keeps its look and layout.
-//  - click a cell and type; the header row is the column names;
+//  - click a cell and type; the header row is the column names (plain text);
+//  - a body cell's text is a text of the document's editor (DocEditor), shown by
+//    MarkdownView as the table shows it: every mark a paragraph takes (bold, a link, a
+//    colour, a mention…), by the same keys, selection toolbar, format panel and edit
+//    menu, and the cell's menu's Format (Craft's Text Format: the selected text or all
+//    of the cell's); a text column holds it with its marks;
 //  - Tab / Shift-Tab: next / previous cell (Tab past a row's last cell adds a column),
 //    Return: the cell below (past the last row adds a row), ↑↓ at a cell's first / last
 //    line: the cell above / below, ⌘ + arrows: the table's edge, Esc: leave the table;
 //  - right-click a cell (Mac) or its ⋮ (both): Craft's cell menu, ours (FlooDesign's
 //    action menu, a sheet on a phone): Edit Table (insert, move, delete rows and
-//    columns, delete the table), a formula, sorting by the column, cut / copy / paste,
-//    clearing the cell;
+//    columns, delete the table), Format, a formula, sorting by the column, cut / copy /
+//    paste, clearing the cell;
 //  - bars on the table's top and left edges, over the edited cell's column and row
 //    (Craft's): a click picks the column or row (the caret goes) and opens the menu for
 //    all of it (copy, cut, paste, clear the lot; sort by the column);
@@ -126,6 +131,8 @@ final class DocTableController {
     /// Whose menu is open.
     private(set) var menu: DocTableMenuTarget?
     @ObservationIgnored private var views: [DocCellKey: [WeakCellView]] = [:]
+    @ObservationIgnored private var textIDs: [DocCellKey: DocBlockID] = [:]
+    @ObservationIgnored private var textKeys: [DocBlockID: DocCellKey] = [:]
     @ObservationIgnored private var pendingFocus: (key: DocCellKey, atEnd: Bool)?
     /// Typing in one cell is one undo step until another cell is edited.
     @ObservationIgnored private var session: UInt64 = 0
@@ -147,6 +154,7 @@ final class DocTableController {
     static func text(of value: CellValue?) -> String {
         switch value {
         case .text(let value), .url(let value), .person(let value): value
+        case .richText(let text): text.string
         case .number(let value): value.formatted()
         case .checkbox(let value): value ? "✓" : ""
         default: ""
@@ -159,12 +167,102 @@ final class DocTableController {
         return Self.text(of: database.rows.first { $0.id == row }?.cells[key.column])
     }
 
+    // MARK: A cell's text
+
+    /// A body cell's text with its marks (other kinds of value as their text).
+    func docText(_ key: DocCellKey) -> DocText {
+        guard let (_, database) = database(key.block), let row = key.row else { return DocText(string: text(key)) }
+        let value = database.rows.first { $0.id == row }?.cells[key.column]
+        return value?.docText ?? DocText(string: Self.text(of: value))
+    }
+
+    /// A body cell's text is a text of the document's editor (DocEditor), under an id of
+    /// its own: typing, marks, links, the selection's toolbar and undo work in it as in a
+    /// paragraph, and its edits become the cell's value (`modelSteps`). The header's
+    /// cells are the columns' names, plain text in a text view of their own.
+    func textID(_ key: DocCellKey) -> DocBlockID {
+        if let id = textIDs[key] { return id }
+        let id = demo.newBlockID()
+        textIDs[key] = id
+        textKeys[id] = key
+        return id
+    }
+
+    /// The cell whose text `id` is.
+    func cell(of id: DocBlockID) -> DocCellKey? { textKeys[id] }
+
+    /// The cell's text as the paragraph the editor edits; nil when `id` isn't a cell's.
+    func textBlock(_ id: DocBlockID) -> DocBlock? {
+        guard let key = textKeys[id], let (_, database) = database(key.block), let row = key.row,
+              database.rows.contains(where: { $0.id == row }), database.columns.contains(where: { $0.id == key.column })
+        else { return nil }
+        return DocBlock(id: id, kind: .paragraph, text: docText(key))
+    }
+
+    /// The editor's steps, those on cells' texts as the cells' new values: the text steps
+    /// edit the cell's text, which the cell takes as its column does (marks in a text
+    /// column; a number column only a number). What a cell has no part in (splitting it,
+    /// a block kind) is dropped.
+    func modelSteps(_ steps: [DocStep]) -> [DocStep] {
+        guard steps.contains(where: { Self.blocks(of: $0).contains { textKeys[$0] != nil } }) else { return steps }
+        var result: [DocStep] = []
+        var edited: [DocBlockID: DocText] = [:]
+        var order: [DocBlockID] = []
+        for step in steps {
+            let ids = Self.blocks(of: step)
+            guard ids.contains(where: { textKeys[$0] != nil }) else {
+                result.append(step)
+                continue
+            }
+            guard ids.count == 1, let id = ids.first, let block = textBlock(id) else { continue }
+            var scratch = Doc(id: demo.doc.id, blocks: [DocBlock(id: id, kind: .paragraph, text: edited[id] ?? block.text)])
+            switch step {
+            case .insertText, .deleteText, .setMarks:
+                guard (try? scratch.apply(step)) != nil, let text = scratch.block(id)?.text else { continue }
+                if edited[id] == nil { order.append(id) }
+                edited[id] = text
+            default:
+                continue
+            }
+        }
+        for id in order {
+            guard let key = textKeys[id], let row = key.row, let text = edited[id], let (_, database) = database(key.block),
+                  let column = database.columns.first(where: { $0.id == key.column })
+            else { continue }
+            let previous = database.rows.first { $0.id == row }?.cells[key.column]
+            let value: CellValue?
+            if column.type == .text {
+                value = text.isEmpty ? nil : .text(text)
+            } else {
+                guard DocFieldText.takes(text.string, in: column) else { continue }
+                value = DocFieldText.value(typed: text.string, in: column)
+            }
+            if value != previous { result.append(.database(id: database.id, step: .setCell(row: row, column: column.id, value: value, previous: previous))) }
+        }
+        return result
+    }
+
+    /// The blocks a step names.
+    private static func blocks(of step: DocStep) -> [DocBlockID] {
+        switch step {
+        case .insertText(let block, _, _), .deleteText(let block, _, _), .setMarks(let block, _, _, _, _),
+             .setBlock(let block, _, _, _, _), .setDecoration(let block, _, _):
+            [block]
+        case .splitBlock(let block, _, let new, _, _, _): [block, new]
+        case .joinBlock(let block, let into, _, _, _, _): [block, into]
+        case .insertBlock(let block, let after), .deleteBlock(let block, let after): [block.id] + (after.map { [$0] } ?? [])
+        case .moveBlock(let block, let after, let from): [block] + [after, from].compactMap { $0 }
+        case .createDatabase, .deleteDatabase, .database: []
+        }
+    }
+
     private func commit(_ block: DocBlockID, _ steps: [DatabaseStep], merging: Bool = false) {
         guard let (id, _) = database(block), !steps.isEmpty else { return }
         if !merging { session &+= 1 }
         _ = demo.edit(steps.map { .database(id: id, step: $0) }, before: nil, after: nil,
                       merge: merging ? .init(block: block, session: session) : nil)
         if !merging { session &+= 1 }
+        editor.settleSelection()
     }
 
     /// The text view typed `text` into the cell.
@@ -196,9 +294,11 @@ final class DocTableController {
         if let pending = pendingFocus, pending.key == key, view(for: key) != nil { focus(key, atEnd: pending.atEnd) }
     }
 
-    /// The cell's text view on screen (TiledView also renders rows off screen to measure them).
-    func view(for key: DocCellKey) -> DocCellTextView? {
-        views[key]?.compactMap(\.view).first { $0.window?.isKeyWindow == true }
+    /// The cell's text view on screen (TiledView also renders rows off screen to measure
+    /// them): a header cell's own, a body cell's the editor's.
+    func view(for key: DocCellKey) -> UITextView? {
+        if key.row != nil { return textIDs[key].flatMap(editor.textView(for:)) }
+        return views[key]?.compactMap(\.view).first { $0.window?.isKeyWindow == true }
     }
 
     func began(_ key: DocCellKey) {
@@ -210,13 +310,14 @@ final class DocTableController {
         editor.sources.endEditing()
     }
 
-    /// A cell's text view let the focus go. If its row was rendered anew (SwiftUI
-    /// took the old view out, which lets the focus go first), the new view takes it;
-    /// a focus that went elsewhere (another cell, the text, the keyboard put away)
-    /// leaves the old view where it was.
-    func ended(_ key: DocCellKey, in view: DocCellTextView) {
+    /// A cell's text view let the focus go. If a header cell's row was rendered anew
+    /// (SwiftUI took the old view out, which lets the focus go first), the new view takes
+    /// it (a body cell's text is the editor's, which does the same); a focus that went
+    /// elsewhere (another cell, the text, the keyboard put away) leaves the old view where
+    /// it was.
+    func ended(_ key: DocCellKey, in view: UITextView) {
         if active == key { active = nil }
-        guard editing == key else { return }
+        guard key.row == nil, editing == key else { return }
         pendingFocus = (key, true)
         Task { @MainActor [weak self, weak view] in
             guard let self, self.pendingFocus?.key == key else { return }
@@ -225,9 +326,11 @@ final class DocTableController {
         }
     }
 
-    /// After an undo: the edited cell shows the model's text now (see DocEditor.syncEditors).
+    /// After an undo: the edited cell shows the model's text now (see DocEditor.syncEditors),
+    /// and a cell the undo took away is edited no more.
     func syncEditedText() {
-        guard let editing, let view = view(for: editing), view.markedTextRange == nil else { return }
+        if let editing, !exists(editing) { return endEditing() }
+        guard let editing, editing.row == nil, let view = view(for: editing), view.markedTextRange == nil else { return }
         let text = text(editing)
         if view.text != text {
             view.text = text
@@ -241,12 +344,18 @@ final class DocTableController {
         editing = nil
         line = nil
         menu = nil
+        editor.leaveCells()
     }
 
     /// A click on a table cell MarkdownView rendered (row 0 is the header).
     func tapped(_ table: DocTableSnapshot, at position: MarkdownTableCellPosition) {
-        guard isEditable, let key = key(in: table, at: position), key != active else { return }
+        guard isEditable, let key = key(in: table, at: position), key != active || view(for: key)?.isFirstResponder != true else { return }
         focus(key)
+    }
+
+    private func exists(_ key: DocCellKey) -> Bool {
+        guard let (_, database) = database(key.block), database.columns.contains(where: { $0.id == key.column }) else { return false }
+        return key.row.map { row in database.rows.contains { $0.id == row } } ?? true
     }
 
     func key(in table: DocTableSnapshot, at position: MarkdownTableCellPosition) -> DocCellKey? {
@@ -259,13 +368,26 @@ final class DocTableController {
     /// The editor MarkdownView shows instead of the edited cell's content.
     func replacement(in table: DocTableSnapshot, at position: MarkdownTableCellPosition) -> AnyView? {
         guard let editing, editing.block == table.block, let key = key(in: table, at: position), key == editing else { return nil }
-        return AnyView(DocTableCellEditor(key: key, text: text(key), isHeader: key.row == nil, controller: self))
+        return AnyView(DocTableCellEditor(key: key, controller: self))
     }
 
-    func focus(_ key: DocCellKey, atEnd: Bool = true) {
+    /// The cell is the one edited (its editor shows): a menu of another cell goes, and a
+    /// row or column picked in another.
+    func willEdit(_ key: DocCellKey) {
         if menu?.key != key { menu = nil }
         if editing != key { line = nil }
         editing = key
+    }
+
+    func focus(_ key: DocCellKey, atEnd: Bool = true) {
+        willEdit(key)
+        // A body cell's text is the editor's: the cursor goes there.
+        if key.row != nil {
+            pendingFocus = nil
+            let id = textID(key)
+            editor.place(DocPosition(block: id, offset: atEnd ? docText(key).length : 0))
+            return
+        }
         guard let view = view(for: key) else {
             focusSoon(key, atEnd: atEnd)
             return
@@ -280,7 +402,7 @@ final class DocTableController {
 
     /// Scrolls the document so the edited cell shows, above the keyboard too (which
     /// comes up a moment after the focus).
-    func reveal(_ view: DocCellTextView) {
+    func reveal(_ view: UITextView) {
         DocScrolling.reveal(view)
         Task { @MainActor [weak view] in
             try? await Task.sleep(for: .milliseconds(450))
@@ -290,6 +412,7 @@ final class DocTableController {
 
     /// After a structural change the new cell renders on the next pass.
     private func focusSoon(_ key: DocCellKey, atEnd: Bool) {
+        if key.row != nil { return focus(key, atEnd: atEnd) }
         editing = key
         pendingFocus = (key, atEnd)
         Task { @MainActor [weak self] in
@@ -339,6 +462,7 @@ final class DocTableController {
     func pick(_ line: DocTableLine, of key: DocCellKey) {
         guard editing == key else { return }
         view(for: key)?.resignFirstResponder()
+        editor.leaveCells()
         self.line = line
         menu = DocTableMenuTarget(key: key, line: line)
     }
@@ -350,6 +474,56 @@ final class DocTableController {
     func leave(_ key: DocCellKey) {
         view(for: key)?.resignFirstResponder()
         endEditing()
+    }
+
+    /// Esc in a cell: a menu or panel open takes it first (a level back, or it closes);
+    /// else the table is left, and selected (where blocks are).
+    func leaveByEscape(_ key: DocCellKey) {
+        if FlooDesignPanels.escape() { return }
+        leave(key)
+        editor.blocks.selectAfterEditing(key.block)
+    }
+
+    // MARK: Format
+
+    /// What the menu's Format acts on in a body cell of text: the text selected in it,
+    /// else all of it (Craft's). Nil for a header cell, another kind of column, no text.
+    func formatRange(_ key: DocCellKey) -> (block: DocBlockID, range: Range<Int>)? {
+        guard isEditable, key.row != nil, let (_, database) = database(key.block),
+              database.columns.first(where: { $0.id == key.column })?.type == .text
+        else { return nil }
+        let id = textID(key)
+        let length = docText(key).length
+        if let selection = editor.selection, selection.head.block == id, selection.anchor.block == id, selection.anchor.offset != selection.head.offset {
+            let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
+            if range.upperBound <= length { return (id, range) }
+        }
+        return length > 0 ? (id, 0..<length) : nil
+    }
+
+    func formatIsOn(_ mark: Mark, at key: DocCellKey) -> Bool {
+        guard let target = formatRange(key) else { return false }
+        return DocEditor.covers(docText(key), target.range, with: mark.kind)
+    }
+
+    func toggleFormat(_ mark: Mark, at key: DocCellKey) {
+        guard let target = formatRange(key) else { return }
+        editor.toggle(mark, over: [target])
+    }
+
+    /// The text's colour (nil: the default one).
+    func setColor(_ token: String?, at key: DocCellKey) {
+        guard let target = formatRange(key) else { return }
+        editor.set(.color, to: token.map(Mark.color), over: [target])
+    }
+
+    func color(at key: DocCellKey) -> Mark? {
+        formatRange(key).flatMap { editor.common(.color, over: [$0]) }
+    }
+
+    func promptLink(at key: DocCellKey) {
+        guard let target = formatRange(key), let view = view(for: key) else { return }
+        editor.promptLink(over: target.range, in: target.block, from: view)
     }
 
     // MARK: Structure
@@ -692,11 +866,7 @@ final class DocCellTextView: UITextView, UITextViewDelegate {
     @objc private func cellAbove() { move(.up) }
     @objc private func cellBelow() { move(.down) }
     @objc private func leaveTable() {
-        // A menu or panel open takes Esc first (a level back, or it closes).
-        if FlooDesignPanels.escape() { return }
-        guard let key else { return }
-        controller?.leave(key)
-        controller?.editor.blocks.selectAfterEditing(key.block)
+        if let key { controller?.leaveByEscape(key) }
     }
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
@@ -793,15 +963,14 @@ struct DocTableCellField: UIViewRepresentable {
 
 private typealias Handles = FlooDesignTokens.Component.TableHandles
 
-/// The edited cell: its text view, Craft's ring around the cell, its ⋮.
+/// The edited cell: its text (a column's name in a text view of its own, a body cell's
+/// text the editor's), Craft's ring around the cell, its ⋮.
 struct DocTableCellEditor: View {
     let key: DocCellKey
-    let text: String
-    let isHeader: Bool
     let controller: DocTableController
 
     var body: some View {
-        DocTableCellField(key: key, text: text, isHeader: isHeader, controller: controller)
+        content
             .frame(maxWidth: .infinity, alignment: .leading)
             .anchorPreference(key: DocTableRingKey.self, value: .bounds) { DocTableRingAnchor(key: key, bounds: $0) }
             .overlay {
@@ -827,6 +996,31 @@ struct DocTableCellEditor: View {
                         .allowsHitTesting(false)
                 }
             }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if key.row == nil {
+            DocTableCellField(key: key, text: controller.text(key), isHeader: true, controller: controller)
+        } else {
+            DocTableCellText(text: controller.docText(key), hooks: controller.editor.hooks(for: controller.textID(key)))
+        }
+    }
+}
+
+/// A body cell's text being edited: MarkdownView's text of the cell as the table renders
+/// it (its selectable cell), in the editor's hands (its hooks), so the cell looks the same
+/// read and edited, marks and all.
+struct DocTableCellText: View {
+    let text: DocText
+    let hooks: MarkdownSelectableTextHooks
+
+    var body: some View {
+        MarkdownSelectableText(tree: MarkdownTree(text.lineTree), applyEdgeInsets: false)
+            .transformEnvironment(\.markdownPlatformTypography) { typography in
+                if let cell = typography.tableBody { typography.body = cell }
+            }
+            .environment(\.markdownSelectableTextHooks, hooks)
     }
 }
 
@@ -1009,6 +1203,30 @@ struct DocTableMenuSections {
         }
     }
 
+    /// Craft's Text Format: the marks, a link, the colour, on the selected text or the cell's.
+    private var format: FlooDesignActionMenuItem? {
+        let key = target.key
+        guard target.line == nil, controller.formatRange(key) != nil else { return nil }
+        let marks: [FlooDesignActionMenuItem] = (DocFormatting.marks + [("highlight", "highlighter", String(localized: "Highlight"), Mark.highlight(color: nil))]).map { item in
+            .action(item.title, symbol: item.symbol, isOn: controller.formatIsOn(item.mark, at: key), id: "format-\(item.id)") { [controller] in
+                controller.toggleFormat(item.mark, at: key)
+            }
+        }
+        let link = FlooDesignActionMenuItem.action(controller.formatIsOn(.link(url: ""), at: key) ? String(localized: "Edit Link…") : String(localized: "Link…"),
+                                                   symbol: "link", id: "format-link") { [controller] in controller.promptLink(at: key) }
+        let current = controller.color(at: key)
+        let colors = FlooDesignActionMenuItem.submenu(String(localized: "Text Color"), symbol: "paintpalette", id: "format-color", sections: [
+            .init(.rows, [.action(String(localized: "Default"), isOn: current == nil, id: "color-none") { [controller] in controller.setColor(nil, at: key) }]
+                + DocColors.palette.map { item in
+                    .action(item.title, isOn: current == .color(item.token), id: "color-\(item.token)") { [controller] in controller.setColor(item.token, at: key) }
+                }),
+        ])
+        return .submenu(String(localized: "Format"), symbol: "textformat", id: "format", sections: [
+            .init(.rows, marks),
+            .init(.rows, [link, colors]),
+        ])
+    }
+
     func sections(for presentation: FlooDesignPanelPresentation) -> [FlooDesignActionMenuSection] {
         let editTable = FlooDesignActionMenuItem.submenu(String(localized: "Edit Table"), symbol: "tablecells.badge.ellipsis", sections: [
             .init(.rows, [item(.insertRowAbove), item(.insertRowBelow), item(.insertColumnLeft), item(.insertColumnRight)]),
@@ -1019,7 +1237,7 @@ struct DocTableMenuSections {
         switch presentation {
         case .anchored:
             return [
-                .init(.rows, [editTable, item(.insertFormula)]),
+                .init(.rows, [editTable] + (format.map { [$0] } ?? []) + [item(.insertFormula)]),
                 .init(.rows, [item(.sortAscending, symbol: false), item(.sortDescending, symbol: false)]),
                 .init(.rows, [item(.cut, symbol: false), item(.copy, symbol: false), item(.paste, symbol: false)]),
                 clear,
@@ -1032,7 +1250,7 @@ struct DocTableMenuSections {
                         .init(.rows, [item(.sortAscending), item(.sortDescending)]),
                     ]),
                 ]),
-                .init(.buttons, [item(.insertFormula)]),
+                .init(.buttons, (format.map { [$0] } ?? []) + [item(.insertFormula)]),
                 .init(.rows, [
                     .submenu(String(localized: "Actions"), symbol: "command", sections: [
                         .init(.rows, [item(.cut), item(.copy), item(.paste)]),

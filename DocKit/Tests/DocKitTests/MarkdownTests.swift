@@ -310,6 +310,27 @@ struct MarkdownImportTests {
         #expect(database.rows.map { $0.cells } == [[a: .text(value: "1"), b: .text(value: "x|y")], [b: .text(value: "z")]])
     }
 
+    /// A cell keeps its marks: bold, a link and a mention come back as they were written.
+    @Test
+    func tableCellsKeepTheirMarks() throws {
+        let markdown = "| A | B |\n| --- | --- |\n| **bold** and [link](https://example.com) | plain |"
+        let fragment = parse(markdown)
+        guard case .database(let id, _) = fragment.blocks.first?.kind else {
+            Issue.record("expected a database block")
+            return
+        }
+        let database = try #require(fragment.databases[id])
+        let row = try #require(database.rows.first)
+        let a = database.columns[0].id
+        let b = database.columns[1].id
+        #expect(row.cells[a] == .richText(text: DocText(string: "bold and link", marks: [
+            span(0, 4, .bold), span(9, 13, .link(url: "https://example.com")),
+        ])))
+        #expect(row.cells[b] == .text(value: "plain"))
+        try database.validate()
+        #expect(normalized(markdown) == markdown)
+    }
+
     @Test
     func importedTextIsValid() throws {
         for markdown in Self.corpus {

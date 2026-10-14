@@ -85,6 +85,7 @@ public struct CollectionFilter: Hashable, Sendable, Codable {
         switch cell {
         case nil: true
         case .text(let text)?, .url(let text)?, .person(let text)?: text.isEmpty
+        case .richText(let text)?: text.isEmpty
         case .multiSelect(let options)?: options.isEmpty
         case .checkbox(let on)?: !on
         default: false
@@ -94,6 +95,7 @@ public struct CollectionFilter: Hashable, Sendable, Codable {
     private static func text(_ value: CellValue) -> String {
         switch value {
         case .text(let text), .url(let text), .person(let text): text
+        case .richText(let text): text.string
         case .number(let number): number == number.rounded() && abs(number) < 1e15 ? String(Int64(number)) : String(number)
         default: ""
         }
@@ -159,6 +161,8 @@ public enum DatabaseSorting {
             return .text(options.filter { ids.contains($0.id) }.map(\.name).joined(separator: ", ").lowercased())
         case .text(let text)?, .url(let text)?, .person(let text)?:
             return text.isEmpty ? nil : .text(text.lowercased())
+        case .richText(let text)?:
+            return text.isEmpty ? nil : .text(text.string.lowercased())
         }
     }
 }

@@ -47,7 +47,7 @@ struct DocFormatPanel: View {
             // Text first offers its kinds; a link, file or image its layout, after the
             // segments (as Craft orders them).
             // Text styles: how big a block's text is (Craft's six, ⌃1–⌃6).
-            if !targets.isEmpty {
+            if !targets.isEmpty, !formatting.inCell {
                 section(String(localized: "Titles")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
                         ForEach(DocFormatting.styles.prefix(3), id: \.key) { tile($0) }
@@ -181,19 +181,22 @@ struct DocFormatPanel: View {
                     formatting.toggle(item.mark)
                 }
             })
-            FlooDesignSegments(items: DocFormatting.lists.map { item in
-                .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: !targets.isEmpty) {
-                    formatting.toggleList(item.kind)
-                }
-            })
-            FlooDesignSegments(items: [
-                .init(id: "outdent", symbol: "decrease.indent", title: String(localized: "Outdent"), isOn: false, isEnabled: canIndent(-1)) {
-                    formatting.indent(by: -1)
-                },
-                .init(id: "indent", symbol: "increase.indent", title: String(localized: "Indent"), isOn: false, isEnabled: canIndent(1)) {
-                    formatting.indent(by: 1)
-                },
-            ])
+            // A cell's text takes marks only.
+            if !formatting.inCell {
+                FlooDesignSegments(items: DocFormatting.lists.map { item in
+                    .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: !targets.isEmpty) {
+                        formatting.toggleList(item.kind)
+                    }
+                })
+                FlooDesignSegments(items: [
+                    .init(id: "outdent", symbol: "decrease.indent", title: String(localized: "Outdent"), isOn: false, isEnabled: canIndent(-1)) {
+                        formatting.indent(by: -1)
+                    },
+                    .init(id: "indent", symbol: "increase.indent", title: String(localized: "Indent"), isOn: false, isEnabled: canIndent(1)) {
+                        formatting.indent(by: 1)
+                    },
+                ])
+            }
         }
     }
 
