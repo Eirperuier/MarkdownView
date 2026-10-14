@@ -434,8 +434,8 @@ private struct DocRowView: View {
                 placed(DocMediaCell(id: block, kind: media, blocks: blocks, inGallery: run.kind == .gallery), in: run)
             } else if let collection = row.collection, !row.isStreaming {
                 wide(DocCollectionView(snapshot: collection, controller: collections))
-            } else if let page = row.page, let block = row.block, !row.isStreaming {
-                inPage(DocPageRowView(block: block, page: page, blocks: blocks))
+            } else if let page = row.page, !row.isStreaming {
+                inPage(DocPageRowView(page: page))
             } else {
                 page
             }

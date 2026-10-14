@@ -2017,6 +2017,29 @@ final class DocEditTests {
             try? await Task.sleep(for: .milliseconds(300))
             try await self.undo()
         }
+        await test("a page block goes in as a card opens: a click selects it and a double click goes in on the Mac, a tap goes in and a long press selects it on a phone") {
+            let pages = try self.expectValue(self.pages, "no pages")
+            let blocks = self.editor.blocks
+            let block = try self.expectValue(self.demo.doc.blocks.first { if case .page = $0.kind { true } else { false } }, "no page block")
+            blocks.testCenter(block.id)
+            try? await Task.sleep(for: .milliseconds(400))
+            if DocBlockController.usesHandles {
+                try self.expect(blocks.testPress(block.id), "the click isn't the list's")
+                try self.expect(blocks.selected == [block.id] && pages.path.count == 1, "selected \(blocks.selected.count), \(pages.path.count) deep")
+                // The second click of a double click.
+                blocks.open(block.id)
+            } else {
+                try self.expect(blocks.testLiftAndLetGo(block.id) && blocks.selected == [block.id], "a long press didn't select it")
+                try self.expect(pages.path.count == 1, "a long press went in")
+                blocks.endSelecting()
+                blocks.testClick(block.id)
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            try self.expect(pages.path.count == 2, "not in the page")
+            pages.back()
+            try? await Task.sleep(for: .milliseconds(300))
+            blocks.clear()
+        }
         await test("/page makes the line a page of its words and goes into it") {
             let pages = try self.expectValue(self.pages, "no pages")
             let paragraph = try self.block("Loading older")

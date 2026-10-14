@@ -492,10 +492,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         return !(blockTakes(id, editsText: editsText) && editsText) && !isView(id)
     }
 
-    /// A view, a collection or a page: its controls take clicks (its handle selects it).
+    /// A view or a collection: its controls take clicks (its handle selects it).
     private func isView(_ id: DocBlockID) -> Bool {
         switch demo.doc.block(id)?.kind {
-        case .view?, .collection?, .page?: true
+        case .view?, .collection?: true
         default: false
         }
     }
@@ -743,13 +743,13 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     }
 
     /// A click at a point of the window outside any text: the block whose row it is in
-    /// takes it. On the Mac a link, file or image is selected by it (and opened by a
-    /// second), as is any block whose row doesn't take clicks (blockTakes); on a phone a
-    /// tap opens a link, file or image.
+    /// takes it. On the Mac a link, file, image or page is selected by it (and opened by
+    /// a second), as is any block whose row doesn't take clicks (blockTakes); on a phone
+    /// a tap opens a link, file, image or page (a long press selects it, as any block).
     func click(atWindowPoint point: CGPoint) {
         guard let list, let id = block(at: list.convert(point, from: nil)) else { return }
         if Self.usesHandles, !blockTakes(id, editsText: demo.rows.first { $0.block == id }?.editsText ?? false) { return click(id) }
-        guard let kind = demo.doc.block(id)?.kind, DocMediaView.draws(kind) else { return editor.click(id, at: point) }
+        guard let kind = demo.doc.block(id)?.kind, DocMediaView.draws(kind) || Self.isPage(kind) else { return editor.click(id, at: point) }
         if Self.usesHandles {
             click(id)
         } else if !isSelecting, opens(id) {
@@ -762,12 +762,17 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         open(id)
     }
 
+    private static func isPage(_ kind: BlockKind) -> Bool {
+        if case .page = kind { true } else { false }
+    }
+
     /// Whether a double click opens this block: a link, an image, a file that has
-    /// somewhere to open from.
+    /// somewhere to open from, a card or a page.
     private func opens(_ id: DocBlockID) -> Bool {
         switch demo.doc.block(id)?.kind {
         case .link?, .image?: true
         case .card?: openCard != nil
+        case .page?: openPage != nil
         case .file(let file)?: URL(string: file.source).map { $0.isFileURL || $0.scheme?.hasPrefix("http") == true } ?? false
         default: false
         }
@@ -794,6 +799,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             open(url)
         case .card(let card)?:
             openCard?(id, card)
+        case .page?:
+            openPage?(id)
         default:
             break
         }

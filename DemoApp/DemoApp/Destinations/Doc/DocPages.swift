@@ -131,38 +131,33 @@ final class DocPages {
 }
 
 /// A page block (Craft's Page style): a small sheet, the title, and under it the words
-/// the page starts with; a click (a tap) goes into it.
+/// the page starts with. It goes in as a card opens (DocBlockController): a tap on a
+/// phone (a long press selects it), a double click on the Mac (a click selects it).
 struct DocPageRowView: View {
-    let block: DocBlockID
     let page: DocPage
-    let blocks: DocBlockController
 
     var body: some View {
-        Button {
-            blocks.openPage?(block)
-        } label: {
-            HStack(spacing: DocPageMetrics.gap) {
-                DocPageSheet()
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(page.title.isEmpty ? String(localized: "Untitled") : page.title)
+        HStack(spacing: DocPageMetrics.gap) {
+            DocPageSheet()
+            VStack(alignment: .leading, spacing: 0) {
+                Text(page.title.isEmpty ? String(localized: "Untitled") : page.title)
+                    .font(Font(DocTableCellField.bodyFont))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(page.title.isEmpty ? FlooDesignTokens.ColorRole.Content.tertiary : FlooDesignTokens.ColorRole.Content.primary)
+                if !page.preview.isEmpty {
+                    Text(page.preview)
                         .font(Font(DocTableCellField.bodyFont))
-                        .fontWeight(.semibold)
-                        .foregroundStyle(page.title.isEmpty ? FlooDesignTokens.ColorRole.Content.tertiary : FlooDesignTokens.ColorRole.Content.primary)
-                    if !page.preview.isEmpty {
-                        Text(page.preview)
-                            .font(Font(DocTableCellField.bodyFont))
-                            .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                    }
+                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
                 }
-                .lineLimit(1)
-                Spacer(minLength: 0)
             }
-            .frame(minHeight: DocPageMetrics.rowHeight)
-            .contentShape(Rectangle())
+            .lineLimit(1)
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
+        .frame(minHeight: DocPageMetrics.rowHeight)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(page.title)
         .accessibilityValue(page.preview)
+        .accessibilityAddTraits(.isButton)
         .accessibilityHint(String(localized: "Opens the page"))
     }
 }
