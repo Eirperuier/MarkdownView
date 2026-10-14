@@ -229,6 +229,8 @@ struct MarkdownTableContent: View {
     @Environment(\.markdownMotion) private var motion
     @Environment(\.markdownTableCellsSelectable) private var cellsSelectable
     @Environment(\.markdownTableCellHooks) private var cellHooks
+    /// The cells' hooks (MarkdownTableCellHookBox), the latest the host gave.
+    @State private var hookBox = MarkdownTableCellHookBox()
     /// 表格 cell 可选中的**惰性升级(逐 cell)**:初载全部走原版 Text(大表逐 cell UITextView
     /// 实测把初载拖到 ~4×),某个 cell 第一次被点按才升级为可选中 —— 双击选字的第一击即完成
     /// 该 cell 升级,第二击已落在 UITextView 上;粒度=单 cell(整表升级在超大表上会卡一帧)。
@@ -356,6 +358,11 @@ struct MarkdownTableContent: View {
         let stripeRows = scrollableTableStripeRows
         // Cells a host shows its own view in (an editor): measured again when they change.
         let replaced = replacedCells
+        let hooks = hookBox
+        let _ = hooks.hooks = cellHooks
+        // Where each cell is in the block's text matters only to a reveal. Without one, the
+        // cells after an edited cell would all render again for having moved along.
+        let offsets = revealManager != nil
 
         ScrollView(.horizontal, showsIndicators: true) {
             AdaptiveTableLayout(
@@ -369,7 +376,7 @@ struct MarkdownTableContent: View {
             ) {
                 ForEach(stripeRows) { item in
                     AdaptiveTableRowStripe(
-                        blockTextOffset: item.blockTextOffset,
+                        blockTextOffset: offsets ? item.blockTextOffset : 0,
                         characterCount: item.characterCount
                     )
                 }
@@ -379,10 +386,11 @@ struct MarkdownTableContent: View {
                     AdaptiveTableCell(
                         cell: item.cell,
                         cellContentHash: item.contentHash,
-                        blockTextOffset: item.blockTextOffset,
+                        blockTextOffset: offsets ? item.blockTextOffset : 0,
                         characterCount: info.count,
                         isHeader: item.isHeader,
                         position: MarkdownTableCellPosition(row: item.row, column: item.column),
+                        hooks: hooks,
                         isReplaced: isReplaced
                     )
                         .equatable()
@@ -395,10 +403,11 @@ struct MarkdownTableContent: View {
                     AdaptiveTableCell(
                         cell: item.cell,
                         cellContentHash: item.contentHash,
-                        blockTextOffset: item.blockTextOffset,
+                        blockTextOffset: offsets ? item.blockTextOffset : 0,
                         characterCount: info.count,
                         isHeader: item.isHeader,
                         position: MarkdownTableCellPosition(row: item.row, column: item.column),
+                        hooks: hooks,
                         isReplaced: isReplaced,
                         selectableUpgraded: upgraded,
                         onSelectableUpgrade: { upgradedCells.insert(item.id) }
@@ -1373,6 +1382,8 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     var isHeader: Bool
     /// Where the cell is, for the host's tap and replacement hooks.
     var position: MarkdownTableCellPosition
+    /// The table's hooks: the same object as long as the table is there.
+    var hooks: MarkdownTableCellHookBox
     /// The host shows its own view here (`markdownTableCellReplacement`).
     var isReplaced: Bool = false
     /// 惰性升级:本 cell 已被点按 → 内容走可选中渲染(见 MarkdownTableContent.upgradedCells)。
@@ -1389,6 +1400,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         && lhs.characterCount == rhs.characterCount
         && lhs.isHeader == rhs.isHeader
         && lhs.position == rhs.position
+        && lhs.hooks === rhs.hooks
         && lhs.isReplaced == rhs.isReplaced
         && lhs.selectableUpgraded == rhs.selectableUpgraded
     }
@@ -1401,8 +1413,6 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     @Environment(\.markdownTableCellSettleDuration) private var settleDuration
     @Environment(\.markdownTableHeaderDimsParentheticals) private var dimsParentheticals
     @Environment(\.markdownTableCellsSelectable) private var cellsSelectable
-    @Environment(\.markdownTableCellHooks) private var hooks
-
     @StateObject private var phaseHolder = AdaptiveTableCellPhaseHolder()
 
     private var revealManagerID: ObjectIdentifier? {
@@ -1425,12 +1435,18 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
             .onChange(of: blockTextOffset) { _, _ in configurePhaseHolder() }
             .onChange(of: characterCount) { _, _ in configurePhaseHolder() }
             .onChange(of: settleDuration) { _, _ in configurePhaseHolder() }
-            .modifier(AdaptiveTableCellTap(position: position, onTap: hooks.onTap))
+            .modifier(AdaptiveTableCellTap(position: position, onTap: tap))
+    }
+
+    /// The host's tap as it is when the cell is tapped, not as it was at the cell's last render.
+    private var tap: (@MainActor (MarkdownTableCellPosition) -> Void)? {
+        guard hooks.hooks.onTap != nil else { return nil }
+        return { [hooks] position in hooks.hooks.onTap?(position) }
     }
 
     @ViewBuilder
     private var cellContent: some View {
-        if isReplaced, let replacement = hooks.replacement?(position) {
+        if isReplaced, let replacement = hooks.hooks.replacement?(position) {
             replacement
         } else {
             renderedContent
@@ -1448,11 +1464,12 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
             // body cell 可选中(per-cell,不跨 cell):cell 源码单独渲染,reveal 锚点经
             // blockTextOffset 变绝对坐标,与块级 sweep 完全同源(节奏=原版逐 cell 扫过)。
             // 表头保持原渲染(bold/uppercase 样式)。tableBody 默认 Font.body,与可选中路径字体一致;
-            // app 改了 tableBody 字号时由 typography.tableBody 对齐(否则点一下 cell 字号会跳)。
+            // app 改了 tableBody 字号时由 typography.tableBody 对齐(否则点一下 cell 字号会跳);
+            // 行盒取 Text 的(tableCell:不带文字样式自带的行距),否则 iOS 上点一下 cell 会长高。
             // 注意:Table.Cell 禁止整体 format()(swift-markdown fatalError),逐个 inline 子节点拼接。
             selectableCell
             .transformEnvironment(\.markdownPlatformTypography) { typography in
-                if let cell = typography.tableBody { typography.body = cell }
+                typography = typography.tableCell
             }
         } else if !isHeader, cellsSelectable, !cellContainsImage {
             // 惰性升级前的原版渲染:首击本 cell 即升级(simultaneous 不消费触摸,

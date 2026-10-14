@@ -36,6 +36,13 @@ struct MarkdownTableCellHooks {
     var replacement: (@MainActor (MarkdownTableCellPosition) -> AnyView?)?
 }
 
+/// The hooks a table's cells call: one per table, holding the latest the host gave. The
+/// environment's are new closures on each of the host's renders, and every cell reading
+/// them would render again (a whole table's on each keystroke in one of its cells).
+@MainActor final class MarkdownTableCellHookBox {
+    var hooks = MarkdownTableCellHooks()
+}
+
 private struct MarkdownTableCellHooksKey: EnvironmentKey {
     static let defaultValue = MarkdownTableCellHooks()
 }

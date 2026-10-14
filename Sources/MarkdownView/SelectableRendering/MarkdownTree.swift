@@ -18,10 +18,16 @@ import Foundation
 public struct MarkdownTree: @unchecked Sendable, Hashable {
     public let document: Markdown.Document
     private let contentHash: Int
+    /// Whether any maths is in it: without, `prepared` has nothing to rewrite (a rewriter
+    /// builds every node again, a whole table's on each render).
+    private let hasMath: Bool
 
     public init(_ document: Markdown.Document) {
         self.document = document
         contentHash = document.stableContentHash
+        var finder = MathFinder()
+        finder.visit(document)
+        hasMath = finder.found
     }
 
     public static func == (lhs: MarkdownTree, rhs: MarkdownTree) -> Bool {
@@ -48,10 +54,28 @@ public struct MarkdownTree: @unchecked Sendable, Hashable {
     /// maths as the placeholders the visitor draws formulas at, display maths as
     /// `@math(uuid:)` directives, their LaTeX kept in `math`.
     func prepared(math: inout MarkdownRendererConfiguration.Math) -> Markdown.Document {
+        guard hasMath else { return document }
         var rewriter = InlineMathRewriter(math: math)
         let rewritten = rewriter.visit(document) as? Markdown.Document ?? document
         math = rewriter.math
         return rewritten
+    }
+}
+
+private struct MathFinder: MarkupWalker {
+    var found = false
+
+    mutating func visitInlineAttributes(_ attributes: InlineAttributes) {
+        if attributes.attributes == MarkdownTree.mathAttribute { found = true } else { descendInto(attributes) }
+    }
+
+    mutating func visitBlockDirective(_ directive: BlockDirective) {
+        if directive.name == MarkdownTree.mathAttribute, directive.argumentText.isEmpty { found = true } else { descendInto(directive) }
+    }
+
+    mutating func defaultVisit(_ markup: any Markup) {
+        guard !found else { return }
+        descendInto(markup)
     }
 }
 

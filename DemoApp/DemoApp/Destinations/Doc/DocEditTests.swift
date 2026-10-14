@@ -738,7 +738,7 @@ final class DocEditTests {
             let built = probe.snapshot().sizingCellMeasureCount
             probe.isEnabled = false
             let median = times.sorted()[times.count / 2]
-            print("DOCPERF resize step (ms): median \(String(format: "%.1f", median)) max \(String(format: "%.1f", times.max() ?? 0)), \(built) built, \(arrived) arrived")
+            docTestLog("DOCPERF resize step (ms): median \(String(format: "%.1f", median)) max \(String(format: "%.1f", times.max() ?? 0)), \(built) built, \(arrived) arrived")
             // Only the rows on screen are measured at each width, in their own cells: a row is
             // built to be measured only as it comes on screen, not every row at every width
             // (that, and measuring rows off screen, took a frame).
@@ -776,7 +776,7 @@ final class DocEditTests {
                 total.append((CFAbsoluteTimeGetCurrent() - start) * 1000)
             }
             func median(_ values: [Double]) -> Double { values.sorted()[values.count / 2] }
-            print("DOCPERF keystroke (ms): rows \(String(format: "%.1f", median(rows))); handling median \(String(format: "%.1f", median(publish))) max \(String(format: "%.1f", publish.max() ?? 0)); on screen median \(String(format: "%.1f", median(total))) max \(String(format: "%.1f", total.max() ?? 0)); text \(self.text(block.id).count) chars, \(self.demo.doc.blocks.count) blocks")
+            docTestLog("DOCPERF keystroke (ms): rows \(String(format: "%.1f", median(rows))); handling median \(String(format: "%.1f", median(publish))) max \(String(format: "%.1f", publish.max() ?? 0)); on screen median \(String(format: "%.1f", median(total))) max \(String(format: "%.1f", total.max() ?? 0)); text \(self.text(block.id).count) chars, \(self.demo.doc.blocks.count) blocks")
             try self.expect(median(total) < 50, "median \(median(total)) ms")
         }
 
@@ -1015,7 +1015,7 @@ final class DocEditTests {
             }
             let row = self.demo.rowFrame(key.block.description)
             let list = self.editor.allTextViews.compactMap { DocScrolling.list(of: $0) }.first
-            throw Failure(description: "\(step): cell \(position(key)) never got an editor with the focus; editing \(position(self.editor.tables.editing)), active \(position(self.editor.tables.active)), table \(t.database.rows.count + 1)×\(t.database.columns.count); row \(String(describing: row)) visible \(String(describing: list.map { DocScrolling.visible(in: $0) })) bounds \(String(describing: list?.bounds)) view \(self.editor.tables.view(for: key) != nil)")
+            throw Failure(description: "\(step): cell \(position(key)) never got an editor with the focus; editing \(position(self.editor.tables.editing)), active \(position(self.editor.tables.active)), table \(t.database.rows.count + 1)×\(t.database.columns.count); row \(String(describing: row)) visible \(String(describing: list.map { DocScrolling.visible(in: $0) })) bounds \(String(describing: list?.bounds)) view \(self.editor.tables.view(for: key) != nil) content \(String(describing: self.editor.blocks.testContentFrame(t.block)))")
         }
         /// A key as UIKit sends it: the delegate first (Tab and Return move between cells).
         func press(_ view: UITextView, _ key: String) {
@@ -1133,6 +1133,18 @@ final class DocEditTests {
                 try self.expect(try database() == before, "undo after \(action) left the table changed")
             }
         }
+        await test("Table: a cell is as tall edited as read: the table doesn't move when a cell is clicked") {
+            let id = try table().block.description
+            @MainActor func height() throws -> CGFloat { try self.expectValue(self.demo.rowFrame(id), "no row").height }
+            _ = try await click(2, 1)
+            self.editor.tables.endEditing()
+            try await Task.sleep(for: .milliseconds(400))
+            let read = try height()
+            _ = try await click(2, 1)
+            try await Task.sleep(for: .milliseconds(400))
+            let edited = try height()
+            try self.expect(abs(edited - read) < 0.5, "the table is \(read) high read, \(edited) with a cell edited")
+        }
         await test("Table: a row added and undone leaves the table as tall as it was") {
             _ = try await click(2, 1)
             let key = try editedKey()
@@ -1153,6 +1165,76 @@ final class DocEditTests {
                 after = try height()
             }
             try self.expect(abs(after - before) < 1, "row \(before) → \(grown) → \(after) after the undo")
+        }
+        await test("Table speed: in a table of 80 rows a click, a keystroke, a row added or undone and the cell's menu each take a frame or two") {
+            let t = try table()
+            let databaseID = try self.expectValue(self.demo.doc.block(t.block)?.kind.databaseID, "no database")
+            var after = t.database.rows.last?.id
+            var steps: [DocStep] = []
+            for index in 0..<(80 - t.database.rows.count) {
+                var cells: [ColumnID: CellValue] = [:]
+                for (column, field) in t.database.columns.enumerated() { cells[field.id] = .text(value: "r\(index) c\(column)") }
+                let row = Row(id: self.demo.newID(), cells: cells)
+                steps.append(.database(id: databaseID, step: .insertRow(row: row, after: after)))
+                after = row.id
+            }
+            _ = self.demo.edit(steps, before: nil, after: nil)
+            try await Task.sleep(for: .milliseconds(800))
+            /// From the action to the end of the run loop pass it happens in: after Core
+            /// Animation's commit (its observer comes before ours), so its layout and drawing.
+            @MainActor func frame(_ action: () -> Void) async -> Double {
+                let start = CFAbsoluteTimeGetCurrent()
+                action()
+                return await withCheckedContinuation { continuation in
+                    let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max) { observer, _ in
+                        CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+                        continuation.resume(returning: (CFAbsoluteTimeGetCurrent() - start) * 1000)
+                    }
+                    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+                }
+            }
+            func median(_ values: [Double]) -> Double { values.sorted()[values.count / 2] }
+            func ms(_ value: Double) -> String { String(format: "%.1f", value) }
+
+            let snapshot = DocTableSnapshot(block: t.block, database: try database())
+            self.demo.bringIntoView(t.block)
+            try await Task.sleep(for: .milliseconds(400))
+            MarkdownRenderProbe.setEnabled(true)
+            MarkdownRenderProbe.reset()
+            let clicked = await frame { self.editor.tables.tapped(snapshot, at: MarkdownTableCellPosition(row: 40, column: 1)) }
+            let view = try await cellEditor(try table().key(40, 1))
+            let clickProbe = MarkdownRenderProbe.snapshot()
+            try await self.settle()
+
+            MarkdownRenderProbe.reset()
+            docTestLog("DOCPERF table typing begins")
+            var keys: [Double] = []
+            var publish: [Double] = []
+            for character in "abcdefghijklmnopqrstuvwxyz" {
+                keys.append(await frame { press(view, String(character)) })
+                publish.append(self.demo.lastPublishMs)
+                try await self.settle()
+            }
+            let typeProbe = MarkdownRenderProbe.snapshot()
+            let typed = try cellText(40, 1)
+            try self.expect(typed.hasSuffix("xyz"), "typing went to \(typed.suffix(10))")
+
+            let key = try editedKey()
+            let add = await frame { self.editor.tables.perform(.insertRowBelow, at: key) }
+            try await Task.sleep(for: .milliseconds(400))
+            let undo = await frame { self.editor.requestUndo() }
+            try await Task.sleep(for: .milliseconds(400))
+            _ = try await click(40, 1)
+            let menu = await frame { self.editor.tables.showMenu(try! editedKey()) }
+            try await Task.sleep(for: .milliseconds(400))
+            self.editor.tables.closeMenu()
+            MarkdownRenderProbe.setEnabled(false)
+
+            docTestLog("DOCPERF table 80 rows (ms): click \(ms(clicked)); keystroke median \(ms(median(keys))) max \(ms(keys.max() ?? 0)), rows published median \(ms(median(publish))); add row \(ms(add)); undo \(ms(undo)); menu \(ms(menu))")
+            docTestLog("DOCPERF table probe click: layout \(clickProbe.adaptiveTableLayoutSizeCalls)× \(ms(clickProbe.adaptiveTableLayoutSizeMs)) ms, cell bodies \(clickProbe.adaptiveTableCellBodyCalls), info \(clickProbe.tableInfoEnsureFreshCalls)× \(ms(clickProbe.tableInfoEnsureFreshMs)) ms; typing 26 keys: layout \(typeProbe.adaptiveTableLayoutSizeCalls)× \(ms(typeProbe.adaptiveTableLayoutSizeMs)) ms, measures \(typeProbe.adaptiveTableLayoutIdealMeasures)+\(typeProbe.adaptiveTableLayoutConstrainedMeasures), cell bodies \(typeProbe.adaptiveTableCellBodyCalls), info \(typeProbe.tableInfoEnsureFreshCalls)× \(ms(typeProbe.tableInfoEnsureFreshMs)) ms")
+            for (name, value) in [("click", clicked), ("keystroke", median(keys)), ("add row", add), ("undo", undo), ("menu", menu)] {
+                try self.expect(value < 1000, "\(name) \(ms(value)) ms")
+            }
         }
         await test("Table: the menu's Cut, Copy and Paste take the cell's text through the pasteboard; each is an undo step") {
             let saved = UIPasteboard.general.string

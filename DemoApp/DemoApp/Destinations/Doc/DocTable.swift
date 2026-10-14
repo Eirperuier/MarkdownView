@@ -1018,7 +1018,7 @@ struct DocTableCellText: View {
     var body: some View {
         MarkdownSelectableText(tree: MarkdownTree(text.lineTree), applyEdgeInsets: false)
             .transformEnvironment(\.markdownPlatformTypography) { typography in
-                if let cell = typography.tableBody { typography.body = cell }
+                typography = typography.tableCell
             }
             .environment(\.markdownSelectableTextHooks, hooks)
     }

@@ -247,7 +247,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         }
         observations = [
             list.observe(\.contentSize) { [weak self] _, _ in MainActor.assumeIsolated { self?.layoutOverlays() } },
-            list.observe(\.contentOffset) { [weak self] _, _ in MainActor.assumeIsolated { self?.rowsMoved() } },
+            // The list sets its offset on each update, mostly to where it is: only a change
+            // moves the rows under the pointer.
+            list.observe(\.contentOffset, options: [.old, .new]) { [weak self] _, change in
+                guard change.oldValue != change.newValue else { return }
+                MainActor.assumeIsolated { self?.rowsMoved() }
+            },
         ]
     }
 
