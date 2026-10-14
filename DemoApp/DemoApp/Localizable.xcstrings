@@ -320,7 +320,7 @@
         }
       }
     },
-    "Clear Cell" : {
+    "Clear Cell Contents" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -466,6 +466,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "拷贝格式"
+          }
+        }
+      }
+    },
+    "Cut" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "剪切"
           }
         }
       }
@@ -1193,6 +1203,16 @@
         }
       }
     },
+    "Paste" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "粘贴"
+          }
+        }
+      }
+    },
     "Paste Format" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1359,6 +1379,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "小号的说明文字"
+          }
+        }
+      }
+    },
+    "Sort" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "排序"
           }
         }
       }

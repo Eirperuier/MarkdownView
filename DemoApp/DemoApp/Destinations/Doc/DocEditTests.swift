@@ -1095,6 +1095,34 @@ final class DocEditTests {
                 try self.expect(try database() == before, "undo after \(action) left the table changed")
             }
         }
+        await test("Table: the menu's Cut, Copy and Paste take the cell's text through the pasteboard; each is an undo step") {
+            let saved = UIPasteboard.general.string
+            defer { UIPasteboard.general.string = saved }
+            _ = try await click(2, 1)
+            let key = try editedKey()
+            let text = self.editor.tables.text(key)
+            try self.expect(!text.isEmpty, "the cell is empty")
+            let before = try database()
+            self.editor.tables.perform(.copy, at: key)
+            try self.expect(UIPasteboard.general.string == text, "copy put \(String(describing: UIPasteboard.general.string))")
+            self.editor.tables.perform(.cut, at: key)
+            try self.expect(self.editor.tables.text(key).isEmpty, "cut left \(self.editor.tables.text(key))")
+            self.editor.tables.perform(.paste, at: key)
+            try? await Task.sleep(for: .milliseconds(100))
+            try self.expect(self.editor.tables.text(key) == text, "paste gave \(self.editor.tables.text(key))")
+            try await self.undo()
+            try self.expect(self.editor.tables.text(key).isEmpty, "undoing the paste left \(self.editor.tables.text(key))")
+            try await self.undo()
+            try self.expect(try database() == before, "undoing the cut left the table changed")
+        }
+        await test("Table: a cell's menu is that cell's, and goes when another cell is edited") {
+            _ = try await click(2, 1)
+            let key = try editedKey()
+            self.editor.tables.showMenu(key)
+            try self.expect(self.editor.tables.menu == key, "the menu isn't the cell's")
+            _ = try await click(1, 1)
+            try self.expect(self.editor.tables.menu == nil, "the menu stayed after another cell was edited")
+        }
         await test("Table: sorting orders the rows by the column, numbers as numbers, the header stays") {
             _ = try await click(1, 2)
             self.editor.tables.perform(.sortAscending, at: try editedKey())

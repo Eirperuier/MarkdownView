@@ -261,6 +261,12 @@ private struct DocPageView: View {
                 if UserDefaults.standard.bool(forKey: "docEditCell"), let snapshot = table.table {
                     try? await Task.sleep(for: .milliseconds(400))
                     editor.tables.tapped(snapshot, at: MarkdownTableCellPosition(row: 2, column: 1))
+                    // -docCellMenu YES: and open its menu.
+                    if UserDefaults.standard.bool(forKey: "docCellMenu"),
+                       let key = editor.tables.key(in: snapshot, at: MarkdownTableCellPosition(row: 2, column: 1)) {
+                        try? await Task.sleep(for: .milliseconds(400))
+                        editor.tables.showMenu(key)
+                    }
                 }
             }
             // -docShowHandle YES: a list item's handle under the pointer and the item after

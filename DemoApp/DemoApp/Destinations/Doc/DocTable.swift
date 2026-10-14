@@ -9,8 +9,10 @@
 //  - Tab / Shift-Tab: next / previous cell (Tab past a row's last cell adds a column),
 //    Return: the cell below (past the last row adds a row), ↑↓ at a cell's first / last
 //    line: the cell above / below, ⌘ + arrows: the table's edge, Esc: leave the table;
-//  - right-click a cell (Mac) or its ⋯ button (both): insert, move, delete rows and
-//    columns, sort by the column, clear the cell, delete the table;
+//  - right-click a cell (Mac) or its ⋮ (both): Craft's cell menu, ours (FlooDesign's
+//    action menu, a sheet on a phone): Edit Table (insert, move, delete rows and
+//    columns, delete the table), a formula, sorting by the column, cut / copy / paste,
+//    clearing the cell;
 //  - the + below and beside the table add a row and a column.
 //  Every change is one DocKit step (typing in a cell merges into one undo step), so
 //  undo, redo and sync treat the table like the rest of the document.
@@ -38,6 +40,7 @@ enum DocTableAction: CaseIterable, Identifiable {
     case insertRowAbove, insertRowBelow, insertColumnLeft, insertColumnRight
     case moveRowUp, moveRowDown, moveColumnLeft, moveColumnRight
     case sortAscending, sortDescending, insertFormula
+    case cut, copy, paste
     case deleteRow, deleteColumn, clearCell, deleteTable
 
     var id: Self { self }
@@ -57,13 +60,19 @@ enum DocTableAction: CaseIterable, Identifiable {
         case .insertFormula: String(localized: "Insert Formula")
         case .deleteRow: String(localized: "Delete Row")
         case .deleteColumn: String(localized: "Delete Column")
-        case .clearCell: String(localized: "Clear Cell")
+        case .cut: String(localized: "Cut")
+        case .copy: String(localized: "Copy")
+        case .paste: String(localized: "Paste")
+        case .clearCell: String(localized: "Clear Cell Contents")
         case .deleteTable: String(localized: "Delete Table")
         }
     }
 
     var symbol: String {
         switch self {
+        case .cut: "scissors"
+        case .copy: "doc.on.doc"
+        case .paste: "doc.on.clipboard"
         case .insertRowAbove: "arrow.up.to.line"
         case .insertRowBelow: "arrow.down.to.line"
         case .insertColumnLeft: "arrow.left.to.line"
@@ -86,14 +95,6 @@ enum DocTableAction: CaseIterable, Identifiable {
         default: false
         }
     }
-
-    /// The menu's sections, in order.
-    static let sections: [[DocTableAction]] = [
-        [.insertRowAbove, .insertRowBelow, .insertColumnLeft, .insertColumnRight],
-        [.moveRowUp, .moveRowDown, .moveColumnLeft, .moveColumnRight],
-        [.sortAscending, .sortDescending, .insertFormula],
-        [.clearCell, .deleteRow, .deleteColumn, .deleteTable],
-    ]
 }
 
 @MainActor
@@ -107,6 +108,8 @@ final class DocTableController {
     private(set) var editing: DocCellKey?
     /// The cell whose text view has the focus.
     private(set) var active: DocCellKey?
+    /// The cell whose menu is open (by its ⋮, or a right-click).
+    private(set) var menu: DocCellKey?
     @ObservationIgnored private var views: [DocCellKey: [WeakCellView]] = [:]
     @ObservationIgnored private var pendingFocus: (key: DocCellKey, atEnd: Bool)?
     /// Typing in one cell is one undo step until another cell is edited.
@@ -219,6 +222,7 @@ final class DocTableController {
     func endEditing() {
         pendingFocus = nil
         editing = nil
+        menu = nil
     }
 
     /// A click on a table cell MarkdownView rendered (row 0 is the header).
@@ -241,6 +245,7 @@ final class DocTableController {
     }
 
     func focus(_ key: DocCellKey, atEnd: Bool = true) {
+        if menu != key { menu = nil }
         editing = key
         guard let view = view(for: key) else {
             focusSoon(key, atEnd: atEnd)
@@ -304,6 +309,15 @@ final class DocTableController {
         }
     }
 
+    func showMenu(_ key: DocCellKey) {
+        if editing != key { focus(key) }
+        menu = key
+    }
+
+    func closeMenu() {
+        menu = nil
+    }
+
     func leave(_ key: DocCellKey) {
         view(for: key)?.resignFirstResponder()
         endEditing()
@@ -323,6 +337,8 @@ final class DocTableController {
         case .deleteColumn: return columns.count > 1
         case .sortAscending, .sortDescending: return rows.count > 2
         case .insertFormula: return r > 0
+        case .cut, .copy: return !text(key).isEmpty
+        case .paste: return UIPasteboard.general.hasStrings
         default: return true
         }
     }
@@ -406,6 +422,15 @@ final class DocTableController {
             commit(key.block, [.deleteColumn(column: column, after: c > 0 ? columns[c - 1].id : nil, cells: values)])
             let next = c + 1 < columns.count ? columns[c + 1].id : columns[c - 1].id
             focusSoon(DocCellKey(block: key.block, row: key.row, column: next), atEnd: true)
+        case .copy:
+            UIPasteboard.general.string = text(key)
+        case .cut:
+            UIPasteboard.general.string = text(key)
+            changed(key, to: "")
+            session &+= 1
+        case .paste:
+            // As ⌘V in the cell: a range fills the cells, text goes in at the caret.
+            view(for: key)?.paste(nil)
         case .clearCell:
             changed(key, to: "")
             session &+= 1
@@ -515,30 +540,11 @@ struct WeakCellView {
 
 /// A cell's text: native typing (IME included), every change goes to the model;
 /// structural keys go to the controller; ⌘Z is the document's.
-final class DocCellTextView: UITextView, UITextViewDelegate, UIContextMenuInteractionDelegate {
+final class DocCellTextView: UITextView, UITextViewDelegate {
     var key: DocCellKey?
     weak var controller: DocTableController?
     var isHeader = false
 
-    override init(frame: CGRect, textContainer: NSTextContainer?) {
-        super.init(frame: frame, textContainer: textContainer)
-        #if targetEnvironment(macCatalyst)
-        // Right-click a cell: the table's menu (on touch it's the cell's ⋯, so a long
-        // press still selects text).
-        addInteraction(UIContextMenuInteraction(delegate: self))
-        #endif
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        guard let key, let controller else { return nil }
-        if !isFirstResponder { controller.focus(key) }
-        return UIContextMenuConfiguration(actionProvider: { _ in
-            let table = DocTableMenu.uiMenu(for: key, controller: controller)
-            return UIMenu(children: table.children)
-        })
-    }
 
     /// On screen at last (its row rendered late, after the focus was asked for): a
     /// focus waiting for this cell is taken now.
@@ -618,28 +624,14 @@ final class DocCellTextView: UITextView, UITextViewDelegate, UIContextMenuIntera
         if let key { controller?.ended(key, in: self) }
     }
 
-    /// Right-click (or the edit menu): the table's actions after the text ones.
+    #if targetEnvironment(macCatalyst)
+    /// Right-click: the cell's menu (ours, by its ⋮), which has the text's Cut, Copy and
+    /// Paste, instead of the system's. On touch the edit menu stays the text's.
     func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-        guard let key, let controller else { return nil }
-        return UIMenu(children: suggestedActions + [DocTableMenu.uiMenu(for: key, controller: controller)])
+        if let key { controller?.showMenu(key) }
+        return UIMenu(children: [])
     }
-}
-
-enum DocTableMenu {
-    @MainActor
-    static func uiMenu(for key: DocCellKey, controller: DocTableController) -> UIMenu {
-        let sections = DocTableAction.sections.map { section in
-            UIMenu(options: .displayInline, children: section.map { action in
-                let item = UIAction(title: action.title, image: UIImage(systemName: action.symbol),
-                                    attributes: action.isDestructive ? .destructive : []) { [weak controller] _ in
-                    controller?.perform(action, at: key)
-                }
-                if !controller.isAvailable(action, at: key) { item.attributes.insert(.disabled) }
-                return item
-            })
-        }
-        return UIMenu(title: String(localized: "Edit Table"), image: UIImage(systemName: "tablecells"), children: sections)
-    }
+    #endif
 }
 
 struct DocTableCellField: UIViewRepresentable {
@@ -772,26 +764,14 @@ struct DocTableRowView: View {
     }
 }
 
-/// The edited cell's ⋯: the same actions as the right-click menu (and the only way
-/// to them by touch).
+/// The edited cell's ⋮ and its menu (Craft's): beside it, or a sheet on a phone.
 struct DocTableCellMenu: View {
     let key: DocCellKey
     let controller: DocTableController
 
     var body: some View {
-        Menu {
-            ForEach(Array(DocTableAction.sections.enumerated()), id: \.offset) { _, section in
-                Section {
-                    ForEach(section) { action in
-                        Button(role: action.isDestructive ? .destructive : nil) {
-                            controller.perform(action, at: key)
-                        } label: {
-                            Label(action.title, systemImage: action.symbol)
-                        }
-                        .disabled(!controller.isAvailable(action, at: key))
-                    }
-                }
-            }
+        Button {
+            controller.menu == key ? controller.closeMenu() : controller.showMenu(key)
         } label: {
             Image(systemName: "ellipsis")
                 .rotationEffect(.degrees(90))
@@ -799,9 +779,54 @@ struct DocTableCellMenu: View {
                 .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
                 .frame(width: FlooDesignTokens.Space.xxl, height: FlooDesignTokens.Control.compactHeight)
         }
-        .menuStyle(.button)
         .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.sm, style: .continuous)))
         .accessibilityLabel("Table Actions")
+        .flooDesignActionMenu(isPresented: controller.menu == key, onDismiss: { if controller.menu == key { controller.closeMenu() } }) { presentation in
+            sections(for: presentation)
+        }
+    }
+
+    private func item(_ action: DocTableAction, symbol: Bool = true) -> FlooDesignActionMenuItem {
+        .action(action.title, symbol: symbol ? action.symbol : nil, role: action.isDestructive ? .destructive : .standard,
+                isEnabled: controller.isAvailable(action, at: key), id: "\(action)") { [controller, key] in
+            controller.perform(action, at: key)
+        }
+    }
+
+    /// Craft's: beside the cell, Edit Table opens a panel and the rest are rows; on a
+    /// phone the groups are tiles and buttons, the rest rows that open more.
+    private func sections(for presentation: FlooDesignPanelPresentation) -> [FlooDesignActionMenuSection] {
+        let editTable = FlooDesignActionMenuItem.submenu(String(localized: "Edit Table"), symbol: "tablecells.badge.ellipsis", sections: [
+            .init(.rows, [item(.insertRowAbove), item(.insertRowBelow), item(.insertColumnLeft), item(.insertColumnRight)]),
+            .init(.rows, [item(.moveRowUp), item(.moveRowDown), item(.moveColumnLeft), item(.moveColumnRight)]),
+            .init(.plain, [item(.deleteRow), item(.deleteColumn), item(.deleteTable)]),
+        ])
+        let clear = FlooDesignActionMenuSection(.plain, [item(.clearCell, symbol: false)])
+        switch presentation {
+        case .anchored:
+            return [
+                .init(.rows, [editTable, item(.insertFormula)]),
+                .init(.rows, [item(.sortAscending, symbol: false), item(.sortDescending, symbol: false)]),
+                .init(.rows, [item(.cut, symbol: false), item(.copy, symbol: false), item(.paste, symbol: false)]),
+                clear,
+            ]
+        case .sheet:
+            return [
+                .init(.tiles, [
+                    editTable,
+                    .submenu(String(localized: "Sort"), symbol: "line.3.horizontal.decrease.circle", sections: [
+                        .init(.rows, [item(.sortAscending), item(.sortDescending)]),
+                    ]),
+                ]),
+                .init(.buttons, [item(.insertFormula)]),
+                .init(.rows, [
+                    .submenu(String(localized: "Actions"), symbol: "command", sections: [
+                        .init(.rows, [item(.cut), item(.copy), item(.paste)]),
+                    ]),
+                ]),
+                clear,
+            ]
+        }
     }
 }
 
