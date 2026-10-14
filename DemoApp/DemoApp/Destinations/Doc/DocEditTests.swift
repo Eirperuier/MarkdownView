@@ -1218,6 +1218,7 @@ final class DocEditTests {
             try self.expect(typed.hasSuffix("xyz"), "typing went to \(typed.suffix(10))")
 
             docTestLog("DOCPERF table rows begin")
+            MarkdownRenderProbe.reset()
             var adds: [Double] = []
             var undos: [Double] = []
             for _ in 0..<5 {
@@ -1230,13 +1231,14 @@ final class DocEditTests {
             }
             let add = median(adds)
             let undo = median(undos)
+            let rowsProbe = MarkdownRenderProbe.snapshot()
             let menu = await frame { self.editor.tables.showMenu(try! editedKey()) }
             try await Task.sleep(for: .milliseconds(400))
             self.editor.tables.closeMenu()
             MarkdownRenderProbe.setEnabled(false)
 
             docTestLog("DOCPERF table \(size) rows (ms): click \(ms(clicked)); keystroke median \(ms(median(keys))) max \(ms(keys.max() ?? 0)), rows published median \(ms(median(publish))); add row \(ms(add)); undo \(ms(undo)); menu \(ms(menu))")
-            docTestLog("DOCPERF table probe click: layout \(clickProbe.adaptiveTableLayoutSizeCalls)× \(ms(clickProbe.adaptiveTableLayoutSizeMs)) ms, cell bodies \(clickProbe.adaptiveTableCellBodyCalls), info \(clickProbe.tableInfoEnsureFreshCalls)× \(ms(clickProbe.tableInfoEnsureFreshMs)) ms; typing 26 keys: layout \(typeProbe.adaptiveTableLayoutSizeCalls)× \(ms(typeProbe.adaptiveTableLayoutSizeMs)) ms, measures \(typeProbe.adaptiveTableLayoutIdealMeasures)+\(typeProbe.adaptiveTableLayoutConstrainedMeasures), cell bodies \(typeProbe.adaptiveTableCellBodyCalls), info \(typeProbe.tableInfoEnsureFreshCalls)× \(ms(typeProbe.tableInfoEnsureFreshMs)) ms")
+            docTestLog("DOCPERF table probe click: layout \(clickProbe.adaptiveTableLayoutSizeCalls)× \(ms(clickProbe.adaptiveTableLayoutSizeMs)) ms, cell bodies \(clickProbe.adaptiveTableCellBodyCalls), info \(clickProbe.tableInfoEnsureFreshCalls)× \(ms(clickProbe.tableInfoEnsureFreshMs)) ms; typing 26 keys: layout \(typeProbe.adaptiveTableLayoutSizeCalls)× \(ms(typeProbe.adaptiveTableLayoutSizeMs)) ms, measures \(typeProbe.adaptiveTableLayoutIdealMeasures)+\(typeProbe.adaptiveTableLayoutConstrainedMeasures), cell bodies \(typeProbe.adaptiveTableCellBodyCalls), info \(typeProbe.tableInfoEnsureFreshCalls)× \(ms(typeProbe.tableInfoEnsureFreshMs)) ms; 5 rows added and undone: layout \(rowsProbe.adaptiveTableLayoutSizeCalls)× \(ms(rowsProbe.adaptiveTableLayoutSizeMs)) ms, measures \(rowsProbe.adaptiveTableLayoutIdealMeasures)+\(rowsProbe.adaptiveTableLayoutConstrainedMeasures), cell bodies \(rowsProbe.adaptiveTableCellBodyCalls)")
             for (name, value) in [("click", clicked), ("keystroke", median(keys)), ("add row", add), ("undo", undo), ("menu", menu)] {
                 try self.expect(value < 1000, "\(name) \(ms(value)) ms")
             }

@@ -74,8 +74,19 @@ final class DocKeyboardBar: UIView {
 
     // MARK: State
 
+    /// Whether the stage shows the bar. While it doesn't (the keyboard is down, or on
+    /// the Mac, which has no bar), the keys aren't rebuilt; they catch up when it shows.
+    var isOnScreen = false {
+        didSet { if isOnScreen, !oldValue { update() } }
+    }
+
     /// Follows the cursor: called when the selection changes, and after a key's action.
     func update() {
+        guard isOnScreen else { return }
+        follow()
+    }
+
+    private func follow() {
         guard let editor, let selection = editor.selection, let block = editor.textBlock(selection.head.block) else { return }
         let next: Shown
         if selection.anchor.block == selection.head.block, selection.anchor.offset != selection.head.offset, block.kind.allowsMarks {
@@ -93,7 +104,7 @@ final class DocKeyboardBar: UIView {
 
     private func refresh() {
         shown = nil
-        update()
+        follow()
     }
 
     private func rebuild(_ shown: Shown, block: DocBlock) {
@@ -259,11 +270,13 @@ final class DocKeyboardBar: UIView {
 
     /// The keys shown, by identifier, and which are on.
     var testItems: [(id: String, isOn: Bool)] {
-        keys.arrangedSubviews.compactMap { $0 as? UIButton }.map { ($0.accessibilityIdentifier ?? "", onKeys.contains($0.accessibilityIdentifier ?? "")) }
+        follow()
+        return keys.arrangedSubviews.compactMap { $0 as? UIButton }.map { ($0.accessibilityIdentifier ?? "", onKeys.contains($0.accessibilityIdentifier ?? "")) }
     }
 
     /// Taps a key; for a menu key, chooses the item with this title.
     func testTap(_ id: String, choosing title: String? = nil) {
+        follow()
         guard let button = keys.arrangedSubviews.compactMap({ $0 as? UIButton }).first(where: { $0.accessibilityIdentifier == id }) else { return }
         guard let title else { return button.sendActions(for: .touchUpInside) }
         func actions(_ menu: UIMenu?) -> [UIAction] {
@@ -300,6 +313,7 @@ final class DocKeyboardBarStage: UIView {
     func place(shows: Bool, keyboard: CGRect, duration: Double?, curve: UInt?) {
         isShown = shows
         self.keyboard = keyboard
+        bar.isOnScreen = shows
         bar.accessibilityElementsHidden = !shows
         guard let duration, duration > 0, window != nil else { return setNeedsLayout() }
         layoutIfNeeded()
