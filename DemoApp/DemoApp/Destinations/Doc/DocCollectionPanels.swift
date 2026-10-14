@@ -47,7 +47,7 @@ struct DocPanelFrame<Content: View>: View {
                 FlooDesignDivider()
                 content
             }
-            .frame(width: width, alignment: .leading)
+            .flooDesignPanelWidth(width, alignment: .leading)
         }
     }
 }
@@ -670,6 +670,7 @@ struct DocOptionsPanel: View {
     let controller: DocCollectionController
     @State private var text = ""
     @FocusState private var focused: Bool
+    @Environment(\.flooDesignPanelPresentation) private var presentation
 
     private var block: DocBlockID { snapshot.block }
     private var options: [SelectOption] { DocFieldText.options(column) }
@@ -736,9 +737,10 @@ struct DocOptionsPanel: View {
                     .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
                 }
             }
-            .frame(width: 260)
+            .flooDesignPanelWidth(260)
         }
-        .onAppear { Task { @MainActor in focused = true } }
+        // A phone's sheet opens on the options: the keyboard comes when the field is tapped.
+        .onAppear { if presentation == .anchored { Task { @MainActor in focused = true } } }
     }
 
     private func pick(_ option: OptionID) {
@@ -770,6 +772,7 @@ struct DocDatePanel: View {
     @State private var month = Date.now
     @FocusState private var focused: Bool
     @Environment(\.self) private var environment
+    @Environment(\.flooDesignPanelPresentation) private var presentation
 
     private var calendar: Calendar { .current }
     private var panel: DocCollectionPanel.Kind { .date(row: row.id, column: column.id) }
@@ -848,11 +851,12 @@ struct DocDatePanel: View {
                     .frame(maxWidth: .infinity, minHeight: Metrics.fieldHeight)
                 }
             }
-            .frame(width: 240)
+            .flooDesignPanelWidth(240)
         }
         .onAppear {
             month = chosen ?? .now
-            Task { @MainActor in focused = true }
+            // A phone's sheet opens on the month: the keyboard would take its place.
+            if presentation == .anchored { Task { @MainActor in focused = true } }
         }
     }
 

@@ -709,7 +709,7 @@ struct DocMathPanel: View {
                                                     bottom: FlooDesignTokens.Space.sm, right: FlooDesignTokens.Space.sm))
                     .background(FlooDesignTokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.md, style: .continuous))
             }
-            .frame(width: width)
+            .flooDesignPanelWidth(width)
         }
     }
 }
