@@ -1277,6 +1277,26 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(try database() == before, "undoing the cut left the table changed")
         }
+        if DocBlockController.usesHandles {
+            await test("Table: a right-click on a cell not edited edits that cell and opens its menu") {
+                let t = try table()
+                var points: [(DocCellKey, CGPoint)] = []
+                for (row, column) in [(2, 1), (1, 2), (0, 0)] {
+                    let view = try await click(row, column)
+                    let list = try self.expectValue(DocScrolling.list(of: view), "no list")
+                    points.append((t.key(row, column), list.convert(CGPoint(x: view.bounds.midX, y: view.bounds.midY), from: view)))
+                }
+                for (key, point) in points {
+                    self.editor.tables.leave(key)
+                    self.editor.blocks.clear()
+                    try? await Task.sleep(for: .milliseconds(100))
+                    try self.expect(self.editor.tables.editing == nil, "still editing")
+                    try self.expect(self.editor.blocks.testRightClick(at: point) == nil, "the block's menu, not the cell's")
+                    _ = try await cellEditor(key)
+                    try self.expect(self.editor.tables.menu == DocTableMenuTarget(key: key), "menu \(String(describing: self.editor.tables.menu)), wanted \(key)")
+                }
+            }
+        }
         await test("Table: a cell's menu is that cell's, and goes when another cell is edited") {
             _ = try await click(2, 1)
             let key = try editedKey()
@@ -1755,6 +1775,31 @@ final class DocEditTests {
                 try? await Task.sleep(for: .milliseconds(100))
                 try self.expect(blocks.typing == nil, "still typing in \(String(describing: blocks.typing))")
                 try self.expect(!hitsText(), "a text takes clicks with nothing edited")
+            }
+            await test("a right-click on a block selects it and shows its menu: List turns it into a list item, Insert Below edits a new line under it; one undo each") {
+                let block = try self.block("Loading older")
+                await show(block.id)
+                self.editor.dismissKeyboard()
+                blocks.clear()
+                try? await Task.sleep(for: .milliseconds(100))
+                let before = order()
+                let row = try self.expectValue(blocks.testRowFrame(block.id), "no row")
+                try self.expect(blocks.testRightClick(at: CGPoint(x: row.midX, y: row.midY)) != nil, "no menu")
+                try self.expect(blocks.selected == [block.id], "selected \(blocks.selected.count)")
+                let titles = blocks.selectionMenu().children.flatMap { ($0 as? UIMenu)?.children ?? [$0] }.map(\.title)
+                try self.expect(titles == ["Cut", "Copy", "Duplicate", "Format", "Insert", "Delete"], "menu \(titles)")
+                try self.perform(blocks.selectionMenu(), ["Format", "List", "Bullet List"])
+                try self.expect(self.demo.doc.block(block.id)?.kind == .listItem(style: .bullet), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
+                try await self.undo()
+                try self.expect(self.demo.doc.block(block.id)?.kind == block.kind, "undo left \(String(describing: self.demo.doc.block(block.id)?.kind))")
+                blocks.click(block.id)
+                try self.perform(blocks.selectionMenu(), ["Insert", "Insert Below"])
+                let index = try self.expectValue(before.firstIndex(of: block.id), "no index")
+                let line = try self.expectValue(self.demo.doc.blocks.dropFirst(index + 1).first, "no line")
+                try self.expect(order().count == before.count + 1 && line.kind == .paragraph && line.text.isEmpty, "inserted \(line.kind) \(line.text.length)")
+                try self.expect(self.editor.selection?.head.block == line.id && blocks.selected.isEmpty, "the caret isn't in the new line")
+                try await self.undo()
+                try self.expect(order() == before, "undo didn't take the line back")
             }
             await test("a drag on a block's text moves the block") {
                 let block = try self.block("Loading older")
@@ -2976,6 +3021,25 @@ final class DocEditTests {
     private func expectValue<T>(_ value: T?, _ message: String) throws -> T {
         guard let value else { throw Failure(description: message) }
         return value
+    }
+
+    /// Chooses the item at `path` in a menu (titles, through submenus; inline sections are
+    /// looked into), as a click on it would.
+    private func perform(_ menu: UIMenu, _ path: [String]) throws {
+        func find(_ elements: [UIMenuElement], _ path: ArraySlice<String>) -> UIAction? {
+            guard let title = path.first else { return nil }
+            for element in elements {
+                if let inner = element as? UIMenu {
+                    if inner.options.contains(.displayInline), let found = find(inner.children, path) { return found }
+                    if inner.title == title, let found = find(inner.children, path.dropFirst()) { return found }
+                } else if let action = element as? UIAction, action.title == title, path.count == 1 {
+                    return action
+                }
+            }
+            return nil
+        }
+        let action = try expectValue(find(menu.children, path[...]), "no \(path.joined(separator: " › ")) in the menu")
+        action.performWithSender(nil, target: nil)
     }
 
     private func expectCursor(_ id: DocBlockID, _ offset: Int) throws {

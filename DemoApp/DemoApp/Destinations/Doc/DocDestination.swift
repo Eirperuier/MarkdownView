@@ -412,6 +412,12 @@ private struct DocPageView: View {
     }
 }
 
+/// A row's space: its host's (the row is at the host's top left), where UIKit finds
+/// what's under a point in it.
+enum DocRowSpace {
+    static let name = "doc-row"
+}
+
 struct DocRowCell: TiledCellContent {
     let item: DocRow
     let demo: DocDemo
@@ -455,6 +461,7 @@ private struct DocRowView: View {
         .allowsHitTesting(row.block.map { blocks.blockTakes($0, editsText: row.editsText, isView: row.isView) } ?? true)
         // A dropped block shows once what flies to it is down.
         .opacity(row.block.map(blocks.isLanding) == true ? 0 : 1)
+        .coordinateSpace(.named(DocRowSpace.name))
     }
 
     /// A link, file or image where the list places its row (DocRowRun), laid out at the
@@ -630,43 +637,6 @@ private struct DocBlockOverlays: ViewModifier {
             blocks.attach(reader)
             blocks.layoutOverlays()
         }
-    }
-}
-
-/// A link, file or image's layouts, as a menu (the Mac's right-click).
-struct DocMediaMenu: View {
-    let kind: BlockKind
-    let block: DocBlockID
-    let blocks: DocBlockController
-
-    var body: some View {
-        let ids = blocks.selected.contains(block) ? blocks.selected : [block]
-        switch kind {
-        case .link(let link): layouts(link.layout, ids)
-        case .file(let file): layouts(file.layout, ids)
-        case .image(let image):
-            Section("Image Display") {
-                Toggle("Fit", isOn: binding(image.fit == .fit) { blocks.setImage(fit: .fit, of: ids) })
-                Toggle("Fill", isOn: binding(image.fit == .fill) { blocks.setImage(fit: .fill, of: ids) })
-            }
-            Section("Image Size") {
-                Toggle("Auto", isOn: binding(image.size == .auto) { blocks.setImage(size: .auto, of: ids) })
-                Toggle("Large", isOn: binding(image.size == .large) { blocks.setImage(size: .large, of: ids) })
-            }
-        default: EmptyView()
-        }
-    }
-
-    private func layouts(_ current: DocLayout, _ ids: [DocBlockID]) -> some View {
-        Section("Layout") {
-            ForEach(DocLayout.allCases, id: \.self) { layout in
-                Toggle(layout.title, isOn: binding(current == layout) { blocks.setLayout(layout, of: ids) })
-            }
-        }
-    }
-
-    private func binding(_ isOn: Bool, choose: @escaping () -> Void) -> Binding<Bool> {
-        Binding(get: { isOn }, set: { if $0 { choose() } })
     }
 }
 

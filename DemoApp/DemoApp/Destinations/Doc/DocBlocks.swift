@@ -30,7 +30,7 @@ import CardRuntime
 @MainActor
 @Observable
 final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInteractionDelegate, UIDropInteractionDelegate,
-    QLPreviewControllerDataSource {
+    UIContextMenuInteractionDelegate, QLPreviewControllerDataSource {
     #if targetEnvironment(macCatalyst)
     nonisolated static let usesHandles = true
     #else
@@ -57,7 +57,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         min(720, max(0, width - leadingGutter - trailingGutter))
     }
 
-    @ObservationIgnored private let demo: DocDemo
+    @ObservationIgnored let demo: DocDemo
     @ObservationIgnored unowned let editor: DocEditor
     /// A phone's block selection: the chat's (MarkdownView's block selection mode), its
     /// dots over the page's right edge, a tap on any block adding or removing it, a
@@ -202,6 +202,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             click.delegate = self
             list.addGestureRecognizer(click)
             blockClick = click
+            list.addInteraction(UIContextMenuInteraction(delegate: self))
         } else {
             selection.install(layout: reader)
             let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
@@ -346,7 +347,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         let text = Self.usesHandles && landings == 0 ? selected.filter { demo.doc.block($0).map { !DocMediaView.draws($0.kind) } ?? false } : []
         let outset = Self.highlightOutset
         highlights = place(text.compactMap { pageFrame($0)?.insetBy(dx: 0, dy: -outset) }, in: highlights, outset: 10) {
-            let view = UIView()
+            let view = DocSelectionHighlight()
             view.backgroundColor = FlooDesignTokens.UIKitColor.accent.withAlphaComponent(MarkdownBlockSelectionStyle.highlightOpacity)
             view.layer.cornerRadius = MarkdownBlockSelectionStyle.highlightCornerRadius
             view.layer.cornerCurve = .continuous
@@ -467,6 +468,20 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @objc private func blockClicked(_ recognizer: UITapGestureRecognizer) {
         guard let list, !demo.isAgentWriting, let id = block(at: recognizer.location(in: list)) else { return }
         click(id, modifiers: recognizer.modifierFlags)
+    }
+
+    /// A right-click on a block (Craft's): it is selected (or stays, with the others
+    /// selected with it) and the menu shows what can be done to them (DocBlockMenu). On
+    /// a table's cell the cell is edited, and its menu shows (ours, by the cell). Text
+    /// being edited has its own (DocEditor.editMenu).
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+        guard Self.usesHandles, drag == nil, !demo.isAgentWriting, let id = block(at: location) else { return nil }
+        if let row = rowFrame(id), let cell = editor.tables.cell(in: id, at: CGPoint(x: location.x - row.minX, y: location.y - row.minY)) {
+            editor.tables.showMenu(cell)
+            return nil
+        }
+        if !selected.contains(id) { click(id) }
+        return UIContextMenuConfiguration(actionProvider: { [weak self] _ in self?.selectionMenu() })
     }
 
     /// Whether a block's row (`editsText`: it has text to edit) takes clicks itself (its
@@ -1561,6 +1576,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// moved (a click), as the Mac's click and drag on the list take it; false if they
     /// don't.
     @discardableResult
+    /// A right-click at `point` (list coordinates), as the system asks for its menu.
+    func testRightClick(at point: CGPoint) -> UIContextMenuConfiguration? {
+        contextMenuInteraction(UIContextMenuInteraction(delegate: self), configurationForMenuAtLocation: point)
+    }
+
     func testPress(_ id: DocBlockID, toY y: CGFloat? = nil) -> Bool {
         guard let list, let frame = contentFrame(id) else { return false }
         let start = CGPoint(x: frame.midX, y: frame.midY)
@@ -1727,6 +1747,16 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
         try? image.pngData()?.write(to: URL(fileURLWithPath: path))
+    }
+}
+
+/// The Mac's highlight on a selected block. It takes the right-click on the block, so
+/// the list's menu shows (DocBlockMenu): the text's own would put the caret in it first,
+/// and the block wouldn't be selected any more. Other clicks go through to the block.
+final class DocSelectionHighlight: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !isHidden, event?.buttonMask.contains(.secondary) == true, bounds.contains(point) else { return nil }
+        return self
     }
 }
 

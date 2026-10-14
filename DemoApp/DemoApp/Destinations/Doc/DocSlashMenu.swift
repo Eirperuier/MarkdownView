@@ -355,9 +355,7 @@ extension DocEditor {
         case .color(let token): formatting.setColor(token)
         case .copy: blocks.copy([id])
         case .duplicate: blocks.duplicate([id])
-        case .clearFormat:
-            guard let block = demo.doc.block(id) else { return }
-            apply(DocCopiedFormat(kind: block.kind, decoration: nil, marks: [:]), to: [id])
+        case .clearFormat: clearFormat(of: [id])
         case .delete: blocks.delete([id])
         case .kind, .divider, .table, .page: break
         }

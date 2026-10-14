@@ -281,6 +281,8 @@ struct MarkdownTableContent: View {
     @Environment(\.markdownTableCellHooks) private var cellHooks
     /// The cells' hooks (MarkdownTableCellHookBox), the latest the host gave.
     @State private var hookBox = MarkdownTableCellHookBox()
+    /// Where the rows and columns are (MarkdownTableGridKey).
+    @State private var grid = MarkdownTableGrid()
     /// 表格 cell 可选中的**惰性升级(逐 cell)**:初载全部走原版 Text(大表逐 cell UITextView
     /// 实测把初载拖到 ~4×),某个 cell 第一次被点按才升级为可选中 —— 双击选字的第一击即完成
     /// 该 cell 升级,第二击已落在 UITextView 上;粒度=单 cell(整表升级在超大表上会卡一帧)。
@@ -423,7 +425,8 @@ struct MarkdownTableContent: View {
                 columnWidthBuckets: tableConfiguration.columnWidthBuckets,
                 rowBackgroundRows: stripeRows.map(\.row),
                 columnSpacing: spacing,
-                contentRevision: replaced.isEmpty ? cache.revision : cache.revision &+ replaced.hashValue
+                contentRevision: replaced.isEmpty ? cache.revision : cache.revision &+ replaced.hashValue,
+                grid: grid
             ) {
                 ForEach(stripeRows) { item in
                     AdaptiveTableRowStripe(
@@ -472,6 +475,7 @@ struct MarkdownTableContent: View {
                 }
             }
             .anchorPreference(key: MarkdownTableBoundsKey.self, value: .bounds) { $0 }
+            .preference(key: MarkdownTableGridKey.self, value: grid)
         }
         .markdownTableCellPadding(.horizontal, horizontalPadding)
         .markdownTableCellPadding(.vertical, verticalPadding)
@@ -915,6 +919,8 @@ struct AdaptiveTableLayout: Layout {
     var rowBackgroundRows: [Int] = []
     var columnSpacing: CGFloat = 12
     var contentRevision: Int
+    /// Told where the rows and columns are placed.
+    var grid: MarkdownTableGrid?
 
     struct CacheData {
         var columnWidths: [CGFloat] = []
@@ -1138,6 +1144,13 @@ struct AdaptiveTableLayout: Layout {
                 at: cache.absoluteCellOrigins[index],
                 proposal: cache.cellProposals[index]
             )
+        }
+        // Layout runs on the main thread.
+        if let grid {
+            let (columns, widths, rows, heights, spacing) = (cache.columnOffsets, cache.columnWidths, cache.rowOffsets, cache.rowHeights, columnSpacing)
+            MainActor.assumeIsolated {
+                grid.update(columnOffsets: columns, columnWidths: widths, rowOffsets: rows, rowHeights: heights, spacing: spacing)
+            }
         }
     }
 

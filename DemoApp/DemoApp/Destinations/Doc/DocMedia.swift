@@ -479,8 +479,7 @@ extension DocMediaLayout {
 }
 
 /// A link, file or image with what selecting adds: a tinted outline around it (Craft's;
-/// its dot is the selection's, over its box); on the Mac a right-click offers its
-/// layouts. In a gallery an image's box is its place's.
+/// its dot is the selection's, over its box). In a gallery an image's box is its place's.
 struct DocMediaCell: View {
     let id: DocBlockID
     let kind: BlockKind
@@ -492,7 +491,6 @@ struct DocMediaCell: View {
             // What a card asks of the app (its tools, its pictures).
             .environment(\.cardHost, blocks.cardHost)
             .flooDesignMediaSelection(blocks.isSelected(id))
-            .modifier(DocMediaContextMenu(kind: kind, block: id, blocks: blocks))
         if case .card(let card) = kind {
             DocCardGap(designWidth: CGFloat(DocMediaLayout.size(of: card).width(grid: DocMediaLayout.cardGrid))) { cell }
         } else {
@@ -531,20 +529,5 @@ private struct DocCardGap: Layout {
 
     private func gap(_ width: CGFloat) -> CGFloat {
         CGFloat(CardSize.gutter(grid: DocMediaLayout.cardGrid)) * width / designWidth
-    }
-}
-
-/// On the Mac a right-click offers a link, file or image's layouts.
-private struct DocMediaContextMenu: ViewModifier {
-    let kind: BlockKind
-    let block: DocBlockID
-    let blocks: DocBlockController
-
-    func body(content: Content) -> some View {
-        #if targetEnvironment(macCatalyst)
-        content.contextMenu { DocMediaMenu(kind: kind, block: block, blocks: blocks) }
-        #else
-        content
-        #endif
     }
 }

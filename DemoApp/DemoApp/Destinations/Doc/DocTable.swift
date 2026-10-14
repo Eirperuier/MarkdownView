@@ -140,6 +140,10 @@ final class DocTableController {
     @ObservationIgnored private var pendingFocus: (key: DocCellKey, atEnd: Bool)?
     /// Typing in one cell is one undo step until another cell is edited.
     @ObservationIgnored private var session: UInt64 = 0
+    /// Where each table's cells are in its row (DocRowSpace), and its rows and columns:
+    /// how a click the table doesn't take itself (a right-click) finds its cell.
+    @ObservationIgnored private var cellFrames: [DocBlockID: CGRect] = [:]
+    @ObservationIgnored private var grids: [DocBlockID: MarkdownTableGrid] = [:]
 
     init(demo: DocDemo, editor: DocEditor) {
         self.demo = demo
@@ -363,6 +367,17 @@ final class DocTableController {
     private func exists(_ key: DocCellKey) -> Bool {
         guard let (_, database) = database(key.block), database.columns.contains(where: { $0.id == key.column }) else { return false }
         return key.row.map { row in database.rows.contains { $0.id == row } } ?? true
+    }
+
+    func placed(_ block: DocBlockID, cells frame: CGRect?) { cellFrames[block] = frame }
+    func placed(_ block: DocBlockID, grid: MarkdownTableGrid?) { grids[block] = grid }
+
+    /// The cell at `point` in the table's row (DocRowSpace).
+    func cell(in block: DocBlockID, at point: CGPoint) -> DocCellKey? {
+        guard let frame = cellFrames[block], let grid = grids[block], let (_, database) = database(block),
+              let position = grid.position(at: CGPoint(x: point.x - frame.minX, y: point.y - frame.minY))
+        else { return nil }
+        return key(in: DocTableSnapshot(block: block, database: database), at: position)
     }
 
     func key(in table: DocTableSnapshot, at position: MarkdownTableCellPosition) -> DocCellKey? {
@@ -1107,6 +1122,10 @@ struct DocTableRowView: View {
                 }
             }
             .onPreferenceChange(MarkdownTableBoundsKey.self) { tableBounds = $0 }
+            .onPreferenceChange(MarkdownTableGridKey.self) { [block = table.block, controller] in controller.placed(block, grid: $0) }
+            .onGeometryChange(for: CGRect?.self) { [tableBounds] proxy in
+                tableBounds.map { proxy[$0].offsetBy(dx: proxy.frame(in: .named(DocRowSpace.name)).minX, dy: proxy.frame(in: .named(DocRowSpace.name)).minY) }
+            } action: { [block = table.block, controller] in controller.placed(block, cells: $0) }
             // Room for the dots on the right and bottom edges, in the row (a touch out of it
             // goes nowhere).
             .padding(.trailing, Handles.target / 2)

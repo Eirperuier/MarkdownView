@@ -31,6 +31,47 @@ public struct MarkdownTableBoundsKey: PreferenceKey {
     }
 }
 
+/// Where a scrolling table's rows and columns are, in the space of its bounds
+/// (MarkdownTableBoundsKey): the cell a point falls in, for a host taking a click the
+/// table doesn't (a right-click). The same object while the table is there; its layout
+/// keeps it up to date.
+public struct MarkdownTableGridKey: PreferenceKey {
+    public static let defaultValue: MarkdownTableGrid? = nil
+
+    public static func reduce(value: inout MarkdownTableGrid?, nextValue: () -> MarkdownTableGrid?) {
+        value = value ?? nextValue()
+    }
+}
+
+@MainActor public final class MarkdownTableGrid: Equatable {
+    private var columnOffsets: [CGFloat] = []
+    private var columnWidths: [CGFloat] = []
+    private var rowOffsets: [CGFloat] = []
+    private var rowHeights: [CGFloat] = []
+    private var spacing: CGFloat = 0
+
+    /// The cell at `point` (in the bounds' space; a point between two columns is the
+    /// nearer one's), nil outside the cells.
+    public func position(at point: CGPoint) -> MarkdownTableCellPosition? {
+        guard point.x >= 0, let row = rowOffsets.lastIndex(where: { $0 <= point.y }),
+              point.y < rowOffsets[row] + rowHeights[row],
+              let column = columnOffsets.lastIndex(where: { $0 - spacing / 2 <= point.x }),
+              point.x < columnOffsets[column] + columnWidths[column] + spacing / 2
+        else { return nil }
+        return MarkdownTableCellPosition(row: row, column: column)
+    }
+
+    func update(columnOffsets: [CGFloat], columnWidths: [CGFloat], rowOffsets: [CGFloat], rowHeights: [CGFloat], spacing: CGFloat) {
+        self.columnOffsets = columnOffsets
+        self.columnWidths = columnWidths
+        self.rowOffsets = rowOffsets
+        self.rowHeights = rowHeights
+        self.spacing = spacing
+    }
+
+    nonisolated public static func == (lhs: MarkdownTableGrid, rhs: MarkdownTableGrid) -> Bool { lhs === rhs }
+}
+
 /// The host's hooks, in the environment. The same as long as the host's hooks are there
 /// and replace the same cells: the closures are new on each of the host's renders, and
 /// an environment changing on each would have every view in the table look at it again.

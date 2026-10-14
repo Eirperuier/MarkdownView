@@ -980,9 +980,18 @@ final class DocEditor {
     /// list keeps its items' levels) and its marks on all their text, any block its
     /// decoration.
     func apply(_ format: DocCopiedFormat, to ids: Set<DocBlockID>) {
+        apply(format, to: ids, keepsKind: false)
+    }
+
+    /// Marks, colour and decoration off these blocks, in one transaction; each keeps its kind.
+    func clearFormat(of ids: Set<DocBlockID>) {
+        apply(DocCopiedFormat(kind: .paragraph, decoration: nil, marks: [:]), to: ids, keepsKind: true)
+    }
+
+    private func apply(_ format: DocCopiedFormat, to ids: Set<DocBlockID>, keepsKind: Bool) {
         var steps: [DocStep] = []
         for block in demo.doc.blocks where ids.contains(block.id) {
-            let kind = block.kind.carriesText && format.kind.carriesText ? format.kind : block.kind
+            let kind = !keepsKind && block.kind.carriesText && format.kind.carriesText ? format.kind : block.kind
             if !DocFormatting.same(kind, block.kind) {
                 let indent = if case .listItem = format.kind, case .listItem = block.kind { block.indent } else { 0 }
                 steps.append(.setBlock(block: block.id, kind: format.kind, indent: indent, previousKind: block.kind, previousIndent: block.indent))
