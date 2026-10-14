@@ -164,11 +164,6 @@ private struct DocPageView: View {
             // The rest once a page: coming back to it (a page above it left) keeps its place.
             guard !page.appeared else { return }
             page.appeared = true
-            // Opening a document starts at its top (TiledView's first offset tucks the
-            // first row under the bar's edge).
-            try? await Task.sleep(for: .milliseconds(150))
-            if let first = demo.rows.first?.id { reader.scrollTo(id: first, anchor: .top, animated: false) }
-            DocTiming.mark("scrolled to the top \(page.title)", once: true)
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
             editor.blocks.attach(reader)
             editor.blocks.openPage = { [pages] block in pages.open(block) }

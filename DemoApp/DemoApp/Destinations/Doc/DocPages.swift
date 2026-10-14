@@ -209,6 +209,8 @@ struct DocPageTitle: View {
             }
         }
         .lineLimit(1)
+        // As wide as its words: the bar's leading place would squeeze it to a letter.
+        .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .contain)
     }
 }
