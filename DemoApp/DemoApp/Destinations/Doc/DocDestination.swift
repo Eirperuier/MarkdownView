@@ -16,20 +16,28 @@ struct DocDestination: View {
     /// Code blocks are coloured by Highlightr, read and edited alike.
     static let highlighter = HighlightrCodeHighlighter()
 
-    @State private var demo: DocDemo
-    @State private var editor: DocEditor
+    static var autoruns: Bool { UserDefaults.standard.bool(forKey: "docAgent") }
+
+    @State private var pages = DocPages(root: DocDemo())
+
+    var body: some View {
+        // A page shown afresh: its list, its scroll, its bar.
+        DocPageView(page: pages.current, pages: pages)
+            .id(pages.current.id)
+    }
+}
+
+/// One page of the window: its bar, its blocks.
+private struct DocPageView: View {
+    let page: DocOpenPage
+    let pages: DocPages
     @State private var scrollPosition = TiledScrollPosition()
     @State private var reader = TiledViewReader<String>()
     /// The app's: links, files and images open with it (DocBlockController.openURL).
     @Environment(\.openURL) private var openURL
 
-    static var autoruns: Bool { UserDefaults.standard.bool(forKey: "docAgent") }
-
-    init() {
-        let demo = DocDemo()
-        _demo = State(initialValue: demo)
-        _editor = State(initialValue: DocEditor(demo: demo))
-    }
+    private var demo: DocDemo { page.demo }
+    private var editor: DocEditor { page.editor }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -113,6 +121,20 @@ struct DocDestination: View {
             if let first = demo.rows.first?.id { reader.scrollTo(id: first, anchor: .top, animated: false) }
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
             editor.blocks.attach(reader)
+            editor.blocks.openPage = { [pages] block in pages.open(block) }
+            // The launch options below are the window's first page's, once.
+            guard !pages.ranLaunchOptions else { return }
+            pages.ranLaunchOptions = true
+            // -docOpenPage YES: the first page block's page open (-docShot draws it there).
+            if UserDefaults.standard.bool(forKey: "docOpenPage"),
+               let block = demo.doc.blocks.first(where: { if case .page = $0.kind { true } else { false } }) {
+                Task { @MainActor [pages] in
+                    pages.open(block.id)
+                    try? await Task.sleep(for: .seconds(1.5))
+                    if let path = UserDefaults.standard.string(forKey: "docShot") { DocBlockController.drawWindow(to: path) }
+                }
+                return
+            }
             // -docShow code|math|media|view: open at the first code, math, link/file/image
             // or view block (the top of the first media or view); -docEdit YES edits code
             // or math.
@@ -122,6 +144,7 @@ struct DocDestination: View {
                    case "code": if case .code = row.sourceKind { true } else { false }
                    case "media": row.media != nil
                    case "view": if case .view? = row.media { true } else { false }
+                   case "page": row.page != nil
                    default: row.sourceKind == .math
                    }
                }),
@@ -276,9 +299,10 @@ struct DocDestination: View {
                 DocBlockController.drawWindow(to: path)
             }
             if UserDefaults.standard.bool(forKey: "docEditTest") {
-                await DocEditTests(demo: demo, editor: editor).run()
+                // Not the page's task: going into a page takes this page's view (and its task) away.
+                await Task { @MainActor [demo, editor, pages] in await DocEditTests(demo: demo, editor: editor, pages: pages).run() }.value
             }
-            if Self.autoruns {
+            if DocDestination.autoruns {
                 try? await Task.sleep(for: .seconds(1))
                 demo.runScript()
             }
@@ -305,6 +329,10 @@ struct DocDestination: View {
                 Button("Stop") { demo.stop() }
                     .buttonStyle(FlooDesignButtonStyle(.secondary))
             } else {
+                if pages.path.count > 1 {
+                    DocPagePath(pages: pages)
+                        .padding(.trailing, FlooDesignTokens.Space.sm)
+                }
                 Button("Undo", systemImage: "arrow.uturn.backward") { editor.requestUndo() }
                     .keyboardShortcut("z", modifiers: .command)
                     .disabled(!demo.canUndo)
@@ -320,13 +348,16 @@ struct DocDestination: View {
                     .buttonStyle(FlooDesignTileButtonStyle(isOn: editor.panels.showsFormat, surface: .chip, cornerRadius: FlooDesignTokens.Radius.sm))
                     .help("Format")
                 #endif
-                Button("Reset") {
-                    demo.reset()
-                    editor.resetHistory()
+                // The demo's own controls, on its first page.
+                if pages.path.count == 1 {
+                    Button("Reset") {
+                        demo.reset()
+                        editor.resetHistory()
+                    }
+                    .buttonStyle(FlooDesignButtonStyle(.borderless))
+                    Button("Agent Demo") { demo.runScript() }
+                        .buttonStyle(FlooDesignButtonStyle(.primary))
                 }
-                .buttonStyle(FlooDesignButtonStyle(.borderless))
-                Button("Agent Demo") { demo.runScript() }
-                    .buttonStyle(FlooDesignButtonStyle(.primary))
             }
         }
         .labelStyle(.iconOnly)
@@ -360,6 +391,8 @@ private struct DocRowView: View {
                 placed(DocMediaCell(id: block, kind: media, blocks: blocks, inGallery: run.kind == .gallery), in: run)
             } else if let collection = row.collection, !row.isStreaming {
                 wide(DocCollectionView(snapshot: collection, controller: collections))
+            } else if let page = row.page, let block = row.block, !row.isStreaming {
+                inPage(DocPageRowView(block: block, page: page, blocks: blocks))
             } else {
                 page
             }
@@ -378,6 +411,17 @@ private struct DocRowView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .modifier(DocRowBoxing(box: row.box, spacingAbove: row.spacingAbove, run: run))
             .padding(.bottom, row.spacingBelow)
+    }
+
+    /// A block drawn in the page's text column (a page block).
+    private func inPage(_ content: some View) -> some View {
+        content
+            .modifier(DocRowBoxing(box: row.box, spacingAbove: row.spacingAbove))
+            .padding(.bottom, row.spacingBelow)
+            .frame(maxWidth: 720, alignment: .leading)
+            .padding(.leading, DocBlockController.leadingGutter)
+            .padding(.trailing, DocBlockController.trailingGutter)
+            .frame(maxWidth: .infinity)
     }
 
     /// A collection, wider than the page's text (Craft's), centred on it.

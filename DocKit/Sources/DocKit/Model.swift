@@ -63,12 +63,15 @@ public enum BlockKind: Hashable, Sendable, Codable {
     /// A collection (Craft's): a database with a name, shown through views the reader
     /// switches between (a table, a kanban), the same records in each.
     case collection(collection: DocCollection)
+    /// A page of its own (Craft's): another document, opened from here. The block keeps
+    /// its title as the page last had it.
+    case page(page: DocPage)
 
     /// The kinds whose `text` holds content; the rest must be empty.
     public var carriesText: Bool {
         switch self {
         case .paragraph, .heading, .listItem, .quote, .caption, .code, .math: true
-        case .divider, .image, .link, .file, .card, .view, .database, .collection: false
+        case .divider, .image, .link, .file, .card, .view, .database, .collection, .page: false
         }
     }
 
@@ -76,7 +79,7 @@ public enum BlockKind: Hashable, Sendable, Codable {
     public var allowsMarks: Bool {
         switch self {
         case .paragraph, .heading, .listItem, .quote, .caption: true
-        case .code, .math, .divider, .image, .link, .file, .card, .view, .database, .collection: false
+        case .code, .math, .divider, .image, .link, .file, .card, .view, .database, .collection, .page: false
         }
     }
 
@@ -212,6 +215,18 @@ public struct DocCollection: Hashable, Sendable, Codable {
     /// The view showing: the current one, or the first if that's gone.
     public var currentView: CollectionView? {
         views.first { $0.id == current } ?? views.first
+    }
+}
+
+/// A page block's page: the document it opens, and its title (the page's first heading,
+/// as it was when the page was last left).
+public struct DocPage: Hashable, Sendable, Codable {
+    public var doc: DocID
+    public var title: String
+
+    public init(doc: DocID, title: String = "") {
+        self.doc = doc
+        self.title = title
     }
 }
 

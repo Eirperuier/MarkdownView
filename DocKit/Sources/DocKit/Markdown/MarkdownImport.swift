@@ -174,6 +174,10 @@ private struct MarkdownImporter<Generator: RandomNumberGenerator> {
             append(.collection(collection: fence.collection), indent: indent)
             return
         }
+        if language == "floo.page", let page = try? JSONDecoder().decode(DocPage.self, from: Data(body.utf8)) {
+            append(.page(page: page), indent: indent)
+            return
+        }
         append(.code(language: language), indent: indent, text: DocText(string: InlineBuilder.cleaned(body)))
     }
 

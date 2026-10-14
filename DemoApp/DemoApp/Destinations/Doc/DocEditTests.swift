@@ -35,12 +35,15 @@ func docTestLog(_ line: String) {
 final class DocEditTests {
     private let demo: DocDemo
     private let editor: DocEditor
+    /// The window's pages, when the tests run in one.
+    private let pages: DocPages?
     private var passed = 0
     private var failed = 0
 
-    init(demo: DocDemo, editor: DocEditor) {
+    init(demo: DocDemo, editor: DocEditor, pages: DocPages? = nil) {
         self.demo = demo
         self.editor = editor
+        self.pages = pages
     }
 
     private struct Failure: Error, CustomStringConvertible {
@@ -1983,6 +1986,55 @@ final class DocEditTests {
             for _ in 0..<7 { try await self.undo() }
             try self.expect(try current().database == original, "the multi-select steps didn't all undo")
             try self.expect(try current().collection == start, "the collection didn't come back whole")
+        }
+        await test("a page block opens its page; its title, changed there, goes back up as one undo step") {
+            let pages = try self.expectValue(self.pages, "no pages")
+            let block = try self.expectValue(self.demo.doc.blocks.first { if case .page = $0.kind { true } else { false } }, "no page block")
+            guard case .page(let page) = block.kind else { return }
+            let root = pages.current
+            pages.open(block.id)
+            try? await Task.sleep(for: .milliseconds(300))
+            let inside = pages.current
+            try self.expect(inside !== root && pages.path.count == 2, "not in the page")
+            let heading = try self.expectValue(inside.demo.doc.blocks.first, "an empty page")
+            try self.expect(heading.kind == .heading(level: 1) && heading.text.string == page.title, "the page starts \(heading.kind) \(heading.text.string)")
+            inside.demo.edit([.insertText(block: heading.id, at: heading.text.length, text: DocText(string: "（草稿）"))], before: nil, after: nil)
+            try self.expect(inside.title == page.title + "（草稿）", "the path says \(inside.title)")
+            pages.back()
+            try? await Task.sleep(for: .milliseconds(300))
+            try self.expect(pages.current === root, "not back")
+            guard case .page(let renamed)? = self.demo.doc.block(block.id)?.kind else { throw Failure(description: "the block isn't a page") }
+            try self.expect(renamed.title == page.title + "（草稿）" && renamed.doc == page.doc, "the block says \(renamed.title)")
+            try await self.undo()
+            guard case .page(let undone)? = self.demo.doc.block(block.id)?.kind else { throw Failure(description: "the block isn't a page") }
+            try self.expect(undone.title == page.title, "the title's undo left \(undone.title)")
+            // Opened again, it's as it was left.
+            pages.open(block.id)
+            try? await Task.sleep(for: .milliseconds(300))
+            try self.expect(pages.current === inside && inside.demo.doc.blocks.first?.text.string == page.title + "（草稿）", "the page came back new")
+            pages.back(to: 0)
+            try? await Task.sleep(for: .milliseconds(300))
+            try await self.undo()
+        }
+        await test("/page makes the line a page of its words and goes into it") {
+            let pages = try self.expectValue(self.pages, "no pages")
+            let paragraph = try self.block("Loading older")
+            let anchor = try self.expectValue(self.demo.doc.blocks.firstIndex { $0.id == paragraph.id }, "no index")
+            let id = self.demo.newBlockID()
+            let start = DocSelection(anchor: .init(block: paragraph.id, offset: 0), head: .init(block: paragraph.id, offset: 0))
+            self.demo.edit([.insertBlock(block: DocBlock(id: id, kind: .paragraph, text: DocText(string: "旅行/page")), after: self.demo.doc.blocks[anchor - 1].id)],
+                           before: start, after: start)
+            let line = try self.expectValue(self.demo.doc.block(id), "no line")
+            self.editor.perform(.page, in: line, replacing: 2..<7, from: DocPosition(block: id, offset: 7))
+            try? await Task.sleep(for: .milliseconds(300))
+            guard case .page(let page)? = self.demo.doc.block(id)?.kind else { throw Failure(description: "not a page: \(String(describing: self.demo.doc.block(id)?.kind))") }
+            try self.expect(page.title == "旅行" && pages.path.count == 2, "page \(page.title), \(pages.path.count) deep")
+            try self.expect(pages.current.demo.doc.id == page.doc, "in another page")
+            pages.back()
+            try? await Task.sleep(for: .milliseconds(300))
+            try await self.undo()
+            try await self.undo()
+            try self.expect(self.demo.doc.block(id) == nil, "the line stayed")
         }
         await test("cards next to each other share a line; a point on each picks that one") {
             let line = try self.expectValue(self.linkCards(), "no line of cards")

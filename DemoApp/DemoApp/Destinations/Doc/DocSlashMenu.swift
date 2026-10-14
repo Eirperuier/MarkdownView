@@ -27,6 +27,8 @@ struct DocCommand: Identifiable, Equatable, Sendable {
         case divider
         /// `rows` counts the header row.
         case table(rows: Int, columns: Int)
+        /// The block becomes a page, its words the title, and the window goes into it.
+        case page
         /// Marks, colour and box off; the kind stays.
         case clearFormat
         case delete
@@ -88,6 +90,7 @@ struct DocCommand: Identifiable, Equatable, Sendable {
         .init(id: "code", title: String(localized: "Code Block"), symbol: "chevron.left.forwardslash.chevron.right", keywords: ["code", "snippet", "daima"], action: .kind(.code(language: nil))),
         .init(id: "math", title: String(localized: "Math Block"), symbol: "function", keywords: ["math", "latex", "equation", "gongshi"], action: .kind(.math)),
         .init(id: "divider", title: String(localized: "Divider"), symbol: "minus", keywords: ["divider", "line", "hr", "fengexian"], action: .divider),
+        .init(id: "page", title: String(localized: "Page"), symbol: "doc.text", keywords: ["page", "subpage", "yemian"], action: .page),
         .init(id: "clear", title: String(localized: "Clear Format"), symbol: "xmark.square", keywords: ["clear", "format", "qingchu"], action: .clearFormat),
         .init(id: "delete", title: String(localized: "Delete Block"), symbol: "trash", keywords: ["delete", "remove", "shanchu"], action: .delete),
     ]
@@ -291,7 +294,7 @@ extension DocEditor {
     func perform(_ action: DocCommand.Action, in block: DocBlock, replacing typed: Range<Int>, from head: DocPosition) {
         let here = DocPosition(block: block.id, offset: typed.lowerBound)
         switch action {
-        case .kind, .divider, .table: break
+        case .kind, .divider, .table, .page: break
         default:
             if !typed.isEmpty {
                 commitSlash([.deleteText(block: block.id, range: typed, removed: DocText())],
@@ -319,6 +322,19 @@ extension DocEditor {
                 steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph), after: divider))
             }
             caret = DocPosition(block: next, offset: 0)
+        case .page:
+            // The words left (the "/query" gone) are the title; a line follows to write on.
+            var title = block.text.string.utf16.map { $0 }
+            title.removeSubrange(typed)
+            let page = DocPage(doc: .generate(), title: String(decoding: title, as: UTF16.self).trimmingCharacters(in: .whitespaces))
+            let next = demo.newBlockID()
+            steps = block.text.isEmpty ? [] : [.deleteText(block: block.id, range: 0..<block.text.length, removed: block.text)]
+            steps.append(.setBlock(block: block.id, kind: .page(page: page), indent: 0, previousKind: block.kind, previousIndent: block.indent))
+            steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph), after: block.id))
+            commitSlash(steps, from: DocSelection(anchor: head, head: head), to: DocSelection(anchor: .init(block: next, offset: 0), head: .init(block: next, offset: 0)))
+            dismissKeyboard()
+            blocks.openPage?(block.id)
+            return
         case .table(let rows, let columns):
             let keep = block.text.length > typed.count
             steps += tables.insertTable(rows: rows, columns: columns, replacing: block, keep: keep)
@@ -343,7 +359,7 @@ extension DocEditor {
             guard let block = demo.doc.block(id) else { return }
             apply(DocCopiedFormat(kind: block.kind, decoration: nil, marks: [:]), to: [id])
         case .delete: blocks.delete([id])
-        case .kind, .divider, .table: break
+        case .kind, .divider, .table, .page: break
         }
     }
 

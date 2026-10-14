@@ -73,7 +73,7 @@ extension Doc {
                 guard let database = databases[collection.database],
                       let json = Self.json(of: CollectionFence(collection: collection, database: database)) else { return nil }
                 return (Document(CodeBlock(language: "floo.collection", json + "\n")), 0)
-            case .image, .link, .file:
+            case .image, .link, .file, .page:
                 return nil
             }
         }

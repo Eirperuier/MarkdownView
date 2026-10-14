@@ -145,6 +145,15 @@ struct MarkdownExportTests {
         #expect(back == expected)
     }
 
+    /// A page block keeps the page it opens and its title.
+    @Test
+    func pagesComeBack() {
+        let page = DocPage(doc: fixedID(70), title: "Trip notes")
+        let doc = Doc(id: fixedID(0), blocks: [block(1, .page(page: page))])
+        #expect(doc.markdown.hasPrefix("```floo.page\n"))
+        #expect(parse(doc.markdown).blocks.first?.kind == .page(page: page))
+    }
+
     @Test
     func isoDates() {
         #expect(Column.isoDate(fixedTime(0)) == "1970-01-01")

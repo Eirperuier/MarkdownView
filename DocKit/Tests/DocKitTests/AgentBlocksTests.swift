@@ -35,6 +35,7 @@ struct AgentBlocksTests {
             block(12, .file(file: DocFile(source: "blob:1", name: "plan.pdf", size: 2048, layout: .small))),
             block(13, .card(card: card)),
             block(14, .view(view: DocView(source: "VStack {}", data: ["n": 2]))),
+            block(15, .page(page: DocPage(doc: fixedID(70), title: "Trip notes"))),
         ]
         let doc = Doc(id: fixedID(0), blocks: blocks)
         for original in blocks {

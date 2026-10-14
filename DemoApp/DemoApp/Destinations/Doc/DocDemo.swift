@@ -59,6 +59,8 @@ struct DocRow: Identifiable, Equatable {
     let table: DocTableSnapshot?
     /// A collection block: its name, its views and its records (DocCollection).
     let collection: DocCollectionSnapshot?
+    /// A page block: the page it opens and its title.
+    let page: DocPage?
     /// A paragraph, heading, list item or quote, from the model (DocTextRow).
     let text: DocTextRow?
     /// Code, maths, a divider, a card or a table, as the tree DocKit builds from the model.
@@ -84,8 +86,8 @@ struct DocRow: Identifiable, Equatable {
     private let depth: Int?
 
     init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock] = [], text: DocTextRow? = nil, tree: MarkdownTree? = nil,
-         isStreaming: Bool = false, table: DocTableSnapshot? = nil, collection: DocCollectionSnapshot? = nil, media: BlockKind? = nil,
-         sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
+         isStreaming: Bool = false, table: DocTableSnapshot? = nil, collection: DocCollectionSnapshot? = nil, page: DocPage? = nil,
+         media: BlockKind? = nil, sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
         self.id = id
         self.block = block
         self.blocks = blocks
@@ -94,6 +96,7 @@ struct DocRow: Identifiable, Equatable {
         self.isStreaming = isStreaming
         self.table = table
         self.collection = collection
+        self.page = page
         self.media = media
         self.sourceKind = sourceKind
         self.sourceIsEmpty = sourceIsEmpty
@@ -103,7 +106,7 @@ struct DocRow: Identifiable, Equatable {
 
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
         lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.text == rhs.text && lhs.tree == rhs.tree
-            && lhs.table == rhs.table && lhs.collection == rhs.collection && lhs.media == rhs.media && lhs.run == rhs.run
+            && lhs.table == rhs.table && lhs.collection == rhs.collection && lhs.page == rhs.page && lhs.media == rhs.media && lhs.run == rhs.run
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
             && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role && lhs.box == rhs.box
@@ -153,18 +156,31 @@ final class DocDemo {
         var committed = false
     }
 
-    init() {
+    convenience init() {
         // -docFile NAME: a document (DocKit's JSON) in the app's temporary folder, in place of
         // the corpus: what a model wrote (floo's Apps/CardLab/Eval/doc_agent.py).
         if let name = UserDefaults.standard.string(forKey: "docFile"),
            let data = try? Data(contentsOf: FileManager.default.temporaryDirectory.appendingPathComponent(name)),
            let written = try? JSONDecoder().decode(Doc.self, from: data) {
-            doc = written
+            self.init(doc: written)
         } else {
-            doc = DocDemoCorpus.doc(id: Identifier(rawValue: UUID()))
+            self.init(doc: DocDemoCorpus.doc(id: Identifier(rawValue: UUID())))
         }
+    }
+
+    /// A document of its own: the corpus's, or a page opened from another.
+    init(doc: Doc) {
+        self.doc = doc
         previews.onPreview = { [weak self] url, preview in self?.fill(url, with: preview) }
         publish()
+    }
+
+    /// A page block's title, as the page now has it: one undo step here.
+    func setPageTitle(_ title: String, of block: DocBlockID) {
+        guard let existing = doc.block(block), case .page(var page) = existing.kind, page.title != title else { return }
+        page.title = title
+        edit([.setBlock(block: block, kind: .page(page: page), indent: existing.indent, previousKind: existing.kind, previousIndent: existing.indent)],
+             before: nil, after: nil)
     }
 
     var isAgentWriting: Bool { agentStatus != nil }
@@ -235,6 +251,17 @@ final class DocDemo {
                     let row = DocRow(id: block.id.description, block: block.id,
                                      collection: DocCollectionSnapshot(block: block.id, collection: collection, database: database))
                     rowCache[block.id] = (block, database, row)
+                    result.append(row)
+                }
+                if let live, live.after == block.id { emitLayer() }
+                continue
+            }
+            if case .page(let page) = block.kind {
+                if let cached = rowCache[block.id], cached.block == block {
+                    result.append(cached.row)
+                } else {
+                    let row = DocRow(id: block.id.description, block: block.id, page: page)
+                    rowCache[block.id] = (block, nil, row)
                     result.append(row)
                 }
                 if let live, live.after == block.id { emitLayer() }
@@ -688,6 +715,7 @@ extension DocRow {
             return DocMediaLayout.place(run, inPage: page).frame.height + gap + spacing
         }
         if let media, let height = DocMediaLayout.estimatedHeight(media, width: textWidth) { return height + spacing }
+        if page != nil { return DocPageMetrics.rowHeight + spacing }
         if let collection {
             // The header, then the table's rows or a kanban's longest column.
             guard case .kanban(let group, _, _)? = collection.collection.currentView?.layout else {

@@ -104,6 +104,10 @@ extension AgentBlocks {
             let names = Dictionary(uniqueKeysWithValues: database.columns.map { ($0.id, $0.name) })
             records(database, into: &object)
             layout(view, names: names, into: &object)
+        case .page(let page):
+            object["type"] = "page"
+            object["title"] = .string(page.title)
+            object["page"] = .string(page.doc.description)
         case .collection(let collection):
             object["type"] = "collection"
             object["name"] = .string(collection.name)
@@ -385,13 +389,17 @@ extension AgentBlocks {
             let database = try table(object, generating: id)
             databases[database.id] = database
             kind = .database(id: database.id, view: try view(object, of: database, kanban: false))
+        case "page":
+            // A page an agent names keeps its document; a new one gets one of its own.
+            let doc = object["page"]?.stringValue.flatMap { DocID($0) } ?? .generate()
+            kind = .page(page: DocPage(doc: doc, title: plain("title")))
         case "collection", "kanban", "board":
             let database = try table(object, generating: id)
             databases[database.id] = database
             kind = .collection(collection: try collection(object, of: database, kanban: type != "collection"))
         default:
             throw AgentFormatError(
-                "unknown block type \"\(type)\": use paragraph, heading, list, quote, caption, code, math, divider, image, link, file, card, view, table or collection")
+                "unknown block type \"\(type)\": use paragraph, heading, list, quote, caption, code, math, divider, image, link, file, card, view, table, collection or page")
         }
         if case .listItem = kind {} else if indent > 0, !kind.carriesText { indent = 0 }
         return DocBlock(id: id, kind: kind, indent: indent, text: content, decoration: boxed ? .block : nil)

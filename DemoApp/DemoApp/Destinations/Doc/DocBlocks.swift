@@ -143,6 +143,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// DocDestination), as links in MarkdownView's text open, so the app takes them over
     /// with its `OpenURLAction`. Nil: the system's.
     @ObservationIgnored var openURL: OpenURLAction?
+    /// Goes into the page a page block opens (DocPages).
+    @ObservationIgnored var openPage: ((DocBlockID) -> Void)?
     /// The image Quick Look shows.
     @ObservationIgnored private var previewing: URL?
     /// Rows flying to where they landed: the selection shows once they're down.
@@ -490,10 +492,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         return !(blockTakes(id, editsText: editsText) && editsText) && !isView(id)
     }
 
-    /// A view or a collection: its controls take clicks (its handle selects it).
+    /// A view, a collection or a page: its controls take clicks (its handle selects it).
     private func isView(_ id: DocBlockID) -> Bool {
         switch demo.doc.block(id)?.kind {
-        case .view?, .collection?: true
+        case .view?, .collection?, .page?: true
         default: false
         }
     }

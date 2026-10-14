@@ -82,6 +82,8 @@ enum BlockKind: Hashable, Sendable, Codable {
     case file(DocFile)                         // 附件:blob、文件名、大小、布局
     case card(DocCard)                         // §3.4
     case database(DatabaseID, DatabaseView)    // §3.5
+    case collection(DocCollection)             // §3.5
+    case page(DocPage)                         // §3.6:另一篇文档,块上留着它的标题
 }
 ```
 
@@ -180,6 +182,12 @@ struct CollectionView { var id; var name: String; var layout: DatabaseView; var 
 - 每个改动都是 step(记录和字段是数据库的 step,名字和视图是一次 setBlock),在一个格子或一条筛选里连续输入合成一步撤销。
 - markdown 里是 ` ```floo.collection ` 围栏,内容是 collection 和它的数据库的 JSON。
 - 暂不做:画廊视图、全屏打开、Configure Collection。
+
+### 3.6 页面【定】
+
+照 Craft:一个块可以是一个页面,点进去是另一篇文档。子页面是一篇独立的 Doc(自己的 id、自己的 step 日志、自己的撤销历史),服务端按文档定序不用改,agent 按文档 id 读写。父文档里是页面块 `.page(DocPage{doc, title})`:`title` 是标题的副本;页面的标题是它自己的第一个标题块,在页面里编辑,离开页面时父文档的副本跟着更新(父文档里一步撤销)。markdown 里是 ` ```floo.page ` 围栏;agent 的块是 `{"type": "page", "title", "page"}`,不给 `page` 就是一篇新的。
+
+demo:页面块画成图标、标题和 ›,点一下进入;顶栏左边是返回(⌘[)和路径,路径上每一级点了退回那一级;再进同一页面还是离开时的样子。斜杠菜单的「页面」把这一行变成页面(这行的字是标题)并进入。还没做:从一个元素建页面(连同它下面缩进的块)、collection 记录的页面(现在箭头打开的是字段面板)、页面或块的链接。
 
 ## 4. 改动:step【定】
 

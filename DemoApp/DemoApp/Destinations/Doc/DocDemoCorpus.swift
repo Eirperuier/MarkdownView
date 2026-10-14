@@ -76,7 +76,9 @@ enum DocDemoCorpus {
         if let index = doc.blocks.firstIndex(where: { $0.text.string.hasPrefix("第 1 节") }) {
             let (heading, block, database) = collection()
             doc.databases[database.id] = database
-            doc.blocks.insert(contentsOf: [heading, block], at: index)
+            // A page of the project's own, after the tasks.
+            let page = DocBlock(id: .generate(), kind: .page(page: DocPage(doc: .generate(), title: "上线计划")))
+            doc.blocks.insert(contentsOf: [heading, block, page], at: index)
         }
         return doc
     }

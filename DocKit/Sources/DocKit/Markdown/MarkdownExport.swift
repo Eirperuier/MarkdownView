@@ -109,6 +109,10 @@ extension Doc {
                   let json = Self.json(of: CollectionFence(collection: collection, database: database)) else { return "" }
             let fence = Self.fence(for: json)
             return "\(fence)floo.collection\n\(json)\n\(fence)"
+        case .page(let page):
+            guard let json = Self.json(of: page) else { return "" }
+            let fence = Self.fence(for: json)
+            return "\(fence)floo.page\n\(json)\n\(fence)"
         }
     }
 

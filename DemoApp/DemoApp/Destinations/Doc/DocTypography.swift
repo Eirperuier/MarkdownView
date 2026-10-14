@@ -58,7 +58,7 @@ enum DocRowRole: Equatable {
     init(_ kind: BlockKind) {
         switch kind {
         case .heading(let level): self = .heading(level: level)
-        case .paragraph: self = .paragraph
+        case .paragraph, .page: self = .paragraph
         case .caption: self = .caption
         case .listItem: self = .listItem
         case .link, .file, .card: self = .media
