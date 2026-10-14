@@ -95,16 +95,14 @@ extension FlooDesignTokens.Component {
         static let captionLabel: CGFloat = 15
     }
 
-    /// An edited table cell's handles (Craft's): its ring, the bars in the ring that pick
-    /// its column and row, the dots on the table's edges that add one.
+    /// An edited table cell's handles (Craft's): its ring, and on the table's edges the
+    /// bars that pick its column and row and the dots that add one.
     enum TableHandles {
         /// How far the ring goes out over the cell's padding (MarkdownView's: 8 across, 13 down).
         static let ringOutset = CGSize(width: 6, height: 9)
         static let ringRadius = Tokens.Radius.sm
         static let columnGrip = CGSize(width: 18, height: 3)
         static let rowGrip = CGSize(width: 3, height: 12)
-        /// The ring's break on each side of a bar.
-        static let gripGap: CGFloat = 3
         static let gripOpacity: Double = 0.45
         /// What a bar or a dot answers to a click or a tap.
         static let target: CGFloat = Tokens.Platform.value(pointer: 20, finger: 32)

@@ -13,9 +13,9 @@
 //    action menu, a sheet on a phone): Edit Table (insert, move, delete rows and
 //    columns, delete the table), a formula, sorting by the column, cut / copy / paste,
 //    clearing the cell;
-//  - the edited cell's ring has a bar on its top and one on its left (Craft's): a click
-//    picks the cell's column or row (the caret goes) and opens the menu for all of it
-//    (copy, cut, paste, clear the lot; sort by the column);
+//  - bars on the table's top and left edges, over the edited cell's column and row
+//    (Craft's): a click picks the column or row (the caret goes) and opens the menu for
+//    all of it (copy, cut, paste, clear the lot; sort by the column);
 //  - the dots where the edited cell's row and column meet the table's right and bottom
 //    edges add a column and a row there, and edit the new cell beside or below.
 //  Every change is one DocKit step (typing in a cell merges into one undo step), so
@@ -692,6 +692,8 @@ final class DocCellTextView: UITextView, UITextViewDelegate {
     @objc private func cellAbove() { move(.up) }
     @objc private func cellBelow() { move(.down) }
     @objc private func leaveTable() {
+        // A menu or panel open takes Esc first (a level back, or it closes).
+        if FlooDesignPanels.escape() { return }
         guard let key else { return }
         controller?.leave(key)
         controller?.editor.blocks.selectAfterEditing(key.block)
@@ -791,8 +793,7 @@ struct DocTableCellField: UIViewRepresentable {
 
 private typealias Handles = FlooDesignTokens.Component.TableHandles
 
-/// The edited cell: its text view, Craft's ring around the cell with the bars that pick
-/// its column and row, its ⋮.
+/// The edited cell: its text view, Craft's ring around the cell, its ⋮.
 struct DocTableCellEditor: View {
     let key: DocCellKey
     let text: String
@@ -806,21 +807,12 @@ struct DocTableCellEditor: View {
             .overlay {
                 // Out over the cell's padding (MarkdownView's: 8 across, 13 down). While its
                 // row or column is picked, that one is ringed instead (DocTableEdges).
-                DocTableRing()
-                    .stroke(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
+                RoundedRectangle(cornerRadius: Handles.ringRadius, style: .continuous)
+                    .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
                     .opacity(controller.line == nil ? 1 : 0)
                     .padding(.horizontal, -Handles.ringOutset.width)
                     .padding(.vertical, -Handles.ringOutset.height)
                     .allowsHitTesting(false)
-            }
-            // On the ring's line (its stroke is inside its edge).
-            .overlay(alignment: .top) {
-                DocTableGrip(line: .column, key: key, controller: controller)
-                    .offset(y: -Handles.ringOutset.height - Handles.target / 2 + FlooDesignTokens.Border.focus / 2)
-            }
-            .overlay(alignment: .leading) {
-                DocTableGrip(line: .row, key: key, controller: controller)
-                    .offset(x: -Handles.ringOutset.width - Handles.target / 2 + FlooDesignTokens.Border.focus / 2)
             }
             .overlay(alignment: .trailing) {
                 DocTableCellMenu(key: key, controller: controller)
@@ -838,29 +830,8 @@ struct DocTableCellEditor: View {
     }
 }
 
-/// The edited cell's ring (Craft's), broken where its bars are: the middle of its top
-/// and of its left.
-struct DocTableRing: Shape {
-    func path(in rect: CGRect) -> Path {
-        let rect = rect.insetBy(dx: FlooDesignTokens.Border.focus / 2, dy: FlooDesignTokens.Border.focus / 2)
-        let r = min(Handles.ringRadius, rect.width / 2, rect.height / 2)
-        let top = Handles.columnGrip.width / 2 + Handles.gripGap
-        let left = Handles.rowGrip.height / 2 + Handles.gripGap
-        var path = Path()
-        path.move(to: CGPoint(x: rect.midX + top, y: rect.minY))
-        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.maxY), radius: r)
-        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.maxY), radius: r)
-        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.minY), radius: r)
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.midY + left))
-        path.move(to: CGPoint(x: rect.minX, y: rect.midY - left))
-        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.minY), radius: r)
-        path.addLine(to: CGPoint(x: rect.midX - top, y: rect.minY))
-        return path
-    }
-}
-
-/// A bar on the edited cell's ring: a click picks the cell's column (the top's) or row
-/// (the left's) and opens the menu for it.
+/// A bar on the table's top edge over the edited cell's column, or on its left edge by
+/// its row: a click picks the column or row and opens the menu for it.
 struct DocTableGrip: View {
     let line: DocTableLine
     let key: DocCellKey
@@ -929,9 +900,9 @@ struct DocTableRowView: View {
     }
 }
 
-/// Around the edited cell (Craft's): a dot where its row meets the table's right edge
-/// and one where its column meets the bottom, each adding a column or a row; the picked
-/// row or column ringed.
+/// On the table's edges, by the edited cell (Craft's): bars on the top and left over its
+/// column and row, which pick them; dots on the right and bottom, which add a column or
+/// a row; the picked row or column ringed.
 struct DocTableEdges: View {
     let key: DocCellKey
     /// The table's cells, in the row's space.
@@ -954,6 +925,10 @@ struct DocTableEdges: View {
                     .offset(x: rect.minX, y: rect.minY)
                     .allowsHitTesting(false)
             }
+            DocTableGrip(line: .column, key: key, controller: controller)
+                .position(x: cell.midX, y: table.minY)
+            DocTableGrip(line: .row, key: key, controller: controller)
+                .position(x: table.minX - Handles.ringOutset.width, y: cell.midY)
             if controller.isEditable {
                 DocTableEdgeDot(label: String(localized: "Add Column")) { controller.appendColumn(beside: key) }
                     .position(x: table.maxX, y: cell.midY)
