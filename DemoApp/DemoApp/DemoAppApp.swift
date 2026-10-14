@@ -27,5 +27,6 @@ struct DemoAppApp: App {
                 .markdownMotion(FlooDesignTokens.Motion.markdown)
                 .tiledMotion(FlooDesignTokens.Motion.tiled)
         }
+        .commands { DocCommands() }
     }
 }

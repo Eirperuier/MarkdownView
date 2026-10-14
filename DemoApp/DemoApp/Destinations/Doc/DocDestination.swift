@@ -21,9 +21,39 @@ struct DocDestination: View {
     @State private var pages = DocPages(root: DocDemo())
 
     var body: some View {
-        // A page shown afresh: its list, its scroll, its bar.
-        DocPageView(page: pages.current, pages: pages)
-            .id(pages.current.id)
+        // Pages go in and out the system's way: its back button (a long press lists the
+        // pages above), its swipe back, the page's title and the way to it in its bar.
+        NavigationStack(path: $pages.stack) {
+            DocPageView(page: pages.root, pages: pages)
+                .navigationDestination(for: DocID.self) { id in
+                    if let page = pages.page(id) {
+                        DocPageView(page: page, pages: pages)
+                    }
+                }
+        }
+        .focusedSceneValue(\.docBack, pages.path.count > 1 ? DocBackAction { pages.back() } : nil)
+    }
+}
+
+/// Back out of the page showing (the Navigation menu's Back, ⌘[).
+struct DocBackAction {
+    let perform: () -> Void
+}
+
+extension FocusedValues {
+    @Entry var docBack: DocBackAction?
+}
+
+/// The app's Navigation menu: Back, as Craft has it.
+struct DocCommands: Commands {
+    @FocusedValue(\.docBack) private var back
+
+    var body: some Commands {
+        CommandMenu("Navigation") {
+            Button("Back") { back?.perform() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(back == nil)
+        }
     }
 }
 
@@ -112,9 +142,26 @@ private struct DocPageView: View {
             editor.blocks.clear()
             editor.isEditable = !demo.isAgentWriting
         }
+        // The system's navigation bar, its title drawn our way: the page's title over the
+        // pages it's in (Craft's), each a way back. The window keeps the title as its name.
+        .navigationTitle(page.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(removing: .title)
+        .toolbar {
+            if #available(iOS 26, macCatalyst 26, *) {
+                // Words, not a control: no glass behind them.
+                ToolbarItem(placement: .topBarLeading) { DocPageTitle(page: page, pages: pages) }
+                    .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarLeading) { DocPageTitle(page: page, pages: pages) }
+            }
+        }
         .task {
             editor.blocks.openURL = openURL
             editor.blocks.cardHost = DocDemoHost { [demo] in demo.sentToAgent.append($0) }
+            // The rest once a page: coming back to it (a page above it left) keeps its place.
+            guard !page.appeared else { return }
+            page.appeared = true
             // Opening a document starts at its top (TiledView's first offset tucks the
             // first row under the bar's edge).
             try? await Task.sleep(for: .milliseconds(150))
@@ -329,10 +376,6 @@ private struct DocPageView: View {
                 Button("Stop") { demo.stop() }
                     .buttonStyle(FlooDesignButtonStyle(.secondary))
             } else {
-                if pages.path.count > 1 {
-                    DocPagePath(pages: pages)
-                        .padding(.trailing, FlooDesignTokens.Space.sm)
-                }
                 Button("Undo", systemImage: "arrow.uturn.backward") { editor.requestUndo() }
                     .keyboardShortcut("z", modifiers: .command)
                     .disabled(!demo.canUndo)
@@ -349,7 +392,7 @@ private struct DocPageView: View {
                     .help("Format")
                 #endif
                 // The demo's own controls, on its first page.
-                if pages.path.count == 1 {
+                if page === pages.root {
                     Button("Reset") {
                         demo.reset()
                         editor.resetHistory()

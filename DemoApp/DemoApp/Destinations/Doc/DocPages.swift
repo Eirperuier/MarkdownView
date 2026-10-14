@@ -3,13 +3,13 @@
 //  DemoApp
 //
 //  Pages (Craft's): a page block opens a document of its own, and the window goes into
-//  it; the bar's back arrow and path go back out. Each page is its own DocKit document
+//  it (pushed on the system's navigation stack; its back button and swipe come out). Each page is its own DocKit document
 //  with its own undo history (a page opened again is as it was left). A page's title is
 //  its first heading, edited there; the block in the page above keeps a copy of it and a
 //  preview of what follows, brought up to date (one undo step there) when the page is left.
 //  - a page block (Craft's Page style): a small sheet with lines, the title, the preview
 //    under it; a click goes in;
-//  - the bar in a page: back, then the page's title over the way to it (each a step back).
+//  - the navigation bar in a page: its title, the way to it as the subtitle.
 //
 
 import SwiftUI
@@ -35,6 +35,8 @@ final class DocOpenPage {
     let demo: DocDemo
     let editor: DocEditor
     let parent: (page: DocOpenPage, block: DocBlockID)?
+    /// Shown once: its launch options ran and its scroll was set (DocPageView).
+    var appeared = false
 
     var id: DocID { demo.doc.id }
 
@@ -42,6 +44,17 @@ final class DocOpenPage {
         self.demo = demo
         self.editor = DocEditor(demo: demo)
         self.parent = parent
+    }
+
+    /// The pages it's in, the first one first.
+    var ancestors: [DocOpenPage] {
+        var pages: [DocOpenPage] = []
+        var above = parent?.page
+        while let page = above {
+            pages.insert(page, at: 0)
+            above = page.parent?.page
+        }
+        return pages
     }
 
     /// Its title: the first heading's words, or "Untitled".
@@ -69,6 +82,19 @@ final class DocPages {
 
     var current: DocOpenPage { path[path.count - 1] }
     var root: DocOpenPage { path[0] }
+
+    /// The navigation stack's path: the pages past the first. The system shortening it
+    /// (back, a swipe) leaves those pages.
+    var stack: [DocID] {
+        get { path.dropFirst().map(\.id) }
+        set {
+            guard newValue.count < path.count - 1, Array(stack.prefix(newValue.count)) == newValue else { return }
+            back(to: newValue.count)
+        }
+    }
+
+    /// A page opened in this window.
+    func page(_ id: DocID) -> DocOpenPage? { opened[id] }
 
     /// Goes into the page a block of the current page opens: as it was left, as the corpus
     /// has it, or new, its title as its first heading and an empty line under it.
@@ -159,34 +185,33 @@ struct DocPageSheet: View {
     }
 }
 
-/// The way back in the bar (Craft's): ‹, then the page's title over the pages it's in,
-/// each a step back out to it.
-struct DocPagePath: View {
+/// A page's title in the navigation bar (Craft's): its title, and under it the pages it's
+/// in, each a step back out to it.
+struct DocPageTitle: View {
+    let page: DocOpenPage
     let pages: DocPages
 
     var body: some View {
-        HStack(spacing: FlooDesignTokens.Space.sm) {
-            Button(String(localized: "Back"), systemImage: "chevron.left") { pages.back() }
-                .labelStyle(.iconOnly)
-                .keyboardShortcut("[", modifiers: .command)
-                .buttonStyle(FlooDesignButtonStyle(.borderless))
-            VStack(alignment: .leading, spacing: 0) {
-                Text(pages.current.title)
-                    .font(FlooDesignTokens.Typography.body.font.weight(.semibold))
+        VStack(alignment: .leading, spacing: 0) {
+            Text(page.title)
+                .font(FlooDesignTokens.Typography.body.font.weight(.semibold))
+            let ancestors = page.ancestors
+            if !ancestors.isEmpty {
                 HStack(spacing: FlooDesignTokens.Space.xxs) {
-                    ForEach(Array(pages.path.dropLast().enumerated()), id: \.element.id) { index, page in
+                    ForEach(Array(ancestors.enumerated()), id: \.element.id) { index, ancestor in
                         if index > 0 {
                             Image(systemName: "chevron.right")
                                 .imageScale(.small)
                         }
-                        Button(page.title) { pages.back(to: index) }
+                        Button(ancestor.title) { pages.back(to: index) }
                             .buttonStyle(.plain)
                     }
                 }
                 .font(FlooDesignTokens.Typography.metadata.font)
                 .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
             }
-            .lineLimit(1)
         }
+        .lineLimit(1)
+        .accessibilityElement(children: .contain)
     }
 }
