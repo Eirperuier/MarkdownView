@@ -99,6 +99,7 @@ final class DocPages {
     /// Goes into the page a block of the current page opens: as it was left, as the corpus
     /// has it, or new, its title as its first heading and an empty line under it.
     func open(_ block: DocBlockID) {
+        DocTiming.begin("open page")
         let from = current
         guard case .page(let page)? = from.demo.doc.block(block)?.kind else { return }
         let opening: DocOpenPage
@@ -113,6 +114,7 @@ final class DocPages {
             opened[page.doc] = opening
         }
         from.editor.blocks.clear()
+        DocTiming.mark("page made")
         path.append(opening)
     }
 

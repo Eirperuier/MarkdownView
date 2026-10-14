@@ -14,6 +14,7 @@ import FlooDesign
 struct DemoAppApp: App {
     init() {
         prewarmMarkdownMathRenderer()
+        DocMediaLayout.prewarm()
         TrackpadScrollMomentum.install()
         // `==highlight==` and `:circle[…]` pen marks, on as the app does at launch.
         MarkdownHighlightSyntax.isEnabled = true

@@ -164,15 +164,18 @@ final class DocDemo {
            let written = try? JSONDecoder().decode(Doc.self, from: data) {
             self.init(doc: written)
         } else {
+            DocTiming.begin("corpus")
             self.init(doc: DocDemoCorpus.doc(id: Identifier(rawValue: UUID())))
         }
     }
 
     /// A document of its own: the corpus's, or a page opened from another.
     init(doc: Doc) {
+        DocTiming.mark("demo: doc in (\(doc.blocks.count) blocks)")
         self.doc = doc
         previews.onPreview = { [weak self] url, preview in self?.fill(url, with: preview) }
         publish()
+        DocTiming.mark("demo: rows published (\(rows.count) rows, \(Int(lastPublishMs)) ms)")
     }
 
     /// A page block's title and preview, as its page now has them: one undo step here.
@@ -209,6 +212,7 @@ final class DocDemo {
         let started = CFAbsoluteTimeGetCurrent()
         defer { lastPublishMs = (CFAbsoluteTimeGetCurrent() - started) * 1000 }
         var result: [DocRow] = []
+        var uncompiled: [BlockKind] = []
         var emitted = false
         func emitLayer() {
             guard let layer, !emitted else { return }
@@ -289,11 +293,12 @@ final class DocDemo {
                 // drawn from the model: text and the rest as their trees, links, files and
                 // images as themselves.
                 let alone = Doc(id: doc.id, blocks: [block])
-                // A card or a view compiles with the document, not when it first shows: the
-                // first starts the card runtime (~240 ms), which mustn't fall in a scroll or
-                // an animation.
-                if case .card(let card) = block.kind { _ = DocMediaLayout.session(for: card) }
-                if case .view(let view) = block.kind { _ = DocMediaLayout.session(for: view) }
+                // A card or a view compiles just after the page shows, not in a scroll or an
+                // animation (compileSoon).
+                switch block.kind {
+                case .card, .view: uncompiled.append(block.kind)
+                default: break
+                }
                 let row = if let text = Self.textRow(block, in: alone) {
                     DocRow(id: block.id.description, block: block.id, text: text)
                 } else {
@@ -308,10 +313,30 @@ final class DocDemo {
         }
         place(&result)
         space(&result)
+        compileSoon(uncompiled)
         rows = result
         canUndo = history.canUndo
         canRedo = history.canRedo
         askForPreviews()
+    }
+
+    /// Cards and views new to the page compile one a turn of the main loop, once the rows
+    /// that show them are out: the page shows without waiting for them (a card's ~5–20 ms
+    /// each), and they're ready before a scroll reaches them. One drawn first compiles as
+    /// it draws (DocMediaLayout keeps each session).
+    private func compileSoon(_ kinds: [BlockKind]) {
+        guard !kinds.isEmpty else { return }
+        Task { @MainActor in
+            for kind in kinds {
+                await Task.yield()
+                switch kind {
+                case .card(let card): _ = DocMediaLayout.session(for: card)
+                case .view(let view): _ = DocMediaLayout.session(for: view)
+                default: break
+                }
+            }
+            DocTiming.mark("cards and views compiled")
+        }
     }
 
     /// Links, files and images in runs: cards next to each other side by side (a card on

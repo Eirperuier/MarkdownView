@@ -341,6 +341,12 @@ extension DocMediaLayout {
         return CGFloat(size.height(grid: cardGrid) / size.width(grid: cardGrid))
     }
 
+    /// The cards' standard catalog (their library compiled: ~240 ms, the first time),
+    /// built off the main thread at launch, so a document's first card doesn't wait for it.
+    nonisolated static func prewarm() {
+        Task.detached(priority: .userInitiated) { _ = Catalog.standard }
+    }
+
     /// A card's session: its source compiled with its data, once per card.
     @MainActor static func session(for card: DocCard) -> CardSession {
         session(SessionKey(source: card.source ?? "", data: card.data))

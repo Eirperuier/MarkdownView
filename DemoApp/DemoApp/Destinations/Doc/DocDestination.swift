@@ -70,6 +70,7 @@ private struct DocPageView: View {
     private var editor: DocEditor { page.editor }
 
     var body: some View {
+        let _ = DocTiming.mark("page view body \(page.title)", once: true)
         VStack(spacing: 0) {
             bar
                 .frame(maxWidth: .infinity, minHeight: FlooDesignTokens.Control.prominentHeight, alignment: .leading)
@@ -157,6 +158,7 @@ private struct DocPageView: View {
             }
         }
         .task {
+            DocTiming.mark("page task \(page.title)", once: true)
             editor.blocks.openURL = openURL
             editor.blocks.cardHost = DocDemoHost { [demo] in demo.sentToAgent.append($0) }
             // The rest once a page: coming back to it (a page above it left) keeps its place.
@@ -166,6 +168,7 @@ private struct DocPageView: View {
             // first row under the bar's edge).
             try? await Task.sleep(for: .milliseconds(150))
             if let first = demo.rows.first?.id { reader.scrollTo(id: first, anchor: .top, animated: false) }
+            DocTiming.mark("scrolled to the top \(page.title)", once: true)
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
             editor.blocks.attach(reader)
             editor.blocks.openPage = { [pages] block in pages.open(block) }
@@ -429,6 +432,7 @@ private struct DocRowView: View {
     let blocks: DocBlockController
 
     var body: some View {
+        let _ = DocTiming.firstRow()
         Group {
             if let run = row.run, let media = row.media, let block = row.block, !row.isStreaming {
                 placed(DocMediaCell(id: block, kind: media, blocks: blocks, inGallery: run.kind == .gallery), in: run)
