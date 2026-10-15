@@ -422,6 +422,7 @@ struct DocSlashMenuView: View {
 extension DocCommand {
     /// The menu's row for it.
     var entry: FlooDesignMenuEntry {
-        FlooDesignMenuEntry(id: id, title: title, symbol: symbol, swatch: swatch.map(DocColors.swatch), hasChildren: isGroup)
+        FlooDesignMenuEntry(id: id, title: title, symbol: symbol, swatch: swatch.map(DocColors.swatch),
+                            icon: DocBlockIcon.Glyph.of(self).map { AnyView(DocBlockIcon(glyph: $0)) }, hasChildren: isGroup)
     }
 }
