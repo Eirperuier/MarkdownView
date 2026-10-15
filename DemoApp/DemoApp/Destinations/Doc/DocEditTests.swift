@@ -383,6 +383,45 @@ final class DocEditTests {
             let marks = self.demo.doc.block(block.id)?.text.marks ?? []
             try self.expect(marks.contains(MarkSpan(range: 0..<7, mark: .bold)), "marks \(marks)")
         }
+        await test("A click puts the caret where it is and the page stays: on a table's cell, beside a line's text") {
+            @MainActor func list() throws -> UIScrollView {
+                try self.expectValue(self.editor.allTextViews.lazy.compactMap { DocScrolling.list(of: $0) }.first, "no list")
+            }
+            /// The block on screen above the middle (where a scroll leaves it, not centred),
+            /// the page at rest: where the page is.
+            @MainActor func placed(_ id: DocBlockID) async throws -> CGFloat {
+                await self.bringIntoView(id)
+                let list = try list()
+                // Its scroll there has come to rest (it eases out for a while).
+                var last = list.contentOffset.y
+                for _ in 0..<40 {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    if list.contentOffset.y == last { break }
+                    last = list.contentOffset.y
+                }
+                list.setContentOffset(CGPoint(x: list.contentOffset.x, y: list.contentOffset.y + 120), animated: false)
+                try? await Task.sleep(for: .milliseconds(300))
+                return list.contentOffset.y
+            }
+            @MainActor func stays(_ before: CGFloat, _ what: String) async throws {
+                try? await Task.sleep(for: .milliseconds(700))
+                let after = try list().contentOffset.y
+                try self.expect(abs(after - before) < 0.5, "\(what): the page moved \(after - before)")
+            }
+            let table = try self.expectValue(self.demo.doc.blocks.first { if case .database = $0.kind { true } else { false } }, "no table")
+            let database = try self.expectValue(table.kind.databaseID.flatMap { self.demo.doc.databases[$0] }, "no database")
+            var y = try await placed(table.id)
+            self.editor.tables.tapped(DocTableSnapshot(block: table.id, database: database), at: MarkdownTableCellPosition(row: 2, column: 1))
+            try await stays(y, "a cell")
+            try self.expect(self.editor.tables.editing == DocCellKey(block: table.id, row: database.rows[1].id, column: database.columns[1].id), "the cell isn't edited")
+            let block = try self.block("Loading older")
+            y = try await placed(block.id)
+            let view = try self.expectValue(self.editor.textView(for: block.id), "no text view")
+            let below = view.convert(CGPoint(x: view.bounds.midX, y: view.bounds.maxY + 2), to: nil)
+            self.editor.click(block.id, at: below)
+            try await stays(y, "beside a line")
+            try self.expect(self.editor.selection?.head.block == block.id, "the caret isn't in the line")
+        }
         await test("A click before an empty list item's text puts the caret after its marker") {
             let item = try self.block("行首输入")
             try await self.focus(item.id, at: item.text.length)

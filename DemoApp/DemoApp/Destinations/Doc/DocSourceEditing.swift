@@ -42,7 +42,7 @@ final class DocSourceController {
     /// The code or math block being edited.
     private(set) var editing: DocBlockID?
     @ObservationIgnored private var views: [DocBlockID: [WeakSourceView]] = [:]
-    @ObservationIgnored private var pendingFocus: (block: DocBlockID, offset: Int?)?
+    @ObservationIgnored private var pendingFocus: (block: DocBlockID, offset: Int?, reveals: Bool)?
     @ObservationIgnored private var session: UInt64 = 0
 
     static let languages = ["swift", "python", "javascript", "typescript", "json", "bash", "sql", "go", "rust", "kotlin", "java", "c", "cpp", "html", "css", "yaml", "markdown"]
@@ -59,7 +59,7 @@ final class DocSourceController {
     func register(_ view: DocSourceTextView, for block: DocBlockID) {
         views[block, default: []].removeAll { $0.view == nil || $0.view === view }
         views[block, default: []].append(WeakSourceView(view: view))
-        if let pending = pendingFocus, pending.block == block { focusSoon(block, at: pending.offset) }
+        if let pending = pendingFocus, pending.block == block { focusSoon(block, at: pending.offset, reveals: pending.reveals) }
     }
 
     func view(for block: DocBlockID) -> DocSourceTextView? {
@@ -67,12 +67,13 @@ final class DocSourceController {
     }
 
     /// Edits the block with the caret at `offset` (nil: where a click put it, or the end).
-    func focus(_ block: DocBlockID, at offset: Int? = nil) {
+    /// `reveals`: the page scrolls to show the editor (not for a click on it).
+    func focus(_ block: DocBlockID, at offset: Int? = nil, reveals: Bool = true) {
         guard isEditable, demo.doc.block(block).flatMap({ DocSourceKind($0.kind) }) != nil else { return }
         if editing != block { session &+= 1 }
         editing = block
         editor.tables.endEditing()
-        guard let view = view(for: block) else { return focusSoon(block, at: offset) }
+        guard let view = view(for: block) else { return focusSoon(block, at: offset, reveals: reveals) }
         pendingFocus = nil
         if !view.isFirstResponder { view.becomeFirstResponder() }
         if let offset {
@@ -80,6 +81,7 @@ final class DocSourceController {
         } else if !view.isFirstResponder {
             view.selectedRange = NSRange(location: view.text.utf16.count, length: 0)
         }
+        guard reveals else { return }
         reveal(view)
         Task { @MainActor [weak self, weak view] in
             try? await Task.sleep(for: .milliseconds(450))
@@ -97,12 +99,12 @@ final class DocSourceController {
         }
     }
 
-    private func focusSoon(_ block: DocBlockID, at offset: Int?) {
-        pendingFocus = (block, offset)
+    private func focusSoon(_ block: DocBlockID, at offset: Int?, reveals: Bool = true) {
+        pendingFocus = (block, offset, reveals)
         Task { @MainActor [weak self] in
             for _ in 0..<30 {
                 guard let self, let pending = self.pendingFocus, pending.block == block else { return }
-                if self.view(for: block) != nil { return self.focus(block, at: offset) }
+                if self.view(for: block) != nil { return self.focus(block, at: offset, reveals: pending.reveals) }
                 try? await Task.sleep(for: .milliseconds(16))
             }
         }
@@ -535,8 +537,9 @@ struct DocCodeRowView: View {
             .overlay(alignment: .topTrailing) {
                 if editing { DocCodeLanguageMenu(block: block, language: language, controller: controller) }
             }
+            // The editor takes the code's place: the page stays where it is.
             .simultaneousGesture(TapGesture().onEnded { [block, controller] in
-                if controller.editing != block { controller.focus(block) }
+                if controller.editing != block { controller.focus(block, reveals: false) }
             })
     }
 }

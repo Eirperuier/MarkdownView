@@ -332,7 +332,7 @@ final class DocTableController {
         Task { @MainActor [weak self, weak view] in
             guard let self, self.pendingFocus?.key == key else { return }
             guard view?.window == nil, self.editing == key, self.active == nil else { return self.pendingFocus = nil }
-            if self.view(for: key) != nil { self.focus(key) }
+            if self.view(for: key) != nil { self.focus(key, reveals: false) }
         }
     }
 
@@ -361,7 +361,7 @@ final class DocTableController {
     /// A click on a table cell MarkdownView rendered (row 0 is the header).
     func tapped(_ table: DocTableSnapshot, at position: MarkdownTableCellPosition) {
         guard isEditable, let key = key(in: table, at: position), key != active || view(for: key)?.isFirstResponder != true else { return }
-        focus(key)
+        focus(key, reveals: false)
     }
 
     private func exists(_ key: DocCellKey) -> Bool {
@@ -414,17 +414,20 @@ final class DocTableController {
         editing = key
     }
 
-    func focus(_ key: DocCellKey, atEnd: Bool = true) {
+    /// Edits the cell, the caret at its end (or start). `reveals`: the page scrolls to
+    /// show it (Tab, Return, a new row); a click on it leaves the page where it is.
+    func focus(_ key: DocCellKey, atEnd: Bool = true, reveals: Bool = true) {
         willEdit(key)
         // A body cell's text is the editor's: the cursor goes there.
         if key.row != nil {
             pendingFocus = nil
             let id = textID(key)
-            editor.place(DocPosition(block: id, offset: atEnd ? docText(key).length : 0))
+            let caret = DocPosition(block: id, offset: atEnd ? docText(key).length : 0)
+            editor.place(DocSelection(anchor: caret, head: caret), reveals: reveals)
             return
         }
         guard let view = view(for: key) else {
-            focusSoon(key, atEnd: atEnd)
+            focusSoon(key, atEnd: atEnd, reveals: reveals)
             return
         }
         pendingFocus = nil
@@ -432,7 +435,7 @@ final class DocTableController {
         view.becomeFirstResponder()
         let offset = atEnd ? view.text.utf16.count : 0
         view.selectedRange = NSRange(location: offset, length: 0)
-        reveal(view)
+        if reveals { reveal(view) }
     }
 
     /// Scrolls the document so the edited cell shows, above the keyboard too (which
@@ -446,14 +449,14 @@ final class DocTableController {
     }
 
     /// After a structural change the new cell renders on the next pass.
-    private func focusSoon(_ key: DocCellKey, atEnd: Bool) {
-        if key.row != nil { return focus(key, atEnd: atEnd) }
+    private func focusSoon(_ key: DocCellKey, atEnd: Bool, reveals: Bool = true) {
+        if key.row != nil { return focus(key, atEnd: atEnd, reveals: reveals) }
         editing = key
         pendingFocus = (key, atEnd)
         Task { @MainActor [weak self] in
             for _ in 0..<30 {
                 guard let self, let pending = self.pendingFocus, pending.key == key else { return }
-                if self.view(for: key) != nil { return self.focus(key, atEnd: atEnd) }
+                if self.view(for: key) != nil { return self.focus(key, atEnd: atEnd, reveals: reveals) }
                 try? await Task.sleep(for: .milliseconds(16))
             }
         }
@@ -487,7 +490,7 @@ final class DocTableController {
     }
 
     func showMenu(_ key: DocCellKey) {
-        if editing != key { focus(key) }
+        if editing != key { focus(key, reveals: false) }
         line = nil
         menu = DocTableMenuTarget(key: key)
     }

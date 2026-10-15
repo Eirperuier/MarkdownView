@@ -272,16 +272,18 @@ final class DocEditor {
         let offset = modelOffset(textView.offset(from: textView.beginningOfDocument, to: position), start: start, block: block)
         let caret = DocPosition(block: id, offset: offset)
         session &+= 1
-        place(DocSelection(anchor: caret, head: caret))
+        place(DocSelection(anchor: caret, head: caret), reveals: false)
     }
 
     /// Moves the selection (and focus) to a model position, now if its block is shown
-    /// in sync, else at its next render.
-    func place(_ next: DocSelection) {
+    /// in sync, else at its next render. `reveals`: the page scrolls to show it (a key,
+    /// an undo, a menu put it there); a click puts it where it clicked, on screen, and
+    /// the page stays (only the keyboard coming up over it lifts it).
+    func place(_ next: DocSelection, reveals: Bool = true) {
         // Code and math blocks have their own editor.
         if let block = textBlock(next.head.block), DocSourceKind(block.kind) != nil {
             selection = nil
-            sources.focus(block.id, at: next.head.offset)
+            sources.focus(block.id, at: next.head.offset, reveals: reveals)
             return
         }
         // A cell's text shows its editor once the cell is the one edited.
@@ -291,8 +293,8 @@ final class DocEditor {
         wantsFocus = true
         if let textView = textView(for: next.head.block) {
             apply(next, to: textView)
-            reveal(textView, block: next.head.block)
-        } else {
+            if reveals { reveal(textView, block: next.head.block) }
+        } else if reveals {
             // The row isn't on screen (Return on the last visible line, an undo far
             // away): scroll to it; it renders, and the placement below catches it.
             demo.bringIntoView(cell?.block ?? next.head.block)
