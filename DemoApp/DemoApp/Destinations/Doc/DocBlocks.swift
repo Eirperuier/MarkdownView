@@ -1949,7 +1949,7 @@ struct DocBlockSelectionBar: View {
 
     private typealias Action = FlooDesignTokens.ColorRole.Action
 
-    /// Craft's layout sheet: the options (the sheet's own grabber and pull close it).
+    /// Craft's layout sheet: the options (the sheet's own pull closes it).
     private var layouts: some View {
         VStack(spacing: FlooDesignTokens.Component.Option.sectionSpacing) {
             if !blocks.selectedImageFits.isEmpty {

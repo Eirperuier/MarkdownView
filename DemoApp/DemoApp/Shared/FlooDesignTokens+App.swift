@@ -78,7 +78,7 @@ extension FlooDesignTokens.Component {
         /// Every page's height (the main page's three rows), so the sheet doesn't jump.
         static let page: CGFloat = row * 3 + rowSpacing * 2
         /// The sheet's height before it's measured.
-        static let estimate = Tokens.Component.Sheet.grabberArea + Tokens.Component.Sheet.contentGap + page + inset
+        static let estimate = inset + page + inset
         /// Between the list tiles and the indent tiles.
         static let groupGap: CGFloat = 11
         static let colorRing: CGFloat = 40

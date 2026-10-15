@@ -13,7 +13,7 @@
 //  - more (…): bold, italic, strikethrough, code; Copy Format and Paste Format.
 //
 //  Every page but the main one is a sheet of its own over it; a choice on it takes it
-//  back to the main one. The sheets close with their own grabber and pull: no gestures
+//  back to the main one. The sheets close with their own pull: no gestures
 //  of ours over them. What DocKit can't carry yet (alignment, fonts, pages) isn't offered.
 //
 //  The colours over the keyboard bar's highlight key, Craft's: none, the text colours
