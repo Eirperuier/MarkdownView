@@ -767,9 +767,15 @@ final class DocEditTests {
             // The page holds still while it's open.
             let list = try self.expectValue(self.editor.textView(for: block.id).flatMap(DocScrolling.list), "no list")
             try self.expect(!list.isScrollEnabled, "the page scrolls under the menu")
-            // A group's commands take its place.
+            // A group's commands take its place under its title, the menu taking their
+            // size from the caret's side: the edge by the caret and the leading edge stay.
             menu.choose(DocCommand.all[0])
-            try self.expect(menu.group != nil && menu.frame == frame, "a group moved it: \(menu.frame)")
+            let caretSide = frame.maxY <= menu.anchor.minY ? \CGRect.maxY : \CGRect.minY
+            try self.expect(menu.group != nil && menu.frame.minX == frame.minX && menu.frame[keyPath: caretSide] == frame[keyPath: caretSide],
+                            "a group moved it: \(menu.frame) from \(frame)")
+            // Esc goes back to the top first, then closes.
+            UIApplication.shared.sendAction(Selector(("docSlashClose:")), to: nil, from: nil, for: nil)
+            try self.expect(menu.isOpen && menu.group == nil && menu.frame == frame, "Esc in a group: open \(menu.isOpen) group \(String(describing: menu.group?.id)) frame \(menu.frame)")
             UIApplication.shared.sendAction(Selector(("docSlashClose:")), to: nil, from: nil, for: nil)
             try self.expect(list.isScrollEnabled, "the page doesn't scroll again")
             try await self.undo()

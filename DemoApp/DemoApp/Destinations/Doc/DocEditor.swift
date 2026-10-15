@@ -614,7 +614,7 @@ final class DocEditor {
             case .outdent: return tables.move(.previous, from: cell)
             case .cell(let move): return tables.move(move, from: cell)
             case .leaveCell: return tables.leaveByEscape(cell)
-            case .lineBreak, .style, .selectBlock, .slashUp, .slashDown, .slashClose: return
+            case .lineBreak, .style, .selectBlock, .slashUp, .slashDown, .slashClose, .slashBack, .slashOpen: return
             default: break
             }
         }
@@ -624,7 +624,12 @@ final class DocEditor {
         case .slashUp, .slashDown:
             slash.move(by: command == .slashUp ? -1 : 1)
         case .slashClose:
-            dismissSlash()
+            // In a group, back to the top first (the action menu's Esc).
+            if slash.group != nil { slash.back() } else { dismissSlash() }
+        case .slashBack:
+            slash.back()
+        case .slashOpen:
+            if let group = slash.highlightedItem, group.isGroup { slash.open(group) }
         case .selectBlock:
             blocks.selectAfterEditing(block.id)
         case .outdent:
@@ -1378,7 +1383,7 @@ final class DocUndoManager: UndoManager {
 }
 
 enum DocKeyCommand: Equatable {
-    case outdent, bold, italic, strike, code, highlight, link, lineBreak, slashUp, slashDown, slashClose, selectBlock
+    case outdent, bold, italic, strike, code, highlight, link, lineBreak, slashUp, slashDown, slashClose, slashBack, slashOpen, selectBlock
     /// In a table's cell: to another cell (↑ ↓ at the text's first / last line, ⌘ + arrows),
     /// and Esc out of the table.
     case cell(DocTableController.Move), leaveCell
@@ -1497,7 +1502,8 @@ private enum TextViewHooks {
     /// (Craft's), ⌘K links (Composer had
     /// them; UIKit's own versions would edit the storage, not the model); ⌃1–⌃6 set
     /// the text style (Craft's).
-    /// ↑, ↓ and Esc are the slash menu's only while it is open; otherwise Esc selects the
+    /// ↑, ↓ and Esc are the slash menu's only while it is open (Esc going back from a
+    /// group first), ← and → only to leave and open its groups; otherwise Esc selects the
     /// block (on the Mac: the editing ends, the block it was in selected).
     /// In a table's cell (`cell` true; false: only in a block's text): Tab and Return are
     /// the next cell (DocEditor.replace), Shift-Tab the previous, ↑ ↓ at the text's first /
@@ -1516,6 +1522,8 @@ private enum TextViewHooks {
         (UIKeyCommand.inputUpArrow, [], Selector(("docSlashUp:")), .slashUp, String(localized: "Previous Item"), true, false),
         (UIKeyCommand.inputDownArrow, [], Selector(("docSlashDown:")), .slashDown, String(localized: "Next Item"), true, false),
         (UIKeyCommand.inputEscape, [], Selector(("docSlashClose:")), .slashClose, String(localized: "Close Menu"), true, false),
+        (UIKeyCommand.inputLeftArrow, [], Selector(("docSlashBack:")), .slashBack, String(localized: "Back"), true, false),
+        (UIKeyCommand.inputRightArrow, [], Selector(("docSlashOpen:")), .slashOpen, String(localized: "Open Group"), true, false),
         (UIKeyCommand.inputEscape, [], Selector(("docSelectBlock:")), .selectBlock, String(localized: "Select Block"), false, false),
         ("\t", .shift, Selector(("docCellPrevious:")), .cell(.previous), String(localized: "Previous Cell"), nil, true),
         (UIKeyCommand.inputUpArrow, [], Selector(("docCellUp:")), .cell(.up), String(localized: "Cell Above"), nil, true),
@@ -1549,6 +1557,9 @@ private enum TextViewHooks {
                     entry.slashMenu.map { $0 == editor.slash.isOpen } ?? true
                         && entry.cell.map { $0 == inCell } ?? true
                         && (entry.command != .selectBlock || DocBlockController.usesHandles)
+                        // ← and → are the menu's only for its groups; else the caret's.
+                        && (entry.command != .slashBack || editor.slash.group != nil)
+                        && (entry.command != .slashOpen || editor.slash.highlightedItem?.isGroup == true)
                         && (entry.command != .cell(.up) || onEdgeLine(textView, first: true))
                         && (entry.command != .cell(.down) || onEdgeLine(textView, first: false))
                 }.map { entry in

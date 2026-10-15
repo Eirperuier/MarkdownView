@@ -126,8 +126,10 @@ struct DocCommand: Identifiable, Equatable, Sendable {
 /// The command menu: "/" typed (at a block's start or after a space; "、" too, the slash
 /// key's character with a Chinese input method; the keyboard bar's key types one
 /// anywhere) opens it over the caret's line. Text typed after it filters the commands,
-/// ↑↓ move, Return or a tap chooses (a group's commands take the menu's place, Backspace
-/// goes back), Esc, a space or a tap anywhere else closes it.
+/// ↑↓ move, Return or a tap chooses. A group opens as the action menu's levels do (→ or
+/// Return on it too): its commands take the menu's place under its title, which goes
+/// back, as Backspace, Esc and ← do. Esc at the top, a space or a tap anywhere else
+/// closes it.
 @MainActor
 @Observable
 final class DocSlashMenu {
@@ -143,12 +145,12 @@ final class DocSlashMenu {
     /// Where the menu may go, in the same coordinates: the list on screen, down to the
     /// keyboard (over its bar).
     private(set) var room: CGRect = .infinite
-    /// Where it shows, set as it opens: a group's commands and a query's take the same
-    /// place (FlooDesignMenuOverlay.frame). Closed, it keeps its place and its rows
-    /// while it goes.
+    /// Where it shows (FlooDesignMenuOverlay.frame): on the side of the caret's line
+    /// chosen as it opens, as tall as what it shows. Closed, it keeps its place and its
+    /// rows while it goes.
     private(set) var frame: CGRect = .null
-    /// How many rows the menu opened with.
-    private var rows = 0
+    /// The side it opened on: a group's commands and a query's grow and shrink from it.
+    private var opensAbove = true
     /// Called with the chosen command.
     @ObservationIgnored var choose: (DocCommand) -> Void = { _ in }
     /// A tap anywhere but the menu: it closes.
@@ -169,33 +171,47 @@ final class DocSlashMenu {
             items = group?.children ?? DocCommand.matching(query)
             highlighted = 0
         }
-        if opens { rows = items.count }
         self.query = query
         isOpen = true
-        if frame.isNull, let place { self.place(anchor: place.anchor, room: place.room) }
+        if !frame.isNull {
+            resize()
+        } else if let place {
+            self.place(anchor: place.anchor, room: place.room)
+        }
     }
 
-    /// Where it opened, or the room for it changed (the keyboard came or went).
+    /// Where it opened, or the room for it changed (the keyboard came or went): the side
+    /// is chosen for the tallest it gets.
     func place(anchor: CGRect, room: CGRect) {
         self.anchor = anchor
         self.room = room
-        frame = FlooDesignMenuOverlay.frame(over: anchor, in: room, rows: rows)
+        opensAbove = FlooDesignMenuOverlay.opensAbove(over: anchor, in: room)
+        resize()
     }
 
-    /// A group's commands in the menu's place.
+    /// As tall as what it shows now, on its side.
+    private func resize() {
+        guard isOpen, anchor != .zero else { return }
+        frame = FlooDesignMenuOverlay.frame(over: anchor, in: room, rows: items.count, titled: group != nil, above: opensAbove)
+    }
+
+    /// A group's commands in the menu's place, under its title.
     func open(_ group: DocCommand) {
         guard group.isGroup else { return }
         self.group = group
         items = group.children
         highlighted = 0
+        resize()
     }
 
-    /// Backspace in a group: the menu's top again, the group highlighted.
+    /// Back from a group (its title, Backspace, Esc, ←): the menu's top again, the group
+    /// highlighted.
     func back() {
         guard let group else { return }
         self.group = nil
         items = DocCommand.matching(query)
         highlighted = items.firstIndex(of: group) ?? 0
+        resize()
     }
 
     /// Closed: it goes where it is, as it is (its rows and place stay until it opens again).
@@ -392,11 +408,12 @@ struct DocSlashMenuView: View {
     var body: some View {
         FlooDesignMenuOverlay(
             isPresented: menu.isOpen, frame: menu.frame, opensBelow: menu.frame.minY >= menu.anchor.maxY,
-            entries: menu.items.map(\.entry), highlighted: menu.highlighted, page: menu.group?.id,
+            entries: menu.items.map(\.entry), highlighted: menu.highlighted, page: menu.group?.id, title: menu.group?.title,
             onHighlight: { menu.highlighted = $0 },
             onChoose: { entry in
                 if let item = menu.items.first(where: { $0.id == entry.id }) { menu.choose(item) }
             },
+            onBack: { menu.back() },
             onDismiss: { menu.dismiss() }
         )
     }
