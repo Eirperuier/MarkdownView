@@ -70,7 +70,14 @@ extension Doc {
                     return Table.Cell(InlineTreeBuilder.inlines(line, singleLine: true))
                 }
                 return (Document(Table(
-                    columnAlignments: Array(repeating: nil, count: table.header.count),
+                    columnAlignments: table.alignments.map { alignment in
+                        switch alignment {
+                        case .left?: .left
+                        case .center?: .center
+                        case .right?: .right
+                        case .justify?, nil: nil
+                        }
+                    },
                     header: Table.Head(table.header.map { cell(DocText(string: $0)) }),
                     body: Table.Body(table.rows.map { Table.Row($0.map(cell)) })
                 )), 0)

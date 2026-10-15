@@ -31,6 +31,10 @@ extension Database {
         for column in columns {
             guard byID.updateValue(column, forKey: column.id) == nil else { throw .duplicateID }
         }
+        for column in columns {
+            guard column.headerStyle?.isValid ?? true, column.cellStyles?.values.allSatisfy(\.isValid) ?? true else { throw .invalidStyle }
+        }
+        if case .fill(let token)? = style?.stripe, CellStyle.parseFill(token) == nil { throw .invalidStyle }
         var seen: Set<RowID> = []
         for row in rows {
             guard seen.insert(row.id).inserted else { throw .duplicateID }
@@ -59,7 +63,7 @@ struct WrittenCells {
             for column in row.cells.keys { cells[database, default: []].insert(Cell(row: row.id, column: column)) }
         case .insertColumn(let column, _, _), .updateColumn(let column, _):
             columns[database, default: []].insert(column.id)
-        case .deleteRow, .moveRow, .deleteColumn:
+        case .deleteRow, .moveRow, .deleteColumn, .setCellStyle, .setTableStyle:
             break
         }
     }

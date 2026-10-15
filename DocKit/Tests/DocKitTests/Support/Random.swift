@@ -314,7 +314,21 @@ enum RandomStep {
 
     private static func databaseStep(in doc: Doc, using rng: inout SplitMix64) -> DocStep? {
         guard let database = doc.databases.values.sorted(by: { $0.id < $1.id }).randomElement(using: &rng) else { return nil }
-        switch rng.next() % 7 {
+        switch rng.next() % 9 {
+        case 7:
+            guard let column = database.columns.randomElement(using: &rng) else { return nil }
+            let row = rng.next() % 4 == 0 ? nil : database.rows.randomElement(using: &rng)?.id
+            let style: CellStyle? = switch rng.next() % 4 {
+            case 0: nil
+            case 1: CellStyle(alignment: CellAlignment.allCases.randomElement(using: &rng))
+            case 2: CellStyle(font: .mono, number: .currency(code: "EUR"))
+            default: CellStyle(fill: CellStyle.fill(CellStyle.fillColors.randomElement(using: &rng)!, strength: Int(rng.next() % 3) + 1))
+            }
+            return .database(id: database.id, step: .setCellStyle(row: row, column: column.id, style: style, previous: nil))
+        case 8:
+            let style: TableStyle? = rng.next() % 3 == 0 ? nil
+                : TableStyle(headerRow: rng.next() % 2 == 0, headerColumn: true, stripe: rng.next() % 2 == 0 ? TableStripe.none : .fill("mint-2"))
+            return .database(id: database.id, step: .setTableStyle(style: style, previous: nil))
         case 0:
             guard let row = database.rows.randomElement(using: &rng),
                 let column = database.columns.randomElement(using: &rng)

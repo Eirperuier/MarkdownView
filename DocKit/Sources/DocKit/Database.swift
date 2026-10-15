@@ -5,11 +5,14 @@ public struct Database: Hashable, Sendable, Codable {
     public var id: DatabaseID
     public var columns: [Column]
     public var rows: [Row]
+    /// How its table looks as a whole (`tableStyle`); nil, the defaults.
+    public var style: TableStyle?
 
-    public init(id: DatabaseID, columns: [Column] = [], rows: [Row] = []) {
+    public init(id: DatabaseID, columns: [Column] = [], rows: [Row] = [], style: TableStyle? = nil) {
         self.id = id
         self.columns = columns
         self.rows = rows
+        self.style = style
     }
 }
 
@@ -17,11 +20,18 @@ public struct Column: Hashable, Sendable, Codable {
     public var id: ColumnID
     public var name: String
     public var type: ColumnType
+    /// Its header cell's style (`style(row:)`); only `setCellStyle` changes it.
+    public var headerStyle: CellStyle?
+    /// Its body cells' styles, by row; a row deleted keeps its entry, so undoing the
+    /// delete brings its styles back with it. Only `setCellStyle` changes them.
+    public var cellStyles: [RowID: CellStyle]?
 
-    public init(id: ColumnID, name: String, type: ColumnType) {
+    public init(id: ColumnID, name: String, type: ColumnType, headerStyle: CellStyle? = nil, cellStyles: [RowID: CellStyle]? = nil) {
         self.id = id
         self.name = name
         self.type = type
+        self.headerStyle = headerStyle
+        self.cellStyles = cellStyles
     }
 }
 

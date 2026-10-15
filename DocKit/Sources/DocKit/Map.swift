@@ -206,6 +206,11 @@ extension DatabaseStep {
         case .updateColumn(let column, _):
             if other.removes(column: column.id) { return [] }
             return [self]
+        case .setCellStyle(let row, let column, _, _):
+            if other.removes(column: column) || row.map(other.removes(row:)) == true { return [] }
+            return [self]
+        case .setTableStyle:
+            return [self]
         }
     }
 

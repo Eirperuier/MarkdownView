@@ -54,4 +54,7 @@ public enum DocError: Error, Equatable, Sendable {
     case invalidMove
     /// `setMarks` spans must lie inside the edited range.
     case spanOutsideRange
+    /// A cell's or a table's style sets a value it doesn't take (a fill that isn't a
+    /// palette colour, a strength or `#rrggbb`; a currency that isn't a code).
+    case invalidStyle
 }

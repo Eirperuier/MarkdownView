@@ -194,14 +194,22 @@ extension Database {
         func line(_ cells: [DocText]) -> String {
             "| " + cells.map { $0.markdown(singleLine: true, escapingPipes: true) }.joined(separator: " | ") + " |"
         }
-        let rule = "| " + table.header.map { _ in "---" }.joined(separator: " | ") + " |"
+        let rule = "| " + table.alignments.map { alignment in
+            switch alignment {
+            case .left?: ":---"
+            case .center?: ":---:"
+            case .right?: "---:"
+            case .justify?, nil: "---"
+            }
+        }.joined(separator: " | ") + " |"
         return ([line(table.header.map { DocText(string: $0) }), rule] + table.rows.map(line)).joined(separator: "\n")
     }
 
     /// What the view shows: its visible columns' names, and each row's cells as they
-    /// read (text with its marks, formulas as what they compute), rows in the view's
-    /// order. Nil when no column is visible.
-    func cells(view: DatabaseView) -> (header: [String], rows: [[DocText]])? {
+    /// read (text with its marks, formulas as what they compute, numbers in their cell's
+    /// format), rows in the view's order; with the columns' and rows' ids, and each
+    /// column's alignment where all its cells share one. Nil when no column is visible.
+    func cells(view: DatabaseView) -> DatabaseCells? {
         let (hidden, sort): ([ColumnID], [DatabaseSort]) = switch view {
         case .table(let hidden, let sort): (hidden, sort)
         case .kanban(_, let hidden, let sort): (hidden, sort)
@@ -219,17 +227,53 @@ extension Database {
         // Formulas show what they compute, in the database's own order (their references).
         let rowIndex = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0 + 1) })
         let columnIndex = Dictionary(uniqueKeysWithValues: columns.enumerated().map { ($1.id, $0) })
-        return (visible.map(\.name), ordered.map { row in
+        let rows = ordered.map { row in
             visible.map { column in
                 let value = row.cells[column.id]
-                let text = column.display(value)
-                if DatabaseFormula.isFormula(text) {
-                    return DocText(string: DatabaseFormula.displayed(text, in: self, row: rowIndex[row.id] ?? 0, column: columnIndex[column.id] ?? 0))
+                var text = column.display(value)
+                let formula = DatabaseFormula.isFormula(text)
+                if formula {
+                    text = DatabaseFormula.displayed(text, in: self, row: rowIndex[row.id] ?? 0, column: columnIndex[column.id] ?? 0)
                 }
-                return value?.docText ?? DocText(string: text)
+                let read = formula ? DocText(string: text) : value?.docText ?? DocText(string: text)
+                guard let format = column.style(row: row.id).number,
+                      let number = formula ? CellFormat.number(text) : Self.number(value, text: text) else { return read }
+                // A mark over the whole number stays over the whole of how it reads.
+                let formatted = format.text(number)
+                let length = formatted.utf16.count
+                return DocText(string: formatted, marks: read.marks.compactMap { span in
+                    span.range == 0..<read.length ? MarkSpan(range: 0..<length, mark: span.mark) : nil
+                })
             }
-        })
+        }
+        let alignments = visible.map { column -> CellAlignment? in
+            let all = [column.style(row: nil).alignment] + ordered.map { column.style(row: $0.id).alignment }
+            return all.allSatisfy { $0 == all.first } ? all.first ?? nil : nil
+        }
+        return DatabaseCells(header: visible.map(\.name), rows: rows, columns: visible.map(\.id),
+                             rowIDs: ordered.map(\.id), alignments: alignments)
     }
+
+    /// A number cell's value, or a text cell's when its text is a number.
+    private static func number(_ value: CellValue?, text: String) -> Double? {
+        switch value {
+        case .number(let number): number
+        case .text, .richText: CellFormat.number(text)
+        default: nil
+        }
+    }
+}
+
+/// A database as its view shows it (`Database.cells(view:)`).
+struct DatabaseCells {
+    /// The visible columns' names.
+    var header: [String]
+    /// Each row's cells as they read, rows in the view's order.
+    var rows: [[DocText]]
+    var columns: [ColumnID]
+    var rowIDs: [RowID]
+    /// Each column's alignment, where its header and every row share one.
+    var alignments: [CellAlignment?]
 }
 
 extension Column {

@@ -181,9 +181,10 @@ private struct MarkdownImporter<Generator: RandomNumberGenerator> {
         append(.code(language: language), indent: indent, text: DocText(string: InlineBuilder.cleaned(body)))
     }
 
-    /// A GFM table becomes a database of text columns shown as a table.
+    /// A GFM table becomes a database of text columns shown as a table; a column's
+    /// alignment, every one of its cells'.
     private mutating func visitTable(_ table: Table, indent: Int) {
-        let columns: [Column] = table.head.cells.map { cell in
+        var columns: [Column] = table.head.cells.map { cell in
             Column(id: newID(), name: cellText(cell), type: .text)
         }
         var rows: [Row] = []
@@ -194,6 +195,17 @@ private struct MarkdownImporter<Generator: RandomNumberGenerator> {
                 if !text.isEmpty { cells[column.id] = .text(text) }
             }
             rows.append(Row(id: newID(), cells: cells))
+        }
+        for (index, alignment) in table.columnAlignments.enumerated() where index < columns.count {
+            let style: CellStyle? = switch alignment {
+            case .left?: CellStyle(alignment: .left)
+            case .center?: CellStyle(alignment: .center)
+            case .right?: CellStyle(alignment: .right)
+            case nil: nil
+            }
+            guard let style else { continue }
+            columns[index].setStyle(style, row: nil)
+            for row in rows { columns[index].setStyle(style, row: row.id) }
         }
         let database = Database(id: newID(), columns: columns, rows: rows)
         databases[database.id] = database

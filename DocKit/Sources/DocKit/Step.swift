@@ -45,5 +45,10 @@ public enum DatabaseStep: Hashable, Sendable, Codable {
     case insertColumn(column: Column, after: ColumnID?, cells: [RowID: CellValue])
     /// The column's per-row values are recorded for undo.
     case deleteColumn(column: Column, after: ColumnID?, cells: [RowID: CellValue])
+    /// A column's name and type; its cells' styles stay as they are (`setCellStyle`).
     case updateColumn(column: Column, previous: Column)
+    /// A cell's style (`row` nil: the column's header cell); nil, or a plain style, is none.
+    case setCellStyle(row: RowID?, column: ColumnID, style: CellStyle?, previous: CellStyle?)
+    /// How the table looks as a whole; nil is the defaults.
+    case setTableStyle(style: TableStyle?, previous: TableStyle?)
 }

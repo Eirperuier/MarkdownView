@@ -53,6 +53,10 @@ extension DatabaseStep {
             return .insertColumn(column: column, after: after, cells: cells)
         case .updateColumn(let column, let previous):
             return .updateColumn(column: previous, previous: column)
+        case .setCellStyle(let row, let column, let style, let previous):
+            return .setCellStyle(row: row, column: column, style: previous, previous: style)
+        case .setTableStyle(let style, let previous):
+            return .setTableStyle(style: previous, previous: style)
         }
     }
 }

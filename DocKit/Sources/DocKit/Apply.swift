@@ -270,13 +270,27 @@ extension Database {
                 cells[rows[rowIndex].id] = rows[rowIndex].cells.removeValue(forKey: column.id)
             }
             return .deleteColumn(column: columns.remove(at: index), after: after, cells: cells)
-        case .updateColumn(let column, _):
+        case .updateColumn(var column, _):
             guard let index = columns.firstIndex(where: { $0.id == column.id }) else {
                 throw .columnNotFound(column.id)
             }
             let previous = columns[index]
+            column.headerStyle = previous.headerStyle
+            column.cellStyles = previous.cellStyles
             columns[index] = column
             return .updateColumn(column: column, previous: previous)
+        case .setCellStyle(let row, let column, let style, _):
+            guard let index = columns.firstIndex(where: { $0.id == column }) else { throw .columnNotFound(column) }
+            if let row, !rows.contains(where: { $0.id == row }) { throw .rowNotFound(row) }
+            if let style, !style.isValid { throw .invalidStyle }
+            let previous = columns[index].style(row: row)
+            columns[index].setStyle(style, row: row)
+            return .setCellStyle(row: row, column: column, style: columns[index].style(row: row), previous: previous)
+        case .setTableStyle(let style, _):
+            if case .fill(let token)? = style?.stripe, CellStyle.parseFill(token) == nil { throw .invalidStyle }
+            let previous = self.style
+            self.style = style.flatMap { $0.isPlain ? nil : $0 }
+            return .setTableStyle(style: self.style, previous: previous)
         }
     }
 
