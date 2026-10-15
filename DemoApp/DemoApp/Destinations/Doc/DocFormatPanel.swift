@@ -9,8 +9,7 @@
 //  blocks' text, and so does the colour. What the blocks take (DocFormattable) decides:
 //  the shared sections stay, greyed where none of them takes one, and a kind's own come
 //  after (a link's layout, an image's size and fit). The cursor in a table's cell, the
-//  panel is the cell's: what a cell takes. What DocKit can't carry yet (alignment) isn't
-//  offered.
+//  panel is the cell's (DocCellStylePanel).
 //
 
 import SwiftUI
@@ -44,8 +43,17 @@ struct DocFormatPanel: View {
     let demo: DocDemo
 
     var body: some View {
+        let formatting = formatting
+        if let cell = formatting.cell {
+            DocCellStylePanel(cell: cell, formatting: formatting, editor: editor)
+        } else {
+            blocks
+        }
+    }
+
+    private var blocks: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(formatting.inCell ? String(localized: "Cell Style") : String(localized: "Format"))
+            Text("Format")
                 .font(Metrics.title)
                 .padding(.bottom, Metrics.titleGap)
             // Text first offers its kinds; a link, file or image its layout, after the
@@ -190,22 +198,19 @@ struct DocFormatPanel: View {
                     formatting.toggle(item.mark)
                 }
             })
-            // A cell's panel has only what a cell takes.
-            if !formatting.inCell {
-                FlooDesignSegments(items: DocFormatting.lists.map { item in
-                    .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: formatting.takes(.list)) {
-                        formatting.toggleList(item.kind)
-                    }
-                })
-                FlooDesignSegments(items: [
-                    .init(id: "outdent", symbol: "decrease.indent", title: String(localized: "Outdent"), isOn: false, isEnabled: canIndent(-1)) {
-                        formatting.indent(by: -1)
-                    },
-                    .init(id: "indent", symbol: "increase.indent", title: String(localized: "Indent"), isOn: false, isEnabled: canIndent(1)) {
-                        formatting.indent(by: 1)
-                    },
-                ])
-            }
+            FlooDesignSegments(items: DocFormatting.lists.map { item in
+                .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: formatting.takes(.list)) {
+                    formatting.toggleList(item.kind)
+                }
+            })
+            FlooDesignSegments(items: [
+                .init(id: "outdent", symbol: "decrease.indent", title: String(localized: "Outdent"), isOn: false, isEnabled: canIndent(-1)) {
+                    formatting.indent(by: -1)
+                },
+                .init(id: "indent", symbol: "increase.indent", title: String(localized: "Indent"), isOn: false, isEnabled: canIndent(1)) {
+                    formatting.indent(by: 1)
+                },
+            ])
         }
     }
 

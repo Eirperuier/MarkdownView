@@ -7,7 +7,8 @@
 //  panel and the phone's sheet show and enable their sections from it, and act only on
 //  what takes them. Craft's Format panel keeps its shared sections in place, greyed where
 //  the selection doesn't take them, and adds a kind's own (an image's size and fit, a
-//  link's layout); a cell has a panel of its own, only what a cell takes.
+//  link's layout); a cell has a panel of its own (Craft's Table Style), only what a cell
+//  and its table take.
 //
 
 import DocKit
@@ -34,6 +35,16 @@ struct DocFormats: OptionSet, Hashable {
     static let layout = DocFormats(rawValue: 1 << 7)
     /// An image's size and fit.
     static let image = DocFormats(rawValue: 1 << 8)
+    /// Where a cell's text sits: left, centred, right, justified.
+    static let alignment = DocFormats(rawValue: 1 << 9)
+    /// A cell's typeface.
+    static let typeface = DocFormats(rawValue: 1 << 10)
+    /// How a number in a cell reads (number, percent, currency).
+    static let numberFormat = DocFormats(rawValue: 1 << 11)
+    /// A cell's fill.
+    static let fill = DocFormats(rawValue: 1 << 12)
+    /// Its table's: its size, its header row and column, its rows' stripe.
+    static let table = DocFormats(rawValue: 1 << 13)
 
     /// What every block takes: a level, the box.
     static let block: DocFormats = [.indent, .box]
@@ -60,15 +71,34 @@ extension BlockKind: DocFormattable {
 }
 
 /// A table's cell, as the format panels see it (Craft's Table Style is a cell's own
-/// panel): a body cell of a text column takes marks and a colour on its text. What else
-/// Craft's has (alignment, a fill, number formats) DocKit can't keep yet.
+/// panel): any body cell takes an alignment, a typeface, a fill and its table's settings;
+/// a text or number column's a number format; a text column's marks and a colour on its text.
 @MainActor
 struct DocFormatCell: DocFormattable {
     let key: DocCellKey
     let tables: DocTableController
 
-    var formats: DocFormats { tables.holdsText(key) ? [.marks, .color] : [] }
+    var formats: DocFormats {
+        guard tables.isEditable, key.row != nil else { return [] }
+        var formats: DocFormats = [.alignment, .typeface, .fill, .table]
+        if tables.holdsNumbers(key) { formats.insert(.numberFormat) }
+        if tables.holdsText(key) { formats.formUnion([.marks, .color]) }
+        return formats
+    }
 
     /// The text selected in it, else all of it.
     var range: (block: DocBlockID, range: Range<Int>)? { tables.formatRange(key) }
+
+    var style: CellStyle { tables.cellStyle(key) }
+    var table: DocKit.TableStyle { tables.tableStyle(key.block) }
+    var size: (rows: Int, columns: Int) { tables.size(of: key.block) }
+
+    func setStyle(_ change: (inout CellStyle) -> Void) { tables.setCellStyle(key, change) }
+    func setTable(_ change: (inout DocKit.TableStyle) -> Void) { tables.setTableStyle(key.block, change) }
+    func resize(rows: Int? = nil, columns: Int? = nil) { tables.resize(key, rows: rows, columns: columns) }
+
+    /// A setting pressed again goes back to the table's (Craft's alignment keys).
+    func toggle(_ alignment: CellAlignment) {
+        setStyle { $0.alignment = $0.alignment == alignment ? nil : alignment }
+    }
 }

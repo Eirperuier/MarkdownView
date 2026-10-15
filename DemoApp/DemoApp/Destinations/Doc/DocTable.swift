@@ -118,7 +118,7 @@ enum DocTableAction: CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class DocTableController {
-    @ObservationIgnored private let demo: DocDemo
+    @ObservationIgnored let demo: DocDemo
     @ObservationIgnored unowned let editor: DocEditor
     /// The cell shown as an editor (its table shows the + buttons, the cell its ⋯).
     /// It stays while a menu or button of the table is used, and goes when the focus
@@ -154,7 +154,7 @@ final class DocTableController {
 
     // MARK: Model
 
-    private func database(_ block: DocBlockID) -> (id: DatabaseID, database: Database)? {
+    func database(_ block: DocBlockID) -> (id: DatabaseID, database: Database)? {
         guard let kind = demo.doc.block(block)?.kind, case .database(let id, _) = kind, let database = demo.doc.databases[id] else { return nil }
         return (id, database)
     }
@@ -264,7 +264,7 @@ final class DocTableController {
         }
     }
 
-    private func commit(_ block: DocBlockID, _ steps: [DatabaseStep], merging: Bool = false) {
+    func commit(_ block: DocBlockID, _ steps: [DatabaseStep], merging: Bool = false) {
         guard let (id, _) = database(block), !steps.isEmpty else { return }
         if !merging { session &+= 1 }
         _ = demo.edit(steps.map { .database(id: id, step: $0) }, before: nil, after: nil,
@@ -449,7 +449,7 @@ final class DocTableController {
     }
 
     /// After a structural change the new cell renders on the next pass.
-    private func focusSoon(_ key: DocCellKey, atEnd: Bool, reveals: Bool = true) {
+    func focusSoon(_ key: DocCellKey, atEnd: Bool, reveals: Bool = true) {
         if key.row != nil { return focus(key, atEnd: atEnd, reveals: reveals) }
         editing = key
         pendingFocus = (key, atEnd)
@@ -968,7 +968,9 @@ struct DocTableCellField: UIViewRepresentable {
         view.controller = controller
         view.isHeader = isHeader
         view.isEditable = controller.isEditable
-        view.font = isHeader ? DocTableCellField.headerFont : DocTableCellField.bodyFont
+        let look = controller.look(key)
+        view.font = look.font
+        view.textAlignment = look.textAlignment
         view.textColor = FlooDesignTokens.UIKitColor.primary
         // The model is the truth; while typing it already equals the view.
         if view.text != text, view.markedTextRange == nil {
@@ -993,7 +995,7 @@ struct DocTableCellField: UIViewRepresentable {
     /// Unconstrained: the text's own width (the table sizes its columns from it, as it
     /// does from a rendered cell); proposed a width: that width, wrapped.
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: DocCellTextView, context: Context) -> CGSize? {
-        let font = isHeader ? Self.headerFont : Self.bodyFont
+        let font = controller.look(key).font
         let natural = ceil((text as NSString).size(withAttributes: [.font: font]).width) + 2
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? natural
         let height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
@@ -1012,12 +1014,13 @@ struct DocTableCellEditor: View {
     let controller: DocTableController
 
     var body: some View {
+        // All of the cell's room, so its ring is its row's height.
         content
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: controller.look(key).frameAlignment)
             .anchorPreference(key: DocTableRingKey.self, value: .bounds) { DocTableRingAnchor(key: key, bounds: $0) }
             .overlay {
-                // Out over the cell's padding (MarkdownView's: 8 across, 13 down). While its
-                // row or column is picked, that one is ringed instead (DocTableEdges).
+                // Where MarkdownView draws the cell's fill (Handles.ringOutset). While its row
+                // or column is picked, that one is ringed instead (DocTableEdges).
                 RoundedRectangle(cornerRadius: Handles.ringRadius, style: .continuous)
                     .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
                     .opacity(controller.line == nil ? 1 : 0)
@@ -1045,22 +1048,26 @@ struct DocTableCellEditor: View {
         if key.row == nil {
             DocTableCellField(key: key, text: controller.text(key), isHeader: true, controller: controller)
         } else {
-            DocTableCellText(text: controller.docText(key), hooks: controller.editor.hooks(for: controller.textID(key)))
+            DocTableCellText(text: controller.docText(key), look: controller.look(key), hooks: controller.editor.hooks(for: controller.textID(key)))
         }
     }
 }
 
 /// A body cell's text being edited: MarkdownView's text of the cell as the table renders
 /// it (its selectable cell), in the editor's hands (its hooks), so the cell looks the same
-/// read and edited, marks and all.
+/// read and edited, marks, typeface and alignment and all.
 struct DocTableCellText: View {
     let text: DocText
+    let look: DocCellLook
     let hooks: MarkdownSelectableTextHooks
 
     var body: some View {
         MarkdownSelectableText(tree: MarkdownTree(text.lineTree), applyEdgeInsets: false)
-            .transformEnvironment(\.markdownPlatformTypography) { typography in
+            .transformEnvironment(\.markdownPlatformTypography) { [look] typography in
                 typography = typography.tableCell
+                typography.body.design = look.style.font.map(DocCellLook.design)
+                if look.isHeaderColumn { typography.body.weight = .bold }
+                typography.paragraphAlignment = look.textAlignment
             }
             .environment(\.markdownSelectableTextHooks, hooks)
     }
@@ -1114,6 +1121,7 @@ struct DocTableRowView: View {
     var body: some View {
         MarkdownBlockView(tree: tree)
             .markdownDisplayMathRendersSynchronously()
+            .markdownTableAppearance(controller.appearance(of: table))
             .markdownTableCellsSelectable()
             .markdownTableCellTap { [table, controller] position in controller.tapped(table, at: position) }
             .markdownTableCellReplacement(controller.replaced(in: table)) { [table, controller] position in controller.replacement(in: table, at: position) }
@@ -1156,9 +1164,9 @@ struct DocTableEdges: View {
             if let line = controller.line {
                 let rect = line == .column
                     ? CGRect(x: cell.minX, y: table.minY, width: cell.width, height: table.height)
-                    // Out over the first and last cells' text, as the cell's ring is.
-                    : CGRect(x: table.minX - Handles.ringOutset.width, y: cell.minY,
-                             width: table.width + 2 * Handles.ringOutset.width, height: cell.height)
+                    // Out past the table's edges as far as its rows' stripes.
+                    : CGRect(x: table.minX - Handles.rowOutset.leading, y: cell.minY,
+                             width: table.width + Handles.rowOutset.leading + Handles.rowOutset.trailing, height: cell.height)
                 RoundedRectangle(cornerRadius: Handles.ringRadius, style: .continuous)
                     .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
                     .frame(width: rect.width, height: rect.height)
@@ -1168,7 +1176,7 @@ struct DocTableEdges: View {
             DocTableGrip(line: .column, key: key, controller: controller)
                 .position(x: cell.midX, y: table.minY)
             DocTableGrip(line: .row, key: key, controller: controller)
-                .position(x: table.minX - Handles.ringOutset.width, y: cell.midY)
+                .position(x: table.minX - Handles.rowOutset.leading, y: cell.midY)
             if controller.isEditable {
                 DocTableEdgeDot(label: String(localized: "Add Column")) { controller.appendColumn(beside: key) }
                     .position(x: table.maxX, y: cell.midY)

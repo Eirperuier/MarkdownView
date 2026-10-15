@@ -1361,7 +1361,8 @@ final class DocEditTests {
             _ = try await click(2, 1)
             let key = try editedKey()
             let formatting = DocFormatting(editor: self.editor)
-            try self.expect(formatting.cell?.key == key && formatting.formats == [.marks, .color], "formats \(formatting.formats.rawValue)")
+            try self.expect(formatting.cell?.key == key && formatting.formats == [.marks, .color, .alignment, .typeface, .numberFormat, .fill, .table],
+                            "formats \(formatting.formats.rawValue)")
             try self.expect(formatting.targets.isEmpty && formatting.decorated.isEmpty, "the table took the cell's place")
             let before = try database()
             formatting.toggle(.bold)
@@ -1374,6 +1375,37 @@ final class DocEditTests {
             }
             try await self.undo()
             try self.expect(try database() == before, "undo left the cell bold")
+        }
+        await test("Table: a cell's alignment, typeface, number format and fill, and its table's headers, stripe and size: drawn as set, each one undo step") {
+            _ = try await click(2, 1)
+            let key = try editedKey()
+            let before = try database()
+            let cell = try self.expectValue(DocFormatting(editor: self.editor).cell, "no cell panel")
+            cell.toggle(.right)
+            cell.setStyle { $0.font = .serif }
+            cell.setStyle { $0.number = .percent }
+            cell.setStyle { $0.fill = "blue-2" }
+            let style = CellStyle(alignment: .right, font: .serif, number: .percent, fill: "blue-2")
+            try self.expect(try database().cellStyle(row: key.row, column: key.column) == style, "style \(cell.style)")
+            let row = try database().rows.firstIndex { $0.id == key.row }.map { $0 + 1 } ?? -1
+            let column = try database().columns.firstIndex { $0.id == key.column } ?? -1
+            let snapshot = DocTableSnapshot(block: key.block, database: try database())
+            var appearance = self.editor.tables.appearance(of: snapshot)
+            let look = appearance.cells[MarkdownTableCellPosition(row: row, column: column)]
+            try self.expect(look?.alignment == .trailing && look?.fontDesign == .serif && look?.fill != nil, "drawn as \(String(describing: look))")
+            try self.expect(appearance.stripe == .none && appearance.headerRow && !appearance.headerColumn, "a table's own look")
+            try self.expect(self.editor.tables.look(key).textAlignment == .right, "the editor isn't right-aligned")
+            cell.setTable { $0.headerColumn = true }
+            cell.setTable { $0.stripe = "gray-2" }
+            appearance = self.editor.tables.appearance(of: DocTableSnapshot(block: key.block, database: try database()))
+            let striped = if case .color = appearance.stripe { true } else { false }
+            try self.expect(appearance.headerColumn && striped, "the table's look \(appearance.stripe)")
+            let size = cell.size
+            cell.resize(rows: size.rows + 1)
+            cell.resize(columns: size.columns + 1)
+            try self.expect(cell.size == (size.rows + 1, size.columns + 1), "size \(cell.size)")
+            for _ in 0..<8 { try await self.undo() }
+            try self.expect(try database() == before, "eight undos didn't put the table back")
         }
         await test("Table: a cell's menu is that cell's, and goes when another cell is edited") {
             _ = try await click(2, 1)

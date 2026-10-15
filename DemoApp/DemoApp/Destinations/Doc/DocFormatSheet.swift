@@ -7,7 +7,10 @@
 //  Its pages:
 //
 //  - main: a few styles and More…; lists and indent; the quote and the box, the colour,
-//    and … ; the cursor in a table's cell, the cell's: its marks and its text's colour;
+//    and … ; the cursor in a table's cell, the cell's (Craft's Table Style): its marks,
+//    its alignment, its typeface and number format, its fill, its text's colour, and its
+//    table's settings;
+//  - a cell's typeface, number format and fill; its table's size, headers and stripe;
 //  - styles: the six text styles (More…);
 //  - colours: the text's own colour, the palette, and any colour (the system's picker);
 //  - more (…): bold, italic, strikethrough, code; Copy Format and Paste Format.
@@ -15,8 +18,7 @@
 //  Every page but the main one is a sheet of its own over it; a choice on it takes it
 //  back to the main one. The sheets close with their own pull: no gestures
 //  of ours over them. What the blocks take (DocFormattable) is enabled, the rest greyed in
-//  place; in a table's cell, what a cell takes. What DocKit can't carry yet (alignment,
-//  fonts, pages) isn't offered.
+//  place; in a table's cell, what a cell takes.
 //
 //  The colours over the keyboard bar's highlight key, Craft's: none, the text colours
 //  and any; the highlights and any.
@@ -32,6 +34,8 @@ private typealias Metrics = FlooDesignTokens.Component.FormatSheet
 
 enum DocFormatSheetPage: Hashable, Identifiable {
     case main, styles, colors, more
+    /// A cell's typeface, number format, fill; its table's settings and stripe.
+    case cellFont, cellNumber, cellFill, table, stripe
 
     var id: Self { self }
 }
@@ -57,15 +61,28 @@ struct DocFormatSheet: View {
             case .styles: styles
             case .colors: colors
             case .more: more
+            case .cellFont: cellFonts
+            case .cellNumber: cellNumbers
+            case .cellFill: fills(current: formatting.cell?.style.fill) { token in formatting.cell?.setStyle { $0.fill = token } }
+            case .stripe: fills(current: formatting.cell?.table.stripe) { token in formatting.cell?.setTable { $0.stripe = token } }
+            case .table: table
             }
         }
-        .frame(height: shown == .main && formatting.inCell ? Metrics.cellPage : Metrics.page, alignment: .top)
+        .frame(height: height(of: shown), alignment: .top)
         .padding(.horizontal, Metrics.inset)
         .padding(.bottom, Metrics.inset)
     }
 
     private func go(_ page: DocFormatSheetPage) {
         editor.panels.sheetPage = page
+    }
+
+    private func height(of page: DocFormatSheetPage) -> CGFloat {
+        switch page {
+        case .main where formatting.inCell: Metrics.cellPage
+        case .cellFill, .stripe: Metrics.fillPage
+        default: Metrics.page
+        }
     }
 
     // MARK: Main
@@ -247,24 +264,201 @@ struct DocFormatSheet: View {
 
     // MARK: A cell's
 
-    /// The cursor in a table's cell: what a cell takes, the marks and the colour (Craft's
-    /// cell has a panel of its own).
+    /// The cursor in a table's cell (Craft's Table Style): its marks, its alignment, its
+    /// typeface and number format, its fill and its text's colour, its table's settings.
+    @ViewBuilder
     private var cell: some View {
         let formatting = formatting
-        return VStack(spacing: Metrics.rowSpacing) {
-            marks(formatting)
-            HStack(spacing: Tokens.Component.Tile.spacing) {
-                tile(isOn: formatting.color != nil, identifier: "sheet-cell-colors") { go(.colors) } label: {
-                    HStack(spacing: Tokens.Space.md) {
-                        FlooDesignRainbowSwatch(Circle(),
-                                                picked: formatting.color.flatMap(Self.token).map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
-                            .frame(width: Tokens.Icon.toolbar, height: Tokens.Icon.toolbar)
-                        Text("Text Color").font(Metrics.label)
+        if let cell = formatting.cell {
+            let style = cell.style
+            VStack(spacing: Metrics.rowSpacing) {
+                marks(formatting)
+                HStack(spacing: Tokens.Component.Tile.spacing) {
+                    ForEach(CellAlignment.allCases, id: \.self) { alignment in
+                        chip(isOn: style.alignment == alignment, identifier: "sheet-align-\(alignment.rawValue)") {
+                            cell.toggle(alignment)
+                        } label: {
+                            Image(systemName: alignment.symbol).font(.system(size: Tokens.Icon.toolbar, weight: .medium))
+                        }
+                        .accessibilityLabel(alignment.title)
                     }
                 }
-                .disabled(!formatting.takes(.color) || formatting.markRanges.isEmpty)
+                .disabled(!formatting.takes(.alignment))
+                HStack(spacing: Tokens.Component.Tile.spacing) {
+                    tile(isOn: style.font != nil, identifier: "sheet-cell-font") { go(.cellFont) } label: {
+                        Text(style.font?.title ?? String(localized: "Default Font")).font(Metrics.label)
+                    }
+                    .disabled(!formatting.takes(.typeface))
+                    tile(isOn: style.number != nil, identifier: "sheet-cell-number") { go(.cellNumber) } label: {
+                        Text(style.number?.title ?? String(localized: "Plain Text")).font(Metrics.label).lineLimit(1)
+                    }
+                    .disabled(!formatting.takes(.numberFormat))
+                }
+                HStack(spacing: Tokens.Component.Tile.spacing) {
+                    tile(isOn: style.fill != nil, identifier: "sheet-cell-fill") { go(.cellFill) } label: {
+                        HStack(spacing: Tokens.Space.md) {
+                            FlooDesignRainbowSwatch(Circle(), picked: style.fill.flatMap(DocColors.fill))
+                                .frame(width: Tokens.Icon.toolbar, height: Tokens.Icon.toolbar)
+                            Text("Fill").font(Metrics.label)
+                        }
+                    }
+                    .disabled(!formatting.takes(.fill))
+                    tile(isOn: formatting.color != nil, identifier: "sheet-cell-colors") { go(.colors) } label: {
+                        HStack(spacing: Tokens.Space.md) {
+                            FlooDesignRainbowSwatch(Circle(),
+                                                    picked: formatting.color.flatMap(Self.token).map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
+                                .frame(width: Tokens.Icon.toolbar, height: Tokens.Icon.toolbar)
+                            Text("Text").font(Metrics.label)
+                        }
+                    }
+                    .disabled(!formatting.takes(.color) || formatting.markRanges.isEmpty)
+                    tile(isOn: false, identifier: "sheet-table") { go(.table) } label: {
+                        Label("Table", systemImage: "tablecells").font(Metrics.label)
+                    }
+                    .disabled(!formatting.takes(.table))
+                }
             }
         }
+    }
+
+    /// The default typeface and Craft's four, each in its own.
+    private var cellFonts: some View {
+        let cell = formatting.cell
+        let current = cell?.style.font
+        let choices: [CellFont?] = [nil] + CellFont.allCases
+        return VStack(spacing: Metrics.rowSpacing) {
+            ForEach([Array(choices.prefix(3)), Array(choices.suffix(2))], id: \.self) { row in
+                HStack(spacing: Tokens.Component.Tile.spacing) {
+                    ForEach(row, id: \.self) { font in
+                        chip(isOn: current == font, identifier: "sheet-font-\(font?.rawValue ?? "default")") {
+                            cell?.setStyle { $0.font = font }
+                            go(.main)
+                        } label: {
+                            Text(font?.title ?? String(localized: "Default"))
+                                .font(.system(size: Metrics.styleLabel, design: font.map(DocCellLook.design) ?? .default))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Plain text, number, percent; a currency.
+    private var cellNumbers: some View {
+        let cell = formatting.cell
+        let current = cell?.style.number
+        let set = { (format: CellNumberFormat?) in
+            cell?.setStyle { $0.number = format }
+            go(.main)
+        }
+        return VStack(spacing: Metrics.rowSpacing) {
+            HStack(spacing: Tokens.Component.Tile.spacing) {
+                chip(isOn: current == nil, identifier: "sheet-number-plain") { set(nil) } label: {
+                    Text("Plain Text").font(Metrics.label)
+                }
+                chip(isOn: current == .number, identifier: "sheet-number-number") { set(.number) } label: {
+                    Text(CellNumberFormat.number.title).font(Metrics.label)
+                }
+                chip(isOn: current == .percent, identifier: "sheet-number-percent") { set(.percent) } label: {
+                    Text(CellNumberFormat.percent.title).font(Metrics.label)
+                }
+            }
+            HStack(spacing: Tokens.Component.Tile.spacing) {
+                ForEach(CellNumberFormat.currencies, id: \.self) { code in
+                    chip(isOn: current == .currency(code: code), identifier: "sheet-number-\(code)") { set(.currency(code: code)) } label: {
+                        Text(code).font(Metrics.label)
+                    }
+                    .accessibilityLabel(CellNumberFormat.currency(code: code).title)
+                }
+            }
+        }
+    }
+
+    /// Craft's fills: none, six hues by three strengths twice, any colour.
+    private func fills(current: String?, set: @escaping (String?) -> Void) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Metrics.fillRadius, style: .continuous)
+        let custom: String? = if let current, current.hasPrefix("#") { current } else { nil }
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Metrics.swatchSpacing), count: Metrics.swatchColumns),
+                         spacing: Metrics.fillSpacing) {
+            ForEach(Array(DocColors.fillGrid.enumerated()), id: \.offset) { _, token in
+                Button {
+                    set(token)
+                    go(.main)
+                } label: {
+                    FlooDesignSwatch(shape, fill: token.flatMap(DocColors.fill) ?? Tokens.ColorRole.Surface.canvas, isOn: current == token)
+                        .frame(height: Metrics.fillHeight)
+                }
+                .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
+                .accessibilityLabel(token.map(DocColors.fillTitle) ?? String(localized: "None"))
+                .accessibilityIdentifier("sheet-fill-\(token ?? "none")")
+            }
+            Button {
+                DocColorPicking.present(from: editor, initial: custom.flatMap(DocColors.fill) ?? .primary) { color in
+                    set(DocColors.hex(color))
+                }
+            } label: {
+                FlooDesignRainbowSwatch(shape, picked: custom.flatMap(DocColors.fill))
+                    .frame(height: Metrics.fillHeight)
+            }
+            .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
+            .accessibilityLabel(Text("Other Color"))
+            .accessibilityIdentifier("sheet-fill-custom")
+        }
+    }
+
+    /// The table's: its rows and columns, its header row and column, its rows' stripe.
+    @ViewBuilder
+    private var table: some View {
+        if let cell = formatting.cell {
+            let size = cell.size
+            let style = cell.table
+            VStack(spacing: Metrics.rowSpacing) {
+                HStack(spacing: Tokens.Component.Tile.spacing) {
+                    stepper(String(localized: "Rows"), value: size.rows) { cell.resize(rows: $0) }
+                    stepper(String(localized: "Columns"), value: size.columns) { cell.resize(columns: $0) }
+                }
+                HStack(spacing: Tokens.Component.Tile.spacing) {
+                    tile(isOn: style.hasHeaderRow, identifier: "sheet-header-row") { cell.setTable { $0.headerRow = !style.hasHeaderRow } } label: {
+                        Label("Header Row", systemImage: "rectangle.topthird.inset.filled").font(Metrics.label)
+                    }
+                    tile(isOn: style.hasHeaderColumn, identifier: "sheet-header-column") { cell.setTable { $0.headerColumn = !style.hasHeaderColumn } } label: {
+                        Label("Header Column", systemImage: "rectangle.leftthird.inset.filled").font(Metrics.label)
+                    }
+                }
+                tile(isOn: style.stripe != nil, identifier: "sheet-stripe") { go(.stripe) } label: {
+                    HStack(spacing: Tokens.Space.md) {
+                        FlooDesignRainbowSwatch(Circle(), picked: style.stripe.flatMap(DocColors.fill))
+                            .frame(width: Tokens.Icon.toolbar, height: Tokens.Icon.toolbar)
+                        Text("Alternating Row Color").font(Metrics.label)
+                    }
+                }
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+        }
+    }
+
+    /// A count between − and +; at least one.
+    private func stepper(_ title: String, value: Int, set: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 0) {
+            Button { set(value - 1) } label: {
+                Image(systemName: "minus").frame(width: Metrics.row, height: Metrics.row)
+            }
+            .disabled(value <= 1)
+            .accessibilityLabel(Text("Remove \(title)"))
+            VStack(spacing: 0) {
+                Text(value, format: .number).font(Metrics.label.monospacedDigit())
+                Text(title).font(.caption).foregroundStyle(Tokens.ColorRole.Content.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            Button { set(value + 1) } label: {
+                Image(systemName: "plus").frame(width: Metrics.row, height: Metrics.row)
+            }
+            .accessibilityLabel(Text("Add \(title)"))
+        }
+        .buttonStyle(FlooDesignPlainButtonStyle())
+        .frame(maxWidth: .infinity, minHeight: Metrics.row, maxHeight: Metrics.row)
+        .background(Tokens.ColorRole.Surface.control, in: .rect(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous))
     }
 
     // MARK: More

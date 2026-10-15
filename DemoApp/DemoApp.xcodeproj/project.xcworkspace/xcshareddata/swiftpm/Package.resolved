@@ -1,0 +1,101 @@
+{
+  "originHash" : "538bed0213b30957c9abe581f851a60d9f45043ff106fc42c5e7a31f0b4a7ca8",
+  "pins" : [
+    {
+      "identity" : "floo-latexswiftui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/techx-academy/floo-LaTeXSwiftUI.git",
+      "state" : {
+        "revision" : "7f85a202db84142f13ce461796e30b1a7ffc9466"
+      }
+    },
+    {
+      "identity" : "floo-richtext",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/techx-academy/floo-RichText.git",
+      "state" : {
+        "revision" : "7ba6a5435100ae04a14f16049caeca4232661c01"
+      }
+    },
+    {
+      "identity" : "floo-swiftdraw",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/techx-academy/floo-SwiftDraw.git",
+      "state" : {
+        "revision" : "e5487948edafe317108cb414f162dc57550a12f2"
+      }
+    },
+    {
+      "identity" : "highlightr",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/raspu/Highlightr.git",
+      "state" : {
+        "revision" : "05e7fcc63b33925cd0c1faaa205cdd5681e7bbef",
+        "version" : "2.3.0"
+      }
+    },
+    {
+      "identity" : "mathjaxswift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/colinc86/MathJaxSwift",
+      "state" : {
+        "revision" : "00e9c3df6b1c82031c7fe3785028f3d21c0d73ba",
+        "version" : "3.5.0"
+      }
+    },
+    {
+      "identity" : "swift-cmark",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Eirperuier/swift-cmark.git",
+      "state" : {
+        "branch" : "cjk-friendly-emphasis",
+        "revision" : "1aca99d0fd1d7303284196dad9ab0d9128a14751"
+      }
+    },
+    {
+      "identity" : "swift-collections",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-collections",
+      "state" : {
+        "revision" : "7b847a3b7008b2dc2f47ca3110d8c782fb2e5c7e",
+        "version" : "1.3.0"
+      }
+    },
+    {
+      "identity" : "swift-html-entities",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Kitura/swift-html-entities",
+      "state" : {
+        "revision" : "d8ca73197f59ce260c71bd6d7f6eb8bbdccf508b",
+        "version" : "4.0.1"
+      }
+    },
+    {
+      "identity" : "swift-markdown",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Eirperuier/swift-markdown.git",
+      "state" : {
+        "revision" : "daac37a4170ddb163eb2db53f97d0cf1ee742c18"
+      }
+    },
+    {
+      "identity" : "swift-rubber-banding",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FluidGroup/swift-rubber-banding",
+      "state" : {
+        "revision" : "f2dbd09829c6267db0a769e7c37fe332dab0b675",
+        "version" : "1.0.0"
+      }
+    },
+    {
+      "identity" : "swift-with-prerender",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FluidGroup/swift-with-prerender",
+      "state" : {
+        "revision" : "3ebae495b1c441edcf0850ec057f97be221dca0f",
+        "version" : "1.1.0"
+      }
+    }
+  ],
+  "version" : 3
+}

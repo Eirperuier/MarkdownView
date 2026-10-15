@@ -67,6 +67,12 @@ extension FlooDesignTokens.Component {
         static let swatchSpacing = Tokens.Space.sm
         static let swatchColumns = 6
         static let quoteBar = CGSize(width: 3.5, height: 18)
+        /// A cell's panel (Craft's Table Style): a row's symbol, a stepper's count and keys,
+        /// a colour setting's ring.
+        static let rowIcon: CGFloat = 22
+        static let countWidth: CGFloat = 34
+        static let stepperWidth: CGFloat = 72
+        static let ring: CGFloat = 26
     }
 
     /// The phone's format sheet (Craft's): pages of rows the same height, so it doesn't jump.
@@ -77,8 +83,14 @@ extension FlooDesignTokens.Component {
         static let row = Tokens.Component.Tile.minHeight
         /// Every page's height (the main page's three rows), so the sheet doesn't jump.
         static let page: CGFloat = row * 3 + rowSpacing * 2
-        /// A table cell's main page: its marks, its colour.
-        static let cellPage: CGFloat = row * 2 + rowSpacing
+        /// A table cell's main page: its marks, its alignment, its typeface and format,
+        /// its colours and its table.
+        static let cellPage: CGFloat = row * 4 + rowSpacing * 3
+        /// The fills' page (Craft's six rows of six).
+        static let fillHeight: CGFloat = 36
+        static let fillSpacing: CGFloat = 6
+        static let fillRadius = Tokens.Radius.sm
+        static let fillPage: CGFloat = fillHeight * 6 + fillSpacing * 5
         /// The sheet's height before it's measured.
         static let estimate = inset + page + inset
         /// Between the list tiles and the indent tiles.
@@ -100,9 +112,12 @@ extension FlooDesignTokens.Component {
     /// An edited table cell's handles (Craft's): its ring, and on the table's edges the
     /// bars that pick its column and row and the dots that add one.
     enum TableHandles {
-        /// How far the ring goes out over the cell's padding (MarkdownView's: 8 across, 13 down).
-        static let ringOutset = CGSize(width: 6, height: 9)
-        static let ringRadius = Tokens.Radius.sm
+        /// The ring is the cell as MarkdownView draws its fill and its row's stripe: out over
+        /// its padding to the middle of the space to the next column, and to its row's edges.
+        static let ringOutset = MarkdownTableAppearance.cellOutset
+        static let ringRadius = MarkdownTableAppearance.cellCornerRadius
+        /// How far a row's cells reach past the table's edges.
+        static let rowOutset = MarkdownTableAppearance.rowOutset
         static let columnGrip = CGSize(width: 18, height: 3)
         static let rowGrip = CGSize(width: 3, height: 12)
         static let gripOpacity: Double = 0.45
