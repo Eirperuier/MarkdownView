@@ -214,13 +214,6 @@ struct DocFormatting {
         }
     }
 
-    static let marks: [(id: String, symbol: String, title: String, mark: Mark)] = [
-        ("bold", "bold", String(localized: "Bold"), .bold),
-        ("italic", "italic", String(localized: "Italic"), .italic),
-        ("strike", "strikethrough", String(localized: "Strikethrough"), .strike),
-        ("code", "chevron.left.forwardslash.chevron.right", String(localized: "Code"), .code),
-    ]
-
     /// The text styles, Craft's: titles, then content; each its ⌃ key.
     static let styles: [(key: String, title: String, size: CGFloat, weight: Font.Weight, kind: BlockKind)] = [
         ("1", String(localized: "Title"), 15, .bold, .heading(level: 1)),

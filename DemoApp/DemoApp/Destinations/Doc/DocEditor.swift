@@ -979,7 +979,7 @@ final class DocEditor {
 
     // MARK: Formatting
 
-    /// The selection's edit menu, with the inline marks added (Composer had them).
+    /// The selection's edit menu, with Format added: what selected text takes (DocTextFormat).
     private func editMenu(_ textView: UITextView, range: NSRange, suggested: [UIMenuElement], in id: DocBlockID) -> UIMenu? {
         #if targetEnvironment(macCatalyst)
         // Right-click in a cell: the cell's menu (ours, by its ⋮), which has the text's
@@ -994,40 +994,8 @@ final class DocEditor {
         else { return nil }
         let modelRange = modelOffset(range.location, start: start, block: block)..<modelOffset(NSMaxRange(range), start: start, block: block)
         guard !modelRange.isEmpty else { return nil }
-        let items: [(String, String, Mark)] = [
-            (String(localized: "Bold"), "bold", .bold), (String(localized: "Italic"), "italic", .italic), (String(localized: "Strikethrough"), "strikethrough", .strike),
-            (String(localized: "Code"), "chevron.left.forwardslash.chevron.right", .code),
-        ]
-        let actions = items.map { (title, image, mark) in
-            let on = Self.covers(block.text, modelRange, with: mark.kind)
-            return UIAction(title: title, image: UIImage(systemName: image), state: on ? .on : .off) { [weak self] _ in
-                self?.toggle(mark, over: modelRange, in: id)
-            }
-        }
-        let link = UIAction(title: Self.covers(block.text, modelRange, with: .link) ? String(localized: "Edit Link…") : String(localized: "Link…"),
-                            image: UIImage(systemName: "link")) { [weak self, weak textView] _ in
-            guard let self, let textView else { return }
-            self.promptLink(over: modelRange, in: id, from: textView)
-        }
-        let ranges = [(block: id, range: modelRange)]
-        // A colour, a highlight's colour, a pen mark: the one in use is ticked.
-        func choices(_ kind: MarkKind, none: String, _ marks: [(String, UIImage?, Mark)]) -> [UIMenuElement] {
-            let current = common(kind, over: ranges)
-            let off = UIAction(title: none, state: current == nil ? .on : .off) { [weak self] _ in self?.set(kind, to: nil, over: ranges) }
-            return [off] + marks.map { title, image, mark in
-                UIAction(title: title, image: image, state: current == mark ? .on : .off) { [weak self] _ in self?.set(kind, to: mark, over: ranges) }
-            }
-        }
-        let colors = UIMenu(title: String(localized: "Text Color"), image: UIImage(systemName: "paintpalette"), children: choices(.color, none: String(localized: "Default"),
-            DocColors.palette.map { ($0.title, DocColors.dot($0.token), Mark.color($0.token)) }))
-        let highlights = UIMenu(title: String(localized: "Highlight"), image: UIImage(systemName: "highlighter"), children: choices(.highlight, none: String(localized: "None"),
-            [(String(localized: "Highlight"), UIImage(systemName: "highlighter"), Mark.highlight(color: nil))]
-                + DocColors.palette.map { ($0.title, DocColors.dot($0.token), Mark.highlight(color: $0.token)) }))
-        let pens = UIMenu(title: String(localized: "Pen"), image: UIImage(systemName: "pencil.tip.crop.circle"), children: choices(.pen, none: String(localized: "None"), [
-            (String(localized: "Circle"), UIImage(systemName: "circle.dashed"), Mark.pen(kind: "circle", color: nil)),
-            (String(localized: "Wavy Line"), UIImage(systemName: "water.waves"), Mark.pen(kind: "wavy", color: nil)),
-        ]))
-        let format = UIMenu(title: String(localized: "Format"), image: UIImage(systemName: "textformat"), children: actions + [link, colors, highlights, pens])
+        // What selected text takes (DocTextFormat), as the menu over it has it.
+        let format = DocTextFormat(editor: self, ranges: [(block: id, range: modelRange)]).systemMenu(linkFrom: textView)
         return UIMenu(children: [format] + suggested)
     }
 

@@ -144,7 +144,7 @@ struct DocFormatMenu {
     private func segments(_ formatting: DocFormatting) -> [FlooDesignMenuControl] {
         let hasText = !formatting.markRanges.isEmpty
         return [
-            .segments("marks", DocFormatting.marks.map { item in
+            .segments("marks", DocTextFormat.marks.map { item in
                 .init(id: item.id, symbol: item.symbol, title: item.title, isOn: formatting.markIsOn(item.mark), isEnabled: hasText) {
                     formatting.toggle(item.mark)
                 }
@@ -256,7 +256,7 @@ struct DocFormatMenu {
         let textColor: Color? = if case .color(let token)? = formatting.color { DocColors.swatch(token) } else { nil }
         return [
             .init(String(localized: "Text Style"), controls: [
-                .segments("cell-marks", DocFormatting.marks.map { item in
+                .segments("cell-marks", DocTextFormat.marks.map { item in
                     .init(id: item.id, symbol: item.symbol, title: item.title, isOn: formatting.markIsOn(item.mark), isEnabled: hasText) {
                         formatting.toggle(item.mark)
                     }

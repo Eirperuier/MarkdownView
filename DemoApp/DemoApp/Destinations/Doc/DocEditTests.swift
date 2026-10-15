@@ -667,6 +667,27 @@ final class DocEditTests {
                 self.editor.isEditable = true
             }
         }
+        await test("Selected text's format is one list: the menu over it and the system's Format offer the same, and what each does shows in both") {
+            let paragraph = try self.block("这篇文档由 DocKit")
+            let format = DocTextFormat(editor: self.editor, ranges: [(paragraph.id, 0..<4)])
+            let sections = format.menuSections { nil }
+            try self.expect(sections.flatMap(\.controls).map(\.id) == ["text-marks", "text-highlight", "text-color", "text-pen"]
+                            && sections.flatMap(\.items).map(\.title) == ["Format Panel"], "menu \(sections.flatMap(\.controls).map(\.id))")
+            @MainActor func system() -> [String] {
+                format.systemMenu(linkFrom: UIView()).children.flatMap { ($0 as? UIMenu).map { $0.options.contains(.displayInline) ? $0.children : [$0] } ?? [$0] }
+                    .map { ($0 as? UIAction).map { "\($0.title)\($0.state == .on ? "✓" : "")" } ?? ($0 as? UIMenu)?.title ?? "" }
+            }
+            try self.expect(system() == ["Highlight", "Bold", "Italic", "Strikethrough", "Code", "Link…", "Text Color", "Highlight Color", "Pen"], "system \(system())")
+            format.toggle(.bold)
+            format.setHighlight("green")
+            format.setColor("blue")
+            format.setPen(DocTextFormat.pens[0].mark)
+            try self.expect(format.isOn(.bold) && format.highlight == .highlight(color: "green") && format.color == .color("blue") && format.pen == DocTextFormat.pens[0].mark,
+                            "marks \(String(describing: self.demo.doc.block(paragraph.id)?.text.marks))")
+            try self.expect(system().prefix(2) == ["Highlight✓", "Bold✓"], "system after \(system())")
+            for _ in 0..<4 { try await self.undo() }
+            try self.expect(self.demo.doc.block(paragraph.id)?.text == paragraph.text, "the marks didn't undo")
+        }
         await test("Quotes, dashes and dots stay as typed (no smart punctuation)") {
             let line = try await emptyLine()
             try await self.type("don't say \"no\" -- wait...")
@@ -1704,24 +1725,10 @@ final class DocEditTests {
     /// only not over a keyboard, so it is driven directly.
     private func keyboardBarTests() async {
         let bar = editor.keyboardBar
-        await test("the keyboard bar offers marks for selected text; bold applies and shows on") {
+        await test("the keyboard bar has no keys for selected text (the system's text menu has its Format), nor the slash, which would type over it") {
             let block = try self.block("Loading older")
             try await self.select(block.id, 0..<7)
-            try self.expect(bar.testItems.map(\.id) == ["highlight", "bold", "italic", "strike", "code", "link", "dismiss"], "keys \(bar.testItems.map(\.id))")
-            bar.testTap("bold")
-            try await self.settle()
-            let marks = self.demo.doc.block(block.id)?.text.marks ?? []
-            try self.expect(marks.contains(MarkSpan(range: 0..<7, mark: .bold)), "marks \(marks)")
-            try self.expect(bar.testItems.first { $0.id == "bold" }?.isOn == true, "bold not shown on")
-        }
-        await test("the keyboard bar's highlight key opens the colours; a second tap closes them") {
-            let block = try self.block("Loading older")
-            try await self.select(block.id, 0..<7)
-            bar.testTap("highlight")
-            try self.expect(bar.showsColors, "no colours")
-            try self.expect(bar.testItems.first { $0.id == "highlight" }?.isOn == false, "the key isn't on for the text")
-            bar.testTap("highlight")
-            try self.expect(!bar.showsColors, "the colours stay")
+            try self.expect(bar.testItems.map(\.id) == ["format", "more", "dismiss"], "keys \(bar.testItems.map(\.id))")
         }
         await test("the keyboard bar's command key types a slash and opens the menu; Aa and ⋮ select the caret's block (Aa under the format sheet), and back") {
             let block = try self.block("Loading older")

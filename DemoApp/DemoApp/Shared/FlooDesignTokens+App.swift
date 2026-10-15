@@ -28,23 +28,12 @@ extension FlooDesignTokens.Motion {
 extension FlooDesignTokens.Component {
     private typealias Tokens = FlooDesignTokens
 
-    /// The capsule over selected text (Craft's): keys in a row, colours in place.
+    /// The Mac's menu over selected text (DocSelectionToolbar): where and when it comes.
     enum SelectionToolbar {
-        static let height = Tokens.Control.prominentHeight
-        static let key = Tokens.Component.Key.size
-        /// A key's slot: its disc and a little room on each side.
-        static let keySlot = Tokens.Control.standardHeight + 6
-        static let chevronWidth: CGFloat = 22
-        static let horizontalInset: CGFloat = 5
+        /// Between the selection's first line and the menu.
         static let gap: CGFloat = 10
         /// How far it starts before the text.
         static let leadingOverhang: CGFloat = 14
-        static let dividerHeight: CGFloat = 20
-        static let swatch: CGFloat = 26
-        static let swatchSpacing: CGFloat = 7
-        static let hueTrackWidth: CGFloat = 240
-        static let hueTrackHeight: CGFloat = 14
-        static let hueKnob: CGFloat = 22
         /// How long the selection rests before it comes.
         static let settleDelay: Duration = .milliseconds(220)
     }
@@ -108,14 +97,6 @@ extension FlooDesignTokens.Component {
         static let target: CGFloat = Tokens.Platform.value(pointer: 20, finger: 32)
         static let dot: CGFloat = Tokens.Platform.value(pointer: 6, finger: 8)
         static let dotHoverScale: CGFloat = 1.6
-    }
-
-    /// The colours over the phone's highlight key (Craft's): text colours, then highlights.
-    enum ColorsPopover {
-        static let swatch: CGFloat = 34
-        static let spacing: CGFloat = 10
-        static let inset: CGFloat = 14
-        static let cornerRadius = Tokens.Radius.xxl
     }
 
     /// A block's grey box in the document (Craft's Block decoration).

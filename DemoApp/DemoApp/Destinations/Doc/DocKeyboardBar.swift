@@ -7,13 +7,12 @@
 //  accessory): over the page's bottom, on the keyboard's top, up and down with it, and
 //  under what the page shows over itself (the command menu).
 //
-//  - Text selected: highlight, bold, italic, strikethrough, code, link and the keyboard
-//    key, spread evenly; a mark all of the selection has sits on a light tint. The
-//    highlight key opens the colours over it (text colours, highlights).
 //  - A cursor: the slash (a "/" typed and the command menu open, even after a word), Aa (the caret's block selected,
 //    the format sheet over it) and ⋮ (the caret's block selected) on the left, editing
 //    going on at the caret once the sheet closes or selecting ends; the keyboard key on
 //    the right. On an empty line a divider key comes in between.
+//  - Text selected: the same, without the slash (it would type over the text). What
+//    selected text takes is the system's text menu's Format (DocTextFormat), not keys.
 //
 //  Each action has one place. Menus open from their keys. The Mac has no on-screen
 //  keyboard and no bar.
@@ -32,18 +31,16 @@ final class DocKeyboardBar: UIView {
     private let keys = UIStackView()
     /// What the keys show now; they're rebuilt only when it changes.
     private var shown: Shown?
-    /// Keys shown on: marks all of the selection has, the list style in use.
+    /// Keys shown on.
     private var onKeys: Set<String> = []
 
-    private enum Shown: Equatable {
-        case selection(block: DocBlockID, range: Range<Int>, marks: Set<MarkKind>)
-        case cursor(block: DocBlockID, kind: BlockKind, indent: Int, isEmpty: Bool)
+    private struct Shown: Equatable {
+        var block: DocBlockID
+        var kind: BlockKind
+        var indent: Int
+        var isEmpty: Bool
+        var hasSelectedText: Bool
     }
-
-    /// The colours over the highlight key, in the document's window.
-    private let colors = FlooDesignAnchoredPanelPresenter()
-    private let colorsAnchor = UIView()
-    private(set) var showsColors = false
 
     init(editor: DocEditor) {
         self.editor = editor
@@ -88,16 +85,9 @@ final class DocKeyboardBar: UIView {
 
     private func follow() {
         guard let editor, let selection = editor.selection, let block = editor.textBlock(selection.head.block) else { return }
-        let next: Shown
-        if selection.anchor.block == selection.head.block, selection.anchor.offset != selection.head.offset, block.kind.allowsMarks {
-            let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
-            let marks = Set(Self.marks.map(\.mark.kind) + [.link]).filter { DocEditor.covers(block.text, range, with: $0) }
-            next = .selection(block: block.id, range: range, marks: marks)
-        } else {
-            next = .cursor(block: block.id, kind: block.kind, indent: block.indent, isEmpty: block.text.isEmpty)
-        }
+        let next = Shown(block: block.id, kind: block.kind, indent: block.indent, isEmpty: block.text.isEmpty,
+                         hasSelectedText: selection.anchor != selection.head)
         guard next != shown else { return }
-        hideColors()
         shown = next
         rebuild(next, block: block)
     }
@@ -110,57 +100,27 @@ final class DocKeyboardBar: UIView {
     private func rebuild(_ shown: Shown, block: DocBlock) {
         keys.arrangedSubviews.forEach { $0.removeFromSuperview() }
         onKeys = []
-        switch shown {
-        case .selection(_, let range, let marks):
-            keys.distribution = .equalSpacing
-            let highlight = key("highlight", UIImage(systemName: "highlighter"), String(localized: "Highlight"), isOn: marks.contains(.highlight)) {}
-            highlight.addAction(UIAction { [weak self, weak highlight] _ in
-                guard let self, let highlight else { return }
-                if self.showsColors { return self.hideColors() }
-                self.showColors(from: highlight, block: block.id, range: range)
-            }, for: .touchUpInside)
-            add(highlight)
-            for item in Self.marks {
-                add(key(item.id, UIImage(systemName: item.symbol), item.title, isOn: marks.contains(item.mark.kind)) { [weak self] in
-                    self?.editor?.toggle(item.mark, over: range, in: block.id)
-                    self?.refresh()
-                })
-            }
-            add(key("link", UIImage(systemName: "link"), String(localized: "Link"), isOn: marks.contains(.link)) { [weak self] in
-                guard let editor = self?.editor, let view = editor.textView(for: block.id) else { return }
-                editor.promptLink(over: range, in: block.id, from: view)
-            })
-            add(dismissKey())
-        case .cursor(_, _, _, let isEmpty):
-            keys.distribution = .fill
+        keys.distribution = .fill
+        if !shown.hasSelectedText {
             add(key("slash", Self.slashGlyph, String(localized: "Commands")) { [weak self] in
                 self?.editor?.typeSlash()
             })
-            add(key("format", Self.formatGlyph, String(localized: "Format")) { [weak self] in
-                self?.editor?.blocks.formatCaretBlock()
-            })
-            add(key("more", Self.verticalEllipsis, String(localized: "Select Block")) { [weak self] in
-                self?.editor?.blocks.selectCaretBlock()
-            })
-            add(UIView())
-            if isEmpty {
-                add(key("divider", Self.dividerGlyph, String(localized: "Divider")) { [weak self] in
-                    self?.editor?.perform(.divider, in: block, replacing: 0..<0, from: DocPosition(block: block.id, offset: 0))
-                    self?.refresh()
-                })
-            }
-            add(dismissKey())
         }
+        add(key("format", Self.formatGlyph, String(localized: "Format")) { [weak self] in
+            self?.editor?.blocks.formatCaretBlock()
+        })
+        add(key("more", Self.verticalEllipsis, String(localized: "Select Block")) { [weak self] in
+            self?.editor?.blocks.selectCaretBlock()
+        })
+        add(UIView())
+        if shown.isEmpty {
+            add(key("divider", Self.dividerGlyph, String(localized: "Divider")) { [weak self] in
+                self?.editor?.perform(.divider, in: block, replacing: 0..<0, from: DocPosition(block: block.id, offset: 0))
+                self?.refresh()
+            })
+        }
+        add(dismissKey())
     }
-
-    // MARK: Menus
-
-    private static let marks: [(id: String, symbol: String, title: String, mark: Mark)] = [
-        ("bold", "bold", String(localized: "Bold"), .bold),
-        ("italic", "italic", String(localized: "Italic"), .italic),
-        ("strike", "strikethrough", String(localized: "Strikethrough"), .strike),
-        ("code", "chevron.left.forwardslash.chevron.right", String(localized: "Code"), .code),
-    ]
 
     // MARK: Keys
 
@@ -187,41 +147,6 @@ final class DocKeyboardBar: UIView {
         button.accessibilityLabel = title
         button.accessibilityIdentifier = id
         return button
-    }
-
-    // MARK: Colours
-
-    /// The colours over the highlight key, in the document's window.
-    private func showColors(from key: UIButton, block: DocBlockID, range: Range<Int>) {
-        guard let editor, let window = editor.textView(for: block)?.window else { return }
-        colorsAnchor.isUserInteractionEnabled = false
-        colorsAnchor.frame = window.convert(key.bounds, from: key)
-        window.addSubview(colorsAnchor)
-        colors.anchorView = colorsAnchor
-        colors.show(
-            configuration: .init(preferredEdge: .above, horizontalAlignment: .leading, windowMargin: FlooDesignTokens.Space.sm),
-            content: AnyView(DocColorsPopover(editor: editor, block: block, range: range) { [weak self] in
-                self?.hideColors()
-                self?.refresh()
-            }),
-            onRequestDismiss: { [weak self] in self?.hideColors() }
-        )
-        showsColors = true
-        setOn(key, true)
-    }
-
-    private func hideColors() {
-        guard showsColors else { return }
-        showsColors = false
-        colors.hide()
-        colorsAnchor.removeFromSuperview()
-        if let key = keys.arrangedSubviews.compactMap({ $0 as? UIButton }).first(where: { $0.accessibilityIdentifier == "highlight" }) {
-            setOn(key, onKeys.contains("highlight"))
-        }
-    }
-
-    private func setOn(_ button: UIButton, _ isOn: Bool) {
-        FlooDesignBarKey.setOn(button, isOn)
     }
 
     // MARK: Glyphs

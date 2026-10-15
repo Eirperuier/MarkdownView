@@ -38,9 +38,9 @@ enum DocColors {
     }
 
 
-    /// A colour dot for a menu item.
-    static func dot(_ token: String) -> UIImage? {
-        UIImage(systemName: "circle.fill")?.withTintColor(UIColor(swatch(token)), renderingMode: .alwaysOriginal)
+    /// A colour dot for a menu item: the text colour's, or the highlight's.
+    static func dot(_ token: String, highlight: Bool = false) -> UIImage? {
+        UIImage(systemName: "circle.fill")?.withTintColor(UIColor(highlight ? highlightSwatch(token) : swatch(token)), renderingMode: .alwaysOriginal)
     }
 
     /// `#rrggbb` for a picked colour (sRGB).

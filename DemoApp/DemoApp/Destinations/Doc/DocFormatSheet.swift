@@ -501,7 +501,7 @@ struct DocFormatSheet: View {
     /// Bold, italic, strikethrough, code.
     private func marks(_ formatting: DocFormatting) -> some View {
         HStack(spacing: Tokens.Component.Tile.spacing) {
-            ForEach(DocFormatting.marks, id: \.id) { item in
+            ForEach(DocTextFormat.marks, id: \.id) { item in
                 chip(isOn: formatting.markIsOn(item.mark), identifier: "sheet-\(item.id)") {
                     formatting.toggle(item.mark)
                 } label: {
@@ -533,92 +533,6 @@ struct DocFormatSheet: View {
 
     private static func token(_ mark: Mark) -> String? {
         if case .color(let token) = mark { token } else { nil }
-    }
-}
-
-/// The colours over the keyboard bar's highlight key: none (both off), the text
-/// colours and any; the highlights and any. A choice applies and closes it.
-struct DocColorsPopover: View {
-    private typealias Popover = FlooDesignTokens.Component.ColorsPopover
-
-    let editor: DocEditor
-    let block: DocBlockID
-    let range: Range<Int>
-    let onClose: () -> Void
-
-    private var ranges: [(block: DocBlockID, range: Range<Int>)] { [(block, range)] }
-
-    var body: some View {
-        let color = editor.common(.color, over: ranges)
-        let highlight = editor.common(.highlight, over: ranges)
-        VStack(spacing: Popover.spacing) {
-            HStack(spacing: Popover.spacing) {
-                Button {
-                    editor.clearColors(over: ranges)
-                    onClose()
-                } label: {
-                    FlooDesignNoColorSwatch()
-                        .frame(width: Popover.swatch, height: Popover.swatch)
-                }
-                .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
-                .accessibilityLabel(Text("No Color"))
-                .accessibilityIdentifier("popover-none")
-                ForEach(DocColors.texts, id: \.token) { item in
-                    let isOn = color == .color(item.token)
-                    swatch(Circle(), fill: DocColors.swatch(item.token), title: item.title, isOn: isOn, identifier: "popover-color-\(item.token)") {
-                        editor.endColorChanges()
-                        editor.set(.color, to: isOn ? nil : .color(item.token), over: ranges)
-                        onClose()
-                    }
-                }
-                custom(Circle(), title: String(localized: "Other Text Color"), identifier: "popover-color-custom") { picked in
-                    editor.set(.color, to: .color(DocColors.hex(picked)), over: ranges, merge: editor.colorMergeKey(over: ranges))
-                }
-            }
-            FlooDesignDivider().padding(.horizontal, Tokens.Space.xs)
-            HStack(spacing: Popover.spacing) {
-                ForEach(DocColors.highlights, id: \.token) { item in
-                    let isOn = highlight == .highlight(color: item.token)
-                    swatch(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous), fill: DocColors.highlightSwatch(item.token),
-                           title: item.title, isOn: isOn, identifier: "popover-highlight-\(item.token)") {
-                        editor.endColorChanges()
-                        editor.set(.highlight, to: isOn ? nil : .highlight(color: item.token), over: ranges)
-                        onClose()
-                    }
-                }
-                custom(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous), title: String(localized: "Other Highlight Color"),
-                       identifier: "popover-highlight-custom") { picked in
-                    editor.set(.highlight, to: .highlight(color: DocColors.hex(picked)), over: ranges, merge: editor.colorMergeKey(over: ranges))
-                }
-            }
-        }
-        .padding(Popover.inset)
-        .flooDesignGlass(.regular, in: RoundedRectangle(cornerRadius: Popover.cornerRadius, style: .continuous))
-    }
-
-    private func swatch(_ shape: some InsettableShape, fill: Color, title: String, isOn: Bool, identifier: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            FlooDesignSwatch(shape, fill: fill, isOn: isOn)
-                .frame(width: Popover.swatch, height: Popover.swatch)
-        }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(isOn ? .isSelected : [])
-        .accessibilityIdentifier(identifier)
-    }
-
-    /// Any colour: a rainbow edge round a ▾; the system's picker.
-    private func custom(_ shape: some InsettableShape, title: String, identifier: String, picked: @escaping (Color) -> Void) -> some View {
-        Button {
-            onClose()
-            DocColorPicking.present(from: editor, initial: .primary, picked: picked)
-        } label: {
-            FlooDesignRainbowSwatch(shape, picked: nil)
-                .frame(width: Popover.swatch, height: Popover.swatch)
-        }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
-        .accessibilityLabel(title)
-        .accessibilityIdentifier(identifier)
     }
 }
 
