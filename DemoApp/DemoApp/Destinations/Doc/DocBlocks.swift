@@ -1957,11 +1957,15 @@ struct DocBlockSelectionBar: View {
                     FlooDesignActionTile(title: String(localized: "Layout"), symbol: "rectangle.split.2x1", color: Action.neutral)
                 }
             }
-            Menu {
-                // Several blocks into a page of their own (Craft's Group, the Mac's menu).
-                if blocks.canGroup {
-                    Button("Group", systemImage: "doc.text") { blocks.groupSelection() }
+            // Several blocks into a page of their own (Craft's Group, the Mac's menu).
+            if blocks.canGroup {
+                Button {
+                    blocks.groupSelection()
+                } label: {
+                    FlooDesignActionTile(title: String(localized: "Group"), symbol: "doc.text", color: Action.neutral)
                 }
+            }
+            Menu {
                 Button("Copy", systemImage: "doc.on.doc") {
                     blocks.copySelection()
                     blocks.endSelecting()
