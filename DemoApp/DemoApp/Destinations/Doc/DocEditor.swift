@@ -280,6 +280,7 @@ final class DocEditor {
     /// an undo, a menu put it there); a click puts it where it clicked, on screen, and
     /// the page stays (only the keyboard coming up over it lifts it).
     func place(_ next: DocSelection, reveals: Bool = true) {
+        revealsWhenShown = false
         // Code and math blocks have their own editor.
         if let block = textBlock(next.head.block), DocSourceKind(block.kind) != nil {
             selection = nil
@@ -296,8 +297,10 @@ final class DocEditor {
             if reveals { reveal(textView, block: next.head.block) }
         } else if reveals {
             // The row isn't on screen (Return on the last visible line, an undo far
-            // away): scroll to it; it renders, and the placement below catches it.
-            demo.bringIntoView(cell?.block ?? next.head.block)
+            // away): the least scroll that brings it on; it renders, and the placement
+            // below catches it and shows the caret's line (above the keyboard too).
+            demo.bringIntoView(cell?.block ?? next.head.block, centered: false)
+            revealsWhenShown = true
         }
         settlePlacement()
     }
@@ -315,6 +318,8 @@ final class DocEditor {
     }
 
     private var placementTask: Task<Void, Never>?
+    /// The placement's row wasn't on screen: its caret's line shows once it renders.
+    private var revealsWhenShown = false
 
     /// A new row's text view renders before it is in the window, and becoming first
     /// responder can move the cursor afterwards; for a few frames after a placement, the
@@ -325,6 +330,10 @@ final class DocEditor {
             for _ in 0..<40 {
                 try? await Task.sleep(for: .milliseconds(16))
                 guard let self, !Task.isCancelled, let selection = self.selection else { return }
+                if self.revealsWhenShown, let textView = self.textView(for: selection.head.block), textView.window != nil {
+                    self.revealsWhenShown = false
+                    self.reveal(textView, block: selection.head.block)
+                }
                 guard let problem = self.mismatch() else { return }
                 // The placement wants the focus: a row reloaded under it can take it away.
                 if problem == "not focused" { self.wantsFocus = true }

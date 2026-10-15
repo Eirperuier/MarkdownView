@@ -167,6 +167,27 @@ final class DocEditTests {
             }
         }
         await sweepReturn()
+        await test("Return on the last line on screen scrolls only so far that the new line shows, not to the middle") {
+            let block = try self.block("Loading older")
+            await self.bringIntoView(block.id)
+            let text = try self.expectValue(self.editor.textView(for: block.id), "no text view")
+            let list = try self.expectValue(DocScrolling.list(of: text), "no list")
+            try? await Task.sleep(for: .milliseconds(600))
+            // The line's last line at the bottom of what shows.
+            let visible = DocScrolling.visible(in: list)
+            let bottom = text.convert(text.bounds, to: list).maxY
+            list.setContentOffset(CGPoint(x: list.contentOffset.x, y: list.contentOffset.y + bottom - visible.maxY + 4), animated: false)
+            try? await Task.sleep(for: .milliseconds(300))
+            try await self.focus(block.id, at: block.text.length)
+            try await self.enter()
+            try? await Task.sleep(for: .milliseconds(1000))
+            let next = try self.blockAfter(block.id)
+            let line = try self.expectValue(self.editor.textView(for: next.id), "the new line isn't shown")
+            let frame = line.convert(line.bounds, to: list)
+            let shown = DocScrolling.visible(in: list)
+            try self.expect(frame.minY >= shown.minY && frame.maxY <= shown.maxY, "the new line \(frame) isn't on screen \(shown)")
+            try self.expect(frame.maxY > shown.maxY - 120, "the new line went to \(frame.maxY - shown.minY) of \(shown.height): moved to the middle")
+        }
         await test("typing in the middle") {
             let block = try self.block("Loading older")
             try await self.focus(block.id, at: 1)

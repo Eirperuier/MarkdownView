@@ -131,7 +131,7 @@ final class DocDemo {
     /// What the agent is doing, shown in the bar; nil when idle.
     private(set) var agentStatus: String?
     /// A row the view should bring on screen (the agent's next change).
-    private(set) var focus: (id: String, serial: Int)?
+    private(set) var focus: (id: String, serial: Int, centered: Bool)?
     var undoDepth: Int { history.undoDepth }
     private(set) var canUndo = false
     private(set) var canRedo = false
@@ -482,11 +482,13 @@ final class DocDemo {
         doc.markupTree(of: block.id).map { MarkdownTree($0.document) }
     }
 
-    func bringIntoView(_ id: DocBlockID?) {
+    /// Scrolls to the block's row: to the middle of the page (what the agent works on),
+    /// or (`centered` false) the least that puts it on screen (where the caret goes).
+    func bringIntoView(_ id: DocBlockID?, centered: Bool = true) {
         guard let id else { return }
         focusSerial += 1
         // The row it is in: its own, or the one it shares with others.
-        focus = (id.description, focusSerial)
+        focus = (id.description, focusSerial, centered)
     }
 
     // MARK: Editing

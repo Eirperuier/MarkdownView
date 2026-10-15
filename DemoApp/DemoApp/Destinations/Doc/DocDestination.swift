@@ -136,7 +136,7 @@ private struct DocPageView: View {
         }
         .modifier(DocBlockOverlays(reader: reader, blocks: editor.blocks))
         .onChange(of: demo.focus?.serial) {
-            if let id = demo.focus?.id { reader.scrollTo(id: id, anchor: .center) }
+            if let focus = demo.focus { reader.scrollTo(id: focus.id, anchor: focus.centered ? .center : nil) }
         }
         // The agent writing makes the whole page a preview (§6.3).
         .onChange(of: demo.isAgentWriting) {
