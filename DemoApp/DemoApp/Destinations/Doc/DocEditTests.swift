@@ -2776,6 +2776,7 @@ final class DocEditTests {
             let index = try self.expectValue(before.firstIndex(of: paragraph.id), "no index")
             // A page of the paragraph, opened and left.
             blocks.select([paragraph.id])
+            try self.expect(!blocks.canGroup, "Group offered for one block")
             blocks.groupSelection()
             let inner = try self.expectValue(self.demo.doc.blocks.dropFirst(index).first, "no page block")
             guard case .page(let innerPage) = inner.kind else { throw Failure(description: "not a page: \(inner.kind)") }
@@ -2787,6 +2788,7 @@ final class DocEditTests {
             // That page block and the next block grouped into another page.
             let next = try self.expectValue(self.demo.doc.blocks.dropFirst(index + 1).first { $0.indent <= inner.indent }, "no next")
             blocks.select([inner.id, next.id])
+            try self.expect(blocks.canGroup, "Group not offered for two blocks")
             blocks.groupSelection()
             let outer = try self.expectValue(self.demo.doc.blocks.dropFirst(index).first, "no outer page block")
             guard case .page = outer.kind else { throw Failure(description: "not a page: \(outer.kind)") }

@@ -1958,6 +1958,10 @@ struct DocBlockSelectionBar: View {
                 }
             }
             Menu {
+                // Several blocks into a page of their own (Craft's Group, the Mac's menu).
+                if blocks.canGroup {
+                    Button("Group", systemImage: "doc.text") { blocks.groupSelection() }
+                }
                 Button("Copy", systemImage: "doc.on.doc") {
                     blocks.copySelection()
                     blocks.endSelecting()
