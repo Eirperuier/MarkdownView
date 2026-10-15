@@ -2568,7 +2568,7 @@ final class DocEditTests {
             try self.expect(try view(table.id) == table, "the grouping didn't undo")
             // A kanban's group left out, and another dragged first: the order turns manual.
             let lanes = DocCollectionController.lanes(kanban, of: try collections.rows(snapshot(), kanban), in: original).map(\.key)
-            collections.setGrouping(CollectionGrouping(hidden: [lanes[0]]), in: kanban.id, of: id)
+            collections.hide(group: lanes[0], in: kanban.id, of: id)
             try self.expect(!DocCollectionController.lanes(try view(kanban.id), of: original.rows, in: original).contains { $0.key == lanes[0] }, "the group showed")
             collections.moveGroup(lanes[2], before: lanes[0], among: lanes, in: kanban.id, of: id)
             let moved = try view(kanban.id)
@@ -2594,6 +2594,18 @@ final class DocEditTests {
             try self.expect(copied.count == original.rows.count + 1 && copied[2].id == copy && copied[2].cells == original.rows[1].cells,
                             "the copy is at \(String(describing: copied.firstIndex { $0.id == copy }))")
             try await self.undo()
+            // Picked rows duplicated in one step, each copy after its own.
+            let copies = collections.duplicate(rows: [original.rows[0].id, original.rows[2].id], in: id)
+            let twice = try current().database.rows.map(\.id)
+            try self.expect(copies.count == 2 && twice[1] == copies[0] && twice[4] == copies[1], "the copies are at \(copies.map { twice.firstIndex(of: $0) })")
+            try await self.undo()
+            // A row inserted above one in a grouped table: before it, in its group.
+            let above = try self.expectValue(collections.insertRecord(beside: original.rows[1].id, below: false, groupedBy: group, in: id), "no row")
+            let inserted = try current().database.rows
+            try self.expect(inserted[1].id == above && inserted[1].cells == [group: original.rows[1].cells[group]].compactMapValues { $0 },
+                            "the row is at \(String(describing: inserted.firstIndex { $0.id == above }))")
+            try await self.undo()
+            try self.expect(try current().database == original, "the rows' steps didn't undo")
 
             // A multi-select ticked from its options; a new option typed in.
             let tags = try self.expectValue(collections.addField("标记", type: .multiSelect(options: []), to: id), "no field")

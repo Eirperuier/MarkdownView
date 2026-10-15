@@ -11,6 +11,7 @@
 //  - a card drags to another column or place, a line where it will land; its title takes
 //    typing on a click; on the pointer over it, an arrow opens the record whole; its
 //    right-click menu edits its fields, duplicates or deletes it (Craft's);
+//  - a column's right-click menu adds a card, opens the grouping, hides the group;
 //  - + under a column adds a card at its end, + after the columns a new option (a column).
 //
 
@@ -136,8 +137,24 @@ private struct DocKanbanLane: View {
         .background(tint.opacity(landing != nil ? 0.2 : 0.1), in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
         .overlay(alignment: .topLeading) { line }
         .onHover { hovering = $0 }
+        // A card's own menu wins over the column's (the smaller catcher).
+        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in menu }
         // The whole column takes the drop, its cards too: where between them follows the pointer.
         .onDrop(of: [.text], delegate: DocKanbanDrop(landing: $landing, place: place, drop: drop))
+    }
+
+    /// The column's right-click menu (Craft's): a new card at its end, the grouping's
+    /// panel, leaving the group out.
+    private var menu: [FlooDesignActionMenuSection] {
+        [
+            .init(.rows, [.action(String(localized: "Add Item"), symbol: "plus") {
+                controller.addRecord(to: block, in: (column.id, group.value))
+            }]),
+            .init(.rows, [
+                .action(String(localized: "Edit Grouping"), symbol: "rectangle.3.group") { controller.show(.group, in: block) },
+                .action(String(localized: "Hide Group"), symbol: "eye.slash") { controller.hide(group: group.key, in: view.id, of: block) },
+            ]),
+        ]
     }
 
     /// Before the first card whose middle is below `y`, else after the last.

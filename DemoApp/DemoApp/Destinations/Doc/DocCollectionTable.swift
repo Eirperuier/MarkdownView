@@ -8,8 +8,10 @@
 //    it, delete it; + after the last adds a field;
 //  - a cell takes typing (outlined while it does); a select or multi-select opens its
 //    options, a date a calendar;
-//  - over a row its number turns into a box that picks it (picked rows delete together),
-//    and the title shows an arrow that opens the record whole;
+//  - over a row its number turns into a box that picks it (picked rows copy or delete
+//    together), and the title shows an arrow that opens the record whole;
+//  - a row's right-click menu (Craft's) opens it, adds a row above or below, clears the
+//    cell clicked, copies or deletes it;
 //  - grouped (Group By), the records go under a head for each group (its name, how many),
 //    which folds them away;
 //  - the calculation row computes a column (Calculate on the pointer over it), + adds a record.
@@ -172,6 +174,7 @@ struct DocCollectionTable: View {
                                   isTitle: column.id == titleColumn?.id, rowHovered: isHovered)
                     .padding(.horizontal, Metrics.cellInset)
                     .frame(width: width, alignment: column.type == .number ? .trailing : .leading)
+                    .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in menu(row, cell: column) }
             }
             if controller.isEditable {
                 separator
@@ -183,15 +186,41 @@ struct DocCollectionTable: View {
         .onHover { over in
             if over { hoveredRow = row.id } else if hoveredRow == row.id { hoveredRow = nil }
         }
-        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in
-            if isPicked, picked.count > 1 {
-                [.init(.rows, [.action(String(localized: "Delete \(picked.count) Rows"), symbol: "trash", role: .destructive) {
-                    controller.delete(rows: picked, in: block)
-                }])]
-            } else {
-                [.init(.rows, [.action(String(localized: "Delete Row"), symbol: "trash", role: .destructive) { controller.delete(row.id, in: block) }])]
-            }
+        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in menu(row, cell: nil) }
+    }
+
+    /// A record's right-click menu (Craft's): open it, a new row above or below, clear the
+    /// cell clicked, copy or delete it. On a picked row: copy or delete the picked rows.
+    private func menu(_ row: Row, cell column: Column?) -> [FlooDesignActionMenuSection] {
+        let rows = picked.contains(row.id) ? picked : [row.id]
+        let copyAndDelete = FlooDesignActionMenuSection(.rows, [
+            .action(rows.count > 1 ? String(localized: "Duplicate \(rows.count) Rows") : String(localized: "Duplicate Row"),
+                    symbol: "plus.square.on.square") { controller.duplicate(rows: rows, in: block) },
+            .action(rows.count > 1 ? String(localized: "Delete \(rows.count) Rows") : String(localized: "Delete Row"),
+                    symbol: "trash", role: .destructive) { controller.delete(rows: rows, in: block) },
+        ])
+        guard !picked.contains(row.id) else { return [copyAndDelete] }
+        var sections: [FlooDesignActionMenuSection] = []
+        if let open = controller.openRecord {
+            sections.append(.init(.rows, [.action(String(localized: "Open"), symbol: "arrow.right.circle") { open(row.id, block) }]))
         }
+        sections.append(.init(.rows, [
+            .action(String(localized: "Insert Row Above"), symbol: "arrow.up.to.line") {
+                controller.insertRecord(beside: row.id, below: false, groupedBy: view.layout.groupBy, in: block)
+            },
+            .action(String(localized: "Insert Row Below"), symbol: "arrow.down.to.line") {
+                controller.insertRecord(beside: row.id, below: true, groupedBy: view.layout.groupBy, in: block)
+            },
+        ]))
+        if let column {
+            sections.append(.init(.rows, [
+                .action(String(localized: "Clear Cell Contents"), symbol: "eraser", isEnabled: row.cells[column.id] != nil) {
+                    controller.set(nil, row: row.id, column: column.id, in: block)
+                },
+            ]))
+        }
+        sections.append(copyAndDelete)
+        return sections
     }
 
     /// The row's number; over the row (or with rows picked) the box that picks it.

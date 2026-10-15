@@ -496,14 +496,41 @@ final class DocCollectionController {
         records(block, [.setCell(row: row, column: column, value: value, previous: previous)])
     }
 
+    /// A new record right above or below one (Craft's Insert Row Above/Below); in a view
+    /// grouped by a field it takes the record's value of it, so it shows in the same group.
+    /// Its title takes typing.
+    @discardableResult
+    func insertRecord(beside row: RowID, below: Bool, groupedBy column: ColumnID?, in block: DocBlockID) -> RowID? {
+        guard let (_, database) = snapshot(block), let index = database.rows.firstIndex(where: { $0.id == row }) else { return nil }
+        var cells: [ColumnID: CellValue] = [:]
+        if let column, let value = database.rows[index].cells[column] { cells[column] = value }
+        let new = Row(id: .generate(), cells: cells)
+        records(block, [.insertRow(row: new, after: below ? row : index == 0 ? nil : database.rows[index - 1].id)])
+        editingTitle = new.id
+        return new.id
+    }
+
     /// A copy of a record right after it, its page too (Craft's Duplicate Item).
     @discardableResult
     func duplicate(row: RowID, in block: DocBlockID) -> RowID? {
-        guard let (_, database) = snapshot(block), let record = database.rows.first(where: { $0.id == row }) else { return nil }
-        let copy = Row(id: .generate(), cells: record.cells)
-        records(block, [.insertRow(row: copy, after: row)])
-        copyPage?(row, copy.id)
-        return copy.id
+        duplicate(rows: [row], in: block).first
+    }
+
+    /// Copies of records, each right after its own, in one undo step.
+    @discardableResult
+    func duplicate(rows: Set<RowID>, in block: DocBlockID) -> [RowID] {
+        guard let (_, database) = snapshot(block) else { return [] }
+        let copies = database.rows.filter { rows.contains($0.id) }.map { ($0.id, Row(id: .generate(), cells: $0.cells)) }
+        records(block, copies.map { .insertRow(row: $1, after: $0) })
+        for (original, copy) in copies { copyPage?(original, copy.id) }
+        return copies.map(\.1.id)
+    }
+
+    /// A group a kanban leaves out (Craft's Hide Group); the group panel shows it again.
+    func hide(group key: String, in view: CollectionViewID, of block: DocBlockID) {
+        changeView(view, in: block) { view in
+            if !view.grouping.hidden.contains(key) { view.grouping.hidden.append(key) }
+        }
     }
 
     func delete(_ row: RowID, in block: DocBlockID) { delete(rows: [row], in: block) }
