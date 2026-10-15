@@ -45,6 +45,11 @@ struct DocCollectionPanel: Hashable {
         case editOption(OptionID)
         /// A date cell's calendar.
         case date(row: RowID, column: ColumnID)
+        /// A record's text, number or link typed in a field of its own (a kanban card's Edit
+        /// Properties).
+        case property(row: RowID, column: ColumnID)
+        /// Add Field from a kanban card's Edit Properties.
+        case cardField(RowID)
     }
 
     let block: DocBlockID
@@ -72,6 +77,8 @@ final class DocCollectionController {
     @ObservationIgnored var openRecord: ((RowID, DocBlockID) -> Void)?
     /// Whether a record's page has something written in it (its title cell shows a page).
     @ObservationIgnored var hasPage: ((RowID) -> Bool)?
+    /// A duplicated record's page made from the original's (the original's id, the copy's).
+    @ObservationIgnored var copyPage: ((RowID, RowID) -> Void)?
 
     init(demo: DocDemo, editor: DocEditor) {
         self.demo = demo
@@ -487,6 +494,16 @@ final class DocCollectionController {
         let previous = record.cells[column]
         guard value != previous else { return }
         records(block, [.setCell(row: row, column: column, value: value, previous: previous)])
+    }
+
+    /// A copy of a record right after it, its page too (Craft's Duplicate Item).
+    @discardableResult
+    func duplicate(row: RowID, in block: DocBlockID) -> RowID? {
+        guard let (_, database) = snapshot(block), let record = database.rows.first(where: { $0.id == row }) else { return nil }
+        let copy = Row(id: .generate(), cells: record.cells)
+        records(block, [.insertRow(row: copy, after: row)])
+        copyPage?(row, copy.id)
+        return copy.id
     }
 
     func delete(_ row: RowID, in block: DocBlockID) { delete(rows: [row], in: block) }

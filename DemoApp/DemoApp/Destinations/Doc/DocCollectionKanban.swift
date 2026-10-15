@@ -8,12 +8,14 @@
 //  chips).
 //  - a column's head: its group and how many; on the pointer over it, … (an option's:
 //    rename or recolour it, delete it) and + (a new card at the top);
-//  - a card drags to another column or place; its title takes typing on a click; on the
-//    pointer over it, an arrow opens the record whole;
+//  - a card drags to another column or place, a line where it will land; its title takes
+//    typing on a click; on the pointer over it, an arrow opens the record whole; its
+//    right-click menu edits its fields, duplicates or deletes it (Craft's);
 //  - + under a column adds a card at its end, + after the columns a new option (a column).
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 import DocKit
 import FlooDesign
 
@@ -81,9 +83,15 @@ private struct DocKanbanLane: View {
     let column: Column
     let group: CollectionGroup
     let controller: DocCollectionController
-    let drop: (String, RowID?) -> Bool
+    let drop: @MainActor (String, RowID?) -> Bool
     @State private var hovering = false
-    @State private var targeted = false
+    /// Where a card dragged over the column will land, while one is.
+    @State private var landing: DocKanbanLanding?
+    /// The cards' frames and the head's foot, in the column's space: where a drag lands.
+    @State private var frames: [RowID: CGRect] = [:]
+    @State private var headFoot: CGFloat = 0
+
+    private static let space = "kanban-lane"
 
     private var block: DocBlockID { snapshot.block }
     private var options: [SelectOption] { DocFieldText.options(column) }
@@ -99,12 +107,11 @@ private struct DocKanbanLane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.cardGap) {
             head
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.space)).maxY } action: { headFoot = $0 }
             ForEach(group.rows, id: \.id) { row in
                 DocKanbanCard(snapshot: snapshot, view: view, row: row, controller: controller)
                     .draggable("\(row.id.description) \(group.key)")
-                    .dropDestination(for: String.self) { items, _ in
-                        items.first.map { drop($0, row.id) } ?? false
-                    }
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { frames[row.id] = $0 }
             }
             if controller.isEditable {
                 Button {
@@ -125,11 +132,36 @@ private struct DocKanbanLane: View {
         }
         .padding(Metrics.columnInset)
         .frame(width: Metrics.columnWidth, alignment: .topLeading)
-        .background(tint.opacity(targeted ? 0.2 : 0.1), in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
+        .coordinateSpace(.named(Self.space))
+        .background(tint.opacity(landing != nil ? 0.2 : 0.1), in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
+        .overlay(alignment: .topLeading) { line }
         .onHover { hovering = $0 }
-        .dropDestination(for: String.self) { items, _ in
-            items.first.map { drop($0, nil) } ?? false
-        } isTargeted: { targeted = $0 }
+        // The whole column takes the drop, its cards too: where between them follows the pointer.
+        .onDrop(of: [.text], delegate: DocKanbanDrop(landing: $landing, place: place, drop: drop))
+    }
+
+    /// Before the first card whose middle is below `y`, else after the last.
+    private func place(_ y: CGFloat) -> DocKanbanLanding {
+        group.rows.first { (frames[$0.id]?.midY ?? .infinity) > y }.map { .before($0.id) } ?? .end
+    }
+
+    /// Where a dragged card will land: a line in the accent between the cards (the
+    /// document's drop line).
+    @ViewBuilder
+    private var line: some View {
+        if let landing {
+            let half = Metrics.cardGap / 2
+            let y: CGFloat = switch landing {
+            case .before(let id): (frames[id]?.minY ?? headFoot + Metrics.cardGap) - half
+            case .end: group.rows.last.flatMap { frames[$0.id] }.map { $0.maxY + half } ?? headFoot + half
+            }
+            let indicator = FlooDesignTokens.Component.DropIndicator.self
+            Capsule()
+                .fill(FlooDesignTokens.ColorRole.Accent.primary)
+                .frame(width: Metrics.columnWidth - 2 * Metrics.columnInset + 2 * indicator.overhang, height: indicator.thickness)
+                .offset(x: Metrics.columnInset - indicator.overhang, y: y - indicator.thickness / 2)
+                .allowsHitTesting(false)
+        }
     }
 
     private var head: some View {
@@ -193,6 +225,7 @@ private struct DocKanbanCard: View {
     @State private var hovering = false
     @FocusState private var focused: Bool
 
+    private var block: DocBlockID { snapshot.block }
     private var titleColumn: Column? { DocCollectionController.titleColumn(of: snapshot.database) }
 
     private var fields: [Column] {
@@ -222,19 +255,23 @@ private struct DocKanbanCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         // The arrow over the card's corner, by the title's first line: it moves nothing.
         .overlay(alignment: .topTrailing) {
-            if !editing, hovering || !FlooDesignTokens.Platform.isPointer {
+            if !focused, hovering || !FlooDesignTokens.Platform.isPointer {
                 DocOpenRecordButton(snapshot: snapshot, row: row, controller: controller)
                     .padding(.top, Metrics.cardInset - 2)
                     .padding(.trailing, Metrics.cardInset - FlooDesignTokens.Space.xs)
             }
         }
         .background(FlooDesignTokens.ColorRole.Surface.canvas, in: RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous))
+        // Outlined while its title has the caret: the focus, not the click asking for it,
+        // so a click whose focus went elsewhere leaves no outline behind.
         .overlay(RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
-            .strokeBorder(editing ? FlooDesignTokens.ColorRole.Accent.primary : FlooDesignTokens.Border.subtle,
-                          lineWidth: editing ? Metrics.focusWidth : FlooDesignTokens.Border.standard))
+            .strokeBorder(focused ? FlooDesignTokens.ColorRole.Accent.primary : FlooDesignTokens.Border.subtle,
+                          lineWidth: focused ? Metrics.focusWidth : FlooDesignTokens.Border.standard))
         .onHover { hovering = $0 }
-        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in
-            [.init(.rows, [.action(String(localized: "Delete"), symbol: "trash", role: .destructive) { controller.delete(row.id, in: snapshot.block) }])]
+        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in menu }
+        .flooDesignAnchoredPanel(isPresented: fieldPanel != nil,
+                                 onDismiss: { if let fieldPanel { controller.close(fieldPanel, in: block) } }) {
+            fieldPanelContent
         }
         .onAppear {
             title = titleColumn.map { DocFieldText.text(row.cells[$0.id], in: $0) } ?? ""
@@ -266,6 +303,63 @@ private struct DocKanbanCard: View {
         }
     }
 
+    /// Craft's card menu: a field to edit (or a new one), a copy, gone.
+    private var menu: [FlooDesignActionMenuSection] {
+        let others = snapshot.database.columns.filter { $0.id != titleColumn?.id }
+        let properties = FlooDesignActionMenuItem.submenu(String(localized: "Edit Properties"), symbol: "slider.horizontal.3", sections: [
+            .init(.rows, others.map { column in
+                .action(column.name, symbol: DocFieldText.symbol(column.type)) { edit(column) }
+            }),
+            .init(.rows, [.action(String(localized: "Add Field"), symbol: "plus") { controller.show(.cardField(row.id), in: block) }]),
+        ])
+        return [
+            .init(.rows, [properties]),
+            .init(.rows, [
+                .action(String(localized: "Duplicate Item"), symbol: "plus.square.on.square") { controller.duplicate(row: row.id, in: block) },
+                .action(String(localized: "Delete Item"), symbol: "trash", role: .destructive) { controller.delete(row.id, in: block) },
+            ]),
+        ]
+    }
+
+    /// A field from the menu: its options, its calendar, a field to type in; a checkbox
+    /// turns over.
+    private func edit(_ column: Column) {
+        switch column.type {
+        case .select, .multiSelect: controller.show(.options(row: row.id, column: column.id), in: block)
+        case .date: controller.show(.date(row: row.id, column: column.id), in: block)
+        case .checkbox:
+            let on = row.cells[column.id] == .checkbox(value: true)
+            controller.set(on ? nil : .checkbox(value: true), row: row.id, column: column.id, in: block)
+        default: controller.show(.property(row: row.id, column: column.id), in: block)
+        }
+    }
+
+    /// The panel the card's menu opened, if one is showing.
+    private var fieldPanel: DocCollectionPanel.Kind? {
+        guard let panel = controller.panel, panel.block == block else { return nil }
+        switch panel.kind {
+        case .options(row.id, _), .date(row.id, _), .property(row.id, _), .cardField(row.id): return panel.kind
+        default: return nil
+        }
+    }
+
+    @ViewBuilder
+    private var fieldPanelContent: some View {
+        let field = { (id: ColumnID) in snapshot.database.columns.first { $0.id == id } }
+        switch fieldPanel {
+        case .options(_, let id)?:
+            if let column = field(id) { DocOptionsPanel(snapshot: snapshot, row: row, column: column, controller: controller) }
+        case .date(_, let id)?:
+            if let column = field(id) { DocDatePanel(row: row, column: column, block: block, controller: controller) }
+        case .property(_, let id)?:
+            if let column = field(id) { DocPropertyPanel(snapshot: snapshot, row: row, column: column, controller: controller) }
+        case .cardField?:
+            DocFieldPanel(snapshot: snapshot, column: nil, controller: controller, panel: .cardField(row.id))
+        default:
+            EmptyView()
+        }
+    }
+
     private func startEditing() {
         editing = true
         if controller.editingTitle == row.id { controller.editingTitle = nil }
@@ -289,5 +383,41 @@ private struct DocKanbanCard: View {
         default:
             DocChip(text: DocFieldText.text(value, in: column))
         }
+    }
+}
+
+/// Where a card dragged over a column will land.
+private enum DocKanbanLanding: Equatable {
+    case before(RowID)
+    case end
+}
+
+/// A column's drop: the landing follows the pointer over the column and its cards; a card
+/// dropped there moves (its "row key" text, see DocCollectionKanban.drop).
+private struct DocKanbanDrop: DropDelegate {
+    @Binding var landing: DocKanbanLanding?
+    let place: (CGFloat) -> DocKanbanLanding
+    let drop: @MainActor (String, RowID?) -> Bool
+
+    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.text]) }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        let landing = place(info.location.y)
+        if self.landing != landing { self.landing = landing }
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) { landing = nil }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let before: RowID? = if case .before(let id) = place(info.location.y) { id } else { nil }
+        landing = nil
+        guard let provider = info.itemProviders(for: [.text]).first else { return false }
+        let drop = drop
+        _ = provider.loadTransferable(type: String.self) { result in
+            guard case .success(let item) = result else { return }
+            Task { @MainActor in _ = drop(item, before) }
+        }
+        return true
     }
 }

@@ -160,6 +160,20 @@ final class DocPages {
     /// Whether a record's page has something written in it (its title cell shows a page).
     func recordHasPage(_ row: RowID) -> Bool { written.contains(row) }
 
+    /// A duplicated record's page: the original's as it was left, its blocks under new ids
+    /// (none if the original's was never opened: the copy's is new too).
+    func copyRecordPage(_ row: RowID, to copy: RowID) {
+        guard let original = opened[DocID(rawValue: row.rawValue)], let record = original.record, let parent = original.parent else { return }
+        let doc = Doc(id: DocID(rawValue: copy.rawValue), blocks: original.demo.doc.blocks.map { block in
+            var block = block
+            block.id = .generate()
+            return block
+        })
+        let link = DocRecordLink(parent: record.parent, editor: parent.page.editor, block: record.block, row: copy)
+        opened[doc.id] = DocOpenPage(demo: DocDemo(doc: doc, record: link), parent: parent)
+        if written.contains(row) { written.insert(copy) }
+    }
+
     private static func isWritten(_ doc: Doc) -> Bool {
         doc.blocks.dropFirst().contains { !$0.text.isEmpty || !$0.kind.carriesText }
     }

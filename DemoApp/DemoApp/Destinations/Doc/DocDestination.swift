@@ -169,6 +169,7 @@ private struct DocPageView: View {
             editor.blocks.openPage = { [pages] block in pages.open(block) }
             editor.collections.openRecord = { [pages] row, block in pages.openRecord(row, in: block) }
             editor.collections.hasPage = { [pages] row in pages.recordHasPage(row) }
+            editor.collections.copyPage = { [pages] row, copy in pages.copyRecordPage(row, to: copy) }
             // The launch options below run once a process (DocPages.ranLaunchOptions).
             guard !DocPages.ranLaunchOptions else { return }
             DocPages.ranLaunchOptions = true

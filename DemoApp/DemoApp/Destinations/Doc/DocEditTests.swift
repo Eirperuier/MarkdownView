@@ -2588,6 +2588,12 @@ final class DocEditTests {
             try await self.undo()
             let back = try current().database
             try self.expect(back == original, "the rows came back as \(back.rows.count)")
+            // A record duplicated (a card's Duplicate Item): the copy right after it, its fields the same.
+            let copy = try self.expectValue(collections.duplicate(row: original.rows[1].id, in: id), "no copy")
+            let copied = try current().database.rows
+            try self.expect(copied.count == original.rows.count + 1 && copied[2].id == copy && copied[2].cells == original.rows[1].cells,
+                            "the copy is at \(String(describing: copied.firstIndex { $0.id == copy }))")
+            try await self.undo()
 
             // A multi-select ticked from its options; a new option typed in.
             let tags = try self.expectValue(collections.addField("标记", type: .multiSelect(options: []), to: id), "no field")

@@ -692,12 +692,14 @@ struct DocFieldPanel: View {
     let snapshot: DocCollectionSnapshot
     let column: Column?
     let controller: DocCollectionController
+    /// The panel it shows as, if not the table's (a kanban card's Add Field).
+    var panel: DocCollectionPanel.Kind?
     @State private var name = ""
     @State private var type: ColumnType = .text
     @FocusState private var focused: Bool
 
     private var block: DocBlockID { snapshot.block }
-    private var kind: DocCollectionPanel.Kind { column.map { .editField($0.id) } ?? .addField }
+    private var kind: DocCollectionPanel.Kind { panel ?? column.map { .editField($0.id) } ?? .addField }
 
     var body: some View {
         DocPanelFrame(title: column == nil ? String(localized: "Add Field") : String(localized: "Edit Field"), close: close) {
@@ -852,6 +854,48 @@ struct DocOptionsPanel: View {
             pick(added)
         }
     }
+}
+
+/// A record's text, number or link typed in a field of its own (Craft's, from a kanban
+/// card's Edit Properties): what's typed is the record's as it's typed; Return or Esc closes.
+struct DocPropertyPanel: View {
+    let snapshot: DocCollectionSnapshot
+    let row: Row
+    let column: Column
+    let controller: DocCollectionController
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    private var block: DocBlockID { snapshot.block }
+    private var value: CellValue? { row.cells[column.id] }
+
+    var body: some View {
+        FlooDesignFloatingPanelSurface {
+            TextField(column.name, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .foregroundStyle(DocFieldText.takes(text, in: column) ? Tokens.ColorRole.Content.primary : Tokens.ColorRole.Content.tertiary)
+                .focused($focused)
+                .onChange(of: text) { _, text in
+                    if text != DocFieldText.text(value, in: column) { controller.setText(text, row: row.id, column: column.id, in: block) }
+                }
+                .onSubmit(close)
+                // The caret has the keys: Esc is the field's, and closes.
+                .onKeyPress(.escape) {
+                    close()
+                    return .handled
+                }
+                .padding(.horizontal, Tokens.Space.sm)
+                .frame(minHeight: Metrics.fieldHeight)
+                .flooDesignPanelWidth(260)
+        }
+        .onAppear {
+            text = DocFieldText.text(value, in: column)
+            Task { @MainActor in focused = true }
+        }
+    }
+
+    private func close() { controller.close(.property(row: row.id, column: column.id), in: block) }
 }
 
 /// Craft's date picker, on a date cell: a day typed ("Oct 20, 2026", 2026-10-20) and
