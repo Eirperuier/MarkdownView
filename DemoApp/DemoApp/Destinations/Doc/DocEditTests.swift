@@ -2009,7 +2009,7 @@ final class DocEditTests {
                 FlooDesignContextMenus.close()
                 try self.expect(blocks.selected == [block.id], "selected \(blocks.selected.count)")
                 let titles = blocks.selectionMenu().flatMap(\.items).map(\.title)
-                try self.expect(titles == ["Cut", "Copy", "Duplicate", "Format", "Insert", "Delete"], "menu \(titles)")
+                try self.expect(titles == ["Edit", "Cut", "Copy", "Duplicate", "Format", "Insert", "Sort", "Delete"], "menu \(titles)")
                 let format = try self.expectValue(blocks.selectionMenu().flatMap(\.items).first { $0.title == "Format" }?.submenu, "no Format")
                 let panel = DocFormatMenu(editor: self.editor).sections
                 try self.expect(format.first?.items.map(\.title) == ["Copy Format", "Paste Format", "Clear Format"]
@@ -2027,6 +2027,40 @@ final class DocEditTests {
                 try self.expect(self.editor.selection?.head.block == line.id && blocks.selected.isEmpty, "the caret isn't in the new line")
                 try await self.undo()
                 try self.expect(order() == before, "undo didn't take the line back")
+            }
+            await test("several blocks selected: the menu says how many, has Group and Sort, no Edit nor Copy Format; Sort orders them by their words, Group moves them into a page block where they were; one undo each") {
+                let block = try self.block("Loading older")
+                await show(block.id)
+                self.editor.dismissKeyboard()
+                blocks.clear()
+                try? await Task.sleep(for: .milliseconds(100))
+                let before = order()
+                let index = try self.expectValue(before.firstIndex(of: block.id), "no index")
+                let next = try self.expectValue(self.demo.doc.blocks.dropFirst(index + 1).first { $0.indent <= block.indent && $0.kind.carriesText }, "no next")
+                blocks.select([block.id, next.id])
+                let menu = blocks.selectionMenu()
+                let titles = menu.flatMap(\.items).map(\.title)
+                try self.expect(menu.first?.title == "2 items" && titles == ["Group", "Cut", "Copy", "Duplicate", "Format", "Insert", "Sort", "Delete"], "menu \(String(describing: menu.first?.title)) \(titles)")
+                let format = try self.expectValue(menu.flatMap(\.items).first { $0.title == "Format" }?.submenu, "no Format")
+                try self.expect(format.first?.items.first.map { $0.title == "Copy Format" && !$0.isEnabled } == true, "Copy Format is on")
+                // Z → A: the one whose words come later first.
+                try self.perform(menu, ["Sort", "Sort Z → A"])
+                let words = [block.id, next.id].map { self.demo.doc.block($0)?.text.string ?? "" }.sorted { $0.localizedStandardCompare($1) == .orderedDescending }
+                let sorted = order().filter { $0 == block.id || $0 == next.id }.map { self.demo.doc.block($0)?.text.string ?? "" }
+                try self.expect(sorted == words, "sorted \(sorted)")
+                try await self.undo()
+                try self.expect(order() == before, "undo didn't take the sort back")
+                // Group: a page block where the first was, the blocks gone into it.
+                blocks.select([block.id, next.id])
+                let moved = blocks.groups([block.id, next.id]).flatMap { $0 }
+                try self.perform(blocks.selectionMenu(), ["Group"])
+                let page = try self.expectValue(self.demo.doc.blocks.dropFirst(index).first, "no page block")
+                guard case .page(let made) = page.kind else { throw Failure(description: "not a page: \(page.kind)") }
+                try self.expect(order().count == before.count - moved.count + 1 && moved.allSatisfy { self.demo.doc.block($0) == nil }
+                                && blocks.selected == [page.id], "grouped into \(order().count) blocks, selected \(blocks.selected.count)")
+                try self.expect(made.preview.hasPrefix(block.text.string.split(separator: "\n").first.map(String.init) ?? "-"), "preview \(made.preview)")
+                try await self.undo()
+                try self.expect(order() == before, "undo didn't take the group back")
             }
             await test("a drag on a block's text moves the block") {
                 let block = try self.block("Loading older")

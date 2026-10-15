@@ -151,6 +151,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @ObservationIgnored var openURL: OpenURLAction?
     /// Goes into the page a page block opens (DocPages).
     @ObservationIgnored var openPage: ((DocBlockID) -> Void)?
+    /// Keeps a page made here (Group) for its page block to open.
+    @ObservationIgnored var keepPage: ((Doc) -> Void)?
     /// The image Quick Look shows.
     @ObservationIgnored private var previewing: URL?
     /// Rows flying to where they landed: the selection shows once they're down.

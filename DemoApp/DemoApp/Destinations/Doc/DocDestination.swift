@@ -167,6 +167,7 @@ private struct DocPageView: View {
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
             editor.blocks.attach(reader)
             editor.blocks.openPage = { [pages] block in pages.open(block) }
+            editor.blocks.keepPage = { [pages] doc in pages.keep(doc) }
             editor.collections.openRecord = { [pages] row, block in pages.openRecord(row, in: block) }
             editor.collections.hasPage = { [pages] row in pages.recordHasPage(row) }
             editor.collections.copyPage = { [pages] row, copy in pages.copyRecordPage(row, to: copy) }

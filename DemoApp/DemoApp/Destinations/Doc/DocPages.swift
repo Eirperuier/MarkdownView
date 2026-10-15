@@ -104,8 +104,15 @@ final class DocPages {
     /// A page opened in this window.
     func page(_ id: DocID) -> DocOpenPage? { opened[id] }
 
-    /// Goes into the page a block of the current page opens: as it was left, as the corpus
-    /// has it, or new, its title as its first heading and an empty line under it.
+    /// Pages made of blocks of another (Group), not opened yet.
+    @ObservationIgnored private var made: [DocID: Doc] = [:]
+
+    /// A page made of blocks of another: its page block opens it.
+    func keep(_ page: Doc) { made[page.id] = page }
+
+    /// Goes into the page a block of the current page opens: as it was left, as it was
+    /// made (Group), as the corpus has it, or new, its title as its first heading and an
+    /// empty line under it.
     func open(_ block: DocBlockID) {
         DocTiming.begin("open page")
         let from = current
@@ -114,7 +121,7 @@ final class DocPages {
         if let known = opened[page.doc] {
             opening = known
         } else {
-            let doc = DocDemoCorpus.page(page.doc) ?? Doc(id: page.doc, blocks: [
+            let doc = made[page.doc] ?? DocDemoCorpus.page(page.doc) ?? Doc(id: page.doc, blocks: [
                 DocBlock(id: .generate(), kind: .heading(level: 1), text: DocText(string: page.title)),
                 DocBlock(id: .generate(), kind: .paragraph),
             ])
