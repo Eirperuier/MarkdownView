@@ -1456,6 +1456,9 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
         original?.textViewDidEndEditing?(textView)
         if let cell = editor?.tables.cell(of: block) { editor?.tables.ended(cell, in: textView) }
         editor?.blocks.textEditingEnded(block)
+        // The menu over the selection is the edited text's: the focus gone (Esc selects
+        // the block, a click selects another), it goes, though the selection is kept.
+        editor?.selectionToolbar.hide()
     }
 
     /// Letters typed with a Chinese, Japanese or Korean keyboard start marked text.
