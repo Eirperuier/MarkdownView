@@ -981,6 +981,10 @@ final class DocEditor {
 
     /// The selection's edit menu, with Format added: what selected text takes (DocTextFormat).
     private func editMenu(_ textView: UITextView, range: NSRange, suggested: [UIMenuElement], in id: DocBlockID) -> UIMenu? {
+        // The text's system menu takes the place of the menu over the selection: one menu
+        // over the text at a time. Asked for as it comes (a right-click on the Mac, which
+        // tells the text view's delegate nothing else).
+        selectionToolbar.hide()
         #if targetEnvironment(macCatalyst)
         // Right-click in a cell: the cell's menu (ours, by its ⋮), which has the text's
         // Cut, Copy, Paste and Format, instead of the system's.
