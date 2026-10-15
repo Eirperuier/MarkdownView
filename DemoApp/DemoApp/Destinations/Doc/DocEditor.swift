@@ -675,7 +675,7 @@ final class DocEditor {
             if index > 0 {
                 let next = demo.newBlockID()
                 steps.append(.splitBlock(block: current, at: offset, newID: next, newKind: Self.kindAfterSplit(block.kind), newIndent: block.indent,
-                                         newDecoration: block.decoration))
+                                         newDecoration: block.decoration, newFont: block.font))
                 current = next
                 offset = 0
             }
@@ -757,7 +757,8 @@ final class DocEditor {
         let there = DocPosition(block: next, offset: 0)
         commit([
             .deleteText(block: block.id, range: (end - 1)..<end, removed: DocText()),
-            .splitBlock(block: block.id, at: end - 1, newID: next, newKind: .paragraph, newIndent: block.indent, newDecoration: block.decoration),
+            .splitBlock(block: block.id, at: end - 1, newID: next, newKind: .paragraph, newIndent: block.indent, newDecoration: block.decoration,
+                        newFont: block.font),
         ], from: DocSelection(anchor: here, head: here), to: DocSelection(anchor: there, head: there))
         session &+= 1
     }
@@ -817,7 +818,8 @@ final class DocEditor {
             if previous.kind.carriesText {
                 guard previous.kind.allowsMarks || block.text.marks.isEmpty else { return true }
                 let joined = DocPosition(block: previous.id, offset: previous.text.length)
-                commit([.joinBlock(block: id, into: previous.id, at: 0, kind: block.kind, indent: block.indent, decoration: block.decoration)],
+                commit([.joinBlock(block: id, into: previous.id, at: 0, kind: block.kind, indent: block.indent, decoration: block.decoration,
+                                   font: block.font)],
                        from: here, to: DocSelection(anchor: joined, head: joined))
             } else {
                 commit([.deleteBlock(block: previous, after: nil)], from: here, to: here)
@@ -946,6 +948,20 @@ final class DocEditor {
         return range.allSatisfy { offset in spans.contains { $0.range.contains(offset) } }
     }
 
+    /// Blocks take a typeface, or go back to the document's (nil), in one transaction.
+    func setFont(_ font: Typeface?, of ids: [DocBlockID]) {
+        let chosen = Set(ids)
+        let steps: [DocStep] = demo.doc.blocks.filter { chosen.contains($0.id) && $0.font != font }.map {
+            .setFont(block: $0.id, font: font, previous: $0.font)
+        }
+        guard !steps.isEmpty else { return }
+        if let selection {
+            commit(steps, from: selection, to: selection)
+        } else {
+            edit(steps, before: nil, after: nil)
+        }
+    }
+
     /// Blocks take a decoration, or lose theirs (nil), in one transaction.
     func setDecoration(_ decoration: BlockDecoration?, of ids: [DocBlockID]) {
         let chosen = Set(ids)
@@ -995,9 +1011,9 @@ final class DocEditor {
         apply(format, to: ids, keepsKind: false)
     }
 
-    /// Marks, colour and decoration off these blocks, in one transaction; each keeps its kind.
+    /// Marks, colour, decoration and typeface off these blocks, in one transaction; each keeps its kind.
     func clearFormat(of ids: Set<DocBlockID>) {
-        apply(DocCopiedFormat(kind: .paragraph, decoration: nil, marks: [:]), to: ids, keepsKind: true)
+        apply(DocCopiedFormat(kind: .paragraph, decoration: nil, font: nil, marks: [:]), to: ids, keepsKind: true)
     }
 
     private func apply(_ format: DocCopiedFormat, to ids: Set<DocBlockID>, keepsKind: Bool) {
@@ -1009,6 +1025,9 @@ final class DocEditor {
             }
             if block.decoration != format.decoration {
                 steps.append(.setDecoration(block: block.id, decoration: format.decoration, previous: block.decoration))
+            }
+            if block.kind.formats.contains(.typeface), block.font != format.font {
+                steps.append(.setFont(block: block.id, font: format.font, previous: block.font))
             }
             guard kind.allowsMarks, !block.text.isEmpty else { continue }
             let whole = 0..<block.text.length

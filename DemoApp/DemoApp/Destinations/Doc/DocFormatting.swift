@@ -12,11 +12,12 @@
 import SwiftUI
 import DocKit
 
-/// A block's format as Copy Format takes it: its kind, its decoration, and the marks
-/// all of its text has.
+/// A block's format as Copy Format takes it: its kind, its decoration, its typeface, and
+/// the marks all of its text has.
 struct DocCopiedFormat: Equatable {
     var kind: BlockKind
     var decoration: BlockDecoration?
+    var font: Typeface?
     var marks: [MarkKind: Mark]
 
     /// The marks a format carries (a link, a mention, maths are content, not format).
@@ -97,6 +98,16 @@ struct DocFormatting {
         return !blocks.isEmpty && blocks.allSatisfy { $0.decoration == .block }
     }
 
+    /// The blocks a typeface goes on.
+    var typefaced: [DocBlock] { decorated.filter { $0.kind.formats.contains(.typeface) } }
+
+    /// The typeface all of them have, if one does; nil, the document's (or theirs differ).
+    var font: Typeface? {
+        let blocks = typefaced
+        guard let font = blocks.first?.font, blocks.allSatisfy({ $0.font == font }) else { return nil }
+        return font
+    }
+
     /// The text colour all of the text has, if one does.
     var color: Mark? { editor.common(.color, over: markRanges) }
 
@@ -143,6 +154,11 @@ struct DocFormatting {
         editor.toggle(mark, over: markRanges)
     }
 
+    /// A typeface for the blocks; pressed again, they go back to the document's (Craft's).
+    func setFont(_ font: Typeface) {
+        editor.setFont(self.font == font ? nil : font, of: typefaced.map(\.id))
+    }
+
     /// A colour from the palette (nil: the text's own), one step.
     func setColor(_ token: String?) {
         editor.endColorChanges()
@@ -169,7 +185,7 @@ struct DocFormatting {
         case .listItem(style: .toggle): .listItem(style: .toggle(open: true))
         default: block.kind
         }
-        return DocCopiedFormat(kind: kind, decoration: block.decoration, marks: marks)
+        return DocCopiedFormat(kind: kind, decoration: block.decoration, font: block.font, marks: marks)
     }
 
     func paste(_ format: DocCopiedFormat) {

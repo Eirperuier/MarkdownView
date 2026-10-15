@@ -92,6 +92,8 @@ struct DocRow: Identifiable, Equatable {
     var box: DocRowBox?
     /// Its block's level: the whole row goes in from the page's left (indentWidth).
     var indent = 0
+    /// Its block's typeface (a text block's; a table's goes to its cells).
+    var font: Typeface?
     private let source: String
     private let depth: Int?
 
@@ -121,7 +123,7 @@ struct DocRow: Identifiable, Equatable {
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
             && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role && lhs.box == rhs.box
-            && lhs.indent == rhs.indent
+            && lhs.indent == rhs.indent && lhs.font == rhs.font
             && lhs.blocks.map(\.revealPlainTextCount) == rhs.blocks.map(\.revealPlainTextCount)
     }
 }
@@ -416,6 +418,7 @@ final class DocDemo {
         let kinds = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.kind) })
         let indents = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.indent) })
         let decorations = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.decoration) })
+        let fonts = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.font) })
         let decorated = rows.map { row in row.block.flatMap { decorations[$0] } ?? nil }
         let inRun = rows.map { $0.run?.kind != nil }
         var previous: DocRowRole?
@@ -425,6 +428,7 @@ final class DocDemo {
             let role = row.block.flatMap { kinds[$0] }.map(DocRowRole.init) ?? DocRowRole(markdown: row.blocks.first?.source ?? "")
             rows[index].role = role
             rows[index].indent = row.block.flatMap { indents[$0] } ?? 0
+            rows[index].font = row.block.flatMap { fonts[$0] } ?? nil
             rows[index].spacingBelow = index == rows.count - 1 ? DocTypography.pageBottom : 0
             if let run = row.run, run.kind == .floo {
                 // Cards carry the gutter above them, at their scale (DocCardGap).

@@ -27,12 +27,12 @@ public struct TableStyle: Hashable, Sendable, Codable {
 /// set is stored as none.
 public struct CellStyle: Hashable, Sendable, Codable {
     public var alignment: CellAlignment?
-    public var font: CellFont?
+    public var font: Typeface?
     public var number: CellNumberFormat?
     /// A palette colour at one of three strengths (`CellStyle.fills`), or `#rrggbb`.
     public var fill: String?
 
-    public init(alignment: CellAlignment? = nil, font: CellFont? = nil, number: CellNumberFormat? = nil, fill: String? = nil) {
+    public init(alignment: CellAlignment? = nil, font: Typeface? = nil, number: CellNumberFormat? = nil, fill: String? = nil) {
         self.alignment = alignment
         self.font = font
         self.number = number
@@ -76,10 +76,6 @@ public enum CellAlignment: String, Hashable, Sendable, Codable, CaseIterable {
     case left, center, right, justify
 }
 
-/// A typeface for a cell, Craft's four; none set, the document's.
-public enum CellFont: String, Hashable, Sendable, Codable, CaseIterable {
-    case system, mono, serif, rounded
-}
 
 /// How a number in a cell reads (Craft's cell format); none set, as typed. A text cell
 /// whose text is a number reads the same way; its text stays as typed.

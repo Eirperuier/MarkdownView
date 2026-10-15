@@ -40,6 +40,7 @@ extension AgentBlocks {
         var object: [String: JSONValue] = ["id": .string(shortID(block.id))]
         if block.indent > 0 { object["indent"] = .int(Int64(block.indent)) }
         if block.decoration == .block { object["boxed"] = .bool(true) }
+        if let font = block.font { object["font"] = .string(font.rawValue) }
         func text() { object["text"] = json(block.text) }
         switch block.kind {
         case .paragraph:
@@ -320,6 +321,8 @@ extension AgentBlocks {
         let indent = Int(object["indent"]?.intValue ?? 0)
         guard (0...DocBlock.maxIndent).contains(indent) else { throw AgentFormatError("indent is 0 to \(DocBlock.maxIndent), not \(indent)") }
         let boxed = object["boxed"]?.boolValue ?? false
+        let font: Typeface? = object["font"] == nil || object["font"] == .null
+            ? nil : try choice(object["font"], Typeface.self, default: .system, field: "a block's font")
         func text() throws(AgentFormatError) -> DocText {
             try AgentBlocks.text(object["text"] ?? object["content"] ?? .string(""))
         }
@@ -412,7 +415,7 @@ extension AgentBlocks {
             throw AgentFormatError(
                 "unknown block type \"\(type)\": use paragraph, heading, list, quote, caption, code, math, divider, image, link, file, card, view, table, collection or page")
         }
-        return DocBlock(id: id, kind: kind, indent: indent, text: content, decoration: boxed ? .block : nil)
+        return DocBlock(id: id, kind: kind, indent: indent, text: content, decoration: boxed ? .block : nil, font: font)
     }
 
     /// A card's or a view's data: what it gives, or the result it names (several: by name).

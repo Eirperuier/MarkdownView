@@ -192,6 +192,8 @@ enum RandomStep {
             return .moveBlock(block: block.id, after: after, from: nil)
         case 8:
             if rng.next() % 3 == 0, let block = doc.blocks.randomElement(using: &rng) {
+                // A block's font or its box, by its indent (no draw of its own: the seeds' steps stay as they were).
+                if block.indent % 2 == 1 { return .setFont(block: block.id, font: block.font == nil ? .serif : nil, previous: nil) }
                 return .setDecoration(block: block.id, decoration: block.decoration == nil ? .block : nil, previous: nil)
             }
             return setBlock(in: doc, using: &rng)
@@ -267,10 +269,13 @@ enum RandomStep {
         guard let at = block.text.boundaries.randomElement(using: &rng) else { return nil }
         let tail = block.text.slice(at..<block.text.length)
         let newKind = tail.isEmpty ? RandomDoc.blockKind(allowsText: true, using: &rng) : randomTextKind(marks: tail.marks, using: &rng)
+        // In the order the arguments drew before fonts came (the seeds' steps stay as they were).
+        let newID: DocBlockID = Identifier.generate(at: fixedTime(6), using: &rng)
+        let newIndent = Int(rng.next() % UInt64(DocBlock.maxIndent + 1))
+        let newDecoration: BlockDecoration? = rng.next() % 2 == 0 ? .block : nil
         return .splitBlock(
-            block: block.id, at: at,
-            newID: Identifier.generate(at: fixedTime(6), using: &rng),
-            newKind: newKind, newIndent: Int(rng.next() % UInt64(DocBlock.maxIndent + 1)), newDecoration: rng.next() % 2 == 0 ? .block : nil
+            block: block.id, at: at, newID: newID,
+            newKind: newKind, newIndent: newIndent, newDecoration: newDecoration, newFont: newIndent % 2 == 1 ? .mono : nil
         )
     }
 

@@ -325,7 +325,7 @@ struct DocFormatSheet: View {
     private var cellFonts: some View {
         let cell = formatting.cell
         let current = cell?.style.font
-        let choices: [CellFont?] = [nil] + CellFont.allCases
+        let choices: [Typeface?] = [nil] + Typeface.allCases
         return VStack(spacing: Metrics.rowSpacing) {
             ForEach([Array(choices.prefix(3)), Array(choices.suffix(2))], id: \.self) { row in
                 HStack(spacing: Tokens.Component.Tile.spacing) {
@@ -482,6 +482,17 @@ struct DocFormatSheet: View {
                 }
                 .disabled(copied == nil || formatting.decorated.isEmpty)
             }
+            // The blocks' typeface, each in its own (Craft's Font); pressed again, the document's.
+            HStack(spacing: Tokens.Component.Tile.spacing) {
+                ForEach(Typeface.blockOrder, id: \.self) { font in
+                    chip(isOn: formatting.font == font, identifier: "sheet-block-font-\(font.rawValue)") {
+                        formatting.setFont(font)
+                    } label: {
+                        Text(font.title).font(.system(size: Metrics.styleLabel, design: DocCellLook.design(font)))
+                    }
+                }
+            }
+            .disabled(!formatting.takes(.typeface))
         }
     }
 

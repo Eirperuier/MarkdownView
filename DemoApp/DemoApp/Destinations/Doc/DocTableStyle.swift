@@ -114,15 +114,20 @@ extension DocTableController {
         }
         // A document's table has no stripe until it's given one (Craft's).
         let stripe = style.stripe.flatMap(DocColors.fill).map(MarkdownTableAppearance.Stripe.color) ?? .none
-        return MarkdownTableAppearance(headerRow: style.hasHeaderRow, headerColumn: style.hasHeaderColumn, stripe: stripe, cells: cells)
+        let font = demo.doc.block(table.block)?.font.map(DocCellLook.design)
+        return MarkdownTableAppearance(headerRow: style.hasHeaderRow, headerColumn: style.hasHeaderColumn, stripe: stripe,
+                                       fontDesign: font, cells: cells)
     }
 
-    /// How the cell's editor sets its text: as the table draws the cell.
+    /// How the cell's editor sets its text: as the table draws the cell (in its table's
+    /// typeface, unless it has its own).
     func look(_ key: DocCellKey) -> DocCellLook {
         guard let (_, database) = database(key.block) else { return DocCellLook() }
         let table = database.tableStyle
+        var style = database.cellStyle(row: key.row, column: key.column)
+        style.font = style.font ?? demo.doc.block(key.block)?.font
         return DocCellLook(
-            style: database.cellStyle(row: key.row, column: key.column),
+            style: style,
             isHeader: key.row == nil && table.hasHeaderRow,
             isHeaderColumn: key.row != nil && table.hasHeaderColumn && database.columns.first?.id == key.column
         )
@@ -149,7 +154,7 @@ struct DocCellLook: Equatable {
         }
     }
 
-    static func design(_ font: CellFont) -> Font.Design {
+    static func design(_ font: Typeface) -> Font.Design {
         switch font {
         case .system: .default
         case .serif: .serif
@@ -189,7 +194,7 @@ struct DocCellLook: Equatable {
         return font
     }
 
-    private static func systemDesign(_ font: CellFont) -> UIFontDescriptor.SystemDesign? {
+    private static func systemDesign(_ font: Typeface) -> UIFontDescriptor.SystemDesign? {
         switch font {
         case .system: nil
         case .serif: .serif
@@ -243,7 +248,10 @@ extension CellNumberFormat {
     }
 }
 
-extension CellFont {
+extension Typeface {
+    /// The block panel's order (Craft's Font tiles; its cell menu has another).
+    static let blockOrder: [Typeface] = [.system, .serif, .mono, .rounded]
+
     var title: String {
         switch self {
         case .system: String(localized: "System")

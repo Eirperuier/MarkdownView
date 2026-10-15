@@ -62,11 +62,11 @@ struct DocCellStylePanel: View {
                             cell.toggle(alignment)
                         }
                     })
-                    menuTile(style.font?.sample ?? CellFont.system.sample, style.font?.title ?? String(localized: "Default Font"), picker: .font)
+                    menuTile(style.font?.sample ?? Typeface.system.sample, style.font?.title ?? String(localized: "Default Font"), picker: .font)
                         .disabled(!formatting.takes(.typeface))
                         .flooDesignActionMenu(isPresented: open == .font, configuration: .init(), onDismiss: { open = nil }) { _ in
                             [.init(.rows, [.action(String(localized: "Default Font"), isOn: style.font == nil, id: "default") { cell.setStyle { $0.font = nil } }]
-                                + CellFont.allCases.map { font in
+                                + Typeface.allCases.map { font in
                                     .action(font.title, isOn: style.font == font, id: font.rawValue) { cell.setStyle { $0.font = font } }
                                 })]
                         }

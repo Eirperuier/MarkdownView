@@ -523,10 +523,16 @@ struct MarkdownTableContent: View {
 
     /// A cell's look: the host's (MarkdownTableAppearance), and whether it reads as a header.
     private func look(of item: AdaptiveTableCellItem) -> AdaptiveTableCellLook {
-        AdaptiveTableCellLook(
+        var cell = appearance.cells[MarkdownTableCellPosition(row: item.row, column: item.column)]
+        // The table's typeface, where the cell has none of its own.
+        if let design = appearance.fontDesign, cell?.fontDesign == nil {
+            cell = cell ?? MarkdownTableCellAppearance()
+            cell?.fontDesign = design
+        }
+        return AdaptiveTableCellLook(
             isHeader: item.isHeader && appearance.headerRow,
             isHeaderColumn: !item.isHeader && item.column == 0 && appearance.headerColumn,
-            cell: appearance.cells[MarkdownTableCellPosition(row: item.row, column: item.column)]
+            cell: cell
         )
     }
 

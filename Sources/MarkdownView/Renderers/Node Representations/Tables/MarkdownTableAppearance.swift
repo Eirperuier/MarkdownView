@@ -4,7 +4,7 @@
 //
 //  How a host's table looks beyond what its markdown says (a document's table settings,
 //  Craft's Table Style): whether its first row and first column read as headers, the
-//  colour of every other row, and each cell's own alignment, typeface and fill.
+//  colour of every other row, its typeface, and each cell's own alignment, typeface and fill.
 //
 
 import SwiftUI
@@ -26,14 +26,17 @@ public struct MarkdownTableAppearance: Hashable, Sendable {
     /// The first column's body cells read as headers too, in bold.
     public var headerColumn: Bool
     public var stripe: Stripe
+    /// The system font's design for its cells' text, unless a cell has its own.
+    public var fontDesign: Font.Design?
     /// Cells with a look of their own, by where they are (row 0 is the first row).
     public var cells: [MarkdownTableCellPosition: MarkdownTableCellAppearance]
 
-    public init(headerRow: Bool = true, headerColumn: Bool = false, stripe: Stripe = .standard,
+    public init(headerRow: Bool = true, headerColumn: Bool = false, stripe: Stripe = .standard, fontDesign: Font.Design? = nil,
                 cells: [MarkdownTableCellPosition: MarkdownTableCellAppearance] = [:]) {
         self.headerRow = headerRow
         self.headerColumn = headerColumn
         self.stripe = stripe
+        self.fontDesign = fontDesign
         self.cells = cells
     }
 }

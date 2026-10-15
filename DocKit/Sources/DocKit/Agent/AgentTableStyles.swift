@@ -5,7 +5,7 @@
 extension AgentBlocks {
     /// What a cell's style fields take.
     static let alignments = CellAlignment.allCases.map(\.rawValue)
-    static let fonts = CellFont.allCases.map(\.rawValue)
+    static let fonts = Typeface.allCases.map(\.rawValue)
     static let formats = ["number", "percent"]
 
     // MARK: Reading
@@ -128,7 +128,7 @@ extension AgentBlocks {
             style.alignment = alignment
         }
         if let name = fields["font"]?.stringValue {
-            guard let font = CellFont(rawValue: name.lowercased()) else {
+            guard let font = Typeface(rawValue: name.lowercased()) else {
                 throw AgentFormatError("a font is \(fonts.joined(separator: ", ")), not \(name)")
             }
             style.font = font

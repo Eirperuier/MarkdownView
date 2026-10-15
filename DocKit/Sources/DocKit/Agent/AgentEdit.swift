@@ -201,6 +201,9 @@ extension Doc {
             if updated.decoration != existing.decoration {
                 try step(.setDecoration(block: id, decoration: updated.decoration, previous: existing.decoration))
             }
+            if updated.font != existing.font {
+                try step(.setFont(block: id, font: updated.font, previous: existing.font))
+            }
             let now = block(id)!.text
             if updated.kind.carriesText, updated.text != now {
                 if !now.isEmpty { try step(.deleteText(block: id, range: 0..<now.length, removed: now)) }

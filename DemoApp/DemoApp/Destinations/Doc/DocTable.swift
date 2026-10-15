@@ -254,10 +254,10 @@ final class DocTableController {
     private static func blocks(of step: DocStep) -> [DocBlockID] {
         switch step {
         case .insertText(let block, _, _), .deleteText(let block, _, _), .setMarks(let block, _, _, _, _),
-             .setBlock(let block, _, _, _, _), .setDecoration(let block, _, _):
+             .setBlock(let block, _, _, _, _), .setDecoration(let block, _, _), .setFont(let block, _, _):
             [block]
-        case .splitBlock(let block, _, let new, _, _, _): [block, new]
-        case .joinBlock(let block, let into, _, _, _, _): [block, into]
+        case .splitBlock(let block, _, let new, _, _, _, _): [block, new]
+        case .joinBlock(let block, let into, _, _, _, _, _): [block, into]
         case .insertBlock(let block, let after), .deleteBlock(let block, let after): [block.id] + (after.map { [$0] } ?? [])
         case .moveBlock(let block, let after, let from): [block] + [after, from].compactMap { $0 }
         case .createDatabase, .deleteDatabase, .database: []

@@ -141,6 +141,29 @@ struct DocFormatPanel: View {
                 }
                 .padding(.top, decorated.isEmpty ? Metrics.sectionLead : 0)
             }
+            // The blocks' typeface (Craft's Font): pressed again, the document's.
+            if !decorated.isEmpty {
+                section(String(localized: "Font")) {
+                    HStack(spacing: Tokens.Component.Tile.spacing) {
+                        ForEach(Typeface.blockOrder, id: \.self) { font in
+                            choice(isOn: formatting.font == font, help: font.title) {
+                                formatting.setFont(font)
+                            } label: {
+                                VStack(spacing: Tokens.Space.xs) {
+                                    Text(font.sample)
+                                        .font(.system(size: Metrics.fontSample, design: DocCellLook.design(font)))
+                                    Text(font.title)
+                                        .font(Metrics.fontName)
+                                        .foregroundStyle(Tokens.ColorRole.Content.secondary)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: Metrics.fontTile)
+                            }
+                            .accessibilityIdentifier("format-font-\(font.rawValue)")
+                        }
+                    }
+                    .disabled(!formatting.takes(.typeface))
+                }
+            }
         }
         .frame(width: Metrics.width)
     }

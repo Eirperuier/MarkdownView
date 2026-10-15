@@ -626,6 +626,24 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(self.demo.doc.block(next.id)?.decoration == .block, "undo: \(String(describing: self.demo.doc.block(next.id)?.decoration))")
         }
+        await test("A block's font: its text drawn in it, Return carries it to the new line, its tile again takes it off; each one undo step") {
+            let line = try await emptyLine()
+            try await self.type("Serif")
+            DocFormatting(editor: self.editor).setFont(.serif)
+            try self.expect(self.demo.doc.block(line.id)?.font == .serif, "font \(String(describing: self.demo.doc.block(line.id)?.font))")
+            try await Task.sleep(for: .milliseconds(400))
+            let view = try self.expectValue(self.editor.textView(for: line.id), "no text view")
+            let drawn = view.textStorage.length > 0 ? view.textStorage.attribute(.font, at: 0, effectiveRange: nil) as? UIFont : nil
+            let serif = UIFont.systemFont(ofSize: 17).fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: 17).familyName }
+            try self.expect(drawn?.familyName == serif, "drawn in \(String(describing: drawn?.familyName)), not \(String(describing: serif))")
+            try await self.enter()
+            let next = try self.blockAfter(line.id)
+            try self.expect(next.font == .serif, "the new line is in \(String(describing: next.font))")
+            DocFormatting(editor: self.editor).setFont(.serif)
+            try self.expect(self.demo.doc.block(next.id)?.font == nil, "pressed again: \(String(describing: self.demo.doc.block(next.id)?.font))")
+            try await self.undo()
+            try self.expect(self.demo.doc.block(next.id)?.font == .serif, "undo: \(String(describing: self.demo.doc.block(next.id)?.font))")
+        }
         if DocBlockController.usesHandles {
             await test("Selected text brings the toolbar after a moment; a caret or a read-only page sends it away") {
                 let paragraph = try self.block("这篇文档由 DocKit")
@@ -1376,7 +1394,7 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(try database() == before, "undo left the cell bold")
         }
-        await test("Table: a cell's alignment, typeface, number format and fill, and its table's headers, stripe and size: drawn as set, each one undo step") {
+        await test("Table: a cell's alignment, typeface, number format and fill, and its table's headers, stripe, typeface and size: drawn as set, each one undo step") {
             _ = try await click(2, 1)
             let key = try editedKey()
             let before = try database()
@@ -1400,12 +1418,18 @@ final class DocEditTests {
             appearance = self.editor.tables.appearance(of: DocTableSnapshot(block: key.block, database: try database()))
             let striped = if case .color = appearance.stripe { true } else { false }
             try self.expect(appearance.headerColumn && striped, "the table's look \(appearance.stripe)")
+            // The table block's typeface is its cells', unless they have their own.
+            self.editor.setFont(.mono, of: [key.block])
+            appearance = self.editor.tables.appearance(of: DocTableSnapshot(block: key.block, database: try database()))
+            let header = DocCellKey(block: key.block, row: nil, column: key.column)
+            try self.expect(appearance.fontDesign == .monospaced && appearance.cells[MarkdownTableCellPosition(row: row, column: column)]?.fontDesign == .serif
+                            && self.editor.tables.look(header).style.font == .mono, "the table's typeface \(String(describing: appearance.fontDesign))")
             let size = cell.size
             cell.resize(rows: size.rows + 1)
             cell.resize(columns: size.columns + 1)
             try self.expect(cell.size == (size.rows + 1, size.columns + 1), "size \(cell.size)")
-            for _ in 0..<8 { try await self.undo() }
-            try self.expect(try database() == before, "eight undos didn't put the table back")
+            for _ in 0..<9 { try await self.undo() }
+            try self.expect(try database() == before && self.demo.doc.block(key.block)?.font == nil, "nine undos didn't put the table back")
         }
         await test("Table: a cell's menu is that cell's, and goes when another cell is edited") {
             _ = try await click(2, 1)
@@ -1793,13 +1817,13 @@ final class DocEditTests {
                 try self.expect(blocks.testSheetFrames.isEmpty, "sheets stay on screen: \(blocks.testSheetFrames)")
             }
         }
-        await test("what each block takes decides the format panels: text its styles and marks, an image its size and fit, a table a level and the box; together, a style goes on the text only") {
+        await test("what each block takes decides the format panels: text its styles and marks, an image its size and fit, a table a level, the box and a typeface; together, a style goes on the text only") {
             let blocks = self.editor.blocks
             let text = try self.block("Loading older")
             let image = try self.expectValue(self.demo.doc.blocks.first { if case .image = $0.kind { true } else { false } }, "no image")
             let table = try self.expectValue(self.demo.doc.blocks.first { if case .database = $0.kind { true } else { false } }, "no table")
             blocks.beginSelecting(text.id)
-            for (ids, formats) in [([text.id], DocFormats.text), ([image.id], [.indent, .box, .image]), ([table.id], DocFormats.block)] {
+            for (ids, formats) in [([text.id], DocFormats.text), ([image.id], [.indent, .box, .image]), ([table.id], DocFormats.block.union(.typeface))] {
                 blocks.select(ids)
                 let taken = DocFormatting(editor: self.editor).formats
                 try self.expect(taken == formats, "\(ids): \(taken.rawValue), wanted \(formats.rawValue)")

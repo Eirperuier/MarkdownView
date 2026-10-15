@@ -67,6 +67,10 @@ extension FlooDesignTokens.Component {
         static let swatchSpacing = Tokens.Space.sm
         static let swatchColumns = 6
         static let quoteBar = CGSize(width: 3.5, height: 18)
+        /// A typeface's tile (Craft's Font): its sample over its name.
+        static let fontTile: CGFloat = 52
+        static let fontSample: CGFloat = 17
+        static let fontName = Font.system(size: 11)
         /// A cell's panel (Craft's Table Style): a row's symbol, a stepper's count and keys,
         /// a colour setting's ring.
         static let rowIcon: CGFloat = 22

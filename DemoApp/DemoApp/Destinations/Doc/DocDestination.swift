@@ -558,6 +558,7 @@ private struct DocRowView: View {
         MarkdownSelectableText(tree: text.tree, listDepthOffset: text.depth, applyEdgeInsets: text.isQuote)
             .markdownBlockQuote(text.isQuote)
         .lineSpacing(row.role.lineSpacing)
+        .modifier(DocRowTypeface(font: row.font))
         .modifier(DocCaptionType(isOn: row.role == .caption))
         .markdownDisplayMathRendersSynchronously()
         .environment(\.markdownSelectableTextHooks, hooks)
@@ -617,6 +618,21 @@ private struct DocRowBoxing: ViewModifier {
             .padding(.bottom, boxed && last ? Box.padding : 0)
             .background(shape.fill(Box.fill).opacity(boxed ? 1 : 0).padding(.horizontal, own ? 0 : -(run?.inset ?? 0) - Box.outset))
             .padding(.top, !boxed || first ? spacingAbove : 0)
+    }
+}
+
+/// A block's typeface: its text's, headings and list markers too; inline code stays
+/// monospaced.
+private struct DocRowTypeface: ViewModifier {
+    let font: Typeface?
+
+    func body(content: Content) -> some View {
+        content.transformEnvironment(\.markdownPlatformTypography) { typography in
+            guard let font else { return }
+            let design = DocCellLook.design(font)
+            typography.body.design = design
+            for level in typography.headings.indices { typography.headings[level].design = design }
+        }
     }
 }
 

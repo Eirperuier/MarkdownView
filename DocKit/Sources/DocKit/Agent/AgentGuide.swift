@@ -103,7 +103,8 @@ public enum AgentGuide {
             lines.append(line)
         }
         let common = DocBlock.agentFields.filter { !$0.readOnly && $0.key != "type" }
-        lines.append("Any block may have " + common.map(\.description).joined(separator: " and ") + ".")
+        let described = common.map(\.description)
+        lines.append("Any block may have " + described.dropLast().joined(separator: ", ") + " and " + described.last! + ".")
         let shown = (DocBlock.agentFields + usages.flatMap(\.fields)).filter(\.readOnly)
         var seen = Set<String>()
         let unique = shown.filter { seen.insert($0.key).inserted }
@@ -137,6 +138,7 @@ extension DocBlock: AgentDescribed {
             AgentField("type"),
             AgentField("indent", about: "0 to \(DocBlock.maxIndent); a list item's children are the blocks after it indented deeper"),
             AgentField("boxed", ["true"], about: "on a gray panel"),
+            AgentField("font", Typeface.allCases.map(\.rawValue), about: "its text's typeface; a table's, its cells' unless they have their own"),
         ])]
     }
 }

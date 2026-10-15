@@ -37,7 +37,7 @@ struct DocFormats: OptionSet, Hashable {
     static let image = DocFormats(rawValue: 1 << 8)
     /// Where a cell's text sits: left, centred, right, justified.
     static let alignment = DocFormats(rawValue: 1 << 9)
-    /// A cell's typeface.
+    /// A block's or a cell's typeface.
     static let typeface = DocFormats(rawValue: 1 << 10)
     /// How a number in a cell reads (number, percent, currency).
     static let numberFormat = DocFormats(rawValue: 1 << 11)
@@ -49,7 +49,7 @@ struct DocFormats: OptionSet, Hashable {
     /// What every block takes: a level, the box.
     static let block: DocFormats = [.indent, .box]
     /// What a block of text takes.
-    static let text: DocFormats = [.block, .textStyle, .marks, .list, .quote, .color]
+    static let text: DocFormats = [.block, .textStyle, .marks, .list, .quote, .color, .typeface]
 }
 
 /// Something the format panels change, and what it takes.
@@ -65,7 +65,9 @@ extension BlockKind: DocFormattable {
         case .paragraph, .heading, .listItem, .quote, .caption: .text
         case .image: DocFormats.block.union(.image)
         case .link, .file: DocFormats.block.union(.layout)
-        case .code, .math, .divider, .card, .view, .database, .collection, .page: .block
+        // A table's typeface is its cells' (theirs over it).
+        case .database: DocFormats.block.union(.typeface)
+        case .code, .math, .divider, .card, .view, .collection, .page: .block
         }
     }
 }

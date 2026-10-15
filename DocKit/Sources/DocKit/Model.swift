@@ -27,17 +27,27 @@ public struct DocBlock: Hashable, Sendable, Codable, Identifiable {
     public var text: DocText
     /// Drawn around the block, whatever its kind; neighbours with the same one share it.
     public var decoration: BlockDecoration?
+    /// Its text's typeface (a table's, its cells' unless they have their own).
+    public var font: Typeface?
 
     /// The deepest a block indents (Craft's five levels).
     public static let maxIndent = 5
 
-    public init(id: DocBlockID, kind: BlockKind, indent: Int = 0, text: DocText = DocText(), decoration: BlockDecoration? = nil) {
+    public init(id: DocBlockID, kind: BlockKind, indent: Int = 0, text: DocText = DocText(), decoration: BlockDecoration? = nil,
+                font: Typeface? = nil) {
         self.id = id
         self.kind = kind
         self.indent = indent
         self.text = text
         self.decoration = decoration
+        self.font = font
     }
+}
+
+/// A block's or a table cell's typeface (Craft's four); none set, the document's (a
+/// cell's: its table block's).
+public enum Typeface: String, Hashable, Sendable, Codable, CaseIterable {
+    case system, mono, serif, rounded
 }
 
 /// What's drawn around a block (Craft's decorations; its Focus is the quote kind).

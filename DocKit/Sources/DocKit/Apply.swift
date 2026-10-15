@@ -11,9 +11,10 @@ extension Doc {
             return try applyDeleteText(block: block, range: range)
         case .setMarks(let block, let range, let kind, let spans, _):
             return try applySetMarks(block: block, range: range, kind: kind, spans: spans)
-        case .splitBlock(let block, let at, let newID, let newKind, let newIndent, let newDecoration):
-            return try applySplit(block: block, at: at, newID: newID, newKind: newKind, newIndent: newIndent, newDecoration: newDecoration)
-        case .joinBlock(let block, let into, _, _, _, _):
+        case .splitBlock(let block, let at, let newID, let newKind, let newIndent, let newDecoration, let newFont):
+            return try applySplit(block: block, at: at, newID: newID, newKind: newKind, newIndent: newIndent, newDecoration: newDecoration,
+                                  newFont: newFont)
+        case .joinBlock(let block, let into, _, _, _, _, _):
             return try applyJoin(block: block, into: into)
         case .insertBlock(let block, let after):
             // A view block needs its database (an undo can bring one back after a
@@ -32,6 +33,11 @@ extension Doc {
             let previous = blocks[index].decoration
             blocks[index].decoration = decoration
             return .setDecoration(block: block, decoration: decoration, previous: previous)
+        case .setFont(let block, let font, _):
+            let index = try blockIndex(block)
+            let previous = blocks[index].font
+            blocks[index].font = font
+            return .setFont(block: block, font: font, previous: previous)
         case .createDatabase(let database):
             guard databases[database.id] == nil else { throw .duplicateID }
             try database.validate()
@@ -149,7 +155,7 @@ extension Doc {
     }
 
     private mutating func applySplit(
-        block: DocBlockID, at: Int, newID: DocBlockID, newKind: BlockKind, newIndent: Int, newDecoration: BlockDecoration?
+        block: DocBlockID, at: Int, newID: DocBlockID, newKind: BlockKind, newIndent: Int, newDecoration: BlockDecoration?, newFont: Typeface?
     ) throws(DocError) -> DocStep {
         let index = try blockIndex(block)
         try require(blocks[index].kind.carriesText, .splitRequiresText)
@@ -161,10 +167,10 @@ extension Doc {
         try checkBlock(kind: newKind, indent: newIndent, text: tail)
         var head = text
         head.delete(at..<text.length)
-        let newBlock = DocBlock(id: newID, kind: newKind, indent: newIndent, text: tail, decoration: newDecoration)
+        let newBlock = DocBlock(id: newID, kind: newKind, indent: newIndent, text: tail, decoration: newDecoration, font: newFont)
         blocks[index].text = head
         blocks.insert(newBlock, at: index + 1)
-        return .splitBlock(block: block, at: at, newID: newID, newKind: newKind, newIndent: newIndent, newDecoration: newDecoration)
+        return .splitBlock(block: block, at: at, newID: newID, newKind: newKind, newIndent: newIndent, newDecoration: newDecoration, newFont: newFont)
     }
 
     private mutating func applyJoin(block: DocBlockID, into: DocBlockID) throws(DocError) -> DocStep {
@@ -181,7 +187,8 @@ extension Doc {
         try joined.validate()
         blocks[intoIndex].text = joined
         let removed = blocks.remove(at: blockIndex)
-        return .joinBlock(block: block, into: into, at: at, kind: removed.kind, indent: removed.indent, decoration: removed.decoration)
+        return .joinBlock(block: block, into: into, at: at, kind: removed.kind, indent: removed.indent, decoration: removed.decoration,
+                          font: removed.font)
     }
 
     private func afterIndex(_ after: DocBlockID?) throws(DocError) -> Int {
