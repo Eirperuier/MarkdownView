@@ -1780,6 +1780,29 @@ final class DocEditTests {
                 let wanted = DocBlockController.indentWidth(nested.indent - paragraph.indent)
                 try self.expect(abs(xs[1] - xs[0] - wanted) < 0.5, "handles at \(xs), \(wanted) apart wanted")
             }
+            await test("the selection's tint and the handle go in with the block, in the rows' motion") {
+                let block = try self.block("Loading older")
+                await show(block.id)
+                blocks.select([block.id])
+                blocks.testHover(block.id)
+                try? await Task.sleep(for: .milliseconds(200))
+                let before = try self.expectValue(blocks.testHighlights.first?.frame, "no tint")
+                let handle = try self.expectValue(blocks.testHandleFrame, "no handle")
+                blocks.indentSelection(by: 1)
+                try? await Task.sleep(for: .milliseconds(120))
+                let step = DocBlockController.indentWidth(1)
+                let moving = try self.expectValue(blocks.testHighlights.first, "no tint")
+                try self.expect(abs(moving.frame.minX - before.minX - step) < 0.5, "tint going to \(moving.frame.minX), was \(before.minX)")
+                try self.expect(moving.shown.minX > before.minX + 0.5 && moving.shown.minX < moving.frame.minX - 0.5,
+                                "tint at \(moving.shown.minX) mid-way, from \(before.minX) to \(moving.frame.minX)")
+                try? await Task.sleep(for: .milliseconds(700))
+                let settled = try self.expectValue(blocks.testHighlights.first, "no tint")
+                try self.expect(abs(settled.shown.minX - settled.frame.minX) < 0.5, "tint stopped at \(settled.shown.minX)")
+                let moved = try self.expectValue(blocks.testHandleFrame, "no handle")
+                try self.expect(abs(moved.minX - handle.minX - step) < 0.5, "handle at \(moved.minX), was \(handle.minX)")
+                try await self.undo()
+                blocks.clear()
+            }
             await test("a click on a block's text selects the block; only then does the text take clicks") {
                 let block = try self.block("Loading older")
                 await show(block.id)

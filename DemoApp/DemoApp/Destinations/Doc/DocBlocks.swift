@@ -354,7 +354,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         // Links, files and images outline themselves, hugging their box (DocMediaCell).
         let text = Self.usesHandles && landings == 0 ? selected.filter { demo.doc.block($0).map { !DocMediaView.draws($0.kind) } ?? false } : []
         let outset = Self.highlightOutset
-        highlights = place(text.compactMap { pageFrame($0)?.insetBy(dx: 0, dy: -outset) }, in: highlights, outset: 10) {
+        let moves = CACurrentMediaTime() < overlaysMoveUntil
+        highlights = place(text.compactMap { pageFrame($0)?.insetBy(dx: 0, dy: -outset) }, in: highlights, outset: 10, moves: moves) {
             let view = DocSelectionHighlight()
             view.backgroundColor = FlooDesignTokens.UIKitColor.accent.withAlphaComponent(MarkdownBlockSelectionStyle.highlightOpacity)
             view.layer.cornerRadius = MarkdownBlockSelectionStyle.highlightCornerRadius
@@ -370,7 +371,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             return view
         }
         for view in highlights + dimmers where view.superview !== list { list.addSubview(view) }
-        layoutHandle()
+        layoutHandle(moves: moves)
         if drag?.isMoving == true { updateTarget() }
     }
 
@@ -400,13 +401,15 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         return rects
     }
 
-    private func place(_ rects: [CGRect], in views: [UIView], outset: CGFloat, make: () -> UIView) -> [UIView] {
+    /// `moves`: a view already showing goes to its new frame in the layout motion.
+    private func place(_ rects: [CGRect], in views: [UIView], outset: CGFloat, moves: Bool = false, make: () -> UIView) -> [UIView] {
         var views = views
         while views.count < rects.count { views.append(make()) }
         for (index, view) in views.enumerated() {
             view.isUserInteractionEnabled = false
             if index < rects.count {
-                view.frame = rects[index].insetBy(dx: -outset, dy: 0)
+                let frame = rects[index].insetBy(dx: -outset, dy: 0)
+                Self.move(view, to: frame, animated: moves && !view.isHidden && view.superview != nil)
                 view.isHidden = false
             } else {
                 view.isHidden = true
@@ -415,7 +418,30 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         return views
     }
 
-    private func layoutHandle() {
+    /// Sets a view's frame, or (`animated`) takes it there in the layout motion, from
+    /// wherever it shows now, as the rows go to theirs. The layer's own animation: the
+    /// list lays the overlays out while it updates its rows without UIKit animations.
+    private static func move(_ view: UIView, to frame: CGRect, animated: Bool) {
+        guard animated, view.frame != frame else {
+            view.frame = frame
+            return
+        }
+        let shown = view.layer.presentation() ?? view.layer
+        let from = (position: shown.position, bounds: shown.bounds)
+        view.frame = frame
+        let spring = FlooDesignTokens.Motion.layoutSpring
+        for (key, value, target) in [("position", NSValue(cgPoint: from.position), NSValue(cgPoint: view.layer.position)),
+                                     ("bounds", NSValue(cgRect: from.bounds), NSValue(cgRect: view.layer.bounds))] {
+            let animation = CASpringAnimation(perceptualDuration: spring.duration, bounce: spring.bounce)
+            animation.keyPath = key
+            animation.fromValue = value
+            animation.toValue = target
+            animation.duration = animation.settlingDuration
+            view.layer.add(animation, forKey: "doc.move.\(key)")
+        }
+    }
+
+    private func layoutHandle(moves: Bool = false) {
         guard Self.usesHandles else { return }
         guard drag == nil, !demo.isAgentWriting, let hovered, let content = contentFrame(hovered) else {
             handle.isHidden = true
@@ -424,8 +450,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         let size = FlooDesignDragHandle.size
         // Before the block's page part: an indented block's handle goes in with it (Craft's).
         let left = pageFrame(hovered)?.minX ?? content.minX
-        handle.frame = CGRect(x: left - size.width - 6, y: firstLineMidY(hovered, row: content) - size.height / 2,
-                              width: size.width, height: size.height)
+        let frame = CGRect(x: left - size.width - 6, y: firstLineMidY(hovered, row: content) - size.height / 2,
+                           width: size.width, height: size.height)
+        Self.move(handle, to: frame, animated: moves && !handle.isHidden)
         handle.layer.zPosition = 8
         handle.isHidden = false
     }
@@ -1282,8 +1309,16 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// changes to its new shape and the rows around it go to their new places together,
     /// with the layout motion (the rows are TiledView's to move, a block's content its own).
     func reshape(_ change: () -> Void) {
+        // The selection's tint and the handle go to their new places with the rows: the
+        // list lays them out once the rows have their new frames, a little later.
+        if FlooDesignTokens.Motion.layout != nil {
+            overlaysMoveUntil = CACurrentMediaTime() + FlooDesignTokens.Motion.layoutSpring.settlingDuration
+        }
         withAnimation(FlooDesignTokens.Motion.layout) { change() }
     }
+
+    /// Until when the overlays move to their places in the layout motion (a reshape).
+    @ObservationIgnored private var overlaysMoveUntil: CFTimeInterval = 0
 
     // MARK: Model
 
@@ -1737,6 +1772,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     }
     var testHighlightFrames: [CGRect] { highlights.filter { !$0.isHidden }.map(\.frame) }
     var testHandleFrame: CGRect? { Self.usesHandles && !handle.isHidden ? handle.frame : nil }
+
+    /// The selection's tints where they're going and where they show now.
+    var testHighlights: [(frame: CGRect, shown: CGRect)] {
+        highlights.filter { !$0.isHidden }.map { ($0.frame, $0.layer.presentation()?.frame ?? $0.frame) }
+    }
 
     /// Whether the row's click takes a click on the handle (it mustn't).
     var testRowClickTakesHandle: Bool { rowClickTakes(handle) }
