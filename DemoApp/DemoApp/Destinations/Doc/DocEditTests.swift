@@ -1377,7 +1377,7 @@ final class DocEditTests {
                     self.editor.blocks.clear()
                     try? await Task.sleep(for: .milliseconds(100))
                     try self.expect(self.editor.tables.editing == nil, "still editing")
-                    try self.expect(self.editor.blocks.testRightClick(at: point) == nil, "the block's menu, not the cell's")
+                    try self.expect(!self.editor.blocks.testRightClick(at: point), "the block's menu, not the cell's")
                     _ = try await cellEditor(key)
                     try self.expect(self.editor.tables.menu == DocTableMenuTarget(key: key), "menu \(String(describing: self.editor.tables.menu)), wanted \(key)")
                 }
@@ -2005,9 +2005,10 @@ final class DocEditTests {
                 try? await Task.sleep(for: .milliseconds(100))
                 let before = order()
                 let row = try self.expectValue(blocks.testRowFrame(block.id), "no row")
-                try self.expect(blocks.testRightClick(at: CGPoint(x: row.midX, y: row.midY)) != nil, "no menu")
+                try self.expect(blocks.testRightClick(at: CGPoint(x: row.midX, y: row.midY)), "no menu")
+                FlooDesignContextMenus.close()
                 try self.expect(blocks.selected == [block.id], "selected \(blocks.selected.count)")
-                let titles = blocks.selectionMenu().children.flatMap { ($0 as? UIMenu)?.children ?? [$0] }.map(\.title)
+                let titles = blocks.selectionMenu().flatMap(\.items).map(\.title)
                 try self.expect(titles == ["Cut", "Copy", "Duplicate", "Format", "Insert", "Delete"], "menu \(titles)")
                 try self.perform(blocks.selectionMenu(), ["Format", "List", "Bullet List"])
                 try self.expect(self.demo.doc.block(block.id)?.kind == .listItem(style: .bullet), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
@@ -3293,23 +3294,15 @@ final class DocEditTests {
         return value
     }
 
-    /// Chooses the item at `path` in a menu (titles, through submenus; inline sections are
-    /// looked into), as a click on it would.
-    private func perform(_ menu: UIMenu, _ path: [String]) throws {
-        func find(_ elements: [UIMenuElement], _ path: ArraySlice<String>) -> UIAction? {
-            guard let title = path.first else { return nil }
-            for element in elements {
-                if let inner = element as? UIMenu {
-                    if inner.options.contains(.displayInline), let found = find(inner.children, path) { return found }
-                    if inner.title == title, let found = find(inner.children, path.dropFirst()) { return found }
-                } else if let action = element as? UIAction, action.title == title, path.count == 1 {
-                    return action
-                }
-            }
-            return nil
+    /// Chooses the item at `path` in a menu (titles, through submenus), as a click on it would.
+    private func perform(_ menu: [FlooDesignActionMenuSection], _ path: [String]) throws {
+        func find(_ sections: [FlooDesignActionMenuSection], _ path: ArraySlice<String>) -> FlooDesignActionMenuItem? {
+            guard let title = path.first, let item = sections.flatMap(\.items).first(where: { $0.title == title }) else { return nil }
+            if path.count == 1 { return item.submenu == nil ? item : nil }
+            return item.submenu.flatMap { find($0, path.dropFirst()) }
         }
-        let action = try expectValue(find(menu.children, path[...]), "no \(path.joined(separator: " › ")) in the menu")
-        action.performWithSender(nil, target: nil)
+        let item = try expectValue(find(menu, path[...]), "no \(path.joined(separator: " › ")) in the menu")
+        item.perform()
     }
 
     private func expectCursor(_ id: DocBlockID, _ offset: Int) throws {

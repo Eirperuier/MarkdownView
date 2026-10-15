@@ -819,6 +819,7 @@ private struct DocCollectionHeader: View {
     @State private var viewName = ""
     @State private var searching = false
     @State private var exporting: DocCSVFile?
+    @State private var showsViewMenu = false
     @FocusState private var searchFocused: Bool
 
     private var block: DocBlockID { snapshot.block }
@@ -955,54 +956,61 @@ private struct DocCollectionHeader: View {
     }
 
     private var viewMenu: some View {
-        Menu {
-            if let current { viewItems(current, full: true) }
+        Button {
+            showsViewMenu.toggle()
         } label: {
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: FlooDesignTokens.Icon.standard))
                 .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
                 .frame(width: Metrics.toolbarButton, height: Metrics.toolbarHeight)
         }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
         .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
         .help(String(localized: "View Options"))
         .accessibilityLabel(String(localized: "View Options"))
+        .flooDesignActionMenu(isPresented: showsViewMenu, configuration: .init(horizontalAlignment: .trailing),
+                              onDismiss: { showsViewMenu = false }) { _ in
+            current.map { viewSections($0, full: true) } ?? []
+        }
     }
 
     /// A view's menu: its panels, then renaming, copying and deleting it; the toolbar's
     /// also downloads it.
-    @ViewBuilder
-    private func viewItems(_ view: CollectionView, full: Bool) -> some View {
-        Button(String(localized: "Layout & Visibility"), systemImage: "tablecells") { open(.layout, for: view) }
-        Divider()
-        Button(String(localized: "Filter"), systemImage: "line.3.horizontal.decrease") { open(.filter, for: view) }
-        Button(String(localized: "Sort"), systemImage: "arrow.up.arrow.down") { open(.sort, for: view) }
+    private func viewSections(_ view: CollectionView, full: Bool) -> [FlooDesignActionMenuSection] {
+        var panels: [FlooDesignActionMenuItem] = [
+            .action(String(localized: "Filter"), symbol: "line.3.horizontal.decrease") { open(.filter, for: view) },
+            .action(String(localized: "Sort"), symbol: "arrow.up.arrow.down") { open(.sort, for: view) },
+        ]
         if case .kanban(let group, _, _) = view.layout {
-            Menu(String(localized: "Group"), systemImage: "circle.grid.3x3") {
-                ForEach(selects, id: \.id) { column in
-                    Toggle(column.name, isOn: Binding { group == column.id } set: { _ in
-                        controller.setLayout(kanban: true, groupedBy: column.id, in: view.id, of: block)
-                    })
+            panels.append(.submenu(String(localized: "Group"), symbol: "circle.grid.3x3", sections: [.init(.rows, selects.map { column in
+                .action(column.name, isOn: group == column.id, id: "group-\(column.id)") {
+                    controller.setLayout(kanban: true, groupedBy: column.id, in: view.id, of: block)
                 }
-            }
+            })]))
         }
+        var sections: [FlooDesignActionMenuSection] = [
+            .init(.rows, [.action(String(localized: "Layout & Visibility"), symbol: "tablecells") { open(.layout, for: view) }]),
+            .init(.rows, panels),
+        ]
         if controller.isEditable {
-            Divider()
-            Button(String(localized: "Rename View"), systemImage: "character.cursor.ibeam") {
-                viewName = view.name
-                renaming = view.id
-            }
-            Button(String(localized: "Duplicate View"), systemImage: "plus.square.on.square") { controller.duplicate(view.id, in: block) }
-            Button(String(localized: "Delete View"), systemImage: "trash", role: .destructive) { controller.delete(view.id, in: block) }
-                .disabled(collection.views.count < 2)
+            sections.append(.init(.rows, [
+                .action(String(localized: "Rename View"), symbol: "character.cursor.ibeam") {
+                    viewName = view.name
+                    renaming = view.id
+                },
+                .action(String(localized: "Duplicate View"), symbol: "plus.square.on.square") { controller.duplicate(view.id, in: block) },
+                .action(String(localized: "Delete View"), symbol: "trash", role: .destructive, isEnabled: collection.views.count > 1) {
+                    controller.delete(view.id, in: block)
+                },
+            ]))
         }
         if full {
-            Divider()
-            Button(String(localized: "Download as CSV"), systemImage: "arrow.down.circle") {
-                exporting = DocCSVFile(text: controller.csv(snapshot, view))
-            }
+            sections.append(.init(.rows, [
+                .action(String(localized: "Download as CSV"), symbol: "arrow.down.circle") {
+                    exporting = DocCSVFile(text: controller.csv(snapshot, view))
+                },
+            ]))
         }
+        return sections
     }
 
     /// A view's panel, the view showing first.
@@ -1091,7 +1099,7 @@ private struct DocCollectionHeader: View {
                                 in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
             }
             .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
-            .contextMenu { viewItems(view, full: false) }
+            .flooDesignContextMenu { _ in viewSections(view, full: false) }
             .flooDesignAnchoredPanel(isPresented: controller.isShowing(.nameView(view.id), in: block),
                                      onDismiss: { controller.close(.nameView(view.id), in: block) }) {
                 DocNameViewPanel(block: block, view: view, controller: controller)

@@ -719,10 +719,10 @@ struct DocOptionsPanel: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
-                    .contextMenu {
-                        Button(String(localized: "Delete Option"), systemImage: "trash", role: .destructive) {
+                    .flooDesignContextMenu { _ in
+                        [.init(.rows, [.action(String(localized: "Delete Option"), symbol: "trash", role: .destructive) {
                             controller.deleteOption(option.id, in: column.id, of: block)
-                        }
+                        }])]
                     }
                 }
                 if !query.isEmpty, !options.contains(where: { $0.name.caseInsensitiveCompare(query) == .orderedSame }) {

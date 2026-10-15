@@ -245,10 +245,8 @@ private struct DocKanbanCard: View {
             .strokeBorder(editing ? FlooDesignTokens.ColorRole.Accent.primary : FlooDesignTokens.Border.subtle,
                           lineWidth: editing ? Metrics.focusWidth : FlooDesignTokens.Border.standard))
         .onHover { hovering = $0 }
-        .contextMenu {
-            if controller.isEditable {
-                Button(String(localized: "Delete"), systemImage: "trash", role: .destructive) { controller.delete(row.id, in: snapshot.block) }
-            }
+        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in
+            [.init(.rows, [.action(String(localized: "Delete"), symbol: "trash", role: .destructive) { controller.delete(row.id, in: snapshot.block) }])]
         }
         .onAppear {
             title = titleColumn.map { DocFieldText.text(row.cells[$0.id], in: $0) } ?? ""

@@ -506,17 +506,29 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     }
 
     /// A right-click on a block (Craft's): it is selected (or stays, with the others
-    /// selected with it) and the menu shows what can be done to them (DocBlockMenu). On
-    /// a table's cell the cell is edited, and its menu shows (ours, by the cell). Text
-    /// being edited has its own (DocEditor.editMenu).
+    /// selected with it) and our menu shows what can be done to them by the pointer
+    /// (DocBlockMenu). On a table's cell the cell is edited, and its menu shows (ours, by
+    /// the cell). Text being edited has its own (DocEditor.editMenu); a view in a block
+    /// with its own right-click menu (a collection's row) takes it before the list.
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        guard Self.usesHandles, drag == nil, !demo.isAgentWriting, let id = block(at: location) else { return nil }
+        rightClick(at: location)
+        return nil
+    }
+
+    /// The block menu shown (false: none, or the cell's).
+    @discardableResult
+    private func rightClick(at location: CGPoint) -> Bool {
+        guard Self.usesHandles, drag == nil, !demo.isAgentWriting, let id = block(at: location) else { return false }
+        // What's inside a block has its own menu (a view's rows, cards and tabs).
+        if let list, FlooDesignContextMenus.handOver(at: location, in: list) { return false }
         if let row = rowFrame(id), let cell = editor.tables.cell(in: id, at: CGPoint(x: location.x - row.minX, y: location.y - row.minY)) {
             editor.tables.showMenu(cell)
-            return nil
+            return false
         }
         if !selected.contains(id) { click(id) }
-        return UIContextMenuConfiguration(actionProvider: { [weak self] _ in self?.selectionMenu() })
+        guard let list else { return false }
+        FlooDesignContextMenus.show(at: location, in: list) { [weak self] _ in self?.selectionMenu() ?? [] }
+        return true
     }
 
     /// Whether a block's row (`editsText`: it has text to edit) takes clicks itself (its
@@ -706,7 +718,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     /// The key responder lost the focus (a click into the text, a cell, another field).
     fileprivate func keysResigned() {
-        guard drag == nil else { return }
+        // A right-click menu takes the keys only while it shows.
+        guard drag == nil, !FlooDesignPanels.holdsKeys else { return }
         clear()
     }
 
@@ -1617,9 +1630,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// moved (a click), as the Mac's click and drag on the list take it; false if they
     /// don't.
     @discardableResult
-    /// A right-click at `point` (list coordinates), as the system asks for its menu.
-    func testRightClick(at point: CGPoint) -> UIContextMenuConfiguration? {
-        contextMenuInteraction(UIContextMenuInteraction(delegate: self), configurationForMenuAtLocation: point)
+    /// A right-click at `point` (list coordinates): whether the block menu shows.
+    func testRightClick(at point: CGPoint) -> Bool {
+        rightClick(at: point)
     }
 
     func testPress(_ id: DocBlockID, toY y: CGFloat? = nil) -> Bool {

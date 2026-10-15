@@ -3,57 +3,47 @@
 //  DemoApp
 //
 //  The Mac's right-click on a block (Craft's): the block is selected, or stays with the
-//  others selected with it, and the system's menu shows what can be done to them, in
-//  Craft's order: a link, file or image's layouts; cut, copy, duplicate; Format (copy,
-//  paste and clear the format, lists, decorations); Insert above or below; delete.
-//  Craft's assistant, Writing Tools, comments, reactions, reminders, Copy As, Paste,
-//  Sort and Move To have nothing behind them here and aren't in it (Ask Siri is the
-//  system's own).
+//  others selected with it, and our menu (FlooDesign's action menu, by the pointer)
+//  shows what can be done to them, in Craft's order: a link, file or image's layouts;
+//  cut, copy, duplicate; Format (copy, paste and clear the format, lists, decorations);
+//  Insert above or below; delete. Craft's assistant, Writing Tools, comments, reactions,
+//  reminders, Copy As, Paste, Sort and Move To have nothing behind them here and aren't
+//  in it.
 //
 
 import UIKit
 import DocKit
+import FlooDesign
 
 extension DocBlockController {
     /// The menu for the selected blocks.
-    func selectionMenu() -> UIMenu {
+    func selectionMenu() -> [FlooDesignActionMenuSection] {
         let formatting = DocFormatting(editor: editor)
-        var sections: [UIMenuElement] = mediaSections()
-        sections.append(UIMenu(options: .displayInline, children: [
-            UIAction(title: String(localized: "Cut")) { [weak self] _ in
+        var sections = mediaSections()
+        sections.append(.init(.rows, [
+            .action(String(localized: "Cut")) { [weak self] in
                 self?.copySelection()
                 self?.deleteSelection()
             },
-            UIAction(title: String(localized: "Copy")) { [weak self] _ in self?.copySelection() },
-            UIAction(title: String(localized: "Duplicate")) { [weak self] _ in self?.duplicateSelection() },
+            .action(String(localized: "Copy")) { [weak self] in self?.copySelection() },
+            .action(String(localized: "Duplicate")) { [weak self] in self?.duplicateSelection() },
         ]))
-        sections.append(UIMenu(options: .displayInline, children: [
+        sections.append(.init(.rows, [
             formatMenu(formatting),
-            UIMenu(title: String(localized: "Insert"), children: [
-                UIAction(title: String(localized: "Insert Above")) { [weak self] _ in self?.insertLine(above: true) },
-                UIAction(title: String(localized: "Insert Below")) { [weak self] _ in self?.insertLine(above: false) },
-            ]),
+            .submenu(String(localized: "Insert"), sections: [.init(.rows, [
+                .action(String(localized: "Insert Above")) { [weak self] in self?.insertLine(above: true) },
+                .action(String(localized: "Insert Below")) { [weak self] in self?.insertLine(above: false) },
+            ])]),
         ]))
-        sections.append(UIMenu(options: .displayInline, children: [
-            UIAction(title: String(localized: "Delete"), attributes: .destructive) { [weak self] _ in self?.deleteSelection() },
+        sections.append(.init(.rows, [
+            .action(String(localized: "Delete"), role: .destructive) { [weak self] in self?.deleteSelection() },
         ]))
-        return UIMenu(children: sections)
+        return sections
     }
 
-    private func formatMenu(_ formatting: DocFormatting) -> UIMenu {
+    private func formatMenu(_ formatting: DocFormatting) -> FlooDesignActionMenuItem {
         let copied = editor.panels.copiedFormat
-        var children: [UIMenuElement] = [
-            UIMenu(options: .displayInline, children: [
-                UIAction(title: String(localized: "Copy Format")) { [weak self] _ in self?.editor.panels.copiedFormat = formatting.format },
-                UIAction(title: String(localized: "Paste Format"), attributes: copied == nil ? .disabled : []) { _ in
-                    if let copied { formatting.paste(copied) }
-                },
-                UIAction(title: String(localized: "Clear Format")) { [weak self] _ in
-                    guard let self else { return }
-                    reshape { editor.clearFormat(of: Set(selected)) }
-                },
-            ]),
-        ]
+        var rows: [FlooDesignActionMenuItem] = []
         // Lists are text's.
         if !formatting.targets.isEmpty {
             let lists: [(String, BlockKind)] = [
@@ -63,44 +53,53 @@ extension DocBlockController {
                 (String(localized: "Toggle List"), .listItem(style: .toggle(open: true))),
             ]
             let isList = formatting.targets.contains { if case .listItem = $0.kind { true } else { false } }
-            children.append(UIMenu(title: String(localized: "List"), children: lists.map { title, kind in
-                UIAction(title: title, state: formatting.kindIsOn(kind) ? .on : .off) { _ in formatting.setStyle(kind) }
+            rows.append(.submenu(String(localized: "List"), sections: [.init(.rows, lists.map { title, kind in
+                .action(title, isOn: formatting.kindIsOn(kind)) { formatting.setStyle(kind) }
             } + [
-                UIAction(title: String(localized: "No List"), state: isList ? .off : .on) { [weak self] _ in
+                .action(String(localized: "No List"), isOn: !isList) { [weak self] in
                     guard let self else { return }
                     let items = formatting.targets.filter { if case .listItem = $0.kind { true } else { false } }.map(\.id)
                     reshape { editor.setKind(.paragraph, of: items) }
                 },
-            ]))
+            ])]))
         }
-        var decorations = [UIAction(title: String(localized: "Block"), state: formatting.isBoxed ? .on : .off) { _ in formatting.toggleBox() }]
+        var decorations: [FlooDesignActionMenuItem] = [.action(String(localized: "Block"), isOn: formatting.isBoxed) { formatting.toggleBox() }]
         if !formatting.targets.isEmpty {
-            decorations.append(UIAction(title: String(localized: "Quote"), state: formatting.kindIsOn(.quote) ? .on : .off) { _ in formatting.toggleQuote() })
+            decorations.append(.action(String(localized: "Quote"), isOn: formatting.kindIsOn(.quote)) { formatting.toggleQuote() })
         }
-        children.append(UIMenu(title: String(localized: "Decorations"), children: decorations))
-        return UIMenu(title: String(localized: "Format"), children: children)
+        rows.append(.submenu(String(localized: "Decorations"), sections: [.init(.rows, decorations)]))
+        return .submenu(String(localized: "Format"), sections: [
+            .init(.rows, [
+                .action(String(localized: "Copy Format")) { [weak self] in self?.editor.panels.copiedFormat = formatting.format },
+                .action(String(localized: "Paste Format"), isEnabled: copied != nil) {
+                    if let copied { formatting.paste(copied) }
+                },
+                .action(String(localized: "Clear Format")) { [weak self] in
+                    guard let self else { return }
+                    reshape { editor.clearFormat(of: Set(selected)) }
+                },
+            ]),
+            .init(.rows, rows),
+        ])
     }
 
     /// The selected links, files and images's layouts, the one they all have ticked.
-    private func mediaSections() -> [UIMenuElement] {
-        var sections: [UIMenuElement] = []
-        func choice(_ title: String, on: Bool, _ choose: @escaping () -> Void) -> UIAction {
-            UIAction(title: title, state: on ? .on : .off) { _ in choose() }
-        }
+    private func mediaSections() -> [FlooDesignActionMenuSection] {
+        var sections: [FlooDesignActionMenuSection] = []
         let fits = selectedImageFits, sizes = selectedImageSizes, layouts = selectedLayouts
         if !fits.isEmpty {
-            sections.append(UIMenu(title: String(localized: "Image Display"), options: .displayInline, children: [
-                choice(String(localized: "Fit"), on: fits == [.fit]) { [weak self] in self?.setImage(fit: .fit) },
-                choice(String(localized: "Fill"), on: fits == [.fill]) { [weak self] in self?.setImage(fit: .fill) },
+            sections.append(.init(title: String(localized: "Image Display"), [
+                .action(String(localized: "Fit"), isOn: fits == [.fit]) { [weak self] in self?.setImage(fit: .fit) },
+                .action(String(localized: "Fill"), isOn: fits == [.fill]) { [weak self] in self?.setImage(fit: .fill) },
             ]))
-            sections.append(UIMenu(title: String(localized: "Image Size"), options: .displayInline, children: [
-                choice(String(localized: "Auto"), on: sizes == [.auto]) { [weak self] in self?.setImage(size: .auto) },
-                choice(String(localized: "Large"), on: sizes == [.large]) { [weak self] in self?.setImage(size: .large) },
+            sections.append(.init(title: String(localized: "Image Size"), [
+                .action(String(localized: "Auto"), isOn: sizes == [.auto]) { [weak self] in self?.setImage(size: .auto) },
+                .action(String(localized: "Large"), isOn: sizes == [.large]) { [weak self] in self?.setImage(size: .large) },
             ]))
         }
         if !layouts.isEmpty {
-            sections.append(UIMenu(title: String(localized: "Layout"), options: .displayInline, children: DocLayout.allCases.map { layout in
-                choice(layout.title, on: layouts == [layout]) { [weak self] in self?.setLayout(layout) }
+            sections.append(.init(title: String(localized: "Layout"), DocLayout.allCases.map { layout in
+                .action(layout.title, isOn: layouts == [layout], id: "layout-\(layout)") { [weak self] in self?.setLayout(layout) }
             }))
         }
         return sections

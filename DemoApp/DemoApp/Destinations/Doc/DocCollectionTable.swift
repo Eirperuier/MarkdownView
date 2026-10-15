@@ -131,15 +131,13 @@ struct DocCollectionTable: View {
         .onHover { over in
             if over { hoveredRow = row.id } else if hoveredRow == row.id { hoveredRow = nil }
         }
-        .contextMenu {
-            if controller.isEditable {
-                if isPicked, picked.count > 1 {
-                    Button(String(localized: "Delete \(picked.count) Rows"), systemImage: "trash", role: .destructive) {
-                        controller.delete(rows: picked, in: block)
-                    }
-                } else {
-                    Button(String(localized: "Delete Row"), systemImage: "trash", role: .destructive) { controller.delete(row.id, in: block) }
-                }
+        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in
+            if isPicked, picked.count > 1 {
+                [.init(.rows, [.action(String(localized: "Delete \(picked.count) Rows"), symbol: "trash", role: .destructive) {
+                    controller.delete(rows: picked, in: block)
+                }])]
+            } else {
+                [.init(.rows, [.action(String(localized: "Delete Row"), symbol: "trash", role: .destructive) { controller.delete(row.id, in: block) }])]
             }
         }
     }
