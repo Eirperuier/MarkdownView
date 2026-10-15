@@ -1347,11 +1347,51 @@ enum DocScrolling {
     /// Scrolls the least that shows `rect` of `view` (with a margin).
     static func reveal(_ view: UIView, rect: CGRect? = nil) {
         guard let list = list(of: view), view.window != nil else { return }
-        let frame = view.convert(rect ?? view.bounds, to: list).insetBy(dx: 0, dy: -24)
+        reveal(view.convert(rect ?? view.bounds, to: list), in: list)
+    }
+
+    /// Scrolls the least that shows `frame` (the list's coordinates): nothing when it
+    /// shows, else with a margin.
+    static func reveal(_ frame: CGRect, in list: UIScrollView) {
         let visible = visible(in: list)
+        if frame.minY >= visible.minY, frame.maxY <= visible.maxY { return }
+        let frame = frame.insetBy(dx: 0, dy: -24)
         let delta: CGFloat = frame.height > visible.height || frame.minY < visible.minY ? frame.minY - visible.minY
             : frame.maxY > visible.maxY ? frame.maxY - visible.maxY : 0
         guard delta != 0 else { return }
-        list.setContentOffset(CGPoint(x: list.contentOffset.x, y: list.contentOffset.y + delta), animated: true)
+        let target = list.contentOffset.y + delta
+        // Asked again on the way there (the keyboard's note, the follow-up a moment
+        // later): it's going there already; a new scroll would start over from rest.
+        let now = CACurrentMediaTime()
+        if let going = targets.object(forKey: list), abs(going.y - target) < 0.5,
+           now - going.time < FlooDesignTokens.Motion.scrollSpring.settlingDuration { return }
+        targets.setObject(DocScrollTarget(y: target, time: now), forKey: list)
+        if let scroll = scrollers.object(forKey: list) {
+            scroll.call(target)
+        } else {
+            list.setContentOffset(CGPoint(x: list.contentOffset.x, y: target), animated: true)
+        }
     }
+
+    /// How a list scrolls itself: its TiledView's own scroll, in the scroll motion
+    /// (FlooDesignTokens.Motion.scrollSpring, through the app's TiledMotion).
+    static func register(_ list: UIScrollView, scroll: @escaping @MainActor (CGFloat) -> Void) {
+        scrollers.setObject(DocScroller(call: scroll), forKey: list)
+    }
+
+    private static let scrollers = NSMapTable<UIScrollView, DocScroller>.weakToStrongObjects()
+    private static let targets = NSMapTable<UIScrollView, DocScrollTarget>.weakToStrongObjects()
+}
+
+/// Where a list was last sent, and when.
+private final class DocScrollTarget {
+    let y: CGFloat
+    let time: CFTimeInterval
+    init(y: CGFloat, time: CFTimeInterval) { self.y = y; self.time = time }
+}
+
+@MainActor
+private final class DocScroller {
+    let call: @MainActor (CGFloat) -> Void
+    init(call: @escaping @MainActor (CGFloat) -> Void) { self.call = call }
 }

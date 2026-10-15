@@ -296,10 +296,14 @@ final class DocEditor {
             apply(next, to: textView)
             if reveals { reveal(textView, block: next.head.block) }
         } else if reveals {
-            // The row isn't on screen (Return on the last visible line, an undo far
-            // away): the least scroll that brings it on; it renders, and the placement
-            // below catches it and shows the caret's line (above the keyboard too).
-            demo.bringIntoView(cell?.block ?? next.head.block, centered: false)
+            // The row isn't drawn yet (just made by Return; off the screen: Tab to a cell
+            // below, an undo far away). Off the screen the list brings it on, the least
+            // (its own scroll follows the rows measured on the way); once it renders the
+            // placement below shows the caret's line if it isn't (above the keyboard too).
+            let id = cell?.block ?? next.head.block
+            if blocks.row(of: id).map({ !$0.frame.intersects(DocScrolling.visible(in: $0.list)) }) ?? true {
+                demo.bringIntoView(id, centered: false)
+            }
             revealsWhenShown = true
         }
         settlePlacement()

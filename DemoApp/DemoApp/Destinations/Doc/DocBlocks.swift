@@ -189,6 +189,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             let list = Self.collectionView(in: container)
         else { return }
         self.list = list
+        DocScrolling.register(list) { [weak reader] y in reader?.scrollToContentOffsetY(y, animated: true) }
         list.addSubview(indicator)
         list.addSubview(keys)
         keys.controller = self
@@ -1603,6 +1604,13 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     func testBlock(at point: CGPoint) -> DocBlockID? { block(at: point) }
 
     var testRowFrame: (DocBlockID) -> CGRect? { { [weak self] in self?.rowFrame($0) } }
+
+    /// The block's row in the list (its coordinates), and the list: where a caret's row
+    /// is before it renders.
+    func row(of id: DocBlockID) -> (frame: CGRect, list: UIScrollView)? {
+        guard let list, let frame = rowFrame(id) else { return nil }
+        return (frame, list)
+    }
 
     /// Scrolls a block's row to the top of the list.
     func testShowAtTop(_ id: DocBlockID) {
