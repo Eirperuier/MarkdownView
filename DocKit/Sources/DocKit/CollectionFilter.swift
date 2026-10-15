@@ -142,12 +142,12 @@ public enum DatabaseSorting {
         }.map(\.element)
     }
 
-    private enum Key: Comparable {
+    enum Key: Comparable {
         case number(Double)
         case text(String)
     }
 
-    private static func key(_ value: CellValue?, _ column: Column) -> Key? {
+    static func key(_ value: CellValue?, _ column: Column) -> Key? {
         switch value {
         case nil: return nil
         case .number(let number)?: return .number(number)

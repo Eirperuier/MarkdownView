@@ -781,11 +781,11 @@ extension DocRow {
         if let recordFields { return CGFloat(recordFields + 1) * DocCollectionMetrics.rowHeight + 1 + spacing }
         if let collection {
             // The header, then the table's rows or a kanban's longest column.
-            guard case .kanban(let group, _, _)? = collection.collection.currentView?.layout else {
+            guard let view = collection.collection.currentView, view.layout.isKanban else {
                 return 80 + CGFloat(collection.database.rows.count + 2) * 36 + spacing
             }
-            let lanes = Dictionary(grouping: collection.database.rows) { DocCollectionController.option(of: $0, in: group) }
-            return 80 + 40 + CGFloat(lanes.values.map(\.count).max() ?? 0) * 80 + 42 + spacing
+            let lanes = DocCollectionController.lanes(view, of: collection.database.rows, in: collection.database)
+            return 80 + 40 + CGFloat(lanes.map(\.rows.count).max() ?? 0) * 80 + 42 + spacing
         }
         switch tree?.document.child(at: 0) {
         case let code as CodeBlock:

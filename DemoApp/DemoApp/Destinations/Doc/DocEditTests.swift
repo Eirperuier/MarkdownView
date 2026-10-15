@@ -2396,12 +2396,12 @@ final class DocEditTests {
             }
             // A card added to a column holds its option, at the column's end.
             let before = try lane(options[1].id)
-            let added = try self.expectValue(collections.addRecord(to: id, in: (group, options[1].id)), "no card added")
+            let added = try self.expectValue(collections.addRecord(to: id, in: (group, .select(option: options[1].id))), "no card added")
             let holds = try lane(options[1].id)
             try self.expect(holds == before + [added], "the column holds \(holds)")
             // A card dropped on another column, before its first card.
             let target = try lane(options[2].id)
-            collections.move(added, to: options[2].id, groupedBy: group, before: target.first, in: id)
+            collections.move(added, from: .select(option: options[1].id), to: .select(option: options[2].id), groupedBy: group, before: target.first, in: id)
             let moved = try lane(options[2].id), left = try lane(options[1].id)
             try self.expect(moved == [added] + target && left == before, "moved: \(moved), left \(left)")
             try await self.undo()
@@ -2466,7 +2466,7 @@ final class DocEditTests {
             for _ in 0..<4 where self.demo.doc.databases[collection.database] != original { try await self.undo() }
             try self.expect(self.demo.doc.databases[collection.database] == original, "the cells didn't undo")
         }
-        await test("a collection's fields, sorting, filters and search: each a step that undoes, the views kept whole") {
+        await test("a collection's fields, sorting, filters, search and groups: each a step that undoes, the views kept whole") {
             let collections = self.editor.collections
             @MainActor func current() throws -> (id: DocBlockID, collection: DocCollection, database: Database) {
                 let block = try self.expectValue(self.demo.doc.blocks.first { if case .collection = $0.kind { true } else { false } }, "no collection")
@@ -2478,8 +2478,8 @@ final class DocEditTests {
                 return DocCollectionSnapshot(block: id, collection: collection, database: database)
             }
             let (id, start, original) = try current()
-            let kanban = try self.expectValue(start.views.first { $0.layout.groupBy != nil }, "no kanban")
-            let table = try self.expectValue(start.views.first { $0.layout.groupBy == nil }, "no table")
+            let kanban = try self.expectValue(start.views.first { $0.layout.isKanban }, "no kanban")
+            let table = try self.expectValue(start.views.first { !$0.layout.isKanban }, "no table")
             let group = try self.expectValue(kanban.layout.groupBy, "no group")
             let title = try self.expectValue(DocCollectionController.titleColumn(of: original), "no title")
             let hours = try self.expectValue(original.columns.first { $0.type == .number }, "no number column")
@@ -2552,8 +2552,29 @@ final class DocEditTests {
             for _ in 0..<3 { try await self.undo() }
             try self.expect(try view(table.id) == table, "the layout steps didn't undo")
 
+            // The table grouped by the select: each record under its option, the group of
+            // none first; a kanban made of it keeps the field.
+            collections.setGroup(group, in: table.id, of: id)
+            let groups = try self.expectValue(view(table.id).groups(of: collections.rows(snapshot(), view(table.id)), in: original), "not grouped")
+            let order = [""] + options.map(\.id.description)
+            try self.expect(groups.map(\.rows.count).reduce(0, +) == original.rows.count
+                            && groups.map(\.key) == order.filter { key in groups.contains { $0.key == key } }, "groups \(groups.map(\.key))")
+            collections.setLayout(kanban: true, in: table.id, of: id)
+            try self.expect(try view(table.id).layout.groupBy == group, "the kanban took another field")
+            for _ in 0..<2 { try await self.undo() }
+            try self.expect(try view(table.id) == table, "the grouping didn't undo")
+            // A kanban's group left out, and another dragged first: the order turns manual.
+            let lanes = DocCollectionController.lanes(kanban, of: try collections.rows(snapshot(), kanban), in: original).map(\.key)
+            collections.setGrouping(CollectionGrouping(hidden: [lanes[0]]), in: kanban.id, of: id)
+            try self.expect(!DocCollectionController.lanes(try view(kanban.id), of: original.rows, in: original).contains { $0.key == lanes[0] }, "the group showed")
+            collections.moveGroup(lanes[2], before: lanes[0], among: lanes, in: kanban.id, of: id)
+            let moved = try view(kanban.id)
+            try self.expect(moved.grouping.order == .manual && DocCollectionController.lanes(moved, of: original.rows, in: original).first?.key == lanes[2], "order \(moved.grouping)")
+            for _ in 0..<2 { try await self.undo() }
+            try self.expect(try view(kanban.id) == kanban, "the groups' steps didn't undo")
+
             // A card at the top of a column; picked rows go together.
-            let top = try self.expectValue(collections.addRecord(to: id, in: (group, doing.id), atTop: true), "no card")
+            let top = try self.expectValue(collections.addRecord(to: id, in: (group, .select(option: doing.id)), atTop: true), "no card")
             let lane = try current().database.rows.filter { DocCollectionController.option(of: $0, in: group) == doing.id }
             try self.expect(lane.first?.id == top, "the card isn't at the top")
             try await self.undo()

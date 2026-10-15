@@ -76,7 +76,7 @@ struct AgentBlocksTests {
              "columns": [{"name": "Task"}, {"name": "Status", "type": "select"}, {"name": "Due", "type": "date"}, {"name": "Hours", "type": "number"}],
              "rows": [{"Task": "Draft", "Status": "Doing", "Due": "2026-10-14", "Hours": 3}, ["Review", "Todo", null, 1.5]]}
             """#), id: fixedID(1), databases: &databases, results: [:])
-        guard case .database(let id, .table(_, let sort)) = written.kind, let database = databases[id] else {
+        guard case .database(let id, .table(_, let sort, _)) = written.kind, let database = databases[id] else {
             Issue.record("not a table: \(written.kind)")
             return
         }

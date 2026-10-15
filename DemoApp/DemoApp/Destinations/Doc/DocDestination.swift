@@ -203,14 +203,14 @@ private struct DocPageView: View {
                 }
             }
             // -docCollectionPanel KIND: the first collection with a panel open (screenshots):
-            // layout, sort, filter, createKanban, addField, editField, options, date, addOption;
+            // layout, sort, filter, group, createKanban, addField, editField, options, date, addOption;
             // -docCollectionView table|kanban shows that view of it first.
             if let name = UserDefaults.standard.string(forKey: "docCollectionPanel"),
                let block = demo.doc.blocks.first(where: { if case .collection = $0.kind { true } else { false } }),
                case .collection(var collection) = block.kind, let database = demo.doc.databases[collection.database] {
                 let collections = editor.collections
                 if let layout = UserDefaults.standard.string(forKey: "docCollectionView"),
-                   let view = collection.views.first(where: { ($0.layout.groupBy != nil) == (layout == "kanban") }) {
+                   let view = collection.views.first(where: { $0.layout.isKanban == (layout == "kanban") }) {
                     collections.show(view.id, in: block.id)
                     collection.current = view.id
                 }
@@ -226,6 +226,7 @@ private struct DocPageView: View {
                 case "options": database.rows.first.flatMap { row in select.map { .options(row: row.id, column: $0.id) } }
                 case "date": database.rows.first.flatMap { row in database.columns.first { $0.type == .date }.map { .date(row: row.id, column: $0.id) } }
                 case "addOption": view?.layout.groupBy.map { .addOption($0) }
+                case "group": .group
                 default: nil
                 }
                 if let view, name == "sort", view.layout.sort.isEmpty, let column = database.columns.last {
@@ -235,6 +236,7 @@ private struct DocPageView: View {
                     collections.setFilters([CollectionFilter(column: select.id, condition: .is, value: .select(option: option.id)),
                                             CollectionFilter(column: database.columns[0].id, condition: .contains)], in: view.id, of: block.id)
                 }
+                if let row = demo.rows.first(where: { $0.collection != nil }) { reader.scrollTo(id: row.id, anchor: .top, animated: false) }
                 try? await Task.sleep(for: .milliseconds(800))
                 if let kind { collections.show(kind, in: block.id) }
             }

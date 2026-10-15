@@ -240,8 +240,8 @@ extension DatabaseView {
         let hidden: ([ColumnID]) -> [ColumnID] = { $0.compactMap { ids[$0] } }
         let sorted: ([DatabaseSort]) -> [DatabaseSort] = { $0.compactMap { sort in ids[sort.column].map { DatabaseSort(column: $0, ascending: sort.ascending) } } }
         switch self {
-        case .table(let hiddenColumns, let sort):
-            return .table(hidden: hidden(hiddenColumns), sort: sorted(sort))
+        case .table(let hiddenColumns, let sort, let group):
+            return .table(hidden: hidden(hiddenColumns), sort: sorted(sort), groupBy: group.flatMap { ids[$0] })
         case .kanban(let group, let hiddenColumns, let sort):
             return .kanban(groupBy: ids[group] ?? group, hidden: hidden(hiddenColumns), sort: sorted(sort))
         }

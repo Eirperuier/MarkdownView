@@ -2,11 +2,12 @@
 //  DocCollectionKanban.swift
 //  DemoApp
 //
-//  A collection's kanban view (Craft's): a column per option of the grouping select,
-//  tinted with its colour, the records the view shows as cards (the title, the view's
-//  other fields as chips).
-//  - a column's head: its option and how many; on the pointer over it, … (rename or
-//    recolour the option, delete it) and + (a new card at the top);
+//  A collection's kanban view (Craft's): a column per group of the field it's grouped by
+//  (DocKit's CollectionGroups) but those its grouping leaves out, an option's tinted with
+//  its colour, the records the view shows as cards (the title, the view's other fields as
+//  chips).
+//  - a column's head: its group and how many; on the pointer over it, … (an option's:
+//    rename or recolour it, delete it) and + (a new card at the top);
 //  - a card drags to another column or place; its title takes typing on a click; on the
 //    pointer over it, an arrow opens the record whole;
 //  - + under a column adds a card at its end, + after the columns a new option (a column).
@@ -23,37 +24,35 @@ struct DocCollectionKanban: View {
     let view: CollectionView
     let group: ColumnID
     let controller: DocCollectionController
-    @State private var hoveringAdd = false
 
     private var block: DocBlockID { snapshot.block }
     private var column: Column? { snapshot.database.columns.first { $0.id == group } }
-    private var options: [SelectOption] { column.map(DocFieldText.options) ?? [] }
 
     var body: some View {
-        let rows = controller.rows(snapshot, view)
-        let lanes = Dictionary(grouping: rows) { row -> OptionID? in
-            let value = DocCollectionController.option(of: row, in: group)
-            return options.contains { $0.id == value } ? value : nil
-        }
+        let groups = DocCollectionController.lanes(view, of: controller.rows(snapshot, view), in: snapshot.database)
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: Metrics.columnGap) {
-                // Records with no option in a column of their own, first, when there are any.
-                if let loose = lanes[nil], !loose.isEmpty {
-                    lane(nil, loose)
-                }
-                ForEach(options, id: \.id) { option in
-                    lane(option, lanes[option.id] ?? [])
-                }
-                if controller.isEditable {
-                    addGroup
+                if let column {
+                    ForEach(groups, id: \.key) { lane in
+                        DocKanbanLane(snapshot: snapshot, view: view, column: column, group: lane, controller: controller) { item, before in
+                            drop(item, into: lane, before: before, among: groups)
+                        }
+                    }
+                    if controller.isEditable, DocFieldText.hasOptions(column) {
+                        addGroup
+                    }
                 }
             }
         }
     }
 
-    private func lane(_ option: SelectOption?, _ records: [Row]) -> some View {
-        DocKanbanLane(snapshot: snapshot, view: view, group: group, option: option, options: options, records: records,
-                      controller: controller)
+    /// A card ("row key", the column it left) dropped in `lane`.
+    private func drop(_ item: String, into lane: CollectionGroup, before: RowID?, among groups: [CollectionGroup]) -> Bool {
+        let parts = item.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+        guard let row = snapshot.database.rows.first(where: { $0.id.description == parts[0] }) else { return false }
+        let source = groups.first { $0.key == (parts.count > 1 ? parts[1] : "") }?.value
+        controller.move(row.id, from: source, to: lane.value, groupedBy: group, before: before, in: block)
+        return true
     }
 
     private var addGroup: some View {
@@ -75,19 +74,20 @@ struct DocCollectionKanban: View {
     }
 }
 
-/// One column of a kanban: its option and how many, its cards, + for a new card.
+/// One column of a kanban: its group and how many, its cards, + for a new card.
 private struct DocKanbanLane: View {
     let snapshot: DocCollectionSnapshot
     let view: CollectionView
-    let group: ColumnID
-    let option: SelectOption?
-    let options: [SelectOption]
-    let records: [Row]
+    let column: Column
+    let group: CollectionGroup
     let controller: DocCollectionController
+    let drop: (String, RowID?) -> Bool
     @State private var hovering = false
     @State private var targeted = false
 
     private var block: DocBlockID { snapshot.block }
+    private var options: [SelectOption] { DocFieldText.options(column) }
+    private var option: SelectOption? { options.first { $0.id.description == group.key } }
 
     private var tint: Color {
         option.map { DocOptionColor.color(DocOptionColor.token($0, in: options)) } ?? .secondary
@@ -99,16 +99,16 @@ private struct DocKanbanLane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.cardGap) {
             head
-            ForEach(records, id: \.id) { row in
+            ForEach(group.rows, id: \.id) { row in
                 DocKanbanCard(snapshot: snapshot, view: view, row: row, controller: controller)
-                    .draggable(row.id.description)
+                    .draggable("\(row.id.description) \(group.key)")
                     .dropDestination(for: String.self) { items, _ in
-                        drop(items, before: row.id)
+                        items.first.map { drop($0, row.id) } ?? false
                     }
             }
             if controller.isEditable {
                 Button {
-                    controller.addRecord(to: block, in: (group, option?.id))
+                    controller.addRecord(to: block, in: (column.id, group.value))
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
@@ -128,26 +128,20 @@ private struct DocKanbanLane: View {
         .background(tint.opacity(targeted ? 0.2 : 0.1), in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
         .onHover { hovering = $0 }
         .dropDestination(for: String.self) { items, _ in
-            drop(items, before: nil)
+            items.first.map { drop($0, nil) } ?? false
         } isTargeted: { targeted = $0 }
     }
 
     private var head: some View {
         HStack(spacing: FlooDesignTokens.Space.sm) {
-            Group {
-                if let option {
-                    DocChip(option, in: options)
-                } else {
-                    DocChip(text: String(localized: "No Value"))
+            DocGroupLabel(column: column, group: group)
+                .flooDesignAnchoredPanel(isPresented: option.map { controller.isShowing(.editOption($0.id), in: block) } ?? false,
+                                         onDismiss: { if let option { controller.close(.editOption(option.id), in: block) } }) {
+                    if let option {
+                        DocOptionPanel(snapshot: snapshot, column: column.id, option: option, controller: controller)
+                    }
                 }
-            }
-            .flooDesignAnchoredPanel(isPresented: option.map { controller.isShowing(.editOption($0.id), in: block) } ?? false,
-                                     onDismiss: { if let option { controller.close(.editOption(option.id), in: block) } }) {
-                if let option {
-                    DocOptionPanel(snapshot: snapshot, column: group, option: option, controller: controller)
-                }
-            }
-            Text("\(records.count)")
+            Text("\(group.rows.count)")
                 .font(.system(size: 14))
                 .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
             Spacer(minLength: 0)
@@ -155,7 +149,7 @@ private struct DocKanbanLane: View {
                 Menu {
                     Button(String(localized: "Edit Group"), systemImage: "pencil") { controller.show(.editOption(option.id), in: block) }
                     Button(String(localized: "Delete Group"), systemImage: "trash", role: .destructive) {
-                        controller.deleteOption(option.id, in: group, of: block)
+                        controller.deleteOption(option.id, in: column.id, of: block)
                     }
                 } label: {
                     headIcon("ellipsis")
@@ -168,7 +162,7 @@ private struct DocKanbanLane: View {
                 .accessibilityLabel(String(localized: "Group Options"))
             }
             Button {
-                controller.addRecord(to: block, in: (group, option?.id), atTop: true)
+                controller.addRecord(to: block, in: (column.id, group.value), atTop: true)
             } label: {
                 headIcon("plus")
             }
@@ -185,12 +179,6 @@ private struct DocKanbanLane: View {
             .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
             .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
             .frame(width: 24, height: 24)
-    }
-
-    private func drop(_ items: [String], before: RowID?) -> Bool {
-        guard let item = items.first, let row = snapshot.database.rows.first(where: { $0.id.description == item }) else { return false }
-        controller.move(row.id, to: option?.id, groupedBy: group, before: before, in: block)
-        return true
     }
 }
 

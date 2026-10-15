@@ -147,7 +147,7 @@ extension AgentBlocks {
     /// what's hidden and how it's sorted.
     private static func layout(_ view: DatabaseView, names: [ColumnID: String], key: String = "view", into object: inout [String: JSONValue]) {
         switch view {
-        case .table(let hidden, let sort):
+        case .table(let hidden, let sort, _):
             object[key] = "table"
             details(hidden: hidden, sort: sort, names: names, into: &object)
         case .kanban(let group, let hidden, let sort):

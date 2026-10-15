@@ -102,7 +102,8 @@ extension CellValue {
 /// How a database block presents its database. Two blocks on the same
 /// database can use different views.
 public enum DatabaseView: Hashable, Sendable, Codable {
-    case table(hidden: [ColumnID], sort: [DatabaseSort])
+    /// A table: its records in groups by `groupBy`'s values when it names a column.
+    case table(hidden: [ColumnID], sort: [DatabaseSort], groupBy: ColumnID? = nil)
     case kanban(groupBy: ColumnID, hidden: [ColumnID], sort: [DatabaseSort])
 }
 
@@ -111,12 +112,12 @@ extension DatabaseView {
     public var hidden: [ColumnID] {
         get {
             switch self {
-            case .table(let hidden, _), .kanban(_, let hidden, _): hidden
+            case .table(let hidden, _, _), .kanban(_, let hidden, _): hidden
             }
         }
         set {
             switch self {
-            case .table(_, let sort): self = .table(hidden: newValue, sort: sort)
+            case .table(_, let sort, let group): self = .table(hidden: newValue, sort: sort, groupBy: group)
             case .kanban(let group, _, let sort): self = .kanban(groupBy: group, hidden: newValue, sort: sort)
             }
         }
@@ -126,20 +127,27 @@ extension DatabaseView {
     public var sort: [DatabaseSort] {
         get {
             switch self {
-            case .table(_, let sort), .kanban(_, _, let sort): sort
+            case .table(_, let sort, _), .kanban(_, _, let sort): sort
             }
         }
         set {
             switch self {
-            case .table(let hidden, _): self = .table(hidden: hidden, sort: newValue)
+            case .table(let hidden, _, let group): self = .table(hidden: hidden, sort: newValue, groupBy: group)
             case .kanban(let group, let hidden, _): self = .kanban(groupBy: group, hidden: hidden, sort: newValue)
             }
         }
     }
 
-    /// The select column a kanban groups by; nil for a table.
+    /// The column its records are grouped by: a kanban's, a grouped table's.
     public var groupBy: ColumnID? {
-        if case .kanban(let group, _, _) = self { group } else { nil }
+        switch self {
+        case .table(_, _, let group): group
+        case .kanban(let group, _, _): group
+        }
+    }
+
+    public var isKanban: Bool {
+        if case .kanban = self { true } else { false }
     }
 }
 

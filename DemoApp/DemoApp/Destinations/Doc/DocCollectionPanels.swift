@@ -216,35 +216,27 @@ struct DocLayoutPanel: View {
     let controller: DocCollectionController
 
     private var block: DocBlockID { snapshot.block }
-    private var selects: [Column] { DocCollectionController.selects(in: snapshot.database) }
     private var titleColumn: Column? { DocCollectionController.titleColumn(of: snapshot.database) }
 
     var body: some View {
         DocPanelFrame(title: String(localized: "Layout & Visibility"), close: { controller.close(.layout, in: block) }) {
             HStack(spacing: Tokens.Space.sm) {
-                FlooDesignOption(String(localized: "Table"), isOn: view.layout.groupBy == nil) {
+                FlooDesignOption(String(localized: "Table"), isOn: !view.layout.isKanban) {
                     controller.setLayout(kanban: false, in: view.id, of: block)
                 } picture: {
                     Image(systemName: "tablecells").font(.system(size: Tokens.Icon.prominent - 2))
                 }
-                FlooDesignOption(String(localized: "Kanban"), isOn: view.layout.groupBy != nil) {
+                FlooDesignOption(String(localized: "Kanban"), isOn: view.layout.isKanban) {
                     controller.setLayout(kanban: true, in: view.id, of: block)
                 } picture: {
                     Image(systemName: "rectangle.split.3x1").font(.system(size: Tokens.Icon.prominent - 2))
                 }
-                .disabled(selects.isEmpty)
+                .disabled(DocCollectionController.groupable(in: snapshot.database).isEmpty)
             }
-            VStack(alignment: .leading, spacing: Tokens.Space.sm) {
-                DocPanelSection(title: String(localized: "Options"))
-                if let group = view.layout.groupBy {
-                    HStack {
-                        Text(String(localized: "Group By")).font(.system(size: 13))
-                        Spacer()
-                        DocFieldMenu(columns: selects, chosen: selects.first { $0.id == group }) { column in
-                            controller.setLayout(kanban: true, groupedBy: column.id, in: view.id, of: block)
-                        }
-                    }
-                } else {
+            // What a kanban groups by is the Group panel's.
+            if !view.layout.isKanban {
+                VStack(alignment: .leading, spacing: Tokens.Space.sm) {
+                    DocPanelSection(title: String(localized: "Options"))
                     HStack {
                         Text(String(localized: "Show Calculation Row")).font(.system(size: 13))
                         Spacer()
@@ -279,7 +271,7 @@ struct DocLayoutPanel: View {
             .toggleStyle(.switch)
                     .tint(Tokens.ColorRole.Accent.primary)
             // The title always shows, as a record's name.
-            .disabled(column.id == titleColumn?.id || column.id == view.layout.groupBy)
+            .disabled(column.id == titleColumn?.id || view.layout.isKanban && column.id == view.layout.groupBy)
         }
         .contentShape(Rectangle())
         .draggable(column.id.description)
@@ -345,6 +337,108 @@ struct DocSortPanel: View {
     }
 
     private func set(_ sort: [DatabaseSort]) { controller.setSort(sort, in: view.id, of: block) }
+}
+
+// MARK: - Group
+
+/// Craft's Group By: the field and the groups' order (a table's grouping goes with the
+/// bin); a kanban's also lists its groups, to drag into an order or leave out.
+struct DocGroupPanel: View {
+    let snapshot: DocCollectionSnapshot
+    let view: CollectionView
+    let controller: DocCollectionController
+
+    private var block: DocBlockID { snapshot.block }
+    private var groupable: [Column] { DocCollectionController.groupable(in: snapshot.database) }
+    private var column: Column? { snapshot.database.columns.first { $0.id == view.layout.groupBy } }
+
+    var body: some View {
+        DocPanelFrame(title: String(localized: "Group By"), close: { controller.close(.group, in: block) }) {
+            if let column {
+                HStack(spacing: Tokens.Space.sm) {
+                    DocFieldMenu(columns: groupable, chosen: column) { controller.setGroup($0.id, in: view.id, of: block) }
+                    Menu {
+                        ForEach(Self.orders(manual: view.layout.isKanban), id: \.self) { order in
+                            Button {
+                                controller.setGrouping(CollectionGrouping(order: order, hidden: view.grouping.hidden, manual: view.grouping.manual),
+                                                       in: view.id, of: block)
+                            } label: {
+                                if order == view.grouping.order { Label(Self.name(order, of: column), systemImage: "checkmark") } else { Text(Self.name(order, of: column)) }
+                            }
+                        }
+                    } label: {
+                        DocPanelMenuLabel(title: Self.name(view.grouping.order, of: column))
+                    }
+                    .menuStyle(.button)
+                    .menuIndicator(.hidden)
+                    .buttonStyle(.plain)
+                    .fixedSize()
+                    Spacer(minLength: 0)
+                    if !view.layout.isKanban {
+                        DocTrashButton { controller.setGroup(nil, in: view.id, of: block) }
+                    }
+                }
+                if view.layout.isKanban {
+                    groups(column)
+                }
+            } else {
+                DocFieldMenu(columns: groupable, chosen: nil, fills: true) { controller.setGroup($0.id, in: view.id, of: block) }
+            }
+        }
+    }
+
+    /// Every group, the left out too: its handle (drag it up or down), its name, whether it shows.
+    private func groups(_ column: Column) -> some View {
+        let groups = view.groups(of: controller.rows(snapshot, view), in: snapshot.database, everyOption: true) ?? []
+        let keys = groups.map(\.key)
+        return VStack(alignment: .leading, spacing: Tokens.Space.sm) {
+            DocPanelSection(title: String(localized: "Show/Hide groups"))
+            ForEach(groups, id: \.key) { group in
+                HStack(spacing: Tokens.Space.sm) {
+                    DocDragDots()
+                        .frame(width: FlooDesignDragHandle.size.width, height: FlooDesignDragHandle.size.height)
+                    DocGroupLabel(column: column, group: group)
+                    Spacer(minLength: Tokens.Space.sm)
+                    Toggle(DocGroupLabel.title(group.value, in: column), isOn: Binding { !view.grouping.hidden.contains(group.key) } set: { shows in
+                        var grouping = view.grouping
+                        grouping.hidden.removeAll { $0 == group.key }
+                        if !shows { grouping.hidden.append(group.key) }
+                        controller.setGrouping(grouping, in: view.id, of: block)
+                    })
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(Tokens.ColorRole.Accent.primary)
+                }
+                .contentShape(Rectangle())
+                .draggable(Self.dragged + group.key)
+                .dropDestination(for: String.self) { items, _ in
+                    guard let item = items.first, item.hasPrefix(Self.dragged) else { return false }
+                    controller.moveGroup(String(item.dropFirst(Self.dragged.count)), before: group.key, among: keys, in: view.id, of: block)
+                    return true
+                }
+            }
+        }
+    }
+
+    /// What a dragged group's key goes after (a group of none's is empty).
+    private static let dragged = "group:"
+
+    /// The orders a field's groups can take: by its options or values either way, a
+    /// kanban's also as they're put.
+    static func orders(manual: Bool) -> [CollectionGrouping.Order] {
+        manual ? [.ascending, .descending, .manual] : [.ascending, .descending]
+    }
+
+    static func name(_ order: CollectionGrouping.Order, of column: Column) -> String {
+        let up = order == .ascending
+        switch (order, column.type) {
+        case (.manual, _): return String(localized: "Manual")
+        case (_, .date): return up ? String(localized: "Earliest → Latest") : String(localized: "Latest → Earliest")
+        case (_, .number): return up ? String(localized: "Lowest → Highest") : String(localized: "Highest → Lowest")
+        case (_, .text), (_, .url), (_, .person): return up ? String(localized: "A → Z") : String(localized: "Z → A")
+        default: return up ? String(localized: "First → Last") : String(localized: "Last → First")
+        }
+    }
 }
 
 // MARK: - Filter
@@ -535,8 +629,8 @@ struct DocCreateKanbanPanel: View {
     @State private var group: ColumnID?
 
     private var block: DocBlockID { snapshot.block }
-    private var selects: [Column] { DocCollectionController.selects(in: snapshot.database) }
-    private var chosen: Column? { selects.first { $0.id == group } ?? selects.first }
+    private var groupable: [Column] { DocCollectionController.groupable(in: snapshot.database) }
+    private var chosen: Column? { groupable.first { $0.id == group } ?? groupable.first }
 
     var body: some View {
         DocPanelFrame(title: String(localized: "Create Kanban"), close: close) {
@@ -545,7 +639,7 @@ struct DocCreateKanbanPanel: View {
                 .onSubmit(save)
             VStack(alignment: .leading, spacing: Tokens.Space.sm) {
                 DocPanelSection(title: String(localized: "Group By"))
-                DocFieldMenu(columns: selects, chosen: chosen) { group = $0.id }
+                DocFieldMenu(columns: groupable, chosen: chosen) { group = $0.id }
             }
             DocPanelButtons(title: String(localized: "Save"), enabled: chosen != nil, cancel: close, save: save)
         }

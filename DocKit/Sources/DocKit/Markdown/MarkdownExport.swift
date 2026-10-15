@@ -211,7 +211,7 @@ extension Database {
     /// column's alignment where all its cells share one. Nil when no column is visible.
     func cells(view: DatabaseView) -> DatabaseCells? {
         let (hidden, sort): ([ColumnID], [DatabaseSort]) = switch view {
-        case .table(let hidden, let sort): (hidden, sort)
+        case .table(let hidden, let sort, _): (hidden, sort)
         case .kanban(_, let hidden, let sort): (hidden, sort)
         }
         let visible = columns.filter { !hidden.contains($0.id) }

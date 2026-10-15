@@ -284,10 +284,12 @@ public struct CollectionView: Hashable, Sendable, Codable, Identifiable {
     public var filters: [CollectionFilter]
     /// The order of its fields; columns it doesn't name follow in the database's order.
     public var order: [ColumnID]
+    /// How the groups of its layout's `groupBy` are ordered, and which a kanban leaves out.
+    public var grouping: CollectionGrouping
 
     public init(id: CollectionViewID = .generate(), name: String, layout: DatabaseView,
                 showsCalculations: Bool = true, calculations: [ColumnID: CollectionCalculation] = [:],
-                filters: [CollectionFilter] = [], order: [ColumnID] = []) {
+                filters: [CollectionFilter] = [], order: [ColumnID] = [], grouping: CollectionGrouping = CollectionGrouping()) {
         self.id = id
         self.name = name
         self.layout = layout
@@ -295,6 +297,7 @@ public struct CollectionView: Hashable, Sendable, Codable, Identifiable {
         self.calculations = calculations
         self.filters = filters
         self.order = order
+        self.grouping = grouping
     }
 
     /// The database's columns in the view's order.
@@ -303,7 +306,7 @@ public struct CollectionView: Hashable, Sendable, Codable, Identifiable {
         return named + columns.filter { !order.contains($0.id) }
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, layout, showsCalculations, calculations, filters, order }
+    private enum CodingKeys: String, CodingKey { case id, name, layout, showsCalculations, calculations, filters, order, grouping }
 
     // What a later version added reads as its default from a document written before it.
     public init(from decoder: any Decoder) throws {
@@ -315,6 +318,7 @@ public struct CollectionView: Hashable, Sendable, Codable, Identifiable {
         calculations = try container.decodeIfPresent([ColumnID: CollectionCalculation].self, forKey: .calculations) ?? [:]
         filters = try container.decodeIfPresent([CollectionFilter].self, forKey: .filters) ?? []
         order = try container.decodeIfPresent([ColumnID].self, forKey: .order) ?? []
+        grouping = try container.decodeIfPresent(CollectionGrouping.self, forKey: .grouping) ?? CollectionGrouping()
     }
 }
 

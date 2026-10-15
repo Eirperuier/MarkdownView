@@ -10,6 +10,8 @@
 //    options, a date a calendar;
 //  - over a row its number turns into a box that picks it (picked rows delete together),
 //    and the title shows an arrow that opens the record whole;
+//  - grouped (Group By), the records go under a head for each group (its name, how many),
+//    which folds them away;
 //  - the calculation row computes a column (Calculate on the pointer over it), + adds a record.
 //
 
@@ -27,6 +29,8 @@ struct DocCollectionTable: View {
     /// The pointer on the calculation row: its empty cells offer Calculate (Craft's).
     @State private var overFoot = false
     @State private var hoveredRow: RowID?
+    /// The groups folded away, by key.
+    @State private var folded: Set<String> = []
 
     private var block: DocBlockID { snapshot.block }
     private var columns: [Column] { DocCollectionController.fields(view, of: snapshot.database) }
@@ -51,9 +55,22 @@ struct DocCollectionTable: View {
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(spacing: 0) {
                 head(widths)
-                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                    FlooDesignDivider()
-                    record(row, number: index + 1, widths: widths)
+                if let groups = view.groups(of: rows, in: snapshot.database), let column = groupColumn {
+                    ForEach(groups, id: \.key) { group in
+                        FlooDesignDivider()
+                        groupHead(group, column: column)
+                        if !folded.contains(group.key) {
+                            ForEach(Array(group.rows.enumerated()), id: \.element.id) { index, row in
+                                FlooDesignDivider()
+                                record(row, number: index + 1, widths: widths)
+                            }
+                        }
+                    }
+                } else {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        FlooDesignDivider()
+                        record(row, number: index + 1, widths: widths)
+                    }
                 }
                 FlooDesignDivider()
                 foot(widths, rows: rows)
@@ -105,6 +122,41 @@ struct DocCollectionTable: View {
                                  onDismiss: { controller.close(.addField, in: block) }) {
             DocFieldPanel(snapshot: snapshot, column: nil, controller: controller)
         }
+    }
+
+    // MARK: Groups
+
+    private var groupColumn: Column? { snapshot.database.columns.first { $0.id == view.layout.groupBy } }
+
+    /// A group's head (Craft's): a chevron under the row numbers that folds it, its name
+    /// and how many.
+    private func groupHead(_ group: CollectionGroup, column: Column) -> some View {
+        let isFolded = folded.contains(group.key)
+        return Button {
+            // The block takes its new height as rows added or gone change it: at once.
+            if isFolded { folded.remove(group.key) } else { folded.insert(group.key) }
+        } label: {
+            HStack(spacing: 0) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: FlooDesignTokens.Icon.inline, weight: .semibold))
+                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                    .rotationEffect(.degrees(isFolded ? -90 : 0))
+                    .frame(width: Metrics.numberWidth)
+                HStack(spacing: FlooDesignTokens.Space.sm) {
+                    DocGroupLabel(column: column, group: group)
+                    Text("\(group.rows.count)")
+                        .font(.system(size: 13).monospacedDigit())
+                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                }
+                .padding(.horizontal, Metrics.cellInset)
+                Spacer(minLength: 0)
+            }
+            .frame(height: Metrics.rowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(DocGroupLabel.title(group.value, in: column))
+        .accessibilityValue(isFolded ? String(localized: "Collapsed") : String(localized: "Expanded"))
     }
 
     // MARK: Records
@@ -230,6 +282,16 @@ private struct DocFieldHead: View {
                 let condition = CollectionFilter.conditions(for: column.type)[0]
                 controller.setFilters(view.filters + [CollectionFilter(column: column.id, condition: condition)], in: view.id, of: block)
                 controller.show(.filter, in: block)
+            }
+            if column.id != DocCollectionController.titleColumn(of: snapshot.database)?.id {
+                Menu(String(localized: "Group by this Field"), systemImage: "rectangle.3.group") {
+                    ForEach(DocGroupPanel.orders(manual: false), id: \.self) { order in
+                        Button(DocGroupPanel.name(order, of: column)) {
+                            controller.setGroup(column.id, in: view.id, of: block)
+                            controller.setGrouping(CollectionGrouping(order: order), in: view.id, of: block)
+                        }
+                    }
+                }
             }
             if controller.isEditable {
                 Divider()

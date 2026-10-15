@@ -33,7 +33,7 @@ struct DocCollectionSnapshot: Equatable {
 /// The collection panel open, and the block it's for.
 struct DocCollectionPanel: Hashable {
     enum Kind: Hashable {
-        case layout, sort, filter
+        case layout, sort, filter, group
         case createKanban
         /// A view just added, to name.
         case nameView(CollectionViewID)
@@ -187,18 +187,53 @@ final class DocCollectionController {
         changeView(view, in: block) { $0.showsCalculations = shows }
     }
 
-    /// A table becomes a kanban grouped by `group` (or the first select), a kanban a table;
-    /// what's hidden and the sorting stay.
+    /// A table becomes a kanban grouped by `group` (or what the table's grouped by, or the
+    /// first select, or the first field after the title), a kanban a table grouped as it was
+    /// (Craft's); what's hidden and the sorting stay.
     func setLayout(kanban: Bool, groupedBy group: ColumnID? = nil, in view: CollectionViewID, of block: DocBlockID) {
         guard let (_, database) = snapshot(block) else { return }
         changeView(view, in: block) { view in
             let hidden = view.layout.hidden, sort = view.layout.sort
             if kanban {
-                guard let group = group ?? view.layout.groupBy ?? Self.selects(in: database).first?.id else { return }
+                guard let group = group ?? view.layout.groupBy ?? Self.groupable(in: database).first?.id else { return }
+                if group != view.layout.groupBy { view.grouping = CollectionGrouping() }
                 view.layout = .kanban(groupBy: group, hidden: hidden, sort: sort)
             } else {
-                view.layout = .table(hidden: hidden, sort: sort)
+                view.layout = .table(hidden: hidden, sort: sort, groupBy: view.layout.groupBy)
             }
+        }
+    }
+
+    /// The field the view's records are grouped by; nil ungroups a table (a kanban always
+    /// groups). Another field starts its groups afresh: in their order, none left out.
+    func setGroup(_ column: ColumnID?, in view: CollectionViewID, of block: DocBlockID) {
+        changeView(view, in: block) { view in
+            guard column != view.layout.groupBy else { return }
+            switch view.layout {
+            case .table(let hidden, let sort, _): view.layout = .table(hidden: hidden, sort: sort, groupBy: column)
+            case .kanban(_, let hidden, let sort):
+                guard let column else { return }
+                view.layout = .kanban(groupBy: column, hidden: hidden, sort: sort)
+            }
+            view.grouping = CollectionGrouping()
+        }
+    }
+
+    /// The groups' order, or which are left out.
+    func setGrouping(_ grouping: CollectionGrouping, in view: CollectionViewID, of block: DocBlockID) {
+        changeView(view, in: block) { $0.grouping = grouping }
+    }
+
+    /// A group dragged before `before` (or to the end) among `keys`, the groups as they
+    /// show: their order becomes manual.
+    func moveGroup(_ key: String, before: String?, among keys: [String], in view: CollectionViewID, of block: DocBlockID) {
+        guard key != before else { return }
+        changeView(view, in: block) { view in
+            var order = keys
+            order.removeAll { $0 == key }
+            order.insert(key, at: before.flatMap { order.firstIndex(of: $0) } ?? order.endIndex)
+            view.grouping.order = .manual
+            view.grouping.manual = order
         }
     }
 
@@ -270,8 +305,8 @@ final class DocCollectionController {
         records(block, steps)
     }
 
-    /// A field gone from the records and from every view (a kanban grouped by it becomes a
-    /// table), in one undo step.
+    /// A field gone from the records and from every view (a view grouped by it becomes an
+    /// ungrouped table), in one undo step.
     func deleteField(_ column: ColumnID, in block: DocBlockID) {
         guard let (collection, database) = snapshot(block), database.columns.count > 1,
               let index = database.columns.firstIndex(where: { $0.id == column }) else { return }
@@ -284,7 +319,10 @@ final class DocCollectionController {
                 var view = collection.views[index]
                 view.layout.hidden.removeAll { $0 == column }
                 view.layout.sort.removeAll { $0.column == column }
-                if view.layout.groupBy == column { view.layout = .table(hidden: view.layout.hidden, sort: view.layout.sort) }
+                if view.layout.groupBy == column {
+                    view.layout = .table(hidden: view.layout.hidden, sort: view.layout.sort)
+                    view.grouping = CollectionGrouping()
+                }
                 view.filters.removeAll { $0.column == column }
                 view.calculations[column] = nil
                 view.order.removeAll { $0 == column }
@@ -410,20 +448,20 @@ final class DocCollectionController {
 
     // MARK: Records
 
-    /// A new record: at the end, or in a kanban's column (its select set to the column's
-    /// option) at its end or `atTop`; its title takes typing.
+    /// A new record: at the end, or in a group (its field set to the group's value) at the
+    /// group's end or `atTop`; its title takes typing.
     @discardableResult
-    func addRecord(to block: DocBlockID, in group: (column: ColumnID, option: OptionID?)? = nil, atTop: Bool = false) -> RowID? {
+    func addRecord(to block: DocBlockID, in group: (column: ColumnID, value: CellValue?)? = nil, atTop: Bool = false) -> RowID? {
         guard let (_, database) = snapshot(block) else { return nil }
         var cells: [ColumnID: CellValue] = [:]
-        if let group, let option = group.option { cells[group.column] = .select(option: option) }
+        if let group, let value = group.value { cells[group.column] = value }
         let row = Row(id: .generate(), cells: cells)
         var after = database.rows.last?.id
         if let group {
-            let lane = database.rows.indices.filter { Self.option(of: database.rows[$0], in: group.column) == group.option }
-            if atTop, let first = lane.first {
+            let members = database.rows.indices.filter { Self.isIn(database.rows[$0], group.column, group.value) }
+            if atTop, let first = members.first {
                 after = first == 0 ? nil : database.rows[first - 1].id
-            } else if let last = lane.last {
+            } else if let last = members.last {
                 after = database.rows[last].id
             }
         }
@@ -470,14 +508,20 @@ final class DocCollectionController {
         selectedRows[block] = picked
     }
 
-    /// A card dropped in a kanban's column, before `before` (or at the column's end): its
-    /// select takes the column's option, and it moves to its place among the records.
-    func move(_ row: RowID, to option: OptionID?, groupedBy column: ColumnID, before: RowID?, in block: DocBlockID) {
+    /// A card dropped in a kanban's column, before `before` (or at the column's end): it
+    /// takes the column's value (of a multiple select, the column's option for the one it
+    /// came from; none, no options), and moves to its place among the records.
+    func move(_ row: RowID, from source: CellValue?, to value: CellValue?, groupedBy column: ColumnID, before: RowID?, in block: DocBlockID) {
         guard let (_, database) = snapshot(block), let record = database.rows.first(where: { $0.id == row }), row != before else { return }
         var steps: [DatabaseStep] = []
-        let value: CellValue? = option.map { .select(option: $0) }
-        if record.cells[column] != value {
-            steps.append(.setCell(row: row, column: column, value: value, previous: record.cells[column]))
+        var new = value
+        if case .multiSelect(let ids)? = record.cells[column], case .multiSelect(let to)? = value {
+            let from: [OptionID] = if case .multiSelect(let options)? = source { options } else { [] }
+            let kept = ids.filter { !from.contains($0) && !to.contains($0) }
+            new = .multiSelect(options: kept + to)
+        }
+        if record.cells[column] != new {
+            steps.append(.setCell(row: row, column: column, value: new, previous: record.cells[column]))
         }
         let others = database.rows.filter { $0.id != row }
         let from = database.rows.firstIndex { $0.id == row }.flatMap { $0 == 0 ? nil : database.rows[$0 - 1].id }
@@ -485,7 +529,7 @@ final class DocCollectionController {
         if let before, let index = others.firstIndex(where: { $0.id == before }) {
             after = index == 0 ? nil : others[index - 1].id
         } else {
-            after = others.last { Self.option(of: $0, in: column) == option }?.id ?? others.last?.id
+            after = others.last { Self.isIn($0, column, value) }?.id ?? others.last?.id
         }
         if after != from { steps.append(.moveRow(row: row, after: after, from: from)) }
         records(block, steps)
@@ -517,8 +561,33 @@ final class DocCollectionController {
         database.columns.filter { if case .select = $0.type { true } else { false } }
     }
 
+    /// The fields a view can group by (Craft's): all but the title, the selects first.
+    static func groupable(in database: Database) -> [Column] {
+        let title = titleColumn(of: database)?.id
+        let fields = database.columns.filter { $0.id != title }
+        return selects(in: database) + fields.filter { if case .select = $0.type { false } else { true } }
+    }
+
     nonisolated static func option(of row: Row, in column: ColumnID) -> OptionID? {
         if case .select(let option)? = row.cells[column] { option } else { nil }
+    }
+
+    /// A kanban's columns: its groups, every option's, but those it leaves out, and none's
+    /// only when there are records with none.
+    nonisolated static func lanes(_ view: CollectionView, of rows: [Row], in database: Database) -> [CollectionGroup] {
+        (view.groups(of: rows, in: database, everyOption: true) ?? [])
+            .filter { !view.grouping.hidden.contains($0.key) && !($0.key.isEmpty && $0.rows.isEmpty) }
+    }
+
+    /// Whether a record is in the group of `value` (nil: the group of none).
+    nonisolated static func isIn(_ row: Row, _ column: ColumnID, _ value: CellValue?) -> Bool {
+        switch (row.cells[column], value) {
+        case (.multiSelect(let ids)?, .multiSelect(let group)?): group.allSatisfy(ids.contains)
+        case (.multiSelect(let ids)?, nil): ids.isEmpty
+        case (.checkbox(false)?, nil): true
+        case (.text("")?, nil), (.url("")?, nil), (.person("")?, nil): true
+        case (let cell, let value): cell == value
+        }
     }
 
     /// The view as CSV: its fields and the records it shows.
@@ -634,6 +703,29 @@ struct DocChip: View {
 }
 
 /// Chips laid out in lines, as many as fit on each.
+/// A group's name: an option's chip, the value's words, None for records with none.
+struct DocGroupLabel: View {
+    let column: Column
+    let group: CollectionGroup
+
+    var body: some View {
+        let options = DocFieldText.options(column)
+        if let option = options.first(where: { $0.id.description == group.key }) {
+            DocChip(option, in: options)
+        } else {
+            DocChip(text: Self.title(group.value, in: column))
+        }
+    }
+
+    static func title(_ value: CellValue?, in column: Column) -> String {
+        switch value {
+        case nil: column.type == .checkbox ? String(localized: "Unchecked") : String(localized: "None")
+        case .checkbox?: String(localized: "Checked")
+        case let value?: DocFieldText.text(value, in: column)
+        }
+    }
+}
+
 struct DocFlow: Layout {
     var spacing: CGFloat = 6
 
@@ -743,6 +835,13 @@ enum DocFieldText {
         return Calendar.current.date(from: calendar.dateComponents([.year, .month, .day], from: utc)) ?? utc
     }
 
+    static func hasOptions(_ column: Column) -> Bool {
+        switch column.type {
+        case .select, .multiSelect: true
+        default: false
+        }
+    }
+
     static func options(_ column: Column) -> [SelectOption] {
         switch column.type {
         case .select(let options), .multiSelect(let options): options
@@ -825,7 +924,6 @@ private struct DocCollectionHeader: View {
     private var block: DocBlockID { snapshot.block }
     private var collection: DocCollection { snapshot.collection }
     private var current: CollectionView? { collection.currentView }
-    private var selects: [Column] { DocCollectionController.selects(in: snapshot.database) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: FlooDesignTokens.Space.sm) {
@@ -878,6 +976,7 @@ private struct DocCollectionHeader: View {
                 case .layout?: DocLayoutPanel(snapshot: snapshot, view: current, controller: controller)
                 case .sort?: DocSortPanel(snapshot: snapshot, view: current, controller: controller)
                 case .filter?: DocFilterPanel(snapshot: snapshot, view: current, controller: controller)
+                case .group?: DocGroupPanel(snapshot: snapshot, view: current, controller: controller)
                 default: EmptyView()
                 }
             }
@@ -887,7 +986,7 @@ private struct DocCollectionHeader: View {
     private var toolbarPanel: DocCollectionPanel.Kind? {
         guard let panel = controller.panel, panel.block == block else { return nil }
         switch panel.kind {
-        case .layout, .sort, .filter: return panel.kind
+        case .layout, .sort, .filter, .group: return panel.kind
         default: return nil
         }
     }
@@ -976,17 +1075,12 @@ private struct DocCollectionHeader: View {
     /// A view's menu: its panels, then renaming, copying and deleting it; the toolbar's
     /// also downloads it.
     private func viewSections(_ view: CollectionView, full: Bool) -> [FlooDesignActionMenuSection] {
-        var panels: [FlooDesignActionMenuItem] = [
+        // Ticked when the view groups (Craft's).
+        let panels: [FlooDesignActionMenuItem] = [
             .action(String(localized: "Filter"), symbol: "line.3.horizontal.decrease") { open(.filter, for: view) },
             .action(String(localized: "Sort"), symbol: "arrow.up.arrow.down") { open(.sort, for: view) },
+            .action(String(localized: "Group"), symbol: "rectangle.3.group", isOn: view.layout.groupBy != nil) { open(.group, for: view) },
         ]
-        if case .kanban(let group, _, _) = view.layout {
-            panels.append(.submenu(String(localized: "Group"), symbol: "circle.grid.3x3", sections: [.init(.rows, selects.map { column in
-                .action(column.name, isOn: group == column.id, id: "group-\(column.id)") {
-                    controller.setLayout(kanban: true, groupedBy: column.id, in: view.id, of: block)
-                }
-            })]))
-        }
         var sections: [FlooDesignActionMenuSection] = [
             .init(.rows, [.action(String(localized: "Layout & Visibility"), symbol: "tablecells") { open(.layout, for: view) }]),
             .init(.rows, panels),
@@ -1020,10 +1114,10 @@ private struct DocCollectionHeader: View {
     }
 
     /// A new card from the toolbar goes to the first column of a kanban.
-    private var kanbanGroup: (column: ColumnID, option: OptionID?)? {
-        guard let group = current?.layout.groupBy,
-              let column = snapshot.database.columns.first(where: { $0.id == group }) else { return nil }
-        return (group, DocFieldText.options(column).first?.id)
+    private var kanbanGroup: (column: ColumnID, value: CellValue?)? {
+        guard let current, current.layout.isKanban, let group = current.layout.groupBy else { return nil }
+        let first = DocCollectionController.lanes(current, of: controller.rows(snapshot, current), in: snapshot.database).first
+        return (group, first?.value)
     }
 
     // MARK: Tabs
@@ -1050,7 +1144,7 @@ private struct DocCollectionHeader: View {
             Button(String(localized: "Add Kanban View"), systemImage: "rectangle.split.3x1") {
                 controller.show(.createKanban, in: block)
             }
-            .disabled(selects.isEmpty)
+            .disabled(DocCollectionController.groupable(in: snapshot.database).isEmpty)
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: FlooDesignTokens.Icon.compact, weight: .semibold))
