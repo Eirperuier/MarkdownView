@@ -113,6 +113,7 @@ final class DocEditor {
             let curve = note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt
             MainActor.assumeIsolated { self?.updateKeyboardBar(duration: duration, curve: curve) }
         }
+        demo.onReceive = { [weak self] steps in self?.received(steps) }
         slash.choose = { [weak self] item in self?.chooseSlash(item) }
         slash.dismiss = { [weak self] in self?.dismissSlash() }
     }
@@ -1246,17 +1247,45 @@ final class DocEditor {
         tables.syncEditedText()
     }
 
+    /// Another window changed the document (DocStore): the cursor stays with what it was
+    /// in, nowhere when that went; the editors typed into natively take the text now.
+    private func received(_ steps: [DocStep]) {
+        if let selection {
+            var moved: DocSelection? = selection
+            for step in steps {
+                guard let now = moved, let anchor = step.map(now.anchor), let head = step.map(now.head) else { moved = nil; break }
+                moved = DocSelection(anchor: anchor, head: head)
+            }
+            // A cell's text goes with its row, and its block isn't the document's.
+            if let now = moved, let block = textBlock(now.head.block) {
+                let length = block.text.length
+                moved = DocSelection(anchor: DocPosition(block: now.anchor.block, offset: min(now.anchor.offset, length)),
+                                     head: DocPosition(block: now.head.block, offset: min(now.head.offset, length)))
+            } else {
+                moved = nil
+            }
+            self.selection = moved
+        }
+        syncEditors()
+    }
+
     /// Puts the document back as it started (DocDemo.reset), with no history, nothing
-    /// edited or selected. The focus goes before the rows do: an editor taken out of the
-    /// list while it has the focus (or while letting it go, the keyboard going down)
-    /// leaves UIKit's list holding its row.
+    /// edited or selected.
     func resetDocument() {
+        clear()
+        demo.reset()
+    }
+
+    /// Nothing edited or selected, no history: the document is started over, here or in
+    /// another window (DocDemo.take). The focus goes before the rows do: an editor taken
+    /// out of the list while it has the focus (or while letting it go, the keyboard going
+    /// down) leaves UIKit's list holding its row.
+    func clear() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         tables.endEditing()
         sources.endEditing()
         blocks.reset()
         selection = nil
-        demo.reset()
         undoManager.removeAllActions()
     }
 }

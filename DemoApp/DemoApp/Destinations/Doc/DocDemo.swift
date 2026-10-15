@@ -202,6 +202,7 @@ final class DocDemo {
         DocTiming.mark("demo: doc in (\(doc.blocks.count) blocks)")
         self.doc = doc
         previews.onPreview = { [weak self] url, preview in self?.fill(url, with: preview) }
+        DocStore.shared.attach(self)
         publish()
         DocTiming.mark("demo: rows published (\(rows.count) rows, \(Int(lastPublishMs)) ms)")
     }
@@ -231,6 +232,53 @@ final class DocDemo {
         doc = DocDemoCorpus.doc(id: doc.id)
         history = DocHistory()
         publish()
+        DocStore.shared.share(reset: self)
+    }
+
+    // MARK: Other windows
+
+    /// The editor's part when another window changes the document (DocEditor).
+    @ObservationIgnored var onReceive: (([DocStep]) -> Void)?
+    /// The window's part when another window starts the document over (DocDestination).
+    @ObservationIgnored var onTake: (() -> Void)?
+
+    /// Another window's change (DocStore): applied as it was made, the person's history
+    /// mapped through it, as the agent's are. The rows follow a moment later: the window
+    /// typed in draws first (its new line takes the focus before the next key comes).
+    func receive(_ steps: [DocStep]) {
+        var applied: [DocStep] = []
+        for step in steps {
+            guard let resolved = try? doc.apply(step) else { continue }
+            history.map(through: resolved)
+            applied.append(resolved)
+        }
+        guard !applied.isEmpty else { return }
+        onReceive?(applied)
+        guard !publishing else { return }
+        publishing = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.publishing else { return }
+            self.publishing = false
+            self.publish()
+        }
+    }
+
+    /// Rows are coming for what another window changed.
+    @ObservationIgnored private var publishing = false
+
+    /// Another window started the document over: its document, no history here either.
+    /// The agent stops where it is, what it was writing gone with the rest.
+    func take(_ doc: Doc) {
+        task?.cancel()
+        task = nil
+        layer = nil
+        coordinator.revealAll()
+        agentStatus = nil
+        self.doc = doc
+        history = DocHistory()
+        onTake?()
+        publishing = false
+        publish()
     }
 
     // MARK: Rows
@@ -245,6 +293,7 @@ final class DocDemo {
     private func publish() {
         let started = CFAbsoluteTimeGetCurrent()
         defer { lastPublishMs = (CFAbsoluteTimeGetCurrent() - started) * 1000 }
+        publishing = false
         // Every change comes through here: kept as it is now (written a moment later).
         DocStore.shared.save(doc)
         var result: [DocRow] = []
@@ -536,6 +585,7 @@ final class DocDemo {
             }
         }
         history.record(resolved, merge: merge)
+        DocStore.shared.share(resolved.steps, from: self)
         publish()
         return resolved
     }
@@ -543,12 +593,14 @@ final class DocDemo {
     /// Undoes the person's last transaction; returns where the cursor goes.
     func undo() -> DocSelection? {
         guard !isAgentWriting, let transaction = history.undo(&doc) else { return nil }
+        DocStore.shared.share(transaction.steps, from: self)
         publish()
         return transaction.selectionBefore
     }
 
     func redo() -> DocSelection? {
         guard !isAgentWriting, let transaction = history.redo(&doc) else { return nil }
+        DocStore.shared.share(transaction.steps, from: self)
         publish()
         return transaction.selectionBefore
     }
@@ -744,6 +796,7 @@ final class DocDemo {
         }
         guard !steps.isEmpty, let resolved = try? doc.apply(DocTransaction(steps: steps, author: previewer, time: .now)) else { return }
         for step in resolved.steps { history.map(through: step) }
+        DocStore.shared.share(resolved.steps, from: self)
         publish()
     }
 
@@ -753,6 +806,7 @@ final class DocDemo {
         do {
             let resolved = try doc.apply(DocTransaction(steps: steps, author: agent, time: .now))
             for step in resolved.steps { history.map(through: step) }
+            DocStore.shared.share(resolved.steps, from: self)
         } catch {
             print("DocDemo: step failed: \(error)")
         }

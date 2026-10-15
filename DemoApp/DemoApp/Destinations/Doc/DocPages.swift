@@ -88,6 +88,12 @@ final class DocPages {
         let page = DocOpenPage(demo: root)
         path = [page]
         opened[page.id] = page
+        // Another window started the document over (its Reset): this one goes back to its
+        // first page too.
+        root.onTake = { [weak self, weak page] in
+            self?.reset()
+            page?.editor.clear()
+        }
     }
 
     var current: DocOpenPage { path[path.count - 1] }
@@ -110,7 +116,7 @@ final class DocPages {
     func reset() {
         path = [root]
         opened = [root.id: root]
-        written = []
+        Self.written = []
     }
 
     /// Goes into the page a block of the current page opens: as it was left (this run or
@@ -169,14 +175,14 @@ final class DocPages {
     }
 
     /// The records whose pages have something written in them past the title, as they
-    /// were left.
-    private(set) var written: Set<RowID> = []
+    /// were left, in any window.
+    private static var written: Set<RowID> = []
 
     /// Whether a record's page has something written in it (its title cell shows a page):
     /// as it was left, this run or before (DocStore).
     func recordHasPage(_ row: RowID) -> Bool {
         let id = DocID(rawValue: row.rawValue)
-        guard opened[id] == nil else { return written.contains(row) }
+        guard opened[id] == nil else { return Self.written.contains(row) }
         return DocStore.shared.load(id).map(Self.isWritten) ?? false
     }
 
@@ -184,7 +190,7 @@ final class DocPages {
     /// never was: the copy's is new too).
     func copyRecordPage(_ row: RowID, to copy: RowID) {
         DocStore.shared.copyPage(DocID(rawValue: row.rawValue), as: DocID(rawValue: copy.rawValue))
-        if written.contains(row) { written.insert(copy) }
+        if Self.written.contains(row) { Self.written.insert(copy) }
     }
 
     private static func isWritten(_ doc: Doc) -> Bool {
@@ -200,7 +206,7 @@ final class DocPages {
         for page in path[(target + 1)...].reversed() {
             if let record = page.record {
                 record.setTitle(DocPage.summary(of: page.demo.doc).title)
-                if Self.isWritten(page.demo.doc) { written.insert(record.row) } else { written.remove(record.row) }
+                if Self.isWritten(page.demo.doc) { Self.written.insert(record.row) } else { Self.written.remove(record.row) }
             } else if let parent = page.parent {
                 parent.page.demo.setPageSummary(of: parent.block, from: page.demo.doc)
             }

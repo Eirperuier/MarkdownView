@@ -10,6 +10,11 @@
 //  here: the demo syncs with nothing. The edit tests and a -docFile document keep theirs
 //  in memory only, the person's untouched. Undo histories aren't kept (as Craft's).
 //
+//  A document open in several windows is one document (Craft's): each window has its own
+//  copy (its DocDemo, its undo history), and a change made in one goes to the others at
+//  once. They're on the main thread together, so every copy is where the others are when
+//  a change comes: its steps apply as they were, §5's server with nothing to rebase.
+//
 
 import UIKit
 import DocKit
@@ -161,6 +166,36 @@ final class DocStore {
             try? FileManager.default.removeItem(at: folder)
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
+    }
+
+    // MARK: Windows
+
+    private struct Copy {
+        weak var demo: DocDemo?
+    }
+
+    /// The copies of each document open now.
+    private var copies: [DocID: [Copy]] = [:]
+
+    /// A document's copy, made for a window: it hears the others' changes from now on.
+    func attach(_ demo: DocDemo) {
+        copies[demo.doc.id, default: []].removeAll { $0.demo == nil }
+        copies[demo.doc.id, default: []].append(Copy(demo: demo))
+    }
+
+    /// A change one copy made, applied to the others.
+    func share(_ steps: [DocStep], from demo: DocDemo) {
+        guard !steps.isEmpty else { return }
+        for other in others(of: demo) { other.receive(steps) }
+    }
+
+    /// One copy started over (Reset): the others take what it has now.
+    func share(reset demo: DocDemo) {
+        for other in others(of: demo) { other.take(demo.doc) }
+    }
+
+    private func others(of demo: DocDemo) -> [DocDemo] {
+        (copies[demo.doc.id] ?? []).compactMap(\.demo).filter { $0 !== demo }
     }
 
     private func file(_ id: DocID, in folder: URL) -> URL {

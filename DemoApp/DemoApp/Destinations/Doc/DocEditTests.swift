@@ -2819,6 +2819,24 @@ final class DocEditTests {
             for _ in 0..<4 where self.demo.doc.blocks.map(\.id) != before { try await self.undo() }
             try self.expect(self.demo.doc.blocks.map(\.id) == before, "the groups didn't undo")
         }
+        await test("a document open in two windows is one: what either changes the other has at once, its cursor kept with its words; each undoes its own") {
+            let other = DocDemo(doc: self.demo.doc)
+            let otherEditor = DocEditor(demo: other)
+            let line = try self.block("Loading older")
+            otherEditor.place(DocSelection(anchor: DocPosition(block: line.id, offset: 3), head: DocPosition(block: line.id, offset: 3)), reveals: false)
+            // Typed here before the other window's cursor: there too, the cursor after it.
+            self.demo.edit([.insertText(block: line.id, at: 0, text: DocText(string: "ab "))], before: nil, after: nil)
+            try self.expect(other.doc == self.demo.doc, "the other window's document differs")
+            try self.expect(otherEditor.selection?.head == DocPosition(block: line.id, offset: 6), "the other cursor at \(String(describing: otherEditor.selection?.head))")
+            // Written there: here too. Undone there, only what it wrote goes.
+            let end = try self.expectValue(other.doc.block(line.id), "no line").text.length
+            other.edit([.insertText(block: line.id, at: end, text: DocText(string: " z"))], before: nil, after: nil)
+            try self.expect(self.demo.doc == other.doc && self.demo.doc.block(line.id)?.text.string.hasSuffix(" z") == true, "the other window's words aren't here")
+            _ = other.undo()
+            try self.expect(self.demo.doc == other.doc && self.demo.doc.block(line.id)?.text.string == "ab " + line.text.string, "the other window's undo: \(self.demo.doc.block(line.id)?.text.string ?? "")")
+            try await self.undo()
+            try self.expect(self.demo.doc == other.doc && self.demo.doc.block(line.id)?.text == line.text && !other.canUndo, "this window's undo")
+        }
         await test("cards next to each other share a line; a point on each picks that one") {
             let line = try self.expectValue(self.linkCards(), "no line of cards")
             await show(line[0])
