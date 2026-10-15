@@ -527,9 +527,7 @@ final class DocTableController {
     /// What the menu's Format acts on in a body cell of text: the text selected in it,
     /// else all of it (Craft's). Nil for a header cell, another kind of column, no text.
     func formatRange(_ key: DocCellKey) -> (block: DocBlockID, range: Range<Int>)? {
-        guard isEditable, key.row != nil, let (_, database) = database(key.block),
-              database.columns.first(where: { $0.id == key.column })?.type == .text
-        else { return nil }
+        guard holdsText(key) else { return nil }
         let id = textID(key)
         let length = docText(key).length
         if let selection = editor.selection, selection.head.block == id, selection.anchor.block == id, selection.anchor.offset != selection.head.offset {
@@ -537,6 +535,12 @@ final class DocTableController {
             if range.upperBound <= length { return (id, range) }
         }
         return length > 0 ? (id, 0..<length) : nil
+    }
+
+    /// Whether it's an editable body cell of a text column: the cells whose text takes marks.
+    func holdsText(_ key: DocCellKey) -> Bool {
+        guard isEditable, key.row != nil, let (_, database) = database(key.block) else { return false }
+        return database.columns.first(where: { $0.id == key.column })?.type == .text
     }
 
     func formatIsOn(_ mark: Mark, at key: DocCellKey) -> Bool {

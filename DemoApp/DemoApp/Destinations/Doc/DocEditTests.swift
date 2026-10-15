@@ -1357,6 +1357,24 @@ final class DocEditTests {
                 }
             }
         }
+        await test("Table: in a cell the format panels are the cell's: marks and a colour, on all its text at the caret; Aa on a phone opens its sheet") {
+            _ = try await click(2, 1)
+            let key = try editedKey()
+            let formatting = DocFormatting(editor: self.editor)
+            try self.expect(formatting.cell?.key == key && formatting.formats == [.marks, .color], "formats \(formatting.formats.rawValue)")
+            try self.expect(formatting.targets.isEmpty && formatting.decorated.isEmpty, "the table took the cell's place")
+            let before = try database()
+            formatting.toggle(.bold)
+            try self.expect(self.editor.tables.formatIsOn(.bold, at: key), "the cell isn't bold")
+            if !DocBlockController.usesHandles {
+                self.editor.blocks.formatCaretBlock()
+                try self.expect(self.editor.panels.sheetPage == .main && !self.editor.blocks.isSelecting, "page \(String(describing: self.editor.panels.sheetPage)) selecting \(self.editor.blocks.isSelecting)")
+                try self.expect(DocFormatting(editor: self.editor, caretTakesBlock: true).cell?.key == key, "the sheet isn't the cell's")
+                self.editor.blocks.closeSheet()
+            }
+            try await self.undo()
+            try self.expect(try database() == before, "undo left the cell bold")
+        }
         await test("Table: a cell's menu is that cell's, and goes when another cell is edited") {
             _ = try await click(2, 1)
             let key = try editedKey()
@@ -1742,6 +1760,28 @@ final class DocEditTests {
                 try? await Task.sleep(for: .milliseconds(800))
                 try self.expect(blocks.testSheetFrames.isEmpty, "sheets stay on screen: \(blocks.testSheetFrames)")
             }
+        }
+        await test("what each block takes decides the format panels: text its styles and marks, an image its size and fit, a table a level and the box; together, a style goes on the text only") {
+            let blocks = self.editor.blocks
+            let text = try self.block("Loading older")
+            let image = try self.expectValue(self.demo.doc.blocks.first { if case .image = $0.kind { true } else { false } }, "no image")
+            let table = try self.expectValue(self.demo.doc.blocks.first { if case .database = $0.kind { true } else { false } }, "no table")
+            blocks.beginSelecting(text.id)
+            for (ids, formats) in [([text.id], DocFormats.text), ([image.id], [.indent, .box, .image]), ([table.id], DocFormats.block)] {
+                blocks.select(ids)
+                let taken = DocFormatting(editor: self.editor).formats
+                try self.expect(taken == formats, "\(ids): \(taken.rawValue), wanted \(formats.rawValue)")
+            }
+            blocks.select([text.id, image.id])
+            let formatting = DocFormatting(editor: self.editor)
+            try self.expect(formatting.takes(.textStyle) && formatting.takes(.image) && formatting.targets.map(\.id) == [text.id], "targets \(formatting.targets.map(\.id))")
+            formatting.setStyle(.heading(level: 3))
+            try await self.settle()
+            try self.expect(self.demo.doc.block(text.id)?.kind == .heading(level: 3) && self.demo.doc.block(image.id)?.kind == image.kind,
+                            "kinds \(String(describing: self.demo.doc.block(text.id)?.kind)) \(String(describing: self.demo.doc.block(image.id)?.kind))")
+            blocks.endSelecting()
+            try await self.undo()
+            try self.expect(self.demo.doc.block(text.id)?.kind == text.kind, "undo left \(String(describing: self.demo.doc.block(text.id)?.kind))")
         }
     }
 

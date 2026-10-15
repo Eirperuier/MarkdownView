@@ -921,8 +921,13 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         returnsTo = caret
     }
 
-    /// The keyboard bar's Aa: the caret's block selected, the Style sheet over it (Craft's).
+    /// The keyboard bar's Aa: the caret's block selected, the Style sheet over it (Craft's);
+    /// in a table's cell, the cell's sheet, the cell still edited under it.
     func formatCaretBlock() {
+        if let caret = editor.selection, editor.tables.cell(of: caret.head.block) != nil {
+            editor.panels.sheetPage = .main
+            return
+        }
         selectCaretBlock()
         if isSelecting { editor.panels.sheetPage = .main }
     }
@@ -1887,9 +1892,11 @@ final class DocBlockKeyView: UIView {
 struct DocBlockSelectionBar: View {
     let blocks: DocBlockController
 
-    /// Style and Layout open a sheet over the bar; leaving the selection closes it.
+    /// Style and Layout open a sheet over the bar; leaving the selection closes it. A
+    /// cell's sheet (Aa in a cell) is over the cell, no selection, while the cell is edited.
     private var showsSheet: Bool {
-        blocks.isSelecting && (blocks.isChoosingLayout || blocks.editor.panels.sheetPage != nil)
+        if blocks.isSelecting { return blocks.isChoosingLayout || blocks.editor.panels.sheetPage != nil }
+        return blocks.editor.panels.sheetPage != nil && DocFormatting(editor: blocks.editor).inCell
     }
 
     var body: some View {

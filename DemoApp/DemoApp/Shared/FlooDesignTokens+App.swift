@@ -77,6 +77,8 @@ extension FlooDesignTokens.Component {
         static let row = Tokens.Component.Tile.minHeight
         /// Every page's height (the main page's three rows), so the sheet doesn't jump.
         static let page: CGFloat = row * 3 + rowSpacing * 2
+        /// A table cell's main page: its marks, its colour.
+        static let cellPage: CGFloat = row * 2 + rowSpacing
         /// The sheet's height before it's measured.
         static let estimate = inset + page + inset
         /// Between the list tiles and the indent tiles.

@@ -7,14 +7,16 @@
 //  Its pages:
 //
 //  - main: a few styles and More…; lists and indent; the quote and the box, the colour,
-//    and … ;
+//    and … ; the cursor in a table's cell, the cell's: its marks and its text's colour;
 //  - styles: the six text styles (More…);
 //  - colours: the text's own colour, the palette, and any colour (the system's picker);
 //  - more (…): bold, italic, strikethrough, code; Copy Format and Paste Format.
 //
 //  Every page but the main one is a sheet of its own over it; a choice on it takes it
 //  back to the main one. The sheets close with their own pull: no gestures
-//  of ours over them. What DocKit can't carry yet (alignment, fonts, pages) isn't offered.
+//  of ours over them. What the blocks take (DocFormattable) is enabled, the rest greyed in
+//  place; in a table's cell, what a cell takes. What DocKit can't carry yet (alignment,
+//  fonts, pages) isn't offered.
 //
 //  The colours over the keyboard bar's highlight key, Craft's: none, the text colours
 //  and any; the highlights and any.
@@ -50,13 +52,14 @@ struct DocFormatSheet: View {
     private func sheet(_ shown: DocFormatSheetPage) -> some View {
         Group {
             switch shown {
+            case .main where formatting.inCell: cell
             case .main: main
             case .styles: styles
             case .colors: colors
             case .more: more
             }
         }
-        .frame(height: Metrics.page, alignment: .top)
+        .frame(height: shown == .main && formatting.inCell ? Metrics.cellPage : Metrics.page, alignment: .top)
         .padding(.horizontal, Metrics.inset)
         .padding(.bottom, Metrics.inset)
     }
@@ -88,7 +91,7 @@ struct DocFormatSheet: View {
                 .buttonStyle(FlooDesignPlainButtonStyle())
                 .accessibilityIdentifier("sheet-more-styles")
             }
-            .disabled(formatting.targets.isEmpty || formatting.inCell)
+            .disabled(!formatting.takes(.textStyle))
             HStack(spacing: Tokens.Component.Tile.spacing) {
                 ForEach(DocFormatting.lists, id: \.id) { item in
                     tile(isOn: formatting.kindIsOn(item.kind), identifier: "sheet-\(item.id)") {
@@ -96,7 +99,7 @@ struct DocFormatSheet: View {
                     } label: {
                         Image(systemName: item.symbol).font(.system(size: Tokens.Icon.toolbar))
                     }
-                    .disabled(formatting.targets.isEmpty || formatting.inCell)
+                    .disabled(!formatting.takes(.list))
                     .accessibilityLabel(item.title)
                 }
                 Spacer().frame(width: Metrics.groupGap - Tokens.Component.Tile.spacing * 2)
@@ -118,7 +121,7 @@ struct DocFormatSheet: View {
                         Text("Quote").font(Metrics.label)
                     }
                 }
-                .disabled(formatting.targets.isEmpty || formatting.inCell)
+                .disabled(!formatting.takes(.quote))
                 .frame(maxWidth: .infinity)
                 tile(isOn: formatting.isBoxed, identifier: "sheet-block") { formatting.toggleBox() } label: {
                     Text("Block")
@@ -127,7 +130,7 @@ struct DocFormatSheet: View {
                         .background(Tokens.ColorRole.Surface.pressed, in: .rect(cornerRadius: Tokens.Radius.sm, style: .continuous))
                         .padding(Tokens.Space.sm - 2)
                 }
-                .disabled(formatting.decorated.isEmpty)
+                .disabled(!formatting.takes(.box))
                 .frame(maxWidth: .infinity)
                 Button { go(.colors) } label: {
                     FlooDesignRainbowSwatch(Circle(),
@@ -178,7 +181,7 @@ struct DocFormatSheet: View {
                 .frame(height: (Metrics.page - Tokens.Border.hairline) / 2)
             }
         }
-        .disabled(formatting.targets.isEmpty || formatting.inCell)
+        .disabled(!formatting.takes(.textStyle))
     }
 
     /// A style's name in its own type (Craft's: titles bigger and bolder, the caption smaller and quieter).
@@ -242,23 +245,35 @@ struct DocFormatSheet: View {
         .accessibilityIdentifier(identifier)
     }
 
+    // MARK: A cell's
+
+    /// The cursor in a table's cell: what a cell takes, the marks and the colour (Craft's
+    /// cell has a panel of its own).
+    private var cell: some View {
+        let formatting = formatting
+        return VStack(spacing: Metrics.rowSpacing) {
+            marks(formatting)
+            HStack(spacing: Tokens.Component.Tile.spacing) {
+                tile(isOn: formatting.color != nil, identifier: "sheet-cell-colors") { go(.colors) } label: {
+                    HStack(spacing: Tokens.Space.md) {
+                        FlooDesignRainbowSwatch(Circle(),
+                                                picked: formatting.color.flatMap(Self.token).map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
+                            .frame(width: Tokens.Icon.toolbar, height: Tokens.Icon.toolbar)
+                        Text("Text Color").font(Metrics.label)
+                    }
+                }
+                .disabled(!formatting.takes(.color) || formatting.markRanges.isEmpty)
+            }
+        }
+    }
+
     // MARK: More
 
     private var more: some View {
         let formatting = formatting
         let copied = editor.panels.copiedFormat
         return VStack(spacing: Metrics.rowSpacing) {
-            HStack(spacing: Tokens.Component.Tile.spacing) {
-                ForEach(DocFormatting.marks, id: \.id) { item in
-                    chip(isOn: formatting.markIsOn(item.mark), identifier: "sheet-\(item.id)") {
-                        formatting.toggle(item.mark)
-                    } label: {
-                        Image(systemName: item.symbol).font(.system(size: Tokens.Icon.toolbar, weight: .medium))
-                    }
-                    .accessibilityLabel(item.title)
-                }
-            }
-            .disabled(formatting.markRanges.isEmpty)
+            marks(formatting)
             HStack(spacing: Tokens.Component.Tile.spacing) {
                 tile(isOn: false, identifier: "sheet-copy-format") {
                     editor.panels.copiedFormat = formatting.format
@@ -277,6 +292,21 @@ struct DocFormatSheet: View {
     }
 
     // MARK: Pieces
+
+    /// Bold, italic, strikethrough, code.
+    private func marks(_ formatting: DocFormatting) -> some View {
+        HStack(spacing: Tokens.Component.Tile.spacing) {
+            ForEach(DocFormatting.marks, id: \.id) { item in
+                chip(isOn: formatting.markIsOn(item.mark), identifier: "sheet-\(item.id)") {
+                    formatting.toggle(item.mark)
+                } label: {
+                    Image(systemName: item.symbol).font(.system(size: Tokens.Icon.toolbar, weight: .medium))
+                }
+                .accessibilityLabel(item.title)
+            }
+        }
+        .disabled(!formatting.takes(.marks) || formatting.markRanges.isEmpty)
+    }
 
     /// A choice standing free (a style, a mark): outlined in the tint when it's on.
     private func chip(isOn: Bool, identifier: String, action: @escaping () -> Void, @ViewBuilder label: () -> some View) -> some View {

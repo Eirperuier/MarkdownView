@@ -3,9 +3,10 @@
 //  DemoApp
 //
 //  What the format panels act on and what they do, shared by the Mac's panel and the
-//  phone's sheet: the selected blocks, or the block the cursor is in; marks and the
-//  colour on the selected text, or on the blocks' text. Read inside a view's body, so
-//  the view follows the document and the selection.
+//  phone's sheet: the selected blocks, or the block the cursor is in, or the table cell
+//  it's in; what each takes is its own (DocFormattable). Marks and the colour go on the
+//  selected text, or on the blocks' (the cell's) text. Read inside a view's body, so the
+//  view follows the document and the selection.
 //
 
 import SwiftUI
@@ -33,20 +34,25 @@ struct DocFormatting {
 
     // MARK: What it acts on
 
-    /// The selected blocks of text, else the one the cursor is in.
-    var targets: [DocBlock] {
-        let selected = Set(editor.blocks.selected)
-        if !selected.isEmpty {
-            return demo.doc.blocks.filter { selected.contains($0.id) && $0.kind.carriesText }
-        }
-        guard let id = editor.cursor.selection?.head.block, let block = editor.textBlock(id), block.kind.carriesText else { return [] }
-        return [block]
+    /// What they take: what any of the blocks takes (each setting acts on the blocks that
+    /// take it), or the cell's.
+    var formats: DocFormats {
+        if let cell { return cell.formats }
+        return decorated.reduce(into: DocFormats()) { $0.formUnion($1.kind.formats) }
     }
 
-    /// Whether the cursor is in a table's cell: its text takes marks, not a kind or a box.
-    var inCell: Bool {
-        editor.blocks.selected.isEmpty && editor.cursor.selection.map { editor.tables.cell(of: $0.head.block) != nil } ?? false
+    func takes(_ format: DocFormats) -> Bool { formats.isSuperset(of: format) }
+
+    /// The selected blocks of text, else the one the cursor is in.
+    var targets: [DocBlock] { decorated.filter { $0.kind.formats.contains(.textStyle) } }
+
+    /// The cell the cursor is in, when no blocks are selected: its own panel (Craft's).
+    var cell: DocFormatCell? {
+        guard editor.blocks.selected.isEmpty, let id = editor.cursor.selection?.head.block, let key = editor.tables.cell(of: id) else { return nil }
+        return DocFormatCell(key: key, tables: editor.tables)
     }
+
+    var inCell: Bool { cell != nil }
 
     /// The selected blocks of any kind, else the one the cursor is in: what a box goes
     /// around, what goes in or out a level.
@@ -57,14 +63,16 @@ struct DocFormatting {
         return [block]
     }
 
-    /// The selected text, else all the text of the selected blocks (or the caret's).
+    /// The selected text, else all the text of the selected blocks (or the caret's); in a
+    /// cell, its selected text, else all of it.
     var markRanges: [(block: DocBlockID, range: Range<Int>)] {
+        if let cell { return cell.range.map { [$0] } ?? [] }
         if editor.blocks.selected.isEmpty, let selection = editor.cursor.selection, selection.anchor.block == selection.head.block {
             let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
             if !range.isEmpty { return [(selection.head.block, range)] }
             if !caretTakesBlock { return [] }
         }
-        return targets.filter { $0.kind.allowsMarks && !$0.text.isEmpty }.map { ($0.id, 0..<$0.text.length) }
+        return decorated.filter { $0.kind.formats.contains(.marks) && !$0.text.isEmpty }.map { ($0.id, 0..<$0.text.length) }
     }
 
     func markIsOn(_ mark: Mark) -> Bool {

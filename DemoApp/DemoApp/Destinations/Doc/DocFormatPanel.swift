@@ -3,10 +3,14 @@
 //  DemoApp
 //
 //  The Mac's format panel: Craft's sections (the text styles as tiles, marks, lists
-//  and indent as segments, the quote and the box as decorations) in the anchored panel the math
-//  editor uses, opened from the bar's Aa. It acts on the selected blocks, or the block the
-//  cursor is in; marks on the selected text, or on the selected blocks' text, and so does
-//  the colour; the box any blocks. What DocKit can't carry yet (alignment) isn't offered.
+//  and indent as segments, the quote and the box as decorations, the colours) in the
+//  anchored panel the math editor uses, opened from the bar's Aa. It acts on the selected
+//  blocks, or the block the cursor is in; marks on the selected text, or on the selected
+//  blocks' text, and so does the colour. What the blocks take (DocFormattable) decides:
+//  the shared sections stay, greyed where none of them takes one, and a kind's own come
+//  after (a link's layout, an image's size and fit). The cursor in a table's cell, the
+//  panel is the cell's: what a cell takes. What DocKit can't carry yet (alignment) isn't
+//  offered.
 //
 
 import SwiftUI
@@ -41,13 +45,13 @@ struct DocFormatPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Format")
+            Text(formatting.inCell ? String(localized: "Cell Style") : String(localized: "Format"))
                 .font(Metrics.title)
                 .padding(.bottom, Metrics.titleGap)
             // Text first offers its kinds; a link, file or image its layout, after the
             // segments (as Craft orders them).
             // Text styles: how big a block's text is (Craft's six, ⌃1–⌃6).
-            if !targets.isEmpty, !formatting.inCell {
+            if !decorated.isEmpty {
                 section(String(localized: "Titles")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
                         ForEach(DocFormatting.styles.prefix(3), id: \.key) { tile($0) }
@@ -60,7 +64,7 @@ struct DocFormatPanel: View {
                 }
             }
             segments
-            if !editor.blocks.selectedLayouts.isEmpty {
+            if formatting.takes(.layout) {
                 section(String(localized: "Layout")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
                         ForEach(DocLayout.allCases, id: \.self) { layout in
@@ -75,7 +79,7 @@ struct DocFormatPanel: View {
                 }
                 .padding(.top, Metrics.sectionLead)
             }
-            if !editor.blocks.selectedImageSizes.isEmpty {
+            if formatting.takes(.image) {
                 section(String(localized: "Image Size")) {
                     HStack(spacing: Tokens.Component.Tile.spacing) {
                         imageChoice(String(localized: "Auto"), symbol: "rectangle.center.inset.filled", isOn: editor.blocks.selectedImageSizes == [.auto]) { editor.blocks.setImage(size: .auto) }
@@ -104,7 +108,7 @@ struct DocFormatPanel: View {
                             }
                             .frame(maxWidth: .infinity, minHeight: Metrics.tallTile)
                         }
-                        .disabled(targets.isEmpty)
+                        .disabled(!formatting.takes(.quote))
                         .accessibilityIdentifier("format-quote")
                         choice(isOn: formatting.isBoxed, help: String(localized: "Block")) {
                             formatting.toggleBox()
@@ -115,14 +119,19 @@ struct DocFormatPanel: View {
                                 .background(Tokens.ColorRole.Surface.pressed, in: .rect(cornerRadius: Tokens.Radius.sm, style: .continuous))
                                 .padding(Tokens.Space.sm - 2)
                         }
+                        .disabled(!formatting.takes(.box))
                         .accessibilityIdentifier("format-block")
                     }
                 }
                 .padding(.top, Metrics.sectionLead)
             }
-            if !markRanges.isEmpty {
-                section(String(localized: "Color")) { colors }
-                    .padding(.top, decorated.isEmpty ? Metrics.sectionLead : 0)
+            if !decorated.isEmpty || formatting.takes(.color) {
+                section(String(localized: "Color")) {
+                    colors
+                        .disabled(markRanges.isEmpty)
+                        .opacity(markRanges.isEmpty ? Tokens.State.disabledOpacity : 1)
+                }
+                .padding(.top, decorated.isEmpty ? Metrics.sectionLead : 0)
             }
         }
         .frame(width: Metrics.width)
@@ -181,10 +190,10 @@ struct DocFormatPanel: View {
                     formatting.toggle(item.mark)
                 }
             })
-            // A cell's text takes marks only.
+            // A cell's panel has only what a cell takes.
             if !formatting.inCell {
                 FlooDesignSegments(items: DocFormatting.lists.map { item in
-                    .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: !targets.isEmpty) {
+                    .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: formatting.takes(.list)) {
                         formatting.toggleList(item.kind)
                     }
                 })
@@ -203,7 +212,6 @@ struct DocFormatPanel: View {
     // MARK: What it acts on
 
     private var formatting: DocFormatting { DocFormatting(editor: editor) }
-    private var targets: [DocBlock] { formatting.targets }
     private var decorated: [DocBlock] { formatting.decorated }
     private var markRanges: [(block: DocBlockID, range: Range<Int>)] { formatting.markRanges }
     private func markIsOn(_ mark: Mark) -> Bool { formatting.markIsOn(mark) }
@@ -252,7 +260,7 @@ struct DocFormatPanel: View {
                 .frame(maxWidth: .infinity, minHeight: Tokens.Component.Tile.minHeight)
         }
         .buttonStyle(FlooDesignTileButtonStyle(isOn: isOn))
-        .disabled(targets.isEmpty)
+        .disabled(!formatting.takes(.textStyle))
         .help("⌃\(style.key)")
         .accessibilityIdentifier("format-style-\(style.key)")
     }
