@@ -170,11 +170,12 @@ struct DocCollectionTable: View {
             numberCell(row, number: number, isHovered: isHovered, isPicked: isPicked)
             ForEach(Array(zip(columns, widths)), id: \.0.id) { column, width in
                 separator
+                let place = DocCollectionCell.place(row: row, column: column, in: block) { menu(row, cell: column) }
                 DocCollectionCell(snapshot: snapshot, row: row, column: column, controller: controller,
-                                  isTitle: column.id == titleColumn?.id, rowHovered: isHovered)
+                                  isTitle: column.id == titleColumn?.id, rowHovered: isHovered, place: place)
                     .padding(.horizontal, Metrics.cellInset)
                     .frame(width: width, alignment: column.type == .number ? .trailing : .leading)
-                    .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in menu(row, cell: column) }
+                    .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in place.menu?.rows?() ?? [] }
             }
             if controller.isEditable {
                 separator
@@ -374,8 +375,16 @@ struct DocCollectionCell: View {
     var isTitle = false
     var rowHovered = false
     var compact = false
+    /// The field as a place (its right-click's menu; the keyboard bar's keys), in the table.
+    var place: DocFieldPlace?
     @State private var text = ""
     @FocusState private var focused: Bool
+
+    /// A record's cell in the table, its menu the record's right-click rows.
+    static func place(row: Row, column: Column, in block: DocBlockID, menu: @escaping () -> [FlooDesignActionMenuSection]) -> DocFieldPlace {
+        DocFieldPlace(field: [block, row.id, column.id] as [AnyHashable], block: block,
+                      menu: DocPlaceMenu(title: String(localized: "Row Actions"), symbol: "tablecells.badge.ellipsis", opens: .rows(menu)))
+    }
 
     private var block: DocBlockID { snapshot.block }
     private var value: CellValue? { row.cells[column.id] }
@@ -483,6 +492,7 @@ struct DocCollectionCell: View {
                 if !focused { text = DocFieldText.text(value, in: column) }
             }
             .onSubmit { focused = false }
+            .modifier(DocFieldPlaceModifier(place: place, isFocused: focused, editor: controller.editor))
     }
 
     /// A select's or multi-select's chips; a click picks from its options (a panel in the

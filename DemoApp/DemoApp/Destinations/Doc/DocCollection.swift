@@ -963,6 +963,8 @@ private struct DocCollectionHeader: View {
     @State private var searching = false
     @State private var showsViewMenu = false
     @FocusState private var searchFocused: Bool
+    @FocusState private var nameFocused: Bool
+    @FocusState private var viewNameFocused: Bool
 
     private var block: DocBlockID { snapshot.block }
     private var collection: DocCollection { snapshot.collection }
@@ -975,7 +977,10 @@ private struct DocCollectionHeader: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: Metrics.titleSize, weight: .bold))
                     .disabled(!controller.isEditable)
+                    .focused($nameFocused)
                     .onChange(of: name) { _, name in if name != collection.name { controller.rename(block, to: name) } }
+                    .docEditingPlace(DocFieldPlace(field: [block, "name"] as [AnyHashable], block: block), isFocused: nameFocused,
+                                     editor: controller.editor)
                 Spacer(minLength: FlooDesignTokens.Space.md)
                 toolbar
             }
@@ -1064,6 +1069,8 @@ private struct DocCollectionHeader: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .focused($searchFocused)
+                .docEditingPlace(DocFieldPlace(field: [block, "search"] as [AnyHashable], block: block), isFocused: searchFocused,
+                                 editor: controller.editor)
                 .onKeyPress(.escape) {
                     endSearch()
                     return .handled
@@ -1212,6 +1219,12 @@ private struct DocCollectionHeader: View {
                 .padding(.horizontal, FlooDesignTokens.Space.sm)
                 .frame(height: Metrics.tabHeight)
                 .background(FlooDesignTokens.ColorRole.Surface.selected, in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
+                .focused($viewNameFocused)
+                // The view's name: its menu is its tab's right-click rows.
+                .docEditingPlace(DocFieldPlace(field: [block, view.id] as [AnyHashable], block: block,
+                                               menu: DocPlaceMenu(title: String(localized: "View Actions"), symbol: "ellipsis.circle",
+                                                                  opens: .rows { viewSections(view, full: false) })),
+                                 isFocused: viewNameFocused, editor: controller.editor)
                 .onSubmit {
                     controller.rename(view.id, in: block, to: viewName)
                     renaming = nil

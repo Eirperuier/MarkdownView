@@ -1056,6 +1056,16 @@ final class DocEditTests {
                 try self.expect(self.editor.blocks.selected == [block.id], "selected \(self.editor.blocks.selected.count)")
             }
         }
+        await test("Code block: its source is a place: the keyboard bar has Aa and ⋮ for the block") {
+            let block = try codeBlock()
+            _ = try await edit(block)
+            for _ in 0..<30 where !(self.editor.editingPlace is DocSourcePlace) { try? await Task.sleep(for: .milliseconds(16)) }
+            try self.expect((self.editor.editingPlace as? DocSourcePlace)?.block == block.id, "place \(String(describing: self.editor.editingPlace))")
+            try self.expect(self.editor.keyboardBar.testItems.map(\.id) == ["format", "more", "dismiss"], "keys \(self.editor.keyboardBar.testItems.map(\.id))")
+            self.editor.dismissKeyboard()
+            try await self.settle()
+            try self.expect(self.editor.sources.view(for: block.id)?.isFirstResponder != true, "the keyboard key left the source focused")
+        }
         await test("Code block: clicking edits its source in place; typing is one undo step") {
             let block = try codeBlock()
             let view = try await edit(block)
@@ -1248,6 +1258,25 @@ final class DocEditTests {
                 try self.expect(self.editor.tables.editing == nil, "still editing")
                 try self.expect(self.editor.blocks.selected == [try table().block], "selected \(self.editor.blocks.selected.count)")
             }
+        }
+        await test("Table: a cell is a place of its own: the keyboard bar has Aa, its menu, ⋮ (a column's name: its menu, ⋮); the menu key opens the cell's menu") {
+            let bar = self.editor.keyboardBar
+            let view = try await click(1, 0)
+            let key = try editedKey()
+            let place = try self.expectValue(self.editor.editingPlace as? DocTableCellPlace, "place \(String(describing: self.editor.editingPlace))")
+            try self.expect(place.key == key, "place's cell \(place.key)")
+            let expected = ["format", "menu"] + (self.editor.tables.isAvailable(.insertFormula, at: key) ? ["formula"] : []) + ["more", "dismiss"]
+            try self.expect(bar.testItems.map(\.id) == expected, "keys \(bar.testItems.map(\.id)), wanted \(expected)")
+            bar.testTap("menu")
+            try self.expect(self.editor.tables.menu == DocTableMenuTarget(key: key), "menu \(String(describing: self.editor.tables.menu))")
+            self.editor.tables.closeMenu()
+            _ = view
+            _ = try await click(0, 0)
+            try self.expect(self.editor.editingPlace is DocTableCellPlace, "a column's name: \(String(describing: self.editor.editingPlace))")
+            try self.expect(bar.testItems.map(\.id) == ["menu", "more", "dismiss"], "name's keys \(bar.testItems.map(\.id))")
+            self.editor.dismissKeyboard()
+            try? await Task.sleep(for: .milliseconds(100))
+            try self.expect(self.editor.editingPlace == nil, "the keyboard key left \(String(describing: self.editor.editingPlace))")
         }
         await test("Table: clicking a cell edits it in place; typing changes the cell; one undo takes the typing back") {
             let view = try await click(2, 1)

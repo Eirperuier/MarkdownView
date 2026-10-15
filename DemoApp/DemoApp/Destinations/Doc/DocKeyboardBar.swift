@@ -7,13 +7,18 @@
 //  accessory): over the page's bottom, on the keyboard's top, up and down with it, and
 //  under what the page shows over itself (the command menu).
 //
-//  - A cursor: the slash (a "/" typed and the command menu open, even after a word), Aa (the caret's block selected,
-//    the format sheet over it) and ⋮ (the caret's block selected) on the left, editing
-//    going on at the caret once the sheet closes or selecting ends; + (the system's menu
-//    of what goes in at the caret, DocInsertMenu) and the keyboard key on the right. On
-//    an empty line a divider key comes before them.
-//  - Text selected: the same, without the slash (it would type over the text). What
-//    selected text takes is the system's text menu's Format (DocTextFormat), not keys.
+//  It is up wherever the keyboard is for the page, and its keys are the place's the
+//  keyboard is for (DocEditingPlace): its leading keys, a gap, its trailing ones, the
+//  keyboard's key last.
+//  - A block's text: the slash (a "/" typed and the command menu open, even after a
+//    word), Aa (the caret's block selected, the format sheet over it) and ⋮ (the caret's
+//    block selected), editing going on at the caret once the sheet closes or selecting
+//    ends; + (the system's menu of what goes in at the caret, DocInsertMenu), and before
+//    it, on an empty line, a divider. Text selected: no slash and no + (they'd type over
+//    the text); what selected text takes is the system's text menu's Format.
+//  - A table's cell (Craft's): Aa, the cell's menu, f(x), ⋮; a column's name: its menu
+//    and ⋮. A code or math block's source: Aa and ⋮. A collection's field: its menu
+//    (the right-click's rows) and ⋮.
 //
 //  Each action has one place. Menus open from their keys. The Mac has no on-screen
 //  keyboard and no bar.
@@ -30,17 +35,15 @@ private typealias Metrics = FlooDesignTokens.Component.KeyboardBar
 final class DocKeyboardBar: UIView {
     private weak var editor: DocEditor?
     private let keys = UIStackView()
-    /// What the keys show now; they're rebuilt only when it changes.
+    /// The place the keys are for, and which they are; they're made again only when it
+    /// changes.
     private var shown: Shown?
     /// Keys shown on.
     private var onKeys: Set<String> = []
 
     private struct Shown: Equatable {
-        var block: DocBlockID
-        var kind: BlockKind
-        var indent: Int
-        var isEmpty: Bool
-        var hasSelectedText: Bool
+        var place: AnyHashable
+        var keys: [String]
     }
 
     init(editor: DocEditor) {
@@ -78,19 +81,20 @@ final class DocKeyboardBar: UIView {
         didSet { if isOnScreen, !oldValue { update() } }
     }
 
-    /// Follows the cursor: called when the selection changes, and after a key's action.
+    /// Follows the cursor: called when the selection or the place changes, and after a
+    /// key's action.
     func update() {
         guard isOnScreen else { return }
         follow()
     }
 
     private func follow() {
-        guard let editor, let selection = editor.selection, let block = editor.textBlock(selection.head.block) else { return }
-        let next = Shown(block: block.id, kind: block.kind, indent: block.indent, isEmpty: block.text.isEmpty,
-                         hasSelectedText: selection.anchor != selection.head)
+        guard let editor, let place = editor.editingPlace else { return }
+        let (leading, trailing) = place.keys(editor)
+        let next = Shown(place: place.id, keys: leading.map(\.id) + ["|"] + trailing.map(\.id))
         guard next != shown else { return }
         shown = next
-        rebuild(next, block: block)
+        rebuild(leading: leading, trailing: trailing)
     }
 
     private func refresh() {
@@ -98,37 +102,32 @@ final class DocKeyboardBar: UIView {
         follow()
     }
 
-    private func rebuild(_ shown: Shown, block: DocBlock) {
+    private func rebuild(leading: [DocBarKey], trailing: [DocBarKey]) {
         keys.arrangedSubviews.forEach { $0.removeFromSuperview() }
         onKeys = []
         keys.distribution = .fill
-        if !shown.hasSelectedText {
-            add(key("slash", Self.slashGlyph, String(localized: "Commands")) { [weak self] in
-                self?.editor?.typeSlash()
-            })
-        }
-        add(key("format", Self.formatGlyph, String(localized: "Format")) { [weak self] in
-            self?.editor?.blocks.formatCaretBlock()
-        })
-        add(key("more", Self.verticalEllipsis, String(localized: "Select Block")) { [weak self] in
-            self?.editor?.blocks.selectCaretBlock()
-        })
+        leading.forEach { add(button($0)) }
         add(UIView())
-        if shown.isEmpty {
-            add(key("divider", Self.dividerGlyph, String(localized: "Divider")) { [weak self] in
-                self?.editor?.perform(.divider, in: block, replacing: 0..<0, from: DocPosition(block: block.id, offset: 0))
-                self?.refresh()
-            })
-        }
-        if !shown.hasSelectedText, let editor {
-            let insert = styled("insert", UIImage(systemName: "plus"), String(localized: "Insert"), isOn: false)
-            insert.menu = DocInsertMenu.menu(editor: editor)
-            insert.showsMenuAsPrimaryAction = true
-            // Top to bottom as written, wherever the menu opens.
-            insert.preferredMenuElementOrder = .fixed
-            add(insert)
-        }
+        trailing.forEach { add(button($0)) }
         add(dismissKey())
+    }
+
+    /// A place's key: its action (the keys follow what it did), or its menu.
+    private func button(_ key: DocBarKey) -> UIButton {
+        switch key.action {
+        case .perform(let perform):
+            return self.key(key.id, key.image, key.title) { [weak self] in
+                perform()
+                self?.refresh()
+            }
+        case .menu(let menu):
+            let button = styled(key.id, key.image, key.title, isOn: false)
+            button.menu = menu
+            button.showsMenuAsPrimaryAction = true
+            // Top to bottom as written, wherever the menu opens.
+            button.preferredMenuElementOrder = .fixed
+            return button
+        }
     }
 
     // MARK: Keys
@@ -161,7 +160,7 @@ final class DocKeyboardBar: UIView {
     // MARK: Glyphs
 
     /// Craft's: a slash before a page of lines.
-    private static let slashGlyph: UIImage? = {
+    static let slashGlyph: UIImage? = {
         let config = UIImage.SymbolConfiguration(pointSize: FlooDesignTokens.Icon.standard, weight: .regular, scale: .medium)
         guard let page = UIImage(systemName: "doc.plaintext", withConfiguration: config) else { return nil }
         let size = CGSize(width: page.size.width + 7, height: page.size.height + 2)
@@ -177,14 +176,14 @@ final class DocKeyboardBar: UIView {
     }()
 
     /// "Aa", as Craft's key has it.
-    private static let formatGlyph: UIImage = {
+    static let formatGlyph: UIImage = {
         let text = NSAttributedString(string: "Aa", attributes: [.font: UIFont.systemFont(ofSize: 21, weight: .regular)])
         let size = text.size()
         return UIGraphicsImageRenderer(size: size).image { _ in text.draw(at: .zero) }.withRenderingMode(.alwaysTemplate)
     }()
 
     /// Three dots stacked (the symbol set has them only side by side).
-    private static let verticalEllipsis: UIImage? = {
+    static let verticalEllipsis: UIImage? = {
         let small = UIImage.SymbolConfiguration(pointSize: FlooDesignTokens.Icon.toolbar, weight: .medium, scale: .medium)
         guard let dots = UIImage(systemName: "ellipsis", withConfiguration: small) else { return nil }
         let size = CGSize(width: dots.size.height, height: dots.size.width)
@@ -195,8 +194,17 @@ final class DocKeyboardBar: UIView {
         }.withRenderingMode(.alwaysTemplate)
     }()
 
+    /// "f(x)", as Craft's key in a cell has it: a formula goes in.
+    static let formulaGlyph: UIImage = {
+        let italic = UIFont.systemFont(ofSize: 19, weight: .regular).fontDescriptor.withSymbolicTraits(.traitItalic)
+        let text = NSMutableAttributedString(string: "f", attributes: [.font: italic.map { UIFont(descriptor: $0, size: 19) } ?? UIFont.systemFont(ofSize: 19)])
+        text.append(NSAttributedString(string: "(x)", attributes: [.font: UIFont.systemFont(ofSize: 17, weight: .regular)]))
+        let size = text.size()
+        return UIGraphicsImageRenderer(size: size).image { _ in text.draw(at: .zero) }.withRenderingMode(.alwaysTemplate)
+    }()
+
     /// A long thin rule, as the divider it puts in.
-    private static let dividerGlyph: UIImage = UIGraphicsImageRenderer(size: CGSize(width: 52, height: 18)).image { _ in
+    static let dividerGlyph: UIImage = UIGraphicsImageRenderer(size: CGSize(width: 52, height: 18)).image { _ in
         UIBezierPath(roundedRect: CGRect(x: 0, y: 8.5, width: 52, height: 1), cornerRadius: 0.5).fill()
     }.withRenderingMode(.alwaysTemplate)
 

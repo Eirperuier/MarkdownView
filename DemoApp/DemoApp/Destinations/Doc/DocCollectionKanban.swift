@@ -285,7 +285,7 @@ private struct DocKanbanCard: View {
             .strokeBorder(focused ? FlooDesignTokens.ColorRole.Accent.primary : FlooDesignTokens.Border.subtle,
                           lineWidth: focused ? Metrics.focusWidth : FlooDesignTokens.Border.standard))
         .onHover { hovering = $0 }
-        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in menu }
+        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in place.menu?.rows?() ?? [] }
         .flooDesignAnchoredPanel(isPresented: fieldPanel != nil,
                                  onDismiss: { if let fieldPanel { controller.close(fieldPanel, in: block) } }) {
             fieldPanelContent
@@ -310,6 +310,7 @@ private struct DocKanbanCard: View {
                 .onChange(of: title) { _, title in controller.setText(title, row: row.id, column: titleColumn.id, in: snapshot.block) }
                 .onChange(of: focused) { _, focused in if !focused { editing = false } }
                 .onSubmit { focused = false }
+                .docEditingPlace(place, isFocused: focused, editor: controller.editor)
         } else {
             Text(title.isEmpty ? String(localized: "Title") : title)
                 .font(.system(size: 15, weight: .semibold))
@@ -321,6 +322,12 @@ private struct DocKanbanCard: View {
     }
 
     /// Craft's card menu: a field to edit (or a new one), a copy, gone.
+    /// The card's title as a place: its menu the card's right-click rows.
+    private var place: DocFieldPlace {
+        DocFieldPlace(field: [block, row.id, "card"] as [AnyHashable], block: block,
+                      menu: DocPlaceMenu(title: String(localized: "Card Actions"), symbol: "ellipsis.circle", opens: .rows { menu }))
+    }
+
     private var menu: [FlooDesignActionMenuSection] {
         let others = snapshot.database.columns.filter { $0.id != titleColumn?.id }
         let properties = FlooDesignActionMenuItem.submenu(String(localized: "Edit Properties"), symbol: "slider.horizontal.3", sections: [

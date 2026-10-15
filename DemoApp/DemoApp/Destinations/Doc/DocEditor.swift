@@ -69,6 +69,8 @@ final class DocEditor {
     lazy var blocks = DocBlockController(demo: demo, editor: self)
     /// Where the command menu's "/" is while it's open.
     var slashOrigin: DocPosition?
+    /// The field that has the focus, as a place (SwiftUI's fields say so: DocEditingPlace).
+    var focusedField: (any DocEditingPlace)?
     /// Images or files being picked and kept, to go in once they are (the tests wait on it).
     var inserting: Task<Void, Never>?
     /// The list that doesn't scroll while the menu is open.
@@ -115,6 +117,16 @@ final class DocEditor {
             let curve = note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt
             MainActor.assumeIsolated { self?.updateKeyboardBar(duration: duration, curve: curve) }
         }
+        // The keyboard going to another text (a cell's name, a source, a field), or leaving
+        // one: the bar follows, once the responder has settled.
+        for name in [UITextView.textDidBeginEditingNotification, UITextView.textDidEndEditingNotification,
+                     UITextField.textDidBeginEditingNotification, UITextField.textDidEndEditingNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    DispatchQueue.main.async { self?.placeChanged() }
+                }
+            }
+        }
         demo.onReceive = { [weak self] steps in self?.received(steps) }
         slash.choose = { [weak self] item in self?.chooseSlash(item) }
         slash.dismiss = { [weak self] in self?.dismissSlash() }
@@ -139,12 +151,13 @@ final class DocEditor {
         if let selection, tables.cell(of: selection.head.block) != nil { self.selection = nil }
     }
 
-    /// The keyboard bar is up while the keyboard is, for a block's text; it comes and
-    /// goes in the keyboard's animation, sliding in and out from behind it.
+    /// The keyboard bar is up while the keyboard is, for a place on the page
+    /// (DocEditingPlace); it comes and goes in the keyboard's animation, sliding in and out
+    /// from behind it.
     func updateKeyboardBar(duration: Double? = nil, curve: UInt? = nil) {
-        let view = allViews.first(where: \.isFirstResponder)
-        let keyboard = view?.window.map { $0.convert(DocScrolling.keyboard, from: nil) } ?? .null
-        let shows = !keyboard.isNull && keyboard.height > 0 && keyboard.minY < (view?.window?.bounds.maxY ?? 0) - 1
+        let window = keyboardBarStage.window
+        let keyboard = window.map { $0.convert(DocScrolling.keyboard, from: nil) } ?? .null
+        let shows = editingPlace != nil && !keyboard.isNull && keyboard.height > 0 && keyboard.minY < (window?.bounds.maxY ?? 0) - 1
         DocScrolling.keyboardBar = shows ? DocKeyboardBar.height : 0
         keyboardBarStage.place(shows: shows, keyboard: keyboard, duration: duration, curve: curve)
     }
@@ -1062,6 +1075,11 @@ final class DocEditor {
     /// The keyboard bar's keyboard key: the text being edited lets the focus go.
     func dismissKeyboard() {
         for view in allViews where view.isFirstResponder { view.resignFirstResponder() }
+        // A cell's name, a source, a field: whatever place has it. A column's name being
+        // edited takes the focus back if its view goes (a reload): its editing ends first.
+        let responder = DocFirstResponder.current
+        if (responder as? DocCellTextView)?.key != nil { tables.endEditing() }
+        if editingPlace != nil { responder?.resignFirstResponder() }
     }
 
     /// What presents a sheet over the document (the system colour picker).

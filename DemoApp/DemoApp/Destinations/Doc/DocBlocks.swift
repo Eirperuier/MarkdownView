@@ -941,12 +941,31 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// sheet closes or selecting ends.
     @ObservationIgnored private var returnsTo: DocSelection?
 
-    /// The keyboard bar's ⋮: the caret's block selected; editing goes on at the caret
-    /// when selecting ends.
+    /// The keyboard bar's ⋮: the caret's block (a cell's table) selected; editing goes on
+    /// at the caret when selecting ends.
     func selectCaretBlock() {
         guard !Self.usesHandles, let caret = editor.selection else { return }
-        beginSelecting(caret.head.block)
+        beginSelecting(block(of: caret))
         returnsTo = caret
+    }
+
+    /// ⋮ where the editor has no caret (a column's name, a source, a field): `id` selected,
+    /// the keyboard down.
+    func selectBlock(_ id: DocBlockID) {
+        guard !Self.usesHandles else { return }
+        editor.dismissKeyboard()
+        beginSelecting(id)
+    }
+
+    /// Aa where the editor has no caret: `id` selected, the Style sheet over it.
+    func formatBlock(_ id: DocBlockID) {
+        selectBlock(id)
+        if isSelecting { editor.panels.sheetPage = .main }
+    }
+
+    /// The block a caret is in: a cell's is its table.
+    private func block(of caret: DocSelection) -> DocBlockID {
+        editor.tables.cell(of: caret.head.block)?.block ?? caret.head.block
     }
 
     /// The keyboard bar's Aa: the caret's block selected, the Style sheet over it (Craft's);
@@ -966,7 +985,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         editor.panels.sheetPage = nil
         isChoosingLayout = false
         guard let caret = returnsTo else { return }
-        if selected == [caret.head.block] { endSelecting() } else { returnsTo = nil }
+        if selected == [block(of: caret)] { endSelecting() } else { returnsTo = nil }
     }
 
     /// Starts a phone's selection mode with `id`; on the Mac (no mode) selects it.
@@ -996,7 +1015,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             editor.isEditable = !demo.isAgentWriting
             anchor = nil
             head = nil
-            if let caret = returnsTo, demo.doc.block(caret.head.block) != nil, editor.isEditable { editor.place(caret) }
+            if let caret = returnsTo, editor.textBlock(caret.head.block) != nil, editor.isEditable { editor.place(caret) }
             returnsTo = nil
         }
         layoutOverlays()
