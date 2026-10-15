@@ -2553,7 +2553,7 @@ final class DocEditTests {
             try self.expect(try view(table.id) == table, "the layout steps didn't undo")
 
             // The table grouped by the select: each record under its option, the group of
-            // none first; a kanban made of it keeps the field.
+            // none first; a kanban made of it keeps the field, a table made of that has none.
             collections.setGroup(group, in: table.id, of: id)
             let groups = try self.expectValue(view(table.id).groups(of: collections.rows(snapshot(), view(table.id)), in: original), "not grouped")
             let order = [""] + options.map(\.id.description)
@@ -2561,7 +2561,10 @@ final class DocEditTests {
                             && groups.map(\.key) == order.filter { key in groups.contains { $0.key == key } }, "groups \(groups.map(\.key))")
             collections.setLayout(kanban: true, in: table.id, of: id)
             try self.expect(try view(table.id).layout.groupBy == group, "the kanban took another field")
-            for _ in 0..<2 { try await self.undo() }
+            // Back to a table: not grouped, as it isn't asked to be.
+            collections.setLayout(kanban: false, in: table.id, of: id)
+            try self.expect(try view(table.id).layout == .table(hidden: table.layout.hidden, sort: table.layout.sort), "the table kept a group")
+            for _ in 0..<3 { try await self.undo() }
             try self.expect(try view(table.id) == table, "the grouping didn't undo")
             // A kanban's group left out, and another dragged first: the order turns manual.
             let lanes = DocCollectionController.lanes(kanban, of: try collections.rows(snapshot(), kanban), in: original).map(\.key)

@@ -19,7 +19,6 @@
 //
 
 import SwiftUI
-import UniformTypeIdentifiers
 import DocKit
 import FlooDesign
 import MarkdownView
@@ -188,8 +187,8 @@ final class DocCollectionController {
     }
 
     /// A table becomes a kanban grouped by `group` (or what the table's grouped by, or the
-    /// first select, or the first field after the title), a kanban a table grouped as it was
-    /// (Craft's); what's hidden and the sorting stay.
+    /// first select, or the first field after the title), a kanban an ungrouped table (a
+    /// table groups only when asked to); what's hidden and the sorting stay.
     func setLayout(kanban: Bool, groupedBy group: ColumnID? = nil, in view: CollectionViewID, of block: DocBlockID) {
         guard let (_, database) = snapshot(block) else { return }
         changeView(view, in: block) { view in
@@ -198,8 +197,9 @@ final class DocCollectionController {
                 guard let group = group ?? view.layout.groupBy ?? Self.groupable(in: database).first?.id else { return }
                 if group != view.layout.groupBy { view.grouping = CollectionGrouping() }
                 view.layout = .kanban(groupBy: group, hidden: hidden, sort: sort)
-            } else {
-                view.layout = .table(hidden: hidden, sort: sort, groupBy: view.layout.groupBy)
+            } else if view.layout.isKanban {
+                view.layout = .table(hidden: hidden, sort: sort)
+                view.grouping = CollectionGrouping()
             }
         }
     }
@@ -917,7 +917,6 @@ private struct DocCollectionHeader: View {
     @State private var renaming: CollectionViewID?
     @State private var viewName = ""
     @State private var searching = false
-    @State private var exporting: DocCSVFile?
     @State private var showsViewMenu = false
     @FocusState private var searchFocused: Bool
 
@@ -940,9 +939,6 @@ private struct DocCollectionHeader: View {
         }
         .onAppear { name = collection.name }
         .onChange(of: collection.name) { _, new in if new != name { name = new } }
-        .fileExporter(isPresented: Binding { exporting != nil } set: { if !$0 { exporting = nil } },
-                      document: exporting, contentType: .commaSeparatedText,
-                      defaultFilename: collection.name.isEmpty ? String(localized: "Collection") : collection.name) { _ in exporting = nil }
     }
 
     // MARK: Toolbar
@@ -1100,7 +1096,7 @@ private struct DocCollectionHeader: View {
         if full {
             sections.append(.init(.rows, [
                 .action(String(localized: "Download as CSV"), symbol: "arrow.down.circle") {
-                    exporting = DocCSVFile(text: controller.csv(snapshot, view))
+                    DocCSVExport.save(controller.csv(snapshot, view), named: collection.name.isEmpty ? String(localized: "Collection") : collection.name)
                 },
             ]))
         }
@@ -1202,18 +1198,18 @@ private struct DocCollectionHeader: View {
     }
 }
 
-/// A view's records as a CSV file to save.
-struct DocCSVFile: FileDocument {
-    static let readableContentTypes: [UTType] = [.commaSeparatedText]
-    let text: String
-
-    init(text: String) { self.text = text }
-
-    init(configuration: ReadConfiguration) throws {
-        text = configuration.file.regularFileContents.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: Data(text.utf8))
+/// A view's records saved as a CSV file: the system's export (a save panel on a Mac, the
+/// files picker on a phone), presented by the window's topmost controller. A file exporter
+/// on the block's view has none: the block is in a cell of the page's list.
+enum DocCSVExport {
+    static func save(_ text: String, named name: String) {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent(name.replacingOccurrences(of: "/", with: "-"))
+            .appendingPathExtension("csv")
+        guard (try? Data(text.utf8).write(to: file, options: .atomic)) != nil,
+              let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first,
+              var top = window.rootViewController else { return }
+        while let presented = top.presentedViewController { top = presented }
+        top.present(UIDocumentPickerViewController(forExporting: [file], asCopy: true), animated: true)
     }
 }
