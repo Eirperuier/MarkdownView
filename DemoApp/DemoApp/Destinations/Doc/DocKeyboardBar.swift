@@ -9,8 +9,9 @@
 //
 //  - A cursor: the slash (a "/" typed and the command menu open, even after a word), Aa (the caret's block selected,
 //    the format sheet over it) and ⋮ (the caret's block selected) on the left, editing
-//    going on at the caret once the sheet closes or selecting ends; the keyboard key on
-//    the right. On an empty line a divider key comes in between.
+//    going on at the caret once the sheet closes or selecting ends; + (the system's menu
+//    of what goes in at the caret, DocInsertMenu) and the keyboard key on the right. On
+//    an empty line a divider key comes before them.
 //  - Text selected: the same, without the slash (it would type over the text). What
 //    selected text takes is the system's text menu's Format (DocTextFormat), not keys.
 //
@@ -118,6 +119,14 @@ final class DocKeyboardBar: UIView {
                 self?.editor?.perform(.divider, in: block, replacing: 0..<0, from: DocPosition(block: block.id, offset: 0))
                 self?.refresh()
             })
+        }
+        if !shown.hasSelectedText, let editor {
+            let insert = styled("insert", UIImage(systemName: "plus"), String(localized: "Insert"), isOn: false)
+            insert.menu = DocInsertMenu.menu(editor: editor)
+            insert.showsMenuAsPrimaryAction = true
+            // Top to bottom as written, wherever the menu opens.
+            insert.preferredMenuElementOrder = .fixed
+            add(insert)
         }
         add(dismissKey())
     }

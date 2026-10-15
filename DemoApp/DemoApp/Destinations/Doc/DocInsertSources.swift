@@ -3,7 +3,7 @@
 //  DemoApp
 //
 //  Where images and files come from to go into a document (Craft's insert menu's File,
-//  Scan, Gallery and Camera): each a source the command menu lists while it can be used
+//  Scan, Gallery and Camera; on a Mac, files and image files): each a source the command menu lists while it can be used
 //  here, which shows its picker and gives what was picked. What it gives is a file for
 //  the store to keep (DocBlobs), or content a store already keeps (floo's /drive, picked
 //  from the server: nothing goes up again). Floo registers its own sources beside these.
@@ -42,7 +42,7 @@ protocol DocInsertSource {
 /// The sources the command menu lists, in its order.
 @MainActor
 enum DocInsertSources {
-    static var all: [any DocInsertSource] = [DocFileSource(), DocScanSource(), DocPhotosSource(), DocCameraSource()]
+    static var all: [any DocInsertSource] = [DocFileSource.files, DocScanSource(), DocFileSource.images, DocPhotosSource(), DocCameraSource()]
 
     static var available: [any DocInsertSource] { all.filter(\.isAvailable) }
 
@@ -58,17 +58,25 @@ enum DocInsertSources {
 
 // MARK: Files
 
-/// Files (the Files app; on a Mac, the open panel), copied.
+/// Files (the Files app; on a Mac, the open panel), copied: any, or images only (a Mac's
+/// pictures are files; it has no photo picker of its own).
 struct DocFileSource: DocInsertSource {
-    let id = "insert-file"
-    let title = String(localized: "File")
-    let symbol = "folder"
-    let glyph = DocBlockIcon.Glyph.folder
-    let keywords = ["file", "attachment", "upload", "wenjian"]
-    var isAvailable: Bool { true }
+    let id: String
+    let title: String
+    let symbol: String
+    let glyph: DocBlockIcon.Glyph
+    let keywords: [String]
+    let types: [UTType]
+    let isAvailable: Bool
+
+    static let files = DocFileSource(id: "insert-file", title: String(localized: "File"), symbol: "folder", glyph: .folder,
+                                     keywords: ["file", "attachment", "upload", "wenjian"], types: [.item], isAvailable: true)
+
+    static let images = DocFileSource(id: "insert-image", title: String(localized: "Image"), symbol: "photo", glyph: .image,
+                                      keywords: ["image", "picture", "photo", "tupian"], types: [.image], isAvailable: DocDevice.isMac)
 
     func pick(over presenter: UIViewController) async -> [DocPicked] {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         picker.allowsMultipleSelection = true
         let urls: [URL] = await DocPickerSession.run(picker, over: presenter) { session in
             let delegate = DocumentDelegate(session: session)
@@ -98,7 +106,8 @@ struct DocPhotosSource: DocInsertSource {
     let symbol = "photo.on.rectangle"
     let glyph = DocBlockIcon.Glyph.photos
     let keywords = ["gallery", "photo", "image", "picture", "tupian", "zhaopian"]
-    var isAvailable: Bool { true }
+    /// A phone's or a pad's; a Mac picks image files (DocFileSource.images).
+    var isAvailable: Bool { !DocDevice.isMac }
 
     func pick(over presenter: UIViewController) async -> [DocPicked] {
         var configuration = PHPickerConfiguration()
@@ -152,13 +161,7 @@ struct DocCameraSource: DocInsertSource {
     let symbol = "camera"
     let glyph = DocBlockIcon.Glyph.camera
     let keywords = ["camera", "photo", "take", "paizhao", "xiangji"]
-    var isAvailable: Bool {
-        #if targetEnvironment(macCatalyst)
-        false
-        #else
-        UIImagePickerController.isSourceTypeAvailable(.camera)
-        #endif
-    }
+    var isAvailable: Bool { !DocDevice.isMac && UIImagePickerController.isSourceTypeAvailable(.camera) }
 
     func pick(over presenter: UIViewController) async -> [DocPicked] {
         let picker = UIImagePickerController()
@@ -191,13 +194,7 @@ struct DocScanSource: DocInsertSource {
     let symbol = "doc.viewfinder"
     let glyph = DocBlockIcon.Glyph.scan
     let keywords = ["scan", "document", "saomiao"]
-    var isAvailable: Bool {
-        #if targetEnvironment(macCatalyst)
-        false
-        #else
-        VNDocumentCameraViewController.isSupported
-        #endif
-    }
+    var isAvailable: Bool { !DocDevice.isMac && VNDocumentCameraViewController.isSupported }
 
     func pick(over presenter: UIViewController) async -> [DocPicked] {
         let camera = VNDocumentCameraViewController()
@@ -233,6 +230,16 @@ struct DocScanSource: DocInsertSource {
 }
 
 // MARK: Presenting
+
+enum DocDevice {
+    static var isMac: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        false
+        #endif
+    }
+}
 
 /// A picker shown until it gives its result once: picked, cancelled, or swiped away
 /// (a sheet's dismissal tells no delegate of the picker's).

@@ -1802,10 +1802,31 @@ final class DocEditTests {
             try await self.select(block.id, 0..<7)
             try self.expect(bar.testItems.map(\.id) == ["format", "more", "dismiss"], "keys \(bar.testItems.map(\.id))")
         }
+        await test("the keyboard bar's + is the system's menu: More's blocks in sections, then where files come from; a command acts at the caret") {
+            let block = try self.block("Loading older")
+            await self.bringIntoView(block.id)
+            try await self.focus(block.id, at: block.text.length)
+            try await self.enter()
+            let line = try self.blockAfter(block.id)
+            let titles = { (element: UIMenuElement) -> [String] in
+                ((element as? UIMenu)?.children ?? []).map(\.title)
+            }
+            let elements = DocInsertMenu.elements(self.editor)
+            let more = try self.expectValue((elements.first as? UIMenu)?.children.first as? UIMenu, "no More")
+            try self.expect(more.title == "More" && more.children.map(titles) == [["Text Style", "List", "Decorations", "Divider"], ["Insert Table", "Page"], ["Code Block", "Math Block"]],
+                            "More \(more.children.map(titles))")
+            let places = elements.dropFirst().map(titles)
+            let expected = DocDevice.isMac ? [["File"], ["Image"]] : [["File"], ["Gallery"]]
+            try self.expect(places.map { $0.filter { !["Scan", "Camera", "Live Text"].contains($0) } } == expected, "sources \(places)")
+            self.editor.performAtCaret(.kind(.heading(level: 1)))
+            try await self.settle()
+            try self.expect(self.demo.doc.block(line.id)?.kind == .heading(level: 1), "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")
+            try await self.undo()
+        }
         await test("the keyboard bar's command key types a slash and opens the menu; Aa and ⋮ select the caret's block (Aa under the format sheet), and back") {
             let block = try self.block("Loading older")
             try await self.focus(block.id, at: block.text.length)
-            try self.expect(bar.testItems.map(\.id) == ["slash", "format", "more", "dismiss"], "keys \(bar.testItems.map(\.id))")
+            try self.expect(bar.testItems.map(\.id) == ["slash", "format", "more", "insert", "dismiss"], "keys \(bar.testItems.map(\.id))")
             if !DocBlockController.usesHandles {
                 // Aa selects the caret's block and opens the sheet over it; closed, the
                 // caret is back where it was.
@@ -1906,7 +1927,7 @@ final class DocEditTests {
             try await self.focus(block.id, at: block.text.length)
             try await self.enter()
             let line = try self.blockAfter(block.id)
-            try self.expect(bar.testItems.map(\.id) == ["slash", "format", "more", "divider", "dismiss"], "keys \(bar.testItems.map(\.id))")
+            try self.expect(bar.testItems.map(\.id) == ["slash", "format", "more", "divider", "insert", "dismiss"], "keys \(bar.testItems.map(\.id))")
             bar.testTap("divider")
             try await self.settle()
             try self.expect(self.demo.doc.block(line.id)?.kind == .divider, "kind \(String(describing: self.demo.doc.block(line.id)?.kind))")

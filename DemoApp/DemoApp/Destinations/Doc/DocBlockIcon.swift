@@ -6,8 +6,10 @@
 //  text style as its letters, a list as its rows, a quote as its bar, a block as its box,
 //  a table as its cells, code as a dark slip with a green band, a formula as a formula,
 //  a divider as its line, a page as a sheet; where an image or file comes from as its
-//  place: a folder, the photos' flower, a camera, a scanner's corners. The command menu shows them in the icons'
-//  column; what isn't a block (indenting, copying, a colour, deleting) keeps its symbol.
+//  place: a folder, a picture, the photos' flower, a camera, a scanner's corners (round
+//  "abc" for Live Text). The command menu shows them in the icons' column, the + key's
+//  system menu as images (`image`); what isn't a block (indenting, copying, a colour,
+//  deleting) keeps its symbol.
 //
 //  Drawn on a canvas of the Mac's menu (22 × 18 points) and scaled to the menu's icon
 //  size, in the content's colours, so they read in light and dark alike.
@@ -19,7 +21,7 @@ import FlooDesign
 private typealias Tokens = FlooDesignTokens
 
 struct DocBlockIcon: View {
-    enum Glyph: Equatable {
+    enum Glyph: Hashable {
         /// A text style's letters, at their size and weight.
         case letters(String, size: CGFloat, weight: Font.Weight)
         case bullets, numbers, tasks, toggles
@@ -29,7 +31,7 @@ struct DocBlockIcon: View {
         case formula
         case divider
         case page
-        case folder, photos, camera, scan
+        case folder, image, photos, camera, scan, liveText
     }
 
     let glyph: Glyph
@@ -158,6 +160,16 @@ struct DocBlockIcon: View {
                     .offset(y: 4)
             }
             .frame(width: 19, height: 15, alignment: .topLeading)
+        case .image:
+            RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                .fill(Self.sky)
+                .overlay(alignment: .topTrailing) {
+                    Circle().fill(Self.sun).frame(width: 3.6, height: 3.6).padding(.top, 2.6).padding(.trailing, 3.2)
+                }
+                .overlay(alignment: .bottom) { Hills().fill(Self.hills) }
+                .clipShape(RoundedRectangle(cornerRadius: 2.5, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 2.5, style: .continuous).strokeBorder(.white.opacity(0.35), lineWidth: 0.5))
+                .frame(width: 19, height: 14)
         case .photos:
             ZStack {
                 ForEach(Self.petals.indices, id: \.self) { index in
@@ -188,11 +200,23 @@ struct DocBlockIcon: View {
                     .frame(width: 18, height: 15)
                 VStack(alignment: .leading, spacing: 2) { bar(9); bar(10); bar(6) }
             }
+        case .liveText:
+            ZStack {
+                ScanCorners().stroke(Self.scanYellow, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                    .frame(width: 19, height: 13)
+                Text("abc")
+                    .font(.system(size: 6.5, weight: .semibold, design: .rounded).italic())
+                    .foregroundStyle(ink)
+                    .fixedSize()
+            }
         }
     }
 
     private static let folderBack = Color(red: 0.16, green: 0.5, blue: 0.93)
     private static let folderFront = Color(red: 0.36, green: 0.67, blue: 1)
+    private static let sky = Color(red: 0.42, green: 0.7, blue: 0.98)
+    private static let sun = Color(red: 1, green: 0.85, blue: 0.3)
+    private static let hills = Color(red: 0.25, green: 0.66, blue: 0.38)
     private static let scanYellow = Color(red: 0.98, green: 0.74, blue: 0.1)
     /// The photos' flower, clockwise from the top.
     private static let petals: [Color] = [
@@ -201,6 +225,22 @@ struct DocBlockIcon: View {
         Color(red: 0.25, green: 0.6, blue: 0.95), Color(red: 0.45, green: 0.4, blue: 0.9),
         Color(red: 0.75, green: 0.35, blue: 0.8), Color(red: 0.95, green: 0.3, blue: 0.4),
     ]
+
+    /// A picture's hills: a low one, and a high one behind it.
+    private struct Hills: Shape {
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - rect.height * 0.3))
+            path.addQuadCurve(to: CGPoint(x: rect.minX + rect.width * 0.45, y: rect.maxY - rect.height * 0.25),
+                              control: CGPoint(x: rect.minX + rect.width * 0.22, y: rect.maxY - rect.height * 0.55))
+            path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.maxY - rect.height * 0.35),
+                              control: CGPoint(x: rect.minX + rect.width * 0.75, y: rect.maxY - rect.height * 0.75))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.closeSubpath()
+            return path
+        }
+    }
 
     /// A scanner's four corners.
     private struct ScanCorners: Shape {
@@ -216,6 +256,24 @@ struct DocBlockIcon: View {
             return path
         }
     }
+
+    /// The drawing as an image for a system menu, at the screen's scale, in light and dark
+    /// alike (an image asset of both), its colours its own.
+    static func image(_ glyph: Glyph) -> UIImage {
+        if let image = images[glyph] { return image }
+        let asset = UIImageAsset()
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            let renderer = ImageRenderer(content: DocBlockIcon(glyph: glyph).environment(\.colorScheme, style == .dark ? .dark : .light))
+            renderer.scale = 3
+            guard let image = renderer.uiImage?.withRenderingMode(.alwaysOriginal) else { continue }
+            asset.register(image, with: UITraitCollection(userInterfaceStyle: style))
+        }
+        let image = asset.image(with: UITraitCollection.current)
+        images[glyph] = image
+        return image
+    }
+
+    private static var images: [Glyph: UIImage] = [:]
 
     /// Three rows of a list: a marker and a line each.
     private func rows<Marker: View>(@ViewBuilder marker: @escaping (Int) -> Marker) -> some View {
