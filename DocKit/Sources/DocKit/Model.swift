@@ -178,6 +178,9 @@ public struct DocFile: Hashable, Sendable, Codable {
 
 /// Same shape as `Wire.AnswerCard` minus fence/item/failure.
 public struct DocCard: Hashable, Sendable, Codable {
+    /// The sizes a card is drawn at.
+    public static let sizes = ["glance", "summary", "detail", "collection"]
+
     public var size: String
     public var view: String?
     public var source: String?

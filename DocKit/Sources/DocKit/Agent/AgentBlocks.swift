@@ -10,6 +10,11 @@
 public enum AgentBlocks {
     /// What a model may name: the kinds of block and the values of their fields.
     public static let colors = ["gray", "slate", "purple", "blue", "cyan", "mint", "green", "lemon", "yellow", "red", "orange", "brown"]
+    static let headingLevels = 1...6
+    static let listStyles = ["bullet", "numbered", "task", "toggle"]
+    static let pens = ["circle", "wavy"]
+    static let columnTypes = ["text", "number", "select", "multi_select", "date", "checkbox", "url", "person"]
+    static let viewLayouts = ["table", "kanban"]
 
     /// A block's id as an agent sees it.
     public static func shortID(_ id: DocBlockID) -> String {
@@ -103,6 +108,7 @@ extension AgentBlocks {
             guard let database = doc.databases[id] else { break }
             let names = Dictionary(uniqueKeysWithValues: database.columns.map { ($0.id, $0.name) })
             records(database, into: &object)
+            styles(database, into: &object)
             layout(view, names: names, into: &object)
         case .page(let page):
             object["type"] = "page"
@@ -329,7 +335,9 @@ extension AgentBlocks {
             content = try text()
         case "heading", "h1", "h2", "h3", "h4", "h5", "h6":
             let level = type.count == 2 ? Int(String(type.last!))! : Int(object["level"]?.intValue ?? 1)
-            guard (1...6).contains(level) else { throw AgentFormatError("a heading's level is 1 to 6, not \(level)") }
+            guard headingLevels.contains(level) else {
+                throw AgentFormatError("a heading's level is \(headingLevels.lowerBound) to \(headingLevels.upperBound), not \(level)")
+            }
             kind = .heading(level: level)
             content = try text()
         case "list", "bullet", "numbered", "task", "todo", "toggle":
@@ -339,7 +347,7 @@ extension AgentBlocks {
             case "numbered": kind = .listItem(style: .numbered)
             case "task", "todo": kind = .listItem(style: .task(done: object["done"]?.boolValue ?? false))
             case "toggle": kind = .listItem(style: .toggle(open: object["open"]?.boolValue ?? true))
-            default: throw AgentFormatError("a list's style is bullet, numbered, task or toggle, not \(style)")
+            default: throw AgentFormatError("a list's style is \(listStyles.joined(separator: ", ")), not \(style)")
             }
             content = try text()
         case "quote":
@@ -377,8 +385,8 @@ extension AgentBlocks {
                 layout: try choice(object["layout"], DocLayout.self, default: .regular, field: "a file's layout")))
         case "card":
             let size = (object["size"]?.stringValue ?? "summary").lowercased()
-            guard ["glance", "summary", "detail", "collection"].contains(size) else {
-                throw AgentFormatError("a card's size is glance, summary, detail or collection, not \(size)")
+            guard DocCard.sizes.contains(size) else {
+                throw AgentFormatError("a card's size is \(DocCard.sizes.joined(separator: ", ")), not \(size)")
             }
             let source = plain("source")
             guard !source.isEmpty else { throw AgentFormatError("a card needs its \"source\"") }
@@ -388,7 +396,8 @@ extension AgentBlocks {
             guard !source.isEmpty else { throw AgentFormatError("a view needs its \"source\"") }
             kind = .view(view: DocView(source: source, data: try data(object, results: results)))
         case "table", "database":
-            let database = try table(object, generating: id)
+            var database = try table(object, generating: id)
+            try applyStyles(object, to: &database)
             databases[database.id] = database
             kind = .database(id: database.id, view: try view(object, of: database, kanban: false))
         case "page":
@@ -519,7 +528,7 @@ extension AgentBlocks {
     }
 
     private static func penKind(_ kind: String) throws(AgentFormatError) -> String {
-        guard ["circle", "wavy"].contains(kind.lowercased()) else { throw AgentFormatError("a pen is circle or wavy, not \(kind)") }
+        guard pens.contains(kind.lowercased()) else { throw AgentFormatError("a pen is \(pens.joined(separator: " or ")), not \(kind)") }
         return kind.lowercased()
     }
 
@@ -559,7 +568,7 @@ extension AgentBlocks {
             case "checkbox": type = .checkbox
             case "url": type = .url
             case "person": type = .person
-            default: throw AgentFormatError("a column's type is text, number, select, multi_select, date, checkbox, url or person, not \(typeName)")
+            default: throw AgentFormatError("a column's type is \(columnTypes.joined(separator: ", ")), not \(typeName)")
             }
             columns.append(Column(id: .generate(), name: name, type: type))
         }

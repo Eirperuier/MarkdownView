@@ -3,6 +3,7 @@
 // `doclab read DOC.json [--full ID,ID]`            prints it as the agent reads it
 // `doclab edit DOC.json OPS.json [--results R.json]` applies the operations (a JSON array),
 //   writes the document back and prints each operation's result; R.json maps result names to data
+// `doclab guide`                                  prints what the tools tell a model of blocks and text
 import DocKit
 import Foundation
 
@@ -31,7 +32,11 @@ func print(json: some Encodable) {
 }
 
 let arguments = CommandLine.arguments.dropFirst()
-guard let command = arguments.first, arguments.count >= 2 else { fail("usage: doclab new|read|edit DOC.json …") }
+if arguments.first == "guide" {
+    print(json: AgentGuide.json)
+    exit(0)
+}
+guard let command = arguments.first, arguments.count >= 2 else { fail("usage: doclab new|read|edit DOC.json …, or doclab guide") }
 let path = arguments[arguments.startIndex + 1]
 
 switch command {

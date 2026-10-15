@@ -193,6 +193,11 @@ extension Doc {
                 }
                 try step(.setBlock(block: id, kind: kind, indent: updated.indent, previousKind: existing.kind, previousIndent: existing.indent))
             }
+            // A table's look is its database's too: what the set changed of it, cell by cell.
+            if case .database(let rebuilt, _) = updated.kind, case .database(let current, _) = existing.kind,
+               let from = created[rebuilt], let to = databases[current] {
+                for change in AgentBlocks.styleSteps(from: from, to: to) { try step(.database(id: current, step: change)) }
+            }
             if updated.decoration != existing.decoration {
                 try step(.setDecoration(block: id, decoration: updated.decoration, previous: existing.decoration))
             }
