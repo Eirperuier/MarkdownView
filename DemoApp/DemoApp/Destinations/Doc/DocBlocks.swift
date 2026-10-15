@@ -1844,8 +1844,10 @@ final class DocBlockKeyView: UIView {
 
     override var canBecomeFirstResponder: Bool { true }
 
-    /// Focused while it takes the keys (focusKeys), with no ring of its own.
+    /// Focused while it takes the keys (focusKeys), with no ring of its own; never deferred,
+    /// or after a click the focus lands back on what had it (the sidebar's row).
     override var canBecomeFocused: Bool { isFirstResponder }
+    override var focusItemDeferralMode: UIFocusItemDeferralMode { .never }
 
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
