@@ -78,7 +78,7 @@ enum BlockKind: Hashable, Sendable, Codable {
     case code(language: String?)
     case math                                  // 显示公式,text 是 LaTeX
     case divider
-    case image(DocImage)                       // source、alt;适应/填充、自动/大图
+    case image(DocImage)                       // source、alt;适应/填充、自动/大图;自身尺寸、BlurHash
     case link(DocLink)                         // 书签:url、标题、摘要、预览图、布局
     case file(DocFile)                         // 附件:blob、文件名、大小、布局
     case card(DocCard)                         // §3.4
@@ -153,7 +153,7 @@ floo 的卡片(`.card`,markdown 里是 ` ```floo.card ` 围栏,内容是尺寸�
 
 单击选中,双击打开。打开都交给 SwiftUI 的 `openURL`(和 MarkdownView 正文里的链接一样),App 用自己的 `OpenURLAction` 接管:书签和网址附件给它的网址,本地附件给文件网址,图片写成文件再给文件网址(网上的图片给网址),存下的图片和附件(`blob:`)取到本机后以块里的名字(图片的说明加原图的扩展名)给文件网址。App 不接管时由系统打开;系统打不开的本地文件(手机上)用 Quick Look。
 
-**图片和附件存在哪里**(`DocBlobs`):块里只记内容的哈希 `blob:sha256:<64 位十六进制>`,和 floo 的 BlobRef(floo `docs/files.md`)同一种写法,同样的内容只存一份,引用永远指同一份内容。谁来存是一个协议 `DocBlobStore`:`put` 收下一个文件(复制进去,按哈希命名),`file(for:)` 给出本机上的文件(存在别处的先取回来),`local` 只看本机有没有(排版时不等网络)。demo 的实现存在本机 Application Support 的 `Blobs/`(编辑测试和 `-docFile` 用临时目录,不碰人的那份);floo 换成自己服务端 /drive 的实现(经由路由层出网),块不用变。存下的图片用 ImageIO 读:尺寸从文件头读(按分辨率换成点、按方向转好),所以一插入就按真实比例排版;画面在后台解码成不超过 2400 像素宽的缩略图(`DocImageCache`)。存在服务端、本机还没有的图片先按 4:3 排,取回来以后才有画面。
+**图片和附件存在哪里**(`DocBlobs`):块里只记内容的哈希 `blob:sha256:<64 位十六进制>`,和 floo 的 BlobRef(floo `docs/files.md`)同一种写法,同样的内容只存一份,引用永远指同一份内容。谁来存是一个协议 `DocBlobStore`:`put` 收下一个文件(复制进去,按哈希命名),`file(for:)` 给出本机上的文件(存在别处的先取回来),`local` 只看本机有没有(排版时不等网络)。demo 的实现存在本机 Application Support 的 `Blobs/`(编辑测试和 `-docFile` 用临时目录,不碰人的那份);floo 换成自己服务端 /drive 的实现(经由路由层出网),块不用变。图片插入时把要展示的信息记在块上(`DocImage` 的 `width`、`height`、`blurHash`):自身尺寸(ImageIO 从文件头读,像素按分辨率换成点、按方向转好),和一个 BlurHash(从 32 像素的缩略图算,4×3 个分量,长边 4 个;编解码是 DocKit 的纯 Swift `BlurHash`,服务端也能用)。所以不管图片在不在本机,页面都按它的真实比例排版,画面没到之前画它的模糊图,到了换成画面;没有这些信息的旧图片仍从本机文件头读尺寸,再没有就按 4:3。画面在后台解码成不超过 2400 像素宽的缩略图(`DocImageCache`)。这些是展示信息,和布局一样不进 Markdown;agent 的 `doc_read` 读得到尺寸(BlurHash 只在要全文时给),`set` 改别的字段时它们留着,换了 `url` 就随旧图片一起去掉。
 
 **从哪里插入**(`DocInsertSource`):照 Craft 手机插入菜单的「文件、扫描、图库、相机」,每个来源是一个协议的实现,命令菜单列出这台设备能用的:文件(系统的文件选择器,Mac 上是打开面板,复制进来,可多选)、扫描(VisionKit 的文稿扫描,每页一张图片;只有手机和 iPad 的真机)、图库(系统的照片选择器,可多选,按选的顺序,原样保留 HEIC 等原格式;不用申请相册权限)、相机(拍一张;只有真机)。来源给出的是待存的文件,或某个存储里已经有的内容(floo 的 /drive 选择器选的是服务端已有的文件,不再上传)。floo 往 `DocInsertSources.all` 里加自己的来源。选了以后:ImageIO 读得出的是图片块(说明是文件名去掉扩展名),其余是附件块(文件名、字节数);和「/query」的删除是同一步、一次撤销。这一行只有斜杠时,这一行变成第一块、最后一块后面接一个空行放光标(和分割线一样);行里有字时,插到这一行后面,光标留在原处。什么也没选(取消、下滑关掉)只删掉「/query」。
 

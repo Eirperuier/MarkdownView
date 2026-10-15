@@ -125,7 +125,14 @@ struct DocImageView: View {
 
     var body: some View {
         DocImageLayout(image: image, inGallery: inGallery) {
-            DocMediaPreview(source: image.source) { FlooDesignTokens.Component.MediaCard.panel }
+            DocMediaPreview(source: image.source) {
+                // Its blur while the picture isn't here (kept with the block, DocImage.blurHash).
+                if let blur = image.blurHash.flatMap(DocBlobImages.blur) {
+                    Image(uiImage: blur).resizable()
+                } else {
+                    FlooDesignTokens.Component.MediaCard.panel
+                }
+            }
         }
         .clipShape(.rect(cornerRadius: FlooDesignTokens.Component.MediaCard.cornerRadius, style: .continuous))
         .accessibilityLabel(image.alt)
@@ -189,10 +196,17 @@ enum DocMediaLayout {
 
     /// Fill: a 4:3 box the image covers; fit: the image's own shape.
     static func imageHeight(_ image: DocImage, width: CGFloat) -> CGFloat {
-        let natural = naturalSize(image.source)
+        let natural = naturalSize(image)
         let shown = image.size == .large ? width : min(width, natural?.width ?? width)
         guard image.fit == .fit, let natural, natural.width > 0 else { return (shown * 3 / 4).rounded() }
         return min(640, (shown * natural.height / natural.width).rounded())
+    }
+
+    /// Its own size: the block's, else what its source tells here (an asset's, a kept
+    /// image's header).
+    static func naturalSize(_ image: DocImage) -> CGSize? {
+        if let width = image.width, let height = image.height, width > 0, height > 0 { return CGSize(width: width, height: height) }
+        return naturalSize(image.source)
     }
 
     static func naturalSize(_ source: String) -> CGSize? {
@@ -209,13 +223,13 @@ enum DocMediaLayout {
     /// it shows.
     /// An image alone: large, as wide as the page; else its own width at most.
     static func imageBox(_ image: DocImage, width: CGFloat) -> CGSize {
-        let shown = image.size == .large ? width : min(width, naturalSize(image.source)?.width ?? width)
+        let shown = image.size == .large ? width : min(width, naturalSize(image)?.width ?? width)
         return CGSize(width: shown, height: imageHeight(image, width: width))
     }
 
     /// The picture's size in its box: covering it (fill) or inside it (fit), its shape kept.
     @MainActor static func drawnSize(_ image: DocImage, in box: CGSize) -> CGSize {
-        guard let natural = picture(image.source)?.size, natural.width > 0, natural.height > 0, box.width > 0, box.height > 0 else {
+        guard let natural = picture(image.source)?.size ?? naturalSize(image), natural.width > 0, natural.height > 0, box.width > 0, box.height > 0 else {
             return box
         }
         let scales = (box.width / natural.width, box.height / natural.height)
@@ -480,7 +494,7 @@ extension DocMediaLayout {
     /// fills, or unknown); a card's are all alike.
     static func aspect(_ kind: BlockKind) -> CGFloat {
         guard case .image(let image) = kind else { return 1 }
-        guard image.fit == .fit, let size = naturalSize(image.source), size.height > 0 else { return 4 / 3 }
+        guard image.fit == .fit, let size = naturalSize(image), size.height > 0 else { return 4 / 3 }
         return size.width / size.height
     }
 }
@@ -554,11 +568,61 @@ enum DocBlobImages {
         return CGImageSourceGetCount(source) > 0 && CGImageSourceCopyPropertiesAtIndex(source, 0, nil) != nil
     }
 
-    /// Its size in points: its pixels at its resolution (a 144 dpi screenshot is half
-    /// its pixels), turned as it's shown. Nil while it isn't here.
+    /// Its size in points (`size(of:)`); nil while it isn't here.
     static func naturalSize(_ ref: DocBlobRef) -> CGSize? {
         if let size = sizes.withLock({ $0[ref] }) { return size }
-        guard let file = DocBlobs.store.local(ref), let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+        guard let file = DocBlobs.store.local(ref), let size = size(of: file) else { return nil }
+        sizes.withLock { $0[ref] = size }
+        return size
+    }
+
+    /// What a block keeps of an image (DocImage's width, height and blurHash): its size,
+    /// and its blur from a picture a few dozen pixels across.
+    static func facts(_ file: URL) -> (size: CGSize, blurHash: String?)? {
+        guard let size = size(of: file) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 32,
+        ]
+        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+              let small = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        else { return (size, nil) }
+        let width = small.width, height = small.height
+        var rgba = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = rgba.withUnsafeMutableBytes { bytes in
+            guard let context = CGContext(data: bytes.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+            else { return false }
+            context.draw(small, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return (size, nil) }
+        return (size, BlurHash.encode(rgba: rgba, width: width, height: height, components: BlurHash.components(width: width, height: height)))
+    }
+
+    /// A blur drawn small (it's shown stretched; it has no detail to lose), kept by its hash.
+    static func blur(_ hash: String) -> UIImage? {
+        if let image = blurs.withLock({ $0[hash] }) { return image }
+        let width = 32, height = 32
+        guard let rgba = BlurHash.decode(hash, width: width, height: height),
+              let provider = CGDataProvider(data: Data(rgba) as CFData),
+              let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                                  provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+        else { return nil }
+        let blur = UIImage(cgImage: image)
+        blurs.withLock { $0[hash] = blur }
+        return blur
+    }
+
+    private static let blurs = Mutex<[String: UIImage]>([:])
+
+    /// Its size in points: its pixels at its resolution (a 144 dpi screenshot is half
+    /// its pixels), turned as it's shown.
+    static func size(of file: URL) -> CGSize? {
+        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
               let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue
@@ -566,9 +630,7 @@ enum DocBlobImages {
         let dpi = (properties[kCGImagePropertyDPIWidth] as? NSNumber)?.doubleValue ?? 72
         let scale = 72 / max(72, dpi)
         let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
-        let size = orientation >= 5 ? CGSize(width: height * scale, height: width * scale) : CGSize(width: width * scale, height: height * scale)
-        sizes.withLock { $0[ref] = size }
-        return size
+        return orientation >= 5 ? CGSize(width: height * scale, height: width * scale) : CGSize(width: width * scale, height: height * scale)
     }
 
     private static let sizes = Mutex<[DocBlobRef: CGSize]>([:])

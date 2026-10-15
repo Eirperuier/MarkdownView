@@ -30,7 +30,8 @@ struct AgentBlocksTests {
             block(7, .code(language: "swift"), "let x = 1\nlet y = 2"),
             block(8, .math, "e^{i\\pi} + 1 = 0"),
             block(9, .divider),
-            block(10, .image(image: DocImage(source: "https://a.b/c.png", alt: "Chart", fit: .fill, size: .large))),
+            block(10, .image(image: DocImage(source: "https://a.b/c.png", alt: "Chart", fit: .fill, size: .large,
+                                             width: 640, height: 480.5, blurHash: "LEHV6nWB2yk8pyo0adR*.7kCMdnj"))),
             block(11, .link(link: DocLink(url: "https://a.b", title: "A", summary: "B", image: "https://a.b/i.png", layout: .card))),
             block(12, .file(file: DocFile(source: "blob:1", name: "plan.pdf", size: 2048, layout: .small))),
             block(13, .card(card: card)),
@@ -245,6 +246,25 @@ struct AgentEditTests {
         #expect(paragraph.text.string == "Steps rose 12% and sleep went down.")
         #expect(paragraph.text.marks == [MarkSpan(range: 6..<14, mark: .bold)])
         #expect(doc.block(fixedID(1))?.kind == .heading(level: 2) && doc.block(fixedID(1))?.decoration == .block)
+    }
+
+    /// An image's size and blur stay through a set of its other fields, and go with its
+    /// picture when a set gives it another URL; the blur shows only in a full read.
+    @Test
+    func anImagesSizeAndBlurGoWithItsPicture() throws {
+        let image = DocImage(source: "blob:sha256:aa", alt: "Pier", width: 300, height: 200, blurHash: "LEHV6nWB2yk8pyo0adR*.7kCMdnj")
+        var doc = Doc(id: fixedID(0), blocks: [block(1, .image(image: image))])
+        let short = AgentBlocks.shortID(fixedID(1))
+        guard case .object(let read) = AgentBlocks.json(doc.blocks[0], in: doc) else { Issue.record("not an object"); return }
+        #expect(read["width"] == .double(300) && read["blurhash"] == nil)
+        var results = doc.agentEdit([json(#"{"op": "set", "id": "\#(short)", "fit": "fill"}"#)])
+        #expect(results.allSatisfy { $0.error == nil }, "\(results.map(\.json))")
+        var expected = image
+        expected.fit = .fill
+        #expect(doc.blocks[0].kind == .image(image: expected))
+        results = doc.agentEdit([json(#"{"op": "set", "id": "\#(short)", "url": "https://a.b/c.png"}"#)])
+        #expect(results.allSatisfy { $0.error == nil }, "\(results.map(\.json))")
+        #expect(doc.blocks[0].kind == .image(image: DocImage(source: "https://a.b/c.png", alt: "Pier", fit: .fill)))
     }
 
     /// One operation that fails leaves the document as it was for it, and the others go on.

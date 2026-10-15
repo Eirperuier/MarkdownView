@@ -123,26 +123,40 @@ public struct DocImage: Hashable, Sendable, Codable {
     public var fit: Fit
     /// Its natural size up to the page's width, or the page's width.
     public var size: Size
+    /// Its own size in points (its pixels at its resolution, turned as it's shown), when
+    /// known: the page lays it out at its shape before the picture is here.
+    public var width: Double?
+    public var height: Double?
+    /// The picture blurred (BlurHash), drawn until it's here.
+    public var blurHash: String?
 
     public enum Fit: String, Hashable, Sendable, Codable, CaseIterable { case fit, fill }
     public enum Size: String, Hashable, Sendable, Codable, CaseIterable { case auto, large }
 
-    public init(source: String, alt: String = "", fit: Fit = .fit, size: Size = .auto) {
+    public init(source: String, alt: String = "", fit: Fit = .fit, size: Size = .auto,
+                width: Double? = nil, height: Double? = nil, blurHash: String? = nil) {
         self.source = source
         self.alt = alt
         self.fit = fit
         self.size = size
+        self.width = width
+        self.height = height
+        self.blurHash = blurHash
     }
 
-    private enum CodingKeys: String, CodingKey { case source, alt, fit, size }
+    private enum CodingKeys: String, CodingKey { case source, alt, fit, size, width, height, blurHash }
 
-    /// Images written before fit and size existed read as fit, auto.
+    /// Images written before fit and size existed read as fit, auto; before the size and
+    /// blur were kept, without them.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         source = try container.decode(String.self, forKey: .source)
         alt = try container.decode(String.self, forKey: .alt)
         fit = try container.decodeIfPresent(Fit.self, forKey: .fit) ?? .fit
         size = try container.decodeIfPresent(Size.self, forKey: .size) ?? .auto
+        width = try container.decodeIfPresent(Double.self, forKey: .width)
+        height = try container.decodeIfPresent(Double.self, forKey: .height)
+        blurHash = try container.decodeIfPresent(String.self, forKey: .blurHash)
     }
 }
 

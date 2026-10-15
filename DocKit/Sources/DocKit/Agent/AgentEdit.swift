@@ -149,6 +149,10 @@ extension Doc {
             let existing = block(id)!
             var json = AgentBlocks.json(existing, in: self, full: true)
             guard case .object(var fields) = json else { return [] }
+            // What describes an image's picture goes with it: another URL, not given them, has none.
+            if case .image(let image) = existing.kind, let url = object["url"]?.stringValue, url != image.source {
+                for key in ["width", "height", "blurhash"] { fields[key] = nil }
+            }
             for (key, value) in object where !["op", "id"].contains(key) { fields[key] = value }
             json = .object(fields)
             var created = databases

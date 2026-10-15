@@ -171,6 +171,9 @@ extension DocImage: AgentDescribed {
             AgentField("url"), AgentField("alt"),
             AgentField("fit", Fit.allCases.map(\.rawValue), about: "whole inside its box, or filling it cropped"),
             AgentField("size", Size.allCases.map(\.rawValue), about: "its own size up to the page's width, or the page's width"),
+            AgentField("width", about: "its own size in points, when known", readOnly: true),
+            AgentField("height", readOnly: true),
+            AgentField("blurhash", about: "the picture blurred, when doc_read was asked for it full", readOnly: true),
         ])]
     }
 }

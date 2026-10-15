@@ -84,6 +84,11 @@ extension AgentBlocks {
             if !image.alt.isEmpty { object["alt"] = .string(image.alt) }
             object["fit"] = .string(image.fit.rawValue)
             object["size"] = .string(image.size.rawValue)
+            if let width = image.width, let height = image.height {
+                object["width"] = .double(width)
+                object["height"] = .double(height)
+            }
+            if full, let blurHash = image.blurHash { object["blurhash"] = .string(blurHash) }
         case .link(let link):
             object["type"] = "link"
             object["url"] = .string(link.url)
@@ -373,7 +378,9 @@ extension AgentBlocks {
             kind = .image(image: DocImage(
                 source: source, alt: plain("alt"),
                 fit: try choice(object["fit"], DocImage.Fit.self, default: .fit, field: "an image's fit"),
-                size: try choice(object["size"], DocImage.Size.self, default: .auto, field: "an image's size")))
+                size: try choice(object["size"], DocImage.Size.self, default: .auto, field: "an image's size"),
+                width: object["width"]?.doubleValue, height: object["height"]?.doubleValue,
+                blurHash: object["blurhash"]?.stringValue))
         case "link", "bookmark":
             let url = plain("url")
             guard !url.isEmpty else { throw AgentFormatError("a link needs its \"url\"") }

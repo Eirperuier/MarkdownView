@@ -296,7 +296,8 @@ extension DocEditor {
         return top
     }
 
-    /// What was picked, kept by the store, as blocks (what couldn't be kept is left out).
+    /// What was picked, kept by the store, as blocks (what couldn't be kept is left out),
+    /// worked out away from the main thread.
     private static func keep(_ picked: [DocPicked]) async -> [BlockKind] {
         var kinds: [BlockKind] = []
         for item in picked {
@@ -304,20 +305,26 @@ extension DocEditor {
             case .file(let url, let name, let type):
                 defer { try? FileManager.default.removeItem(at: url) }
                 guard let blob = try? await DocBlobs.store.put(url, type: type) else { continue }
-                kinds.append(kind(of: blob, name: name))
+                kinds.append(await Task.detached(priority: .userInitiated) { kind(of: blob, name: name) }.value)
             case .blob(let blob, let name):
-                kinds.append(kind(of: blob, name: name))
+                kinds.append(await Task.detached(priority: .userInitiated) { kind(of: blob, name: name) }.value)
             }
         }
         return kinds
     }
 
-    /// An image if it is one ImageIO reads (here, or by its type if it isn't here yet),
-    /// named by its file's name; else a file.
-    private static func kind(of blob: DocBlob, name: String) -> BlockKind {
-        let isImage = DocBlobs.store.local(blob.ref).map(DocBlobImages.reads) ?? blob.type.conforms(to: .image)
-        if isImage { return .image(image: DocImage(source: blob.ref.source, alt: (name as NSString).deletingPathExtension)) }
-        return .file(file: DocFile(source: blob.ref.source, name: name, size: blob.byteCount))
+    /// An image if it is one ImageIO reads, with its size and blur (DocBlobImages.facts),
+    /// named by its file's name; else a file. Content that isn't here yet goes by its type.
+    private nonisolated static func kind(of blob: DocBlob, name: String) -> BlockKind {
+        let alt = (name as NSString).deletingPathExtension
+        guard let file = DocBlobs.store.local(blob.ref) else {
+            return blob.type.conforms(to: .image) ? .image(image: DocImage(source: blob.ref.source, alt: alt))
+                : .file(file: DocFile(source: blob.ref.source, name: name, size: blob.byteCount))
+        }
+        guard DocBlobImages.reads(file) else { return .file(file: DocFile(source: blob.ref.source, name: name, size: blob.byteCount)) }
+        let facts = DocBlobImages.facts(file)
+        return .image(image: DocImage(source: blob.ref.source, alt: alt, width: facts.map { Double($0.size.width) },
+                                      height: facts.map { Double($0.size.height) }, blurHash: facts?.blurHash))
     }
 
     /// The picked blocks in, and the "/query" out if it's still what was typed.

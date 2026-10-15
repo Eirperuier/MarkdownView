@@ -845,7 +845,11 @@ final class DocEditTests {
             guard case .image(let image)? = self.demo.doc.block(line.id)?.kind else { throw Failure(description: "line is \(String(describing: self.demo.doc.block(line.id)?.kind))") }
             let ref = try self.expectValue(DocBlobRef(source: image.source), "source \(image.source)")
             try self.expect(image.alt == "Picked", "alt \(image.alt)")
-            try self.expect(DocMediaLayout.naturalSize(image.source) == CGSize(width: 300, height: 200), "natural size \(String(describing: DocMediaLayout.naturalSize(image.source)))")
+            try self.expect(image.width == 300 && image.height == 200 && image.blurHash.flatMap(DocBlobImages.blur) != nil,
+                            "kept \(String(describing: image.width)) × \(String(describing: image.height)) \(String(describing: image.blurHash))")
+            // The block's size lays it out though its picture isn't here.
+            let away = DocImage(source: "blob:sha256:" + String(repeating: "0", count: 64), width: 400, height: 100, blurHash: image.blurHash)
+            try self.expect(DocMediaLayout.imageBox(away, width: 720) == CGSize(width: 400, height: 100), "away \(DocMediaLayout.imageBox(away, width: 720))")
             let file = try self.blockAfter(line.id)
             guard case .file(let attached) = file.kind else { throw Failure(description: "after the image: \(file.kind)") }
             try self.expect(attached.name == "notes.txt" && attached.size == Self.notes.utf8.count && DocBlobRef(source: attached.source) != nil,
