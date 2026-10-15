@@ -452,7 +452,94 @@ final class DocEditor {
             session &+= 1
             return
         }
+        // Markdown pasted into a line of text (or paragraphs with a blank line between):
+        // its blocks, as flowith's composer takes them.
+        if cell == nil, block.kind.allowsMarks, replacement.count > 1, Self.isMarkdown(replacement) {
+            pasteMarkdown(replacement, replacing: modelRange, in: block)
+            return
+        }
         insert(replacement, replacing: modelRange, in: block)
+    }
+
+    /// Markdown pasted at the cursor (flowith's composer): its blocks go in there, the
+    /// words before the cursor starting the first (when it's a line of text), those after
+    /// it ending the last (or a line of their own under it); the cursor ends up where the
+    /// pasted words end. A page in it opens a copy of its page, as a duplicated one does
+    /// (DocStore). One undo step.
+    private func pasteMarkdown(_ markdown: String, replacing range: Range<Int>, in block: DocBlock) {
+        let fragment = DocFragment(markdown: markdown)
+        guard let first = fragment.blocks.first else { return insert(markdown, replacing: range, in: block) }
+        let pasted = fragment.blocks.map { pasted in
+            var pasted = pasted
+            pasted.indent = min(pasted.indent + block.indent, DocBlock.maxIndent)
+            if case .page(var page) = pasted.kind {
+                page.doc = DocStore.shared.copyPage(page.doc)
+                pasted.kind = .page(page: page)
+            }
+            return pasted
+        }
+        let after = block.text.slice(range.upperBound..<block.text.length)
+        var steps = fragment.databases.values.map { DocStep.createDatabase(database: $0) }
+        if range.lowerBound < block.text.length {
+            steps.append(.deleteText(block: block.id, range: range.lowerBound..<block.text.length, removed: DocText()))
+        }
+        // The first block's words go on from those before the cursor.
+        var last = (id: block.id, length: range.lowerBound, takesText: true)
+        var rest = pasted[...]
+        if first.kind.allowsMarks {
+            steps.append(.insertText(block: block.id, at: range.lowerBound, text: first.text))
+            last.length += first.text.length
+            rest = rest.dropFirst()
+        }
+        for pasted in rest {
+            steps.append(.insertBlock(block: pasted, after: last.id))
+            last = (pasted.id, pasted.text.length, pasted.kind.allowsMarks)
+        }
+        // A line left with nothing in it (a card pasted on an empty line) goes.
+        if range.lowerBound == 0, !first.kind.allowsMarks {
+            var emptied = block
+            emptied.text = DocText()
+            steps.append(.deleteBlock(block: emptied, after: nil))
+        }
+        let caret: DocPosition
+        if last.takesText {
+            if !after.isEmpty { steps.append(.insertText(block: last.id, at: last.length, text: after)) }
+            caret = DocPosition(block: last.id, offset: last.length)
+        } else {
+            let line = DocBlock(id: demo.newBlockID(), kind: after.isEmpty ? Self.kindAfterSplit(block.kind) : block.kind, indent: block.indent, text: after)
+            steps.append(.insertBlock(block: line, after: last.id))
+            caret = DocPosition(block: line.id, offset: 0)
+        }
+        let before = DocSelection(anchor: DocPosition(block: block.id, offset: range.lowerBound), head: DocPosition(block: block.id, offset: range.upperBound))
+        commit(steps, from: before, to: DocSelection(anchor: caret, head: caret))
+        session &+= 1
+    }
+
+    /// Whether pasted text is markdown to take as blocks (flowith's composer's test): it
+    /// has markdown's marks (a fence, emphasis or code; a line that is a heading, quote,
+    /// list item, numbered item, divider, link or image, or two of a table), or paragraphs
+    /// with a blank line between.
+    static func isMarkdown(_ text: String) -> Bool {
+        let text = text.replacing("\r\n", with: "\n").replacing("\r", with: "\n")
+        if ["```", "**", "__", "~~", "`"].contains(where: text.contains) { return true }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        var tableLines = 0
+        for line in lines {
+            guard !line.isEmpty else { tableLines = 0; continue }
+            let hashes = line.prefix { $0 == "#" }.count
+            if (1...6).contains(hashes), line.dropFirst(hashes).first == " " { return true }
+            if ["> ", "- ", "* ", "+ "].contains(where: line.hasPrefix) { return true }
+            if line.wholeMatch(of: /\d+[.)] .*/) != nil { return true }
+            if line.count >= 3, let mark = line.first, "-*_".contains(mark), line.allSatisfy({ $0 == mark }) { return true }
+            if line.wholeMatch(of: /!?\[[^\]]*\]\([^)]*\)/) != nil { return true }
+            if line.hasPrefix("|"), line.filter({ $0 == "|" }).count >= 2 {
+                tableLines += 1
+                if tableLines >= 2 { return true }
+            } else {
+                tableLines = 0
+            }
+        }
+        return lines.count >= 3 && (1..<(lines.count - 1)).contains { lines[$0].isEmpty && !lines[$0 - 1].isEmpty && !lines[$0 + 1].isEmpty }
     }
 
     /// `text` as a web address (http, https or mailto, nothing around it).

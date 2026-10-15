@@ -893,6 +893,37 @@ final class DocEditTests {
             try self.expect(self.editor.link(over: 0..<7, in: self.demo.doc.block(block.id)!) == "https://floo.app/x", "not linked")
             try self.expect(DocEditor.webAddress("not a url") == nil && DocEditor.webAddress("ftp://x") == nil && DocEditor.webAddress(" https://a.b/c ") == "https://a.b/c", "webAddress")
         }
+        await test("Markdown pasted into a line is its blocks: the words before the cursor start the first, those after end the last; a page in it opens a copy; one undo each") {
+            try self.expect(!DocEditor.isMarkdown("plain words") && !DocEditor.isMarkdown("one\ntwo") && DocEditor.isMarkdown("one\n\ntwo")
+                            && DocEditor.isMarkdown("## Title") && DocEditor.isMarkdown("1. first") && !DocEditor.isMarkdown("#hashtag"), "isMarkdown")
+            let block = try self.block("Loading older")
+            let before = self.demo.doc.blocks.map(\.id)
+            try await self.focus(block.id, at: 7)
+            let view = try self.view()
+            let start = try self.expectValue(self.editor.textStart(in: view, block: block), "not in sync")
+            self.editor.replace(NSRange(location: start + 7, length: 0), with: "**one**\n\n# Two\n\n- three", in: view, block: block.id)
+            let index = try self.expectValue(self.demo.doc.blocks.firstIndex { $0.id == block.id }, "the line went")
+            let lines = Array(self.demo.doc.blocks[index...].prefix(3))
+            try self.expect(lines.map(\.text.string) == ["Loadingone", "Two", "three" + block.text.string.dropFirst(7)], "lines \(lines.map(\.text.string))")
+            try self.expect(lines[0].kind == block.kind && lines[0].text.marks.contains { $0.range == 7..<10 && $0.mark == .bold }, "the first line: \(lines[0].kind), \(lines[0].text.marks)")
+            if case .heading = lines[1].kind {} else { throw Failure(description: "not a heading: \(lines[1].kind)") }
+            if case .listItem = lines[2].kind {} else { throw Failure(description: "not a list item: \(lines[2].kind)") }
+            try self.expect(self.editor.selection?.head == DocPosition(block: lines[2].id, offset: 5), "cursor at \(String(describing: self.editor.selection?.head))")
+            try await self.undo()
+            try self.expect(self.demo.doc.blocks.map(\.id) == before && self.demo.doc.block(block.id)?.text == block.text, "the paste didn't undo")
+            // A page block copied and pasted opens a page of its own.
+            let pageBlock = try self.expectValue(self.demo.doc.blocks.first { if case .page = $0.kind { true } else { false } }, "no page block")
+            guard case .page(let page) = pageBlock.kind else { return }
+            let fence = try self.expectValue(self.demo.doc.markdown(of: pageBlock.id), "no markdown")
+            try await self.focus(block.id, at: block.text.length)
+            let end = try self.expectValue(self.editor.textStart(in: try self.view(), block: block), "not in sync") + block.text.length
+            self.editor.replace(NSRange(location: end, length: 0), with: fence, in: try self.view(), block: block.id)
+            let pasted = try self.expectValue(self.demo.doc.blocks.dropFirst(index + 1).first, "nothing pasted")
+            guard case .page(let copy) = pasted.kind else { throw Failure(description: "not a page: \(pasted.kind)") }
+            try self.expect(copy.doc != page.doc && copy.title == page.title, "the pasted page: \(copy.doc == page.doc ? "the same page" : copy.title)")
+            try await self.undo()
+            try self.expect(self.demo.doc.blocks.map(\.id) == before, "the page paste didn't undo")
+        }
 
         // MARK: Code and math
 
