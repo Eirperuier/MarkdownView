@@ -942,6 +942,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         style.paragraphSpacingBefore = 5
         style.paragraphSpacing = max(0, 5 + configuration.componentSpacing - spacing)
         style.lineSpacing = spacing
+        style.alignment = typography.paragraphAlignment
         return content.mergingAttributes(
             AttributeContainer([.paragraphStyle: style as NSParagraphStyle])
         )

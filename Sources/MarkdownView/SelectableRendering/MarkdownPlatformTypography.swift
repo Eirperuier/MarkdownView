@@ -23,6 +23,8 @@ public struct MarkdownPlatformTypography: Hashable, Sendable {
         /// The text style's own line height: iOS's body font keeps its leading (17 pt on a
         /// 22 pt line). False: the font's alone, the line SwiftUI's Text gives it.
         public var keepsTextStyleLeading = true
+        /// The system font's design (serif, rounded, monospaced); nil, the default.
+        public var design: Font.Design?
 
         public init(_ textStyle: PlatformFont.TextStyle, weight: PlatformFont.Weight = .regular, scale: CGFloat? = nil) {
             self.textStyle = textStyle
@@ -43,6 +45,8 @@ public struct MarkdownPlatformTypography: Hashable, Sendable {
     /// default, as Craft's: the system font's bold trait gives semibold, too close to the
     /// text around it (the CJK face has bold and heavier weights too).
     public var strongWeight: PlatformFont.Weight
+    /// How paragraphs set their lines (a table cell's alignment); natural by default.
+    public var paragraphAlignment: NSTextAlignment = .natural
 
     public init(body: Style, headings: [Style], inlineCode: Style? = nil, tableBody: Style? = nil,
                 strongWeight: PlatformFont.Weight = .bold) {
@@ -83,6 +87,36 @@ extension MarkdownPlatformTypography.Style {
     /// The style's font at `dynamicTypeSize`, else at the system's setting. Regular weight keeps
     /// the preferred font itself, unless it's not to keep the text style's leading.
     func font(at dynamicTypeSize: DynamicTypeSize?, monospaced: Bool = false) -> PlatformFont {
+        let font = plainFont(at: dynamicTypeSize, monospaced: monospaced)
+        guard !monospaced, let design = design.flatMap(Self.systemDesign) else { return font }
+        #if canImport(UIKit)
+        return font.fontDescriptor.withDesign(design).map { UIFont(descriptor: $0, size: font.pointSize) } ?? font
+        #else
+        return font.fontDescriptor.withDesign(design).flatMap { NSFont(descriptor: $0, size: font.pointSize) } ?? font
+        #endif
+    }
+
+    #if canImport(UIKit)
+    private static func systemDesign(_ design: Font.Design) -> UIFontDescriptor.SystemDesign? {
+        switch design {
+        case .serif: .serif
+        case .rounded: .rounded
+        case .monospaced: .monospaced
+        default: nil
+        }
+    }
+    #else
+    private static func systemDesign(_ design: Font.Design) -> NSFontDescriptor.SystemDesign? {
+        switch design {
+        case .serif: .serif
+        case .rounded: .rounded
+        case .monospaced: .monospaced
+        default: nil
+        }
+    }
+    #endif
+
+    private func plainFont(at dynamicTypeSize: DynamicTypeSize?, monospaced: Bool) -> PlatformFont {
         #if canImport(UIKit)
         let traits = dynamicTypeSize.map { UITraitCollection(preferredContentSizeCategory: $0.uiContentSizeCategory) }
         let preferred = UIFont.preferredFont(forTextStyle: textStyle, compatibleWith: traits)

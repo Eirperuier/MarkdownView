@@ -279,6 +279,7 @@ struct MarkdownTableContent: View {
     @Environment(\.markdownMotion) private var motion
     @Environment(\.markdownTableCellsSelectable) private var cellsSelectable
     @Environment(\.markdownTableCellHooks) private var cellHooks
+    @Environment(\.markdownTableAppearance) private var appearance
     /// The cells' hooks (MarkdownTableCellHookBox), the latest the host gave.
     @State private var hookBox = MarkdownTableCellHookBox()
     /// Where the rows and columns are (MarkdownTableGridKey).
@@ -431,47 +432,53 @@ struct MarkdownTableContent: View {
                 ForEach(stripeRows) { item in
                     AdaptiveTableRowStripe(
                         blockTextOffset: offsets ? item.blockTextOffset : 0,
-                        characterCount: offsets ? item.characterCount : 0
+                        characterCount: offsets ? item.characterCount : 0,
+                        color: stripeColor
                     )
                 }
                 ForEach(cache.headerItems) { item in
                     let info = cache.flatCellInfos[item.flatIndex]
                     let isReplaced = replaced.contains(item.id)
+                    let look = look(of: item, columnCount: columnCount)
                     AdaptiveTableCell(
                         cell: item.cell,
                         cellContentHash: item.contentHash,
                         blockTextOffset: offsets ? item.blockTextOffset : 0,
                         characterCount: info.count,
-                        isHeader: item.isHeader,
+                        isHeader: look.isHeader,
                         identity: item.id,
                         position: MarkdownTableCellPosition(row: item.row, column: item.column),
                         hooks: hooks,
-                        isReplaced: isReplaced
+                        isReplaced: isReplaced,
+                        look: look
                     )
                         .equatable()
-                        .tableCellHash(item.contentHash ^ (isReplaced ? Self.replacedHashSalt : 0), identity: item.id)
+                        .tableCellHash(item.contentHash ^ (isReplaced ? Self.replacedHashSalt : 0) ^ look.hashValue, identity: item.id)
                 }
                 ForEach(cache.bodyItems) { item in
                     let info = cache.flatCellInfos[item.flatIndex]
                     let upgraded = upgradedCells.contains(item.id)
                     let isReplaced = replaced.contains(item.id)
+                    let look = look(of: item, columnCount: columnCount)
                     AdaptiveTableCell(
                         cell: item.cell,
                         cellContentHash: item.contentHash,
                         blockTextOffset: offsets ? item.blockTextOffset : 0,
                         characterCount: info.count,
-                        isHeader: item.isHeader,
+                        isHeader: look.isHeader,
                         identity: item.id,
                         position: MarkdownTableCellPosition(row: item.row, column: item.column),
                         hooks: hooks,
                         isReplaced: isReplaced,
+                        look: look,
                         selectableUpgraded: upgraded,
                         onSelectableUpgrade: { upgradedCells.insert(item.id) }
                     )
                         .equatable()
                         // 升级混入 hash:该 cell 切可选中后高度会变(UITextView 行盒),
-                        // 让 AdaptiveTableLayout 重测,不能吃原版的缓存尺寸。
-                        .tableCellHash(item.contentHash ^ (upgraded ? 0x5e1ec7 : 0) ^ (isReplaced ? Self.replacedHashSalt : 0), identity: item.id)
+                        // 让 AdaptiveTableLayout 重测,不能吃原版的缓存尺寸。A look of its
+                        // own (a typeface, bold) measures again too.
+                        .tableCellHash(item.contentHash ^ (upgraded ? 0x5e1ec7 : 0) ^ (isReplaced ? Self.replacedHashSalt : 0) ^ look.hashValue, identity: item.id)
                 }
             }
             .anchorPreference(key: MarkdownTableBoundsKey.self, value: .bounds) { $0 }
@@ -494,6 +501,23 @@ struct MarkdownTableContent: View {
 
     private static let replacedHashSalt = 0x7e9a1ace
 
+    /// A cell's look: the host's (MarkdownTableAppearance), and whether it reads as a header.
+    private func look(of item: AdaptiveTableCellItem, columnCount: Int) -> AdaptiveTableCellLook {
+        AdaptiveTableCellLook(
+            isHeader: item.isHeader && appearance.headerRow,
+            isHeaderColumn: !item.isHeader && item.column == 0 && appearance.headerColumn,
+            cell: appearance.cells[MarkdownTableCellPosition(row: item.row, column: item.column)],
+            isFirstColumn: item.column == 0,
+            isLastColumn: item.column == columnCount - 1
+        )
+    }
+
+    /// The stripe's colour; nil, the table's own.
+    private var stripeColor: Color? {
+        if case .color(let color) = appearance.stripe { return color }
+        return nil
+    }
+
     /// The cells the host's `markdownTableCellReplacement` shows a view in.
     private var replacedCells: Set<MarkdownTableCellIdentity> {
         guard cellHooks.replacement != nil else { return [] }
@@ -503,7 +527,8 @@ struct MarkdownTableContent: View {
     }
 
     private var scrollableTableStripeRows: [AdaptiveTableRowStripeItem] {
-        cache.infoByRow.indices.compactMap { row in
+        guard appearance.stripe != .none else { return [] }
+        return cache.infoByRow.indices.compactMap { row in
             guard row > 0, !row.isMultiple(of: 2) else { return nil }
             let infos = cache.infoByRow[row]
             guard let first = infos.first else { return nil }
@@ -1422,6 +1447,8 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     var hooks: MarkdownTableCellHookBox
     /// The host shows its own view here (`markdownTableCellReplacement`).
     var isReplaced: Bool = false
+    /// The host's look for it (MarkdownTableAppearance).
+    var look = AdaptiveTableCellLook()
     /// 惰性升级:本 cell 已被点按 → 内容走可选中渲染(见 MarkdownTableContent.upgradedCells)。
     var selectableUpgraded: Bool = false
     var onSelectableUpgrade: (() -> Void)? = nil
@@ -1439,6 +1466,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         && (!lhs.isReplaced || lhs.position == rhs.position)
         && lhs.hooks === rhs.hooks
         && lhs.isReplaced == rhs.isReplaced
+        && lhs.look == rhs.look
         && lhs.selectableUpgraded == rhs.selectableUpgraded
     }
 
@@ -1461,11 +1489,12 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         let phase = phaseHolder.phase
         cellContent
             .markdownTablePhase(phase, offsetBase: blockTextOffset)
-            .multilineTextAlignment(cell.textAlignment)
+            .multilineTextAlignment(textAlignment)
             ._markdownCellPadding(padding)
-            .font(isHeader ? headerFont : bodyFont)
+            .font(font)
             .textCase(isHeader ? .uppercase : .none)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: cellAlignment)
+            .background { fill }
             .onAppear { configurePhaseHolder() }
             .onDisappear { phaseHolder.unsubscribe() }
             .onChange(of: revealManagerID) { _, _ in configurePhaseHolder() }
@@ -1508,8 +1537,11 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
             // 行盒取 Text 的(tableCell:不带文字样式自带的行距),否则 iOS 上点一下 cell 会长高。
             // 注意:Table.Cell 禁止整体 format()(swift-markdown fatalError),逐个 inline 子节点拼接。
             selectableCell
-            .transformEnvironment(\.markdownPlatformTypography) { typography in
+            .transformEnvironment(\.markdownPlatformTypography) { [look] typography in
                 typography = typography.tableCell
+                typography.body.design = look.cell?.fontDesign
+                if look.isHeaderColumn { typography.body.weight = .bold }
+                typography.paragraphAlignment = look.paragraphAlignment
             }
         } else if !isHeader, cellsSelectable, !cellContainsImage {
             // 惰性升级前的原版渲染:首击本 cell 即升级(simultaneous 不消费触摸,
@@ -1577,10 +1609,78 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     }
 
     private var cellAlignment: Alignment {
-        switch cell.horizontalAlignment {
-        case .leading: return .topLeading
-        case .trailing: return .topTrailing
-        default: return .top
+        switch look.cell?.alignment {
+        case .leading?, .justified?: return .topLeading
+        case .center?: return .top
+        case .trailing?: return .topTrailing
+        case nil:
+            switch cell.horizontalAlignment {
+            case .leading: return .topLeading
+            case .trailing: return .topTrailing
+            default: return .top
+            }
+        }
+    }
+
+    private var textAlignment: TextAlignment {
+        switch look.cell?.alignment {
+        case .leading?, .justified?: .leading
+        case .center?: .center
+        case .trailing?: .trailing
+        case nil: cell.textAlignment
+        }
+    }
+
+    /// The header's or the body's font, in the cell's typeface; a header column's in bold.
+    private var font: Font {
+        let font: Font = switch (isHeader, look.cell?.fontDesign) {
+        case (true, nil): headerFont
+        case (true, let design?): Font.system(.subheadline, design: design).weight(.bold)
+        case (false, nil): bodyFont
+        case (false, let design?): .markdownScaled(.system(.body, design: design), .body, design: design)
+        }
+        return look.isHeaderColumn ? font.bold() : font
+    }
+
+    /// The cell's fill, out to the middle of the space to its neighbours, and at the
+    /// table's edges as far as the stripe goes (rounded as it is).
+    @ViewBuilder
+    private var fill: some View {
+        if let color = look.cell?.fill {
+            let leading = look.isFirstColumn ? markdownTableScrollableStripeHorizontalBleed : markdownTableScrollableColumnSpacing / 2
+            let trailing = look.isLastColumn ? markdownTableScrollableStripeHorizontalBleed : markdownTableScrollableColumnSpacing / 2
+            let radius = markdownTableScrollableStripeCornerRadius
+            UnevenRoundedRectangle(
+                topLeadingRadius: look.isFirstColumn ? radius : 0,
+                bottomLeadingRadius: look.isFirstColumn ? radius : 0,
+                bottomTrailingRadius: look.isLastColumn ? radius : 0,
+                topTrailingRadius: look.isLastColumn ? radius : 0,
+                style: .continuous
+            )
+            .fill(color)
+            .padding(.leading, -leading)
+            .padding(.trailing, -trailing)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+/// What a cell takes from the host's MarkdownTableAppearance.
+fileprivate struct AdaptiveTableCellLook: Hashable {
+    var isHeader = false
+    var isHeaderColumn = false
+    var cell: MarkdownTableCellAppearance?
+    var isFirstColumn = false
+    var isLastColumn = false
+
+    /// The selectable text's paragraphs' alignment.
+    var paragraphAlignment: NSTextAlignment {
+        switch cell?.alignment {
+        case .leading?: .left
+        case .center?: .center
+        case .trailing?: .right
+        case .justified?: .justified
+        case nil: .natural
         }
     }
 }
@@ -1603,10 +1703,13 @@ private struct AdaptiveTableCellTap: ViewModifier {
 fileprivate struct AdaptiveTableRowStripe: View, Equatable {
     var blockTextOffset: Int
     var characterCount: Int
+    /// The host's colour (MarkdownTableAppearance.Stripe); nil, the table's own.
+    var color: Color?
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.blockTextOffset == rhs.blockTextOffset
         && lhs.characterCount == rhs.characterCount
+        && lhs.color == rhs.color
     }
 
     @Environment(\.markdownStreaming) private var revealManager
@@ -1623,7 +1726,7 @@ fileprivate struct AdaptiveTableRowStripe: View, Equatable {
             cornerRadius: markdownTableScrollableStripeCornerRadius,
             style: .continuous
         )
-        .foregroundStyle(.tertiary.opacity(markdownTableScrollableStripeOpacity))
+        .foregroundStyle(color.map(AnyShapeStyle.init) ?? AnyShapeStyle(.tertiary.opacity(markdownTableScrollableStripeOpacity)))
         .padding(.horizontal, -markdownTableScrollableStripeHorizontalBleed)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .markdownTableRevealVisible(phase != .before)
