@@ -34,7 +34,7 @@ extension Database {
         for column in columns {
             guard column.headerStyle?.isValid ?? true, column.cellStyles?.values.allSatisfy(\.isValid) ?? true else { throw .invalidStyle }
         }
-        if case .fill(let token)? = style?.stripe, CellStyle.parseFill(token) == nil { throw .invalidStyle }
+        if let stripe = style?.stripe, CellStyle.parseFill(stripe) == nil { throw .invalidStyle }
         var seen: Set<RowID> = []
         for row in rows {
             guard seen.insert(row.id).inserted else { throw .duplicateID }

@@ -1,16 +1,16 @@
 public import Foundation
 
 /// How a table looks as a whole (Craft's Table Style): whether its first row and first
-/// column are headers, and the colour every other body row takes.
+/// column are headers, and the colour every other body row takes, if any.
 public struct TableStyle: Hashable, Sendable, Codable {
     /// The column names' row reads as a header (the default); off, as a row like the rest.
     public var headerRow: Bool?
     /// The first column reads as a header too (off by default).
     public var headerColumn: Bool?
-    /// Every other body row's colour; nil: the table's own light stripe.
-    public var stripe: TableStripe?
+    /// Every other body row's fill (`CellStyle.fill`'s tokens); nil, none.
+    public var stripe: String?
 
-    public init(headerRow: Bool? = nil, headerColumn: Bool? = nil, stripe: TableStripe? = nil) {
+    public init(headerRow: Bool? = nil, headerColumn: Bool? = nil, stripe: String? = nil) {
         self.headerRow = headerRow
         self.headerColumn = headerColumn
         self.stripe = stripe
@@ -20,13 +20,6 @@ public struct TableStyle: Hashable, Sendable, Codable {
     public var hasHeaderColumn: Bool { headerColumn ?? false }
     /// No setting differs from the defaults: stored as none.
     public var isPlain: Bool { hasHeaderRow && !hasHeaderColumn && stripe == nil }
-}
-
-public enum TableStripe: Hashable, Sendable, Codable {
-    /// No stripe: every body row the same.
-    case none
-    /// A fill (`CellStyle.fill`'s tokens).
-    case fill(String)
 }
 
 /// How one cell looks (Craft's cell style): where its text sits, its typeface, how a
@@ -85,7 +78,7 @@ public enum CellAlignment: String, Hashable, Sendable, Codable, CaseIterable {
 
 /// A typeface for a cell, Craft's four; none set, the document's.
 public enum CellFont: String, Hashable, Sendable, Codable, CaseIterable {
-    case system, serif, mono, rounded
+    case system, mono, serif, rounded
 }
 
 /// How a number in a cell reads (Craft's cell format); none set, as typed. A text cell

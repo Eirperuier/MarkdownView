@@ -47,7 +47,7 @@ struct TableStyleTests {
     @Test
     func tableStyleAppliesAndUndoes() throws {
         var doc = doc()
-        let style = TableStyle(headerRow: false, headerColumn: true, stripe: .fill("mint-2"))
+        let style = TableStyle(headerRow: false, headerColumn: true, stripe: "mint-2")
         let applied = try doc.apply(step(.setTableStyle(style: style, previous: nil)))
         #expect(doc.databases[fixedID(30)]?.tableStyle == style)
         try doc.validate()
@@ -90,7 +90,7 @@ struct TableStyleTests {
             }
         }
         #expect(throws: DocError.invalidStyle) {
-            try doc.apply(step(.setTableStyle(style: TableStyle(stripe: .fill("blue-1")), previous: nil)))
+            try doc.apply(step(.setTableStyle(style: TableStyle(stripe: "blue-1"), previous: nil)))
         }
         #expect(throws: DocError.rowNotFound(fixedID(99))) {
             try doc.apply(step(.setCellStyle(row: fixedID(99), column: price.id, style: CellStyle(fill: "red"), previous: nil)))

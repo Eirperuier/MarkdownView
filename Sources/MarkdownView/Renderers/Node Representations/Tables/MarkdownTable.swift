@@ -4,8 +4,28 @@ import Combine
 
 private let markdownTableScrollableColumnSpacing: CGFloat = 20
 private let markdownTableScrollableStripeOpacity: Double = 0.08
-private let markdownTableScrollableStripeHorizontalBleed: CGFloat = 4
+/// A cell's padding: after its content (none before it, so the first column lines up
+/// with the text round the table) and above and below it.
+private let markdownTableScrollableCellPadding = CGSize(width: 8, height: 13)
+/// How far a row's stripe and a cell's fill reach past a cell's content across: to the
+/// middle of the space to the next column's, and as far past the table's edges.
+private let markdownTableScrollableCellReach = (markdownTableScrollableCellPadding.width + markdownTableScrollableColumnSpacing) / 2
 private let markdownTableScrollableStripeCornerRadius: CGFloat = 6
+
+extension MarkdownTableAppearance {
+    /// A cell as its fill and its row's stripe draw it, past its content: across to the
+    /// middle of the space to the next column's (and as far past the table's edges), down
+    /// its padding to its row's edges. A host drawing round a cell (an edited cell's
+    /// ring) draws there too.
+    public static let cellOutset = CGSize(width: markdownTableScrollableCellReach, height: markdownTableScrollableCellPadding.height)
+    /// How far a stripe or a fill reaches past the table's cells (MarkdownTableBoundsKey)
+    /// at each end of a row.
+    public static let rowOutset = (
+        leading: markdownTableScrollableCellReach,
+        trailing: markdownTableScrollableCellReach - markdownTableScrollableCellPadding.width
+    )
+    public static let cellCornerRadius = markdownTableScrollableStripeCornerRadius
+}
 
 /// Where a table cell sits relative to the global reveal frontier.
 /// Computed once at the table level and threaded into each cell so the cell
@@ -406,8 +426,8 @@ struct MarkdownTableContent: View {
         let _ = MarkdownRenderProbe.increment(\.markdownTableScrollableBuildCalls)
         let columnCount = table.head.childCount
         let spacing: CGFloat = markdownTableScrollableColumnSpacing
-        let horizontalPadding: CGFloat = 8
-        let verticalPadding: CGFloat = horizontalPadding + 5
+        let horizontalPadding = markdownTableScrollableCellPadding.width
+        let verticalPadding = markdownTableScrollableCellPadding.height
         let stripeRows = scrollableTableStripeRows
         // Cells a host shows its own view in (an editor): measured again when they change.
         let replaced = replacedCells
@@ -439,7 +459,7 @@ struct MarkdownTableContent: View {
                 ForEach(cache.headerItems) { item in
                     let info = cache.flatCellInfos[item.flatIndex]
                     let isReplaced = replaced.contains(item.id)
-                    let look = look(of: item, columnCount: columnCount)
+                    let look = look(of: item)
                     AdaptiveTableCell(
                         cell: item.cell,
                         cellContentHash: item.contentHash,
@@ -459,7 +479,7 @@ struct MarkdownTableContent: View {
                     let info = cache.flatCellInfos[item.flatIndex]
                     let upgraded = upgradedCells.contains(item.id)
                     let isReplaced = replaced.contains(item.id)
-                    let look = look(of: item, columnCount: columnCount)
+                    let look = look(of: item)
                     AdaptiveTableCell(
                         cell: item.cell,
                         cellContentHash: item.contentHash,
@@ -502,13 +522,11 @@ struct MarkdownTableContent: View {
     private static let replacedHashSalt = 0x7e9a1ace
 
     /// A cell's look: the host's (MarkdownTableAppearance), and whether it reads as a header.
-    private func look(of item: AdaptiveTableCellItem, columnCount: Int) -> AdaptiveTableCellLook {
+    private func look(of item: AdaptiveTableCellItem) -> AdaptiveTableCellLook {
         AdaptiveTableCellLook(
             isHeader: item.isHeader && appearance.headerRow,
             isHeaderColumn: !item.isHeader && item.column == 0 && appearance.headerColumn,
-            cell: appearance.cells[MarkdownTableCellPosition(row: item.row, column: item.column)],
-            isFirstColumn: item.column == 0,
-            isLastColumn: item.column == columnCount - 1
+            cell: appearance.cells[MarkdownTableCellPosition(row: item.row, column: item.column)]
         )
     }
 
@@ -1170,13 +1188,9 @@ struct AdaptiveTableLayout: Layout {
                 proposal: cache.cellProposals[index]
             )
         }
-        // Layout runs on the main thread.
-        if let grid {
-            let (columns, widths, rows, heights, spacing) = (cache.columnOffsets, cache.columnWidths, cache.rowOffsets, cache.rowHeights, columnSpacing)
-            MainActor.assumeIsolated {
-                grid.update(columnOffsets: columns, columnWidths: widths, rowOffsets: rows, rowHeights: heights, spacing: spacing)
-            }
-        }
+        // Not always on the main thread: an asynchronous render lays out off it.
+        grid?.update(columnOffsets: cache.columnOffsets, columnWidths: cache.columnWidths, rowOffsets: cache.rowOffsets,
+                     rowHeights: cache.rowHeights, spacing: columnSpacing)
     }
 
     private static func offsets(for sizes: [CGFloat], spacing: CGFloat) -> [CGFloat] {
@@ -1631,36 +1645,28 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         }
     }
 
-    /// The header's or the body's font, in the cell's typeface; a header column's in bold.
+    /// The header's or the body's font, in the cell's typeface; a header column's in bold
+    /// (the system's body font: a font made from a platform font takes no other weight).
     private var font: Font {
-        let font: Font = switch (isHeader, look.cell?.fontDesign) {
-        case (true, nil): headerFont
-        case (true, let design?): Font.system(.subheadline, design: design).weight(.bold)
-        case (false, nil): bodyFont
-        case (false, let design?): .markdownScaled(.system(.body, design: design), .body, design: design)
+        let design = look.cell?.fontDesign
+        if isHeader {
+            return design.map { Font.system(.subheadline, design: $0).weight(.bold) } ?? headerFont
         }
-        return look.isHeaderColumn ? font.bold() : font
+        guard design != nil || look.isHeaderColumn else { return bodyFont }
+        let weight: Font.Weight = look.isHeaderColumn ? .bold : .regular
+        return .markdownScaled(.system(.body, design: design ?? .default).weight(weight), .body, weight: weight, design: design ?? .default)
     }
 
-    /// The cell's fill, out to the middle of the space to its neighbours, and at the
-    /// table's edges as far as the stripe goes (rounded as it is).
+    /// The cell's fill, out to the middle of the space to its neighbours (as far past the
+    /// table's edges), as the stripe is drawn.
     @ViewBuilder
     private var fill: some View {
         if let color = look.cell?.fill {
-            let leading = look.isFirstColumn ? markdownTableScrollableStripeHorizontalBleed : markdownTableScrollableColumnSpacing / 2
-            let trailing = look.isLastColumn ? markdownTableScrollableStripeHorizontalBleed : markdownTableScrollableColumnSpacing / 2
-            let radius = markdownTableScrollableStripeCornerRadius
-            UnevenRoundedRectangle(
-                topLeadingRadius: look.isFirstColumn ? radius : 0,
-                bottomLeadingRadius: look.isFirstColumn ? radius : 0,
-                bottomTrailingRadius: look.isLastColumn ? radius : 0,
-                topTrailingRadius: look.isLastColumn ? radius : 0,
-                style: .continuous
-            )
-            .fill(color)
-            .padding(.leading, -leading)
-            .padding(.trailing, -trailing)
-            .allowsHitTesting(false)
+            RoundedRectangle(cornerRadius: markdownTableScrollableStripeCornerRadius, style: .continuous)
+                .fill(color)
+                .padding(.leading, -MarkdownTableAppearance.rowOutset.leading)
+                .padding(.trailing, -MarkdownTableAppearance.rowOutset.trailing)
+                .allowsHitTesting(false)
         }
     }
 }
@@ -1670,8 +1676,6 @@ fileprivate struct AdaptiveTableCellLook: Hashable {
     var isHeader = false
     var isHeaderColumn = false
     var cell: MarkdownTableCellAppearance?
-    var isFirstColumn = false
-    var isLastColumn = false
 
     /// The selectable text's paragraphs' alignment.
     var paragraphAlignment: NSTextAlignment {
@@ -1727,7 +1731,8 @@ fileprivate struct AdaptiveTableRowStripe: View, Equatable {
             style: .continuous
         )
         .foregroundStyle(color.map(AnyShapeStyle.init) ?? AnyShapeStyle(.tertiary.opacity(markdownTableScrollableStripeOpacity)))
-        .padding(.horizontal, -markdownTableScrollableStripeHorizontalBleed)
+        .padding(.leading, -MarkdownTableAppearance.rowOutset.leading)
+        .padding(.trailing, -MarkdownTableAppearance.rowOutset.trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .markdownTableRevealVisible(phase != .before)
         .allowsHitTesting(false)

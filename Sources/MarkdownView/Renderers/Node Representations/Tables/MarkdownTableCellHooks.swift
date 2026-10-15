@@ -43,33 +43,41 @@ public struct MarkdownTableGridKey: PreferenceKey {
     }
 }
 
-@MainActor public final class MarkdownTableGrid: Equatable {
-    private var columnOffsets: [CGFloat] = []
-    private var columnWidths: [CGFloat] = []
-    private var rowOffsets: [CGFloat] = []
-    private var rowHeights: [CGFloat] = []
-    private var spacing: CGFloat = 0
+/// Laid out wherever SwiftUI lays the table out (off the main thread too, when it renders
+/// asynchronously), read on the main thread: its places are behind a lock.
+public final class MarkdownTableGrid: Equatable, @unchecked Sendable {
+    private struct Places {
+        var columnOffsets: [CGFloat] = []
+        var columnWidths: [CGFloat] = []
+        var rowOffsets: [CGFloat] = []
+        var rowHeights: [CGFloat] = []
+        var spacing: CGFloat = 0
+    }
+
+    private let lock = NSLock()
+    private var places = Places()
+
+    public init() {}
 
     /// The cell at `point` (in the bounds' space; a point between two columns is the
     /// nearer one's), nil outside the cells.
     public func position(at point: CGPoint) -> MarkdownTableCellPosition? {
-        guard point.x >= 0, let row = rowOffsets.lastIndex(where: { $0 <= point.y }),
-              point.y < rowOffsets[row] + rowHeights[row],
-              let column = columnOffsets.lastIndex(where: { $0 - spacing / 2 <= point.x }),
-              point.x < columnOffsets[column] + columnWidths[column] + spacing / 2
+        let places = lock.withLock { self.places }
+        guard point.x >= 0, let row = places.rowOffsets.lastIndex(where: { $0 <= point.y }),
+              point.y < places.rowOffsets[row] + places.rowHeights[row],
+              let column = places.columnOffsets.lastIndex(where: { $0 - places.spacing / 2 <= point.x }),
+              point.x < places.columnOffsets[column] + places.columnWidths[column] + places.spacing / 2
         else { return nil }
         return MarkdownTableCellPosition(row: row, column: column)
     }
 
     func update(columnOffsets: [CGFloat], columnWidths: [CGFloat], rowOffsets: [CGFloat], rowHeights: [CGFloat], spacing: CGFloat) {
-        self.columnOffsets = columnOffsets
-        self.columnWidths = columnWidths
-        self.rowOffsets = rowOffsets
-        self.rowHeights = rowHeights
-        self.spacing = spacing
+        lock.withLock {
+            places = Places(columnOffsets: columnOffsets, columnWidths: columnWidths, rowOffsets: rowOffsets, rowHeights: rowHeights, spacing: spacing)
+        }
     }
 
-    nonisolated public static func == (lhs: MarkdownTableGrid, rhs: MarkdownTableGrid) -> Bool { lhs === rhs }
+    public static func == (lhs: MarkdownTableGrid, rhs: MarkdownTableGrid) -> Bool { lhs === rhs }
 }
 
 /// The host's hooks, in the environment. The same as long as the host's hooks are there

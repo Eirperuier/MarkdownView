@@ -327,7 +327,7 @@ enum RandomStep {
             return .database(id: database.id, step: .setCellStyle(row: row, column: column.id, style: style, previous: nil))
         case 8:
             let style: TableStyle? = rng.next() % 3 == 0 ? nil
-                : TableStyle(headerRow: rng.next() % 2 == 0, headerColumn: true, stripe: rng.next() % 2 == 0 ? TableStripe.none : .fill("mint-2"))
+                : TableStyle(headerRow: rng.next() % 2 == 0, headerColumn: true, stripe: rng.next() % 2 == 0 ? nil : "mint-2")
             return .database(id: database.id, step: .setTableStyle(style: style, previous: nil))
         case 0:
             guard let row = database.rows.randomElement(using: &rng),

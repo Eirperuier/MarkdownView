@@ -137,6 +137,16 @@ public enum MarkdownColorToken {
         return adaptive(light: shade.dark, dark: shade.dark, alpha: 0.3, darkAlpha: 0.32)
     }
 
+    /// A table cell's fill: the hue at one of three strengths, light to strong (a `#rrggbb`
+    /// as it is); nil for a hue it doesn't know.
+    public static func fill(_ token: String, strength: Int) -> Color? {
+        if let hex = hexValue(token) { return rgb(hex) }
+        guard let shade = shades[token] else { return nil }
+        let alphas: [(light: CGFloat, dark: CGFloat)] = [(0.14, 0.2), (0.28, 0.36), (0.5, 0.56)]
+        let alpha = alphas[min(max(strength, 1), alphas.count) - 1]
+        return adaptive(light: shade.dark, dark: shade.dark, alpha: alpha.light, darkAlpha: alpha.dark)
+    }
+
     static func hexValue(_ token: String) -> UInt32? {
         guard token.hasPrefix("#") else { return nil }
         var hex = String(token.dropFirst())
