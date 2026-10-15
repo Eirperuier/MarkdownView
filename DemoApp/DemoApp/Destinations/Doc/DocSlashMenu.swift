@@ -307,19 +307,18 @@ extension DocEditor {
         switch action {
         case .kind(let kind):
             if kind != block.kind {
-                let indent = if case .listItem = kind, case .listItem = block.kind { block.indent } else { 0 }
-                steps.append(.setBlock(block: block.id, kind: kind, indent: indent, previousKind: block.kind, previousIndent: block.indent))
+                steps.append(.setBlock(block: block.id, kind: kind, indent: block.indent, previousKind: block.kind, previousIndent: block.indent))
             }
         case .divider:
             let next = demo.newBlockID()
             if block.text.length == typed.count {
                 // Only the slash was in the block (or nothing): it becomes the divider.
-                steps.append(.setBlock(block: block.id, kind: .divider, indent: 0, previousKind: block.kind, previousIndent: block.indent))
-                steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph), after: block.id))
+                steps.append(.setBlock(block: block.id, kind: .divider, indent: block.indent, previousKind: block.kind, previousIndent: block.indent))
+                steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph, indent: block.indent), after: block.id))
             } else {
                 let divider = demo.newBlockID()
-                steps.append(.insertBlock(block: DocBlock(id: divider, kind: .divider), after: block.id))
-                steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph), after: divider))
+                steps.append(.insertBlock(block: DocBlock(id: divider, kind: .divider, indent: block.indent), after: block.id))
+                steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph, indent: block.indent), after: divider))
             }
             caret = DocPosition(block: next, offset: 0)
         case .page:
@@ -329,8 +328,8 @@ extension DocEditor {
             let page = DocPage(doc: .generate(), title: String(decoding: title, as: UTF16.self).trimmingCharacters(in: .whitespaces))
             let next = demo.newBlockID()
             steps = block.text.isEmpty ? [] : [.deleteText(block: block.id, range: 0..<block.text.length, removed: block.text)]
-            steps.append(.setBlock(block: block.id, kind: .page(page: page), indent: 0, previousKind: block.kind, previousIndent: block.indent))
-            steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph), after: block.id))
+            steps.append(.setBlock(block: block.id, kind: .page(page: page), indent: block.indent, previousKind: block.kind, previousIndent: block.indent))
+            steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph, indent: block.indent), after: block.id))
             commitSlash(steps, from: DocSelection(anchor: head, head: head), to: DocSelection(anchor: .init(block: next, offset: 0), head: .init(block: next, offset: 0)))
             dismissKeyboard()
             blocks.openPage?(block.id)

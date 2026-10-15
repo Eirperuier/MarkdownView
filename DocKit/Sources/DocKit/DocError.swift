@@ -26,7 +26,7 @@ public enum DocError: Error, Equatable, Sendable {
     case offsetOutOfRange
     /// A text offset that would split a surrogate pair.
     case notScalarBoundary
-    /// Indent outside `0...6`.
+    /// Indent outside `0...DocBlock.maxIndent`.
     case invalidIndent
     /// Heading level outside `1...6`.
     case invalidHeadingLevel

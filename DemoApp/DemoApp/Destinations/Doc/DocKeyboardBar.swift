@@ -359,6 +359,6 @@ extension DocEditor {
         let id = demo.newBlockID()
         let caret = DocPosition(block: id, offset: 0)
         let here = selection ?? DocSelection(anchor: caret, head: caret)
-        commitSlash([.insertBlock(block: DocBlock(id: id, kind: kind), after: block.id)], from: here, to: DocSelection(anchor: caret, head: caret))
+        commitSlash([.insertBlock(block: DocBlock(id: id, kind: kind, indent: block.indent), after: block.id)], from: here, to: DocSelection(anchor: caret, head: caret))
     }
 }

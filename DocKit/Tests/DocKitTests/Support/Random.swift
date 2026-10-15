@@ -139,7 +139,7 @@ enum RandomDoc {
         let text = kind.carriesText
             ? text(allowAtoms: kind.allowsMarks, allowMarks: kind.allowsMarks, using: &rng)
             : DocText()
-        return DocBlock(id: id ?? Identifier.generate(at: fixedTime(1), using: &rng), kind: kind, indent: Int(rng.next() % 7), text: text,
+        return DocBlock(id: id ?? Identifier.generate(at: fixedTime(1), using: &rng), kind: kind, indent: Int(rng.next() % UInt64(DocBlock.maxIndent + 1)), text: text,
                         decoration: rng.next() % 4 == 0 ? .block : nil)
     }
 
@@ -270,7 +270,7 @@ enum RandomStep {
         return .splitBlock(
             block: block.id, at: at,
             newID: Identifier.generate(at: fixedTime(6), using: &rng),
-            newKind: newKind, newIndent: Int(rng.next() % 7), newDecoration: rng.next() % 2 == 0 ? .block : nil
+            newKind: newKind, newIndent: Int(rng.next() % UInt64(DocBlock.maxIndent + 1)), newDecoration: rng.next() % 2 == 0 ? .block : nil
         )
     }
 
@@ -292,7 +292,7 @@ enum RandomStep {
             ? RandomDoc.blockKind(allowsText: rng.next() % 4 > 0, using: &rng)
             : randomTextKind(marks: block.text.marks, using: &rng)
         if case .database = kind { return nil }
-        return .setBlock(block: block.id, kind: kind, indent: Int(rng.next() % 7), previousKind: .paragraph, previousIndent: 0)
+        return .setBlock(block: block.id, kind: kind, indent: Int(rng.next() % UInt64(DocBlock.maxIndent + 1)), previousKind: .paragraph, previousIndent: 0)
     }
 
     /// A text-bearing kind compatible with the given marks.

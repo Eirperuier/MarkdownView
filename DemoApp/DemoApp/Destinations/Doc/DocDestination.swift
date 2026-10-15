@@ -101,8 +101,10 @@ private struct DocPageView: View {
             // text wraps (DocMediaLayout.place).
             .itemPlacement { row, width in
                 row.run.map { run in
-                    let place = DocMediaLayout.place(run, inPage: DocBlockController.pageWidth(inWidth: width))
-                    return TiledItemPlacement(x: DocBlockController.pageLeft(inWidth: width) + place.frame.minX, width: place.frame.width,
+                    // An indented run is laid out in what the indent leaves of the page.
+                    let indent = DocBlockController.indentWidth(row.indent)
+                    let place = DocMediaLayout.place(run, inPage: max(0, DocBlockController.pageWidth(inWidth: width) - indent))
+                    return TiledItemPlacement(x: DocBlockController.pageLeft(inWidth: width) + indent + place.frame.minX, width: place.frame.width,
                                               sharesLine: place.sharesLine)
                 }
             }
@@ -464,6 +466,9 @@ private struct DocRowView: View {
         .coordinateSpace(.named(DocRowSpace.name))
     }
 
+    /// How far the row goes in: its block's level.
+    private var indent: CGFloat { DocBlockController.indentWidth(row.indent) }
+
     /// A link, file or image where the list places its row (DocRowRun), laid out at the
     /// row's width as text is.
     private func placed(_ content: some View, in run: DocRowRun) -> some View {
@@ -478,6 +483,7 @@ private struct DocRowView: View {
         content
             .modifier(DocRowBoxing(box: row.box, spacingAbove: row.spacingAbove))
             .padding(.bottom, row.spacingBelow)
+            .padding(.leading, indent)
             .frame(maxWidth: 720, alignment: .leading)
             .padding(.leading, DocBlockController.leadingGutter)
             .padding(.trailing, DocBlockController.trailingGutter)
@@ -489,6 +495,7 @@ private struct DocRowView: View {
         content
             .modifier(DocRowBoxing(box: row.box, spacingAbove: row.spacingAbove))
             .padding(.bottom, row.spacingBelow)
+            .padding(.leading, indent)
             .frame(maxWidth: DocCollectionLayout.maxWidth, alignment: .leading)
             .padding(.leading, DocBlockController.leadingGutter)
             .padding(.trailing, DocBlockController.trailingGutter)
@@ -520,6 +527,8 @@ private struct DocRowView: View {
         }
         .modifier(DocRowBoxing(box: row.box, spacingAbove: row.spacingAbove))
         .padding(.bottom, row.spacingBelow)
+        // The whole block goes in by its level, its box with it; the right edge stays.
+        .padding(.leading, indent)
         .frame(maxWidth: 720, alignment: .leading)
         .padding(.leading, DocBlockController.leadingGutter)
         .padding(.trailing, DocBlockController.trailingGutter)
@@ -545,9 +554,8 @@ private struct DocRowView: View {
         // One view whatever the kind: a block that becomes a quote (or stops being one)
         // keeps its text view and goes to its new shape with the change's animation. A
         // quote's text keeps its edge insets inside the quote, as SelectableBlockQuote's.
+        // A list item's level picks its bullet (• then ◦, Craft's); the row is indented.
         MarkdownSelectableText(tree: text.tree, listDepthOffset: text.depth, applyEdgeInsets: text.isQuote)
-            // 20 pt a level, as MarkdownStreamBlockView indents a nested item.
-            .padding(.leading, CGFloat(text.depth) * 20)
             .markdownBlockQuote(text.isQuote)
         .lineSpacing(row.role.lineSpacing)
         .modifier(DocCaptionType(isOn: row.role == .caption))

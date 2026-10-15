@@ -100,6 +100,27 @@ struct MarkupTreeTests {
         let table = try #require(doc.markupTree(of: fixedID(2)))
         #expect(TreeDump.of(table.document) == "Document[Table[\"-\"][Head[Cell[Text(a|b *c*)]], Body[Row[Cell[Text(a ==x== $5 and $6 next)]], Row[Cell]]]]")
     }
+
+    /// A list item's level is its indent, however deep the one before it (its bullet
+    /// is its level's); numbering counts per level. Markdown reads one level deeper at most.
+    @Test
+    func listItemsRenderAtTheirOwnLevelAndExportClamped() throws {
+        let item = { (n: UInt64, style: ListStyle, indent: Int, text: String) in
+            DocBlock(id: fixedID(n), kind: .listItem(style: style), indent: indent, text: DocText(string: text))
+        }
+        let doc = Doc(id: fixedID(0), blocks: [
+            item(1, .numbered, 0, "a"),
+            item(2, .bullet, 3, "b"),
+            item(3, .numbered, 5, "c"),
+            item(4, .numbered, 0, "d"),
+        ])
+        #expect(try #require(doc.markupTree(of: fixedID(2))).depth == 3)
+        #expect(try #require(doc.markupTree(of: fixedID(3))).depth == 5)
+        let fourth = try #require(doc.markupTree(of: fixedID(4)))
+        #expect(fourth.depth == 0)
+        #expect((fourth.document.child(at: 0) as? OrderedList)?.startIndex == 2)
+        #expect(doc.markdown == "1. a\n   - b\n     1. c\n2. d")
+    }
 }
 
 /// A tree as a string: node kinds, what they carry, children, adjacent text joined

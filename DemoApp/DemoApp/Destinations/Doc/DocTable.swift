@@ -827,13 +827,13 @@ final class DocTableController {
         let table: DocBlockID
         if keep {
             table = demo.newBlockID()
-            steps.append(.insertBlock(block: DocBlock(id: table, kind: kind), after: block.id))
+            steps.append(.insertBlock(block: DocBlock(id: table, kind: kind, indent: block.indent), after: block.id))
         } else {
             table = block.id
-            steps.append(.setBlock(block: block.id, kind: kind, indent: 0, previousKind: block.kind, previousIndent: block.indent))
+            steps.append(.setBlock(block: block.id, kind: kind, indent: block.indent, previousKind: block.kind, previousIndent: block.indent))
         }
         if demo.doc.blocks.last?.id == block.id {
-            steps.append(.insertBlock(block: DocBlock(id: demo.newBlockID(), kind: .paragraph), after: table))
+            steps.append(.insertBlock(block: DocBlock(id: demo.newBlockID(), kind: .paragraph, indent: block.indent), after: table))
         }
         focusSoon(DocCellKey(block: table, row: nil, column: columnList[0].id), atEnd: true)
         return steps

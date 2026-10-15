@@ -213,7 +213,8 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
             contentHash: child.stableContentHash,
             revealStart: revealCursor,
             attachStart: attachmentCounter,
-            configFingerprint: configFingerprint
+            configFingerprint: configFingerprint,
+            listDepthOffset: listDepthOffset
         )
         if let hit = cache.hitBlock(key) {
             // 命中:重放映射段(相对块首 plain 偏移 → 加上当前 plainCursor),并推进双游标。
@@ -1907,6 +1908,8 @@ struct BlockCacheKey: Hashable {
     let revealStart: Int
     let attachStart: Int
     let configFingerprint: Int
+    /// The same list at another depth has other markers (• / ◦).
+    let listDepthOffset: Int
 }
 
 /// 缓存的一个顶层 block:产出的 TextContent + 它消耗掉的 reveal / attachment 游标增量。

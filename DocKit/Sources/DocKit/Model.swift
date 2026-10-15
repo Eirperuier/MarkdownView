@@ -19,12 +19,17 @@ public struct Doc: Hashable, Sendable, Codable {
 public struct DocBlock: Hashable, Sendable, Codable, Identifiable {
     public var id: DocBlockID
     public var kind: BlockKind
-    /// `0...6`; list nesting and toggle children both use it.
+    /// `0...maxIndent`, on any kind of block, whatever the blocks around it are (a
+    /// block may sit three levels under the one before it). A list item's is its
+    /// level in the list; the blocks after a block that sit deeper are nested in it.
     public var indent: Int
     /// Empty on the kinds that carry no text.
     public var text: DocText
     /// Drawn around the block, whatever its kind; neighbours with the same one share it.
     public var decoration: BlockDecoration?
+
+    /// The deepest a block indents (Craft's five levels).
+    public static let maxIndent = 5
 
     public init(id: DocBlockID, kind: BlockKind, indent: Int = 0, text: DocText = DocText(), decoration: BlockDecoration? = nil) {
         self.id = id

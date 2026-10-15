@@ -780,7 +780,7 @@ final class DocEditor {
         case .listItem where block.indent > 0:
             indent(block, by: -1)
         case .listItem, .quote:
-            setKind(block, kind: .paragraph, indent: 0)
+            setKind(block, kind: .paragraph, indent: block.indent)
         default:
             guard block.decoration != nil else { return false }
             let here = DocSelection(anchor: .init(block: block.id, offset: 0), head: .init(block: block.id, offset: 0))
@@ -809,7 +809,7 @@ final class DocEditor {
         case .listItem where block.indent > 0:
             indent(block, by: -1)
         case .listItem, .heading, .quote, .caption:
-            setKind(block, kind: .paragraph, indent: 0)
+            setKind(block, kind: .paragraph, indent: block.indent)
         default:
             guard let index = demo.doc.blocks.firstIndex(where: { $0.id == id }), index > 0 else { return true }
             let previous = demo.doc.blocks[index - 1]
@@ -826,13 +826,12 @@ final class DocEditor {
         return true
     }
 
-    /// Tab nests a list item under the one before it (one level at most).
+    /// Tab (⇧Tab) on the block being edited: it goes in (out) a level, with the blocks
+    /// nested under it; the cursor stays where it is in the text.
     func indent(_ block: DocBlock, by delta: Int) {
-        guard case .listItem = block.kind, let index = demo.doc.blocks.firstIndex(where: { $0.id == block.id }) else { return }
-        let ceiling: Int = if index > 0, case .listItem = demo.doc.blocks[index - 1].kind { demo.doc.blocks[index - 1].indent + 1 } else { 0 }
-        let indent = min(max(0, block.indent + delta), ceiling)
-        guard indent != block.indent else { return }
-        setKind(block, kind: block.kind, indent: indent)
+        let start = DocPosition(block: block.id, offset: 0)
+        let here = selection.flatMap { $0.head.block == block.id ? $0 : nil } ?? DocSelection(anchor: start, head: start)
+        commit(indentSteps([block.id], by: delta), from: here, to: here)
     }
 
     /// Changes a block's kind or indent; the cursor stays where it is in the text.
@@ -962,7 +961,7 @@ final class DocEditor {
         }
     }
 
-    /// Blocks of text become `kind` in one transaction (a list keeps its items' levels).
+    /// Blocks of text become `kind` in one transaction, each at its level.
     /// A block with the cursor in it goes the slash menu's way, the cursor kept.
     func setKind(_ kind: BlockKind, of ids: [DocBlockID]) {
         let chosen = Set(ids)
@@ -971,8 +970,7 @@ final class DocEditor {
             return perform(.kind(kind), in: block, replacing: head.offset..<head.offset, from: head)
         }
         let steps: [DocStep] = blocks.map { block in
-            let indent = if case .listItem = kind, case .listItem = block.kind { block.indent } else { 0 }
-            return .setBlock(block: block.id, kind: kind, indent: indent, previousKind: block.kind, previousIndent: block.indent)
+            .setBlock(block: block.id, kind: kind, indent: block.indent, previousKind: block.kind, previousIndent: block.indent)
         }
         guard !steps.isEmpty else { return }
         edit(steps, before: selection, after: selection)
@@ -991,9 +989,8 @@ final class DocEditor {
         return controller
     }
 
-    /// Blocks take a copied format, in one transaction: blocks of text its kind (a
-    /// list keeps its items' levels) and its marks on all their text, any block its
-    /// decoration.
+    /// Blocks take a copied format, in one transaction: blocks of text its kind (each at
+    /// its level) and its marks on all their text, any block its decoration.
     func apply(_ format: DocCopiedFormat, to ids: Set<DocBlockID>) {
         apply(format, to: ids, keepsKind: false)
     }
@@ -1008,8 +1005,7 @@ final class DocEditor {
         for block in demo.doc.blocks where ids.contains(block.id) {
             let kind = !keepsKind && block.kind.carriesText && format.kind.carriesText ? format.kind : block.kind
             if !DocFormatting.same(kind, block.kind) {
-                let indent = if case .listItem = format.kind, case .listItem = block.kind { block.indent } else { 0 }
-                steps.append(.setBlock(block: block.id, kind: format.kind, indent: indent, previousKind: block.kind, previousIndent: block.indent))
+                steps.append(.setBlock(block: block.id, kind: format.kind, indent: block.indent, previousKind: block.kind, previousIndent: block.indent))
             }
             if block.decoration != format.decoration {
                 steps.append(.setDecoration(block: block.id, decoration: format.decoration, previous: block.decoration))
@@ -1037,25 +1033,33 @@ final class DocEditor {
         edit(steps, before: selection, after: selection)
     }
 
-    /// List items nest one level deeper or come out one, in one transaction; an item
-    /// goes no deeper than one below the item before it.
+    /// Blocks of any kind go in or out a level, in one transaction, whatever the blocks
+    /// around them (Craft's).
     func indent(_ ids: [DocBlockID], by delta: Int) {
-        let chosen = Set(ids)
-        var steps: [DocStep] = []
-        var previous: (kind: BlockKind, indent: Int)?
-        for block in demo.doc.blocks {
-            var indent = block.indent
-            if chosen.contains(block.id), case .listItem = block.kind {
-                let ceiling: Int = if let previous, case .listItem = previous.kind { previous.indent + 1 } else { 0 }
-                indent = min(max(0, block.indent + delta), ceiling)
-                if indent != block.indent {
-                    steps.append(.setBlock(block: block.id, kind: block.kind, indent: indent, previousKind: block.kind, previousIndent: block.indent))
-                }
-            }
-            previous = (block.kind, indent)
-        }
+        let steps = indentSteps(ids, by: delta)
         guard !steps.isEmpty else { return }
         edit(steps, before: selection, after: selection)
+    }
+
+    /// Each block in or out a level (0 to DocBlock.maxIndent), the blocks nested under it
+    /// with it: a list item takes its items, keeping their levels under it, and those
+    /// already as deep as can be stay there (Craft's). A block that can't go further
+    /// stays, with its own.
+    private func indentSteps(_ ids: [DocBlockID], by delta: Int) -> [DocStep] {
+        var steps: [DocStep] = []
+        for group in blocks.groups(ids) {
+            guard let top = demo.doc.block(group[0]) else { continue }
+            let shift = min(max(0, top.indent + delta), DocBlock.maxIndent) - top.indent
+            guard shift != 0 else { continue }
+            for id in group {
+                guard let block = demo.doc.block(id) else { continue }
+                let indent = min(max(0, block.indent + shift), DocBlock.maxIndent)
+                if indent != block.indent {
+                    steps.append(.setBlock(block: id, kind: block.kind, indent: indent, previousKind: block.kind, previousIndent: block.indent))
+                }
+            }
+        }
+        return steps
     }
 
     /// Gives the ranges `mark` in place of their marks of its kind, or clears that
@@ -1141,7 +1145,7 @@ final class DocEditor {
         if !inCell, block.kind == .paragraph, text == "---" {
             let next = demo.newBlockID()
             var result = becomes(.divider, removing: 3)
-            result.steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph), after: block.id))
+            result.steps.append(.insertBlock(block: DocBlock(id: next, kind: .paragraph, indent: block.indent), after: block.id))
             result.caret = DocPosition(block: next, offset: 0)
             return result
         }

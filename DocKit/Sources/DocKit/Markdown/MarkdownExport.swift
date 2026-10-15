@@ -21,7 +21,8 @@ extension Doc {
     public var markdown: String { markdown(style: .exchange) }
 
     public func markdown(style: DocMarkdownStyle) -> String {
-        var layout = ListLayout()
+        // Markdown reads a list item at most one level under the one before it.
+        var layout = ListLayout(clampsDepth: true)
         var output = ""
         var previousWasListItem = false
         for block in blocks {
@@ -152,29 +153,35 @@ struct ListPlacement: Equatable {
     var marker: String
 }
 
-/// Walks the blocks in order and lays out list items the way CommonMark
-/// reads them back: depth clamped to one below the deepest open level,
-/// numbering counted per level.
+/// Walks the blocks in order and lays out list items, numbering counted per level.
+/// An item's level is its indent, whatever the item before it (a renderer's), or
+/// (`clampsDepth`) as CommonMark reads markdown back: one below the deepest open level
+/// at most.
 struct ListLayout {
-    private var levels: [(numbered: Bool, ordinal: Int, column: Int)] = []
+    private var levels: [(numbered: Bool, ordinal: Int, column: Int)?] = []
+    var clampsDepth = false
 
-    /// The depth the last placed item reads at (its indent, clamped).
+    /// The depth the last placed item reads at.
     private(set) var depth = 0
     /// Its number in its list (1 for a bullet).
-    var ordinal: Int { levels.last?.ordinal ?? 1 }
+    var ordinal: Int { levels.last??.ordinal ?? 1 }
 
     mutating func place(_ block: DocBlock) -> ListPlacement? {
         guard case .listItem(let style) = block.kind else {
             levels = []
             return nil
         }
-        let depth = min(block.indent, levels.count)
+        let depth = clampsDepth ? min(block.indent, levels.count) : block.indent
         self.depth = depth
-        let leading = depth == 0 ? 0 : levels[depth - 1].column
+        // Under the deepest open level above it (levels skipped have none).
+        let leading = levels.prefix(depth).compactMap { $0 }.last?.column ?? 0
         let numbered = style == .numbered
-        let ordinal = depth < levels.count && numbered && levels[depth].numbered ? levels[depth].ordinal + 1 : 1
+        let same = depth < levels.count ? levels[depth] : nil
+        let ordinal = numbered && same?.numbered == true ? (same?.ordinal ?? 0) + 1 : 1
         let marker = numbered ? "\(ordinal). " : "- "
-        levels = Array(levels.prefix(depth)) + [(numbered, ordinal, leading + marker.count)]
+        var next = Array(levels.prefix(depth))
+        while next.count < depth { next.append(nil) }
+        levels = next + [(numbered, ordinal, leading + marker.count)]
         return ListPlacement(leading: leading, marker: marker)
     }
 }

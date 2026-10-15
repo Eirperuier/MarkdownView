@@ -63,7 +63,7 @@ private struct MarkdownImporter<Generator: RandomNumberGenerator> {
     }
 
     private mutating func append(_ kind: BlockKind, indent: Int, text: DocText = DocText()) {
-        blocks.append(DocBlock(id: newID(), kind: kind, indent: min(indent, 6), text: text))
+        blocks.append(DocBlock(id: newID(), kind: kind, indent: min(indent, DocBlock.maxIndent), text: text))
     }
 
     private func inline(_ markup: any Markup) -> DocText {

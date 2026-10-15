@@ -5,7 +5,7 @@ extension Doc {
         var seen: Set<DocBlockID> = []
         for block in blocks {
             guard seen.insert(block.id).inserted else { throw .duplicateID }
-            guard (0...6).contains(block.indent) else { throw .invalidIndent }
+            guard (0...DocBlock.maxIndent).contains(block.indent) else { throw .invalidIndent }
             if case .heading(let level) = block.kind, !(1...6).contains(level) {
                 throw .invalidHeadingLevel
             }

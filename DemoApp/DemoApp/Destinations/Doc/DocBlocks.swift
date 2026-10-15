@@ -10,7 +10,7 @@
 //  edits (a link, file or image opens), a long press lifts the block: drag it to move
 //  it, or let go to start selecting blocks; a swipe either way selects one too
 //  (flowith's Composer), and while selecting a tap or a swipe adds or removes one.
-//  Selecting a list item selects it alone; moving it takes the items nested under it.
+//  Selecting a block selects it alone; moving it takes the blocks nested under it.
 //  Drags are the system's (Craft's): the rows lifted from where they are, landing on
 //  where they go. A move is one transaction of moveBlock steps, undone in one go.
 //
@@ -57,6 +57,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         min(720, max(0, width - leadingGutter - trailingGutter))
     }
 
+    /// How far a block at `indent` sits in from the page's left: its whole block (its
+    /// box, its tint, its handle) goes in; the page's right edge stays.
+    nonisolated static func indentWidth(_ indent: Int) -> CGFloat {
+        CGFloat(indent) * FlooDesignTokens.Component.Indent.step
+    }
+
     @ObservationIgnored let demo: DocDemo
     @ObservationIgnored unowned let editor: DocEditor
     /// A phone's block selection: the chat's (MarkdownView's block selection mode), its
@@ -71,7 +77,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     }()
     /// The Mac's selected blocks, in document order.
     private var macSelection: [DocBlockID] = []
-    /// The selected blocks, in document order (a list item alone, not its nested items).
+    /// The selected blocks, in document order (a block alone, not the blocks nested under it).
     var selected: [DocBlockID] {
         guard !Self.usesHandles else { return macSelection }
         let chosen = selection.state.selectedItemIDs
@@ -152,7 +158,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     private struct Drag {
         /// The blocks picked up (the selection, or the one grabbed), and with them the
-        /// items nested under them: what moves.
+        /// blocks nested under them: what moves.
         var tops: [DocBlockID]
         var moving: [DocBlockID]
         var grabbed: DocBlockID
@@ -274,14 +280,15 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     }
 
     /// The page's part of a block's row: less the page's margins (at most 720 wide,
-    /// centred) and the space above and below it. A row on a line with others has the
-    /// line's page part.
+    /// centred), its indent and the space above and below it. A row on a line with others
+    /// has the line's page part.
     private func pageFrame(_ id: DocBlockID) -> CGRect? {
         let rowID = id.description
         guard let row = reader?.frame(forItem: rowID) else { return nil }
         let listWidth = demo.runs[id] == nil ? row.width : list?.bounds.width ?? row.width
-        let left = Self.pageLeft(inWidth: listWidth)
-        let width = Self.pageWidth(inWidth: listWidth)
+        let indent = Self.indentWidth(demo.doc.block(id)?.indent ?? 0)
+        let left = Self.pageLeft(inWidth: listWidth) + indent
+        let width = max(0, Self.pageWidth(inWidth: listWidth) - indent)
         let above = demo.spacingAbove[rowID] ?? 0
         let below = demo.spacingBelow[rowID] ?? 0
         return CGRect(x: left, y: row.minY + above, width: width, height: max(0, row.height - above - below))
@@ -415,7 +422,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             return
         }
         let size = FlooDesignDragHandle.size
-        // One column for every block, nested or not: the handles line up.
+        // Before the block's page part: an indented block's handle goes in with it (Craft's).
         let left = pageFrame(hovered)?.minX ?? content.minX
         handle.frame = CGRect(x: left - size.width - 6, y: firstLineMidY(hovered, row: content) - size.height / 2,
                               width: size.width, height: size.height)
@@ -554,7 +561,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     // MARK: Selection
 
-    /// Selects these blocks (a list item alone, not the items nested under it).
+    /// Selects these blocks (a block alone, not the blocks nested under it).
     func select(_ ids: [DocBlockID]) {
         setSelection(ids)
         anchor = ids.first
@@ -662,7 +669,12 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         guard Self.usesHandles, keys.window != nil else { return }
         editor.tables.endEditing()
         editor.sources.endEditing()
+        // On screen: the focus goes only to what shows.
+        if let list { keys.frame.origin = CGPoint(x: list.contentOffset.x, y: list.contentOffset.y) }
         keys.becomeFirstResponder()
+        // The Mac sends keys to the focused view first (the sidebar's list, say): the
+        // selection's keys take the focus too, as a text view being edited does.
+        UIFocusSystem.focusSystem(for: keys)?.requestFocusUpdate(to: keys)
     }
 
     /// The key responder lost the focus (a click into the text, a cell, another field).
@@ -951,7 +963,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     }
 
     /// Picks the block up: the selection if the block is in it, else the block alone,
-    /// with the items nested under them. One drag item per block (the system counts
+    /// with the blocks nested under them. One drag item per block (the system counts
     /// them), each lifted from its own row.
     private func beginDrag(_ id: DocBlockID, at point: CGPoint) -> [UIDragItem] {
         guard let list else { return [] }
@@ -997,7 +1009,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         true
     }
 
-    /// A phone lifts the blocks pressed (the tops of the selection), not the items nested
+    /// A phone lifts the blocks pressed (the tops of the selection), not the blocks nested
     /// under them: those join the drag as it moves (movingPreview).
     func dragInteraction(_ interaction: UIDragInteraction, previewForLifting item: UIDragItem, session: UIDragSession) -> UITargetedDragPreview? {
         guard let id = item.localObject as? DocBlockID else { return nil }
@@ -1275,7 +1287,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     // MARK: Model
 
-    /// Each block with the items nested under it (a list item's deeper items), in
+    /// Each block with the blocks nested under it (the run after it indented deeper), in
     /// document order; a block nested under another one given is part of that one.
     func groups(_ tops: [DocBlockID]) -> [[DocBlockID]] {
         let chosen = Set(tops)
@@ -1287,11 +1299,9 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             index += 1
             guard chosen.contains(block.id) else { continue }
             var group = [block.id]
-            if case .listItem = block.kind {
-                while index < blocks.count, blocks[index].indent > block.indent {
-                    group.append(blocks[index].id)
-                    index += 1
-                }
+            while index < blocks.count, blocks[index].indent > block.indent {
+                group.append(blocks[index].id)
+                index += 1
             }
             result.append(group)
         }
@@ -1303,13 +1313,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         groups(selected).map { $0[0] }
     }
 
-    /// Moves blocks (with their nested items) to follow `after` (nil: the top), as one
-    /// transaction. A block can't land nested deeper than where it goes allows: it and
-    /// its items come out by as many levels as needed.
+    /// Moves blocks (with the blocks nested under them) to follow `after` (nil: the top),
+    /// as one transaction. Each keeps its indent, whatever is around it where it lands.
     @discardableResult
     func move(_ tops: [DocBlockID], after: DocBlockID?) -> Bool {
-        let groups = groups(tops)
-        let moving = groups.flatMap { $0 }
+        let moving = groups(tops).flatMap { $0 }
         guard !moving.isEmpty, after.map({ !moving.contains($0) }) ?? true else { return false }
         var steps: [DocStep] = []
         var previous = after
@@ -1317,28 +1325,20 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             steps.append(.moveBlock(block: id, after: previous, from: nil))
             previous = id
         }
-        var before = after.flatMap { demo.doc.block($0) }.map { (kind: $0.kind, indent: $0.indent) }
-        for group in groups {
-            guard let top = demo.doc.block(group[0]) else { continue }
-            let limit = before.map { if case .listItem = $0.kind { $0.indent + 1 } else { $0.indent } } ?? 0
-            let shift = min(0, limit - top.indent)
-            for id in group {
-                guard let block = demo.doc.block(id) else { continue }
-                let indent = max(0, block.indent + shift)
-                if indent != block.indent {
-                    steps.append(.setBlock(block: id, kind: block.kind, indent: indent, previousKind: block.kind, previousIndent: block.indent))
-                }
-                before = (block.kind, indent)
-            }
-        }
         return demo.edit(steps, before: editor.selection, after: editor.selection) != nil
     }
 
-    /// Deletes the selected blocks with the items nested under them (a table's database
+    /// The selected blocks in (out) a level, with the blocks nested under them (Tab, ⇧Tab).
+    func indentSelection(by delta: Int) {
+        let ids = selected
+        reshape { editor.indent(ids, by: delta) }
+    }
+
+    /// Deletes the selected blocks with the blocks nested under them (a table's database
     /// with it). The cursor goes to the end of the text before them.
     func deleteSelection() { delete(selected) }
 
-    /// Deletes these blocks with the items nested under them; the caret goes to the end
+    /// Deletes these blocks with the blocks nested under them; the caret goes to the end
     /// of the text before them (when not selecting).
     func delete(_ tops: [DocBlockID]) {
         let ids = Set(groups(tops).flatMap { $0 })
@@ -1425,14 +1425,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         reshape { editor.setKind(kind, of: selected) }
     }
 
-    /// A copy of the selected blocks (with the items nested under them) right after the
+    /// A copy of the selected blocks (with the blocks nested under them) right after the
     /// last of them, in order; a table's copy gets a database of its own. The copies of
     /// the selected ones become the selection.
     func duplicateSelection() {
         setSelection(duplicate(selected))
     }
 
-    /// Copies of these blocks (with the items nested under them) after the last of them.
+    /// Copies of these blocks (with the blocks nested under them) after the last of them.
     /// - Returns: the copies of `tops`.
     @discardableResult
     func duplicate(_ tops: [DocBlockID]) -> [DocBlockID] {
@@ -1468,7 +1468,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     func copySelection() { copy(selected) }
 
-    /// These blocks (with the items nested under them) as markdown, on the pasteboard.
+    /// These blocks (with the blocks nested under them) as markdown, on the pasteboard.
     func copy(_ tops: [DocBlockID]) {
         let ids = Set(groups(tops).flatMap { $0 })
         let blocks = demo.doc.blocks.filter { ids.contains($0.id) }
@@ -1769,19 +1769,25 @@ final class DocSelectionHighlight: UIView {
 }
 
 /// Takes the keys while blocks are selected on the Mac: Delete, Esc, ↑ ↓ (⇧ extends),
-/// Return to edit, ⌘C ⌘X; ⌘Z stays the document's.
+/// Return to edit, Tab ⇧Tab to indent, ⌘C ⌘X; ⌘Z stays the document's.
 final class DocBlockKeyView: UIView {
     weak var controller: DocBlockController?
 
     override init(frame: CGRect) {
         super.init(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
-        alpha = 0.01
-        isUserInteractionEnabled = false
+        // Draws nothing; shown and interactive so it can be focused (focusKeys); it takes
+        // no clicks (point(inside:)).
+        focusEffect = nil
     }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool { false }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override var canBecomeFirstResponder: Bool { true }
+
+    /// Focused while it takes the keys (focusKeys), with no ring of its own.
+    override var canBecomeFocused: Bool { isFirstResponder }
 
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
@@ -1801,6 +1807,8 @@ final class DocBlockKeyView: UIView {
             UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(down)),
             UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: .shift, action: #selector(extendUp)),
             UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: .shift, action: #selector(extendDown)),
+            UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(indent)),
+            UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(outdent)),
         ]
         for command in commands { command.wantsPriorityOverSystemBehavior = true }
         return commands
@@ -1829,6 +1837,8 @@ final class DocBlockKeyView: UIView {
     @objc private func down() { controller?.step(1, extending: false) }
     @objc private func extendUp() { controller?.step(-1, extending: true) }
     @objc private func extendDown() { controller?.step(1, extending: true) }
+    @objc private func indent() { controller?.indentSelection(by: 1) }
+    @objc private func outdent() { controller?.indentSelection(by: -1) }
 }
 
 /// The phone's actions on the selected blocks, as Craft's panel: a floating glass

@@ -107,7 +107,7 @@ extension DocBlockController {
     }
 
     /// A new line of text above the first selected block, or below the last (after the
-    /// items nested under it), at its level; the caret goes in it.
+    /// blocks nested under it), at its level; the caret goes in it.
     func insertLine(above: Bool) {
         let blocks = demo.doc.blocks
         guard let first = selected.first, let last = selected.last,

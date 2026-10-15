@@ -17,8 +17,8 @@ import MarkdownView
 import FlooDesign
 
 /// A text block's content as its row shows it: the tree DocKit builds from the model and
-/// MarkdownView renders (no markdown written or parsed in between), how deep a list item
-/// sits, whether it's a quote; its text, for the row's first height.
+/// MarkdownView renders (no markdown written or parsed in between), a list item's level
+/// (its bullet's), whether it's a quote; its text, for the row's first height.
 struct DocTextRow: Equatable {
     let tree: MarkdownTree
     let depth: Int
@@ -90,6 +90,8 @@ struct DocRow: Identifiable, Equatable {
     var role: DocRowRole = .paragraph
     /// Its part of a decoration's box: decorated rows next to each other share one.
     var box: DocRowBox?
+    /// Its block's level: the whole row goes in from the page's left (indentWidth).
+    var indent = 0
     private let source: String
     private let depth: Int?
 
@@ -119,6 +121,7 @@ struct DocRow: Identifiable, Equatable {
             && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
             && lhs.depth == rhs.depth
             && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role && lhs.box == rhs.box
+            && lhs.indent == rhs.indent
             && lhs.blocks.map(\.revealPlainTextCount) == rhs.blocks.map(\.revealPlainTextCount)
     }
 }
@@ -411,6 +414,7 @@ final class DocDemo {
     /// a run's members each have one of their own.
     private func space(_ rows: inout [DocRow]) {
         let kinds = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.kind) })
+        let indents = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.indent) })
         let decorations = Dictionary(uniqueKeysWithValues: doc.blocks.map { ($0.id, $0.decoration) })
         let decorated = rows.map { row in row.block.flatMap { decorations[$0] } ?? nil }
         let inRun = rows.map { $0.run?.kind != nil }
@@ -420,6 +424,7 @@ final class DocDemo {
             let row = rows[index]
             let role = row.block.flatMap { kinds[$0] }.map(DocRowRole.init) ?? DocRowRole(markdown: row.blocks.first?.source ?? "")
             rows[index].role = role
+            rows[index].indent = row.block.flatMap { indents[$0] } ?? 0
             rows[index].spacingBelow = index == rows.count - 1 ? DocTypography.pageBottom : 0
             if let run = row.run, run.kind == .floo {
                 // Cards carry the gutter above them, at their scale (DocCardGap).
@@ -758,11 +763,12 @@ struct DocDemoRNG: RandomNumberGenerator {
 extension DocRow {
     /// A rough height for the list to use until the row is measured.
     func estimatedHeight(width: CGFloat) -> CGFloat {
-        let textWidth = max(100, min(width - DocBlockController.leadingGutter - DocBlockController.trailingGutter, 720))
+        let indent = DocBlockController.indentWidth(indent)
+        let textWidth = max(100, min(width - DocBlockController.leadingGutter - DocBlockController.trailingGutter, 720) - indent)
         let boxPadding = FlooDesignTokens.Component.DecorationBox.padding
         let spacing = spacingAbove + spacingBelow + (box.map { ($0.isFirst ? boxPadding : 0) + ($0.isLast ? boxPadding : 0) } ?? 0)
         if let run, run.kind != nil {
-            let page = DocBlockController.pageWidth(inWidth: width)
+            let page = max(0, DocBlockController.pageWidth(inWidth: width) - indent)
             let gap = run.kind == .floo ? DocMediaLayout.flooGap(in: page) : 0
             return DocMediaLayout.place(run, inPage: page).frame.height + gap + spacing
         }

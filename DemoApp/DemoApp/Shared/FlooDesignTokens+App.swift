@@ -128,4 +128,9 @@ extension FlooDesignTokens.Component {
         static let cornerRadius = Tokens.Radius.sm
         static let fill = Tokens.ColorRole.Surface.decoration
     }
+
+    /// A block's indent in the document (Craft's): a level, any kind of block.
+    enum Indent {
+        static let step: CGFloat = 26
+    }
 }

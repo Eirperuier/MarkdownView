@@ -88,7 +88,7 @@ extension Doc {
     /// The checks a kind+indent+text combination must pass, shared by
     /// `insertBlock`, `setBlock` and `splitBlock`'s new block.
     private func checkBlock(kind: BlockKind, indent: Int, text: DocText) throws(DocError) {
-        try require((0...6).contains(indent), .invalidIndent)
+        try require((0...DocBlock.maxIndent).contains(indent), .invalidIndent)
         if case .heading(let level) = kind {
             try require((1...6).contains(level), .invalidHeadingLevel)
         }

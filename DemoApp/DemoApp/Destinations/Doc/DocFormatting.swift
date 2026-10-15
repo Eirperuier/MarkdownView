@@ -48,7 +48,8 @@ struct DocFormatting {
         editor.blocks.selected.isEmpty && editor.cursor.selection.map { editor.tables.cell(of: $0.head.block) != nil } ?? false
     }
 
-    /// The selected blocks of any kind, else the one the cursor is in: what a box goes around.
+    /// The selected blocks of any kind, else the one the cursor is in: what a box goes
+    /// around, what goes in or out a level.
     var decorated: [DocBlock] {
         let selected = Set(editor.blocks.selected)
         if !selected.isEmpty { return demo.doc.blocks.filter { selected.contains($0.id) } }
@@ -78,11 +79,9 @@ struct DocFormatting {
         return !blocks.isEmpty && blocks.allSatisfy { Self.same($0.kind, kind) }
     }
 
+    /// Whether any of the blocks (any kind) can go in or out a level.
     func canIndent(_ delta: Int) -> Bool {
-        targets.contains { block in
-            guard case .listItem = block.kind else { return false }
-            return delta < 0 ? block.indent > 0 : true
-        }
+        decorated.contains { delta < 0 ? $0.indent > 0 : $0.indent < DocBlock.maxIndent }
     }
 
     var isBoxed: Bool {
@@ -118,7 +117,7 @@ struct DocFormatting {
     }
 
     func indent(by delta: Int) {
-        let ids = targets.map(\.id)
+        let ids = decorated.map(\.id)
         editor.blocks.reshape { editor.indent(ids, by: delta) }
     }
 

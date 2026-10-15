@@ -1768,7 +1768,7 @@ final class DocEditTests {
             await test("a click on the handle is the handle's only: the row's click doesn't put the caret in the text") {
                 try self.expect(!blocks.testRowClickTakesHandle, "the row's click takes the handle's clicks")
             }
-            await test("every block's handle is in the same column, nested or not") {
+            await test("an indented block's handle goes in with it, a level's step a level") {
                 let paragraph = try self.block("这篇文档由 DocKit")
                 let nested = try self.block("编号也一样")
                 var xs: [CGFloat] = []
@@ -1777,7 +1777,8 @@ final class DocEditTests {
                     blocks.testHover(id)
                     xs.append(try self.expectValue(blocks.testHandleFrame, "no handle").minX)
                 }
-                try self.expect(xs[0] == xs[1], "handles at \(xs)")
+                let wanted = DocBlockController.indentWidth(nested.indent - paragraph.indent)
+                try self.expect(abs(xs[1] - xs[0] - wanted) < 0.5, "handles at \(xs), \(wanted) apart wanted")
             }
             await test("a click on a block's text selects the block; only then does the text take clicks") {
                 let block = try self.block("Loading older")
@@ -1911,7 +1912,7 @@ final class DocEditTests {
             blocks.testDrag(block.id, toY: frame.minY + 2)
             try self.expect(order().firstIndex(of: block.id) == index - 1, "at \(String(describing: order().firstIndex(of: block.id))), wanted \(index - 1)")
         }
-        await test("a list item moves with its nested items, and comes out a level where it lands") {
+        await test("a list item moves with its nested items, each keeping its level where it lands") {
             let nested = try self.block("嵌套列表的缩进")
             let intro = try self.block("这篇文档由 DocKit")
             let group = blocks.groups([nested.id])[0]
@@ -1922,9 +1923,58 @@ final class DocEditTests {
             let at = try self.expectValue(ids.firstIndex(of: intro.id), "no intro")
             try self.expect(Array(ids[(at + 1)...(at + 3)]) == group, "group not after the paragraph")
             let moved = group.compactMap { self.demo.doc.block($0)?.indent }
-            try self.expect(moved == indents.map { $0 - 1 }, "indents \(moved), were \(indents)")
+            try self.expect(moved == indents, "indents \(moved), were \(indents)")
             try await self.undo()
             try self.expect(group.compactMap { self.demo.doc.block($0)?.indent } == indents, "undo left indents")
+        }
+        await test("Tab on selected blocks of any kind indents them, the row going in a step; ⇧Tab takes them back") {
+            let paragraph = try self.block("Loading older")
+            let table = try self.expectValue(self.demo.doc.blocks.first { if case .database = $0.kind { true } else { false } }, "no table")
+            await show(paragraph.id)
+            let before = try self.expectValue(blocks.testContentFrame(paragraph.id), "no frame")
+            blocks.select([paragraph.id, table.id])
+            blocks.indentSelection(by: 1)
+            blocks.indentSelection(by: 1)
+            try self.expect([paragraph.id, table.id].allSatisfy { self.demo.doc.block($0)?.indent == 2 }, "indents \([paragraph.id, table.id].map { self.demo.doc.block($0)?.indent ?? -1 })")
+            try self.expect(blocks.selected == [paragraph.id, table.id], "the selection didn't stay")
+            await show(paragraph.id)
+            try? await Task.sleep(for: .milliseconds(700))
+            let after = try self.expectValue(blocks.testContentFrame(paragraph.id), "no frame")
+            let step = DocBlockController.indentWidth(2)
+            try self.expect(abs(after.minX - before.minX - step) < 0.5 && abs(after.maxX - before.maxX) < 0.5, "frame \(after), was \(before)")
+            let view = try self.expectValue(self.editor.textView(for: paragraph.id), "no text view")
+            let text = view.convert(view.bounds, to: DocScrolling.list(of: view))
+            try self.expect(text.minX >= after.minX - 0.5, "text at \(text.minX), block at \(after.minX)")
+            blocks.indentSelection(by: -1)
+            blocks.indentSelection(by: -1)
+            blocks.indentSelection(by: -1)
+            try self.expect([paragraph.id, table.id].allSatisfy { self.demo.doc.block($0)?.indent == 0 }, "not back at 0")
+            blocks.clear()
+        }
+        await test("Indenting goes to five levels, whatever is around; a list item takes its items, those at five staying there") {
+            let top = try self.block("嵌套列表的缩进")
+            let group = blocks.groups([top.id])[0]
+            let start = self.demo.doc.blocks
+            // On screen, the bullet changes with the level: • on an even one, ◦ on an odd.
+            await show(top.id)
+            try self.expect(self.editor.textView(for: top.id)?.text.hasPrefix("◦") == true, "level \(top.indent) isn't ◦")
+            self.editor.indent([top.id], by: 1)
+            try? await Task.sleep(for: .milliseconds(300))
+            let shown = try self.expectValue(self.editor.textView(for: top.id)?.text, "no text view")
+            try self.expect(shown.hasPrefix("•"), "level 2's bullet is \(shown.prefix(1))")
+            for _ in 0..<5 { self.editor.indent([top.id], by: 1) }
+            let indents = group.compactMap { self.demo.doc.block($0)?.indent }
+            try self.expect(indents == [5, 5, 5], "indents \(indents)")
+            // An item can sit any level under the one before it: its bullet is its level's.
+            let row = try self.expectValue(self.demo.rows.first { $0.block == top.id }?.text, "no text row")
+            try self.expect(row.depth == 5, "depth \(row.depth)")
+            // Out again: the first step takes the top alone (its items are at its level
+            // now), then they're under it again and come along.
+            for _ in 0..<6 { self.editor.indent([top.id], by: -1) }
+            let out = group.compactMap { self.demo.doc.block($0)?.indent }
+            try self.expect(out == [0, 1, 1], "indents \(out)")
+            while self.demo.doc.blocks != start, self.demo.canUndo { try await self.undo() }
+            try self.expect(self.demo.doc.blocks == start, "undo didn't take it back")
         }
         await test("a copy of the selection goes right after it, a table's with a database of its own") {
             let paragraph = try self.block("Loading older")

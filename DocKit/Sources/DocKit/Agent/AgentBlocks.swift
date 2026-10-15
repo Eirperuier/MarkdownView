@@ -311,8 +311,8 @@ extension AgentBlocks {
         if json.stringValue != nil || { if case .array = json { true } else { false } }() { return try block(.object(["text": json]), id: id, databases: &databases, results: results) }
         guard case .object(let object) = json else { throw AgentFormatError("a block is an object with a \"type\"") }
         let type = (object["type"]?.stringValue ?? "paragraph").lowercased()
-        var indent = Int(object["indent"]?.intValue ?? 0)
-        guard (0...6).contains(indent) else { throw AgentFormatError("indent is 0 to 6, not \(indent)") }
+        let indent = Int(object["indent"]?.intValue ?? 0)
+        guard (0...DocBlock.maxIndent).contains(indent) else { throw AgentFormatError("indent is 0 to \(DocBlock.maxIndent), not \(indent)") }
         let boxed = object["boxed"]?.boolValue ?? false
         func text() throws(AgentFormatError) -> DocText {
             try AgentBlocks.text(object["text"] ?? object["content"] ?? .string(""))
@@ -403,7 +403,6 @@ extension AgentBlocks {
             throw AgentFormatError(
                 "unknown block type \"\(type)\": use paragraph, heading, list, quote, caption, code, math, divider, image, link, file, card, view, table, collection or page")
         }
-        if case .listItem = kind {} else if indent > 0, !kind.carriesText { indent = 0 }
         return DocBlock(id: id, kind: kind, indent: indent, text: content, decoration: boxed ? .block : nil)
     }
 
