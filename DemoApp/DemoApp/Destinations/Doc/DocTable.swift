@@ -851,8 +851,9 @@ final class DocCellTextView: UITextView, UITextViewDelegate {
             UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: .command, action: #selector(lastCell)),
             UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(leaveTable)),
         ]
-        // ↑↓ leave the cell only from its first / last line.
-        if let caret = selectedTextRange?.start, markedTextRange == nil {
+        // ↑↓ leave the cell only from its first / last line, and not while a right-click's
+        // menu has the keys.
+        if !FlooDesignPanels.holdsKeys, let caret = selectedTextRange?.start, markedTextRange == nil {
             let line = caretRect(for: caret)
             if line.minY <= caretRect(for: beginningOfDocument).minY + 1 {
                 commands.append(UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(cellAbove)))

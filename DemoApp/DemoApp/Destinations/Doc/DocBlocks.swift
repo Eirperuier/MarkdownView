@@ -718,8 +718,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     /// The key responder lost the focus (a click into the text, a cell, another field).
     fileprivate func keysResigned() {
-        // A right-click menu takes the keys only while it shows.
-        guard drag == nil, !FlooDesignPanels.holdsKeys else { return }
+        guard drag == nil else { return }
         clear()
     }
 
@@ -1858,6 +1857,8 @@ final class DocBlockKeyView: UIView {
     override var undoManager: UndoManager? { controller?.editor.undoManager }
 
     override var keyCommands: [UIKeyCommand]? {
+        // A right-click's menu on the blocks has the keys while it's open.
+        guard !FlooDesignPanels.holdsKeys else { return nil }
         let commands = [
             UIKeyCommand(input: "\u{8}", modifierFlags: [], action: #selector(deleteBlocks)),
             UIKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: [], action: #selector(deleteBlocks)),
