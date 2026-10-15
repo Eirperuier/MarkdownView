@@ -1997,7 +1997,7 @@ final class DocEditTests {
                 try self.expect(blocks.typing == nil, "still typing in \(String(describing: blocks.typing))")
                 try self.expect(!hitsText(), "a text takes clicks with nothing edited")
             }
-            await test("a right-click on a block selects it and shows its menu: List turns it into a list item, Insert Below edits a new line under it; one undo each") {
+            await test("a right-click on a block selects it and shows its menu: Format has the format panel's sections under copy, paste and clear, its list turns it into a list item; Insert Below edits a new line under it; one undo each") {
                 let block = try self.block("Loading older")
                 await show(block.id)
                 self.editor.dismissKeyboard()
@@ -2010,7 +2010,12 @@ final class DocEditTests {
                 try self.expect(blocks.selected == [block.id], "selected \(blocks.selected.count)")
                 let titles = blocks.selectionMenu().flatMap(\.items).map(\.title)
                 try self.expect(titles == ["Cut", "Copy", "Duplicate", "Format", "Insert", "Delete"], "menu \(titles)")
-                try self.perform(blocks.selectionMenu(), ["Format", "List", "Bullet List"])
+                let format = try self.expectValue(blocks.selectionMenu().flatMap(\.items).first { $0.title == "Format" }?.submenu, "no Format")
+                let panel = DocFormatMenu(editor: self.editor).sections
+                try self.expect(format.first?.items.map(\.title) == ["Copy Format", "Paste Format", "Clear Format"]
+                                && format.dropFirst().map { $0.controls.map(\.id) } == panel.map { $0.controls.map(\.id) },
+                                "Format \(format.map { $0.items.map(\.title) + $0.controls.map(\.id) })")
+                DocFormatting(editor: self.editor).toggleList(.listItem(style: .bullet))
                 try self.expect(self.demo.doc.block(block.id)?.kind == .listItem(style: .bullet), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
                 try await self.undo()
                 try self.expect(self.demo.doc.block(block.id)?.kind == block.kind, "undo left \(String(describing: self.demo.doc.block(block.id)?.kind))")
