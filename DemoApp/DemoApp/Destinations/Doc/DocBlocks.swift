@@ -20,6 +20,7 @@
 
 import SwiftUI
 import QuickLook
+import UniformTypeIdentifiers
 import UIKit.UIGestureRecognizerSubclass
 import DocKit
 import MarkdownView
@@ -864,20 +865,24 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         case .link?, .image?: true
         case .card?: openCard != nil
         case .page?: openPage != nil
-        case .file(let file)?: URL(string: file.source).map { $0.isFileURL || $0.scheme?.hasPrefix("http") == true } ?? false
+        case .file(let file)?: DocBlobRef(source: file.source) != nil
+            || URL(string: file.source).map { $0.isFileURL || $0.scheme?.hasPrefix("http") == true } ?? false
         default: false
         }
     }
 
     /// A link, file or image handed to `openURL`: a link or a file on the web as its URL,
-    /// a file on disk as its file URL, an image as its picture written to a file (or its
-    /// URL on the web). What the system can't open (a file, on a phone) shows in Quick Look.
+    /// a file on disk as its file URL, kept content (DocBlobs) as a file named as the
+    /// block names it, an image as its picture written to a file (or its URL on the web).
+    /// What the system can't open (a file, on a phone) shows in Quick Look.
     func open(_ id: DocBlockID) {
         switch demo.doc.block(id)?.kind {
         case .link(let link)?:
             if let url = URL(string: link.url) { open(url) }
         case .image(let image)?:
-            if let picture = DocMediaLayout.asset(image.source), let data = picture.jpegData(compressionQuality: 0.95) {
+            if let ref = DocBlobRef(source: image.source) {
+                openKept(ref, name: image.alt.isEmpty ? String(localized: "Image") : image.alt) { DocBlobImages.type($0) }
+            } else if let picture = DocMediaLayout.asset(image.source), let data = picture.jpegData(compressionQuality: 0.95) {
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent((image.alt.isEmpty ? String(localized: "Image") : image.alt) + ".jpg")
                 guard (try? data.write(to: file)) != nil else { return }
                 open(file)
@@ -885,7 +890,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
                 open(url)
             }
         case .file(let file)?:
-            // A blob has nowhere to come from yet: attachments aren't stored (Docs/doc.md §3.4.1).
+            if let ref = DocBlobRef(source: file.source) { return openKept(ref, name: file.name) { _ in nil } }
             guard let url = URL(string: file.source), url.isFileURL || url.scheme?.hasPrefix("http") == true else { return }
             open(url)
         case .card(let card)?:
@@ -894,6 +899,17 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             openPage?(id)
         default:
             break
+        }
+    }
+
+    /// Kept content, fetched if it isn't here, opened under its name (`type` the kept
+    /// file's, for an extension where the name has none).
+    private func openKept(_ ref: DocBlobRef, name: String, type: @escaping @Sendable (URL) -> UTType?) {
+        Task {
+            guard let kept = try? await DocBlobs.store.file(for: ref),
+                  let file = try? await DocBlobs.openable(ref, name: name, type: type(kept))
+            else { return }
+            open(file)
         }
     }
 

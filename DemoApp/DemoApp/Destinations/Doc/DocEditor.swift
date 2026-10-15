@@ -69,6 +69,8 @@ final class DocEditor {
     lazy var blocks = DocBlockController(demo: demo, editor: self)
     /// Where the command menu's "/" is while it's open.
     var slashOrigin: DocPosition?
+    /// Images or files being picked and kept, to go in once they are (the tests wait on it).
+    var inserting: Task<Void, Never>?
     /// The list that doesn't scroll while the menu is open.
     weak var heldList: UIScrollView?
     /// The next render of the selection's block should also take keyboard focus.

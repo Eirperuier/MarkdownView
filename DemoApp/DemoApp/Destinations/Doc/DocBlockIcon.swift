@@ -5,7 +5,8 @@
 //  A block's kind drawn small (Craft's insert menu draws each its own, not a symbol): a
 //  text style as its letters, a list as its rows, a quote as its bar, a block as its box,
 //  a table as its cells, code as a dark slip with a green band, a formula as a formula,
-//  a divider as its line, a page as a sheet. The command menu shows them in the icons'
+//  a divider as its line, a page as a sheet; where an image or file comes from as its
+//  place: a folder, the photos' flower, a camera, a scanner's corners. The command menu shows them in the icons'
 //  column; what isn't a block (indenting, copying, a colour, deleting) keeps its symbol.
 //
 //  Drawn on a canvas of the Mac's menu (22 × 18 points) and scaled to the menu's icon
@@ -28,6 +29,7 @@ struct DocBlockIcon: View {
         case formula
         case divider
         case page
+        case folder, photos, camera, scan
     }
 
     let glyph: Glyph
@@ -141,6 +143,77 @@ struct DocBlockIcon: View {
                         .padding(.top, 3).padding(.leading, 2.5)
                 }
                 .frame(width: 12.5, height: 16)
+        case .folder:
+            ZStack(alignment: .topLeading) {
+                UnevenRoundedRectangle(cornerRadii: .init(topLeading: 1.5, topTrailing: 1.5), style: .continuous)
+                    .fill(Self.folderBack)
+                    .frame(width: 8, height: 4)
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Self.folderBack)
+                    .frame(width: 19, height: 12.5)
+                    .offset(y: 1.8)
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Self.folderFront)
+                    .frame(width: 19, height: 11)
+                    .offset(y: 4)
+            }
+            .frame(width: 19, height: 15, alignment: .topLeading)
+        case .photos:
+            ZStack {
+                ForEach(Self.petals.indices, id: \.self) { index in
+                    Capsule()
+                        .fill(Self.petals[index].opacity(0.85))
+                        .frame(width: 4.6, height: 8)
+                        .offset(y: -3.6)
+                        .rotationEffect(.degrees(Double(index) * 45))
+                }
+            }
+            .frame(width: 16, height: 16)
+        case .camera:
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(Color(white: 0.22))
+                .overlay(alignment: .topLeading) {
+                    Capsule().fill(Color(white: 0.55)).frame(width: 3.5, height: 1.4).offset(x: 2.5, y: 1.8)
+                }
+                .overlay {
+                    Circle().fill(Color(white: 0.08))
+                        .overlay(Circle().strokeBorder(Color(white: 0.6), lineWidth: 1))
+                        .overlay(Circle().fill(Color(red: 0.3, green: 0.45, blue: 0.9).opacity(0.8)).frame(width: 2.4, height: 2.4).offset(x: -0.8, y: -0.8))
+                        .frame(width: 7.5, height: 7.5)
+                }
+                .frame(width: 19, height: 13)
+        case .scan:
+            ZStack {
+                ScanCorners().stroke(Self.scanYellow, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                    .frame(width: 18, height: 15)
+                VStack(alignment: .leading, spacing: 2) { bar(9); bar(10); bar(6) }
+            }
+        }
+    }
+
+    private static let folderBack = Color(red: 0.16, green: 0.5, blue: 0.93)
+    private static let folderFront = Color(red: 0.36, green: 0.67, blue: 1)
+    private static let scanYellow = Color(red: 0.98, green: 0.74, blue: 0.1)
+    /// The photos' flower, clockwise from the top.
+    private static let petals: [Color] = [
+        Color(red: 0.98, green: 0.62, blue: 0.1), Color(red: 0.98, green: 0.82, blue: 0.15),
+        Color(red: 0.55, green: 0.82, blue: 0.25), Color(red: 0.2, green: 0.72, blue: 0.55),
+        Color(red: 0.25, green: 0.6, blue: 0.95), Color(red: 0.45, green: 0.4, blue: 0.9),
+        Color(red: 0.75, green: 0.35, blue: 0.8), Color(red: 0.95, green: 0.3, blue: 0.4),
+    ]
+
+    /// A scanner's four corners.
+    private struct ScanCorners: Shape {
+        func path(in rect: CGRect) -> Path {
+            let arm: CGFloat = 4
+            var path = Path()
+            for (corner, x, y) in [(CGPoint(x: rect.minX, y: rect.minY), 1.0, 1.0), (CGPoint(x: rect.maxX, y: rect.minY), -1, 1),
+                                   (CGPoint(x: rect.minX, y: rect.maxY), 1, -1), (CGPoint(x: rect.maxX, y: rect.maxY), -1, -1)] {
+                path.move(to: CGPoint(x: corner.x, y: corner.y + arm * y))
+                path.addLine(to: corner)
+                path.addLine(to: CGPoint(x: corner.x + arm * x, y: corner.y))
+            }
+            return path
         }
     }
 
@@ -166,7 +239,8 @@ struct DocBlockIcon: View {
 extension DocBlockIcon.Glyph {
     /// A command's drawing, if it makes a block or opens a group of them.
     static func of(_ command: DocCommand) -> Self? {
-        switch command.id {
+        if let glyph = command.glyph { return glyph }
+        return switch command.id {
         case "list", "bullet": .bullets
         case "numbered": .numbers
         case "task": .tasks

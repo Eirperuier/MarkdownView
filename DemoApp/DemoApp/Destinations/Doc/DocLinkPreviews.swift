@@ -128,7 +128,7 @@ final class DocLinkPreviews {
     }
 }
 
-/// Remote images, kept once loaded.
+/// Remote images and kept ones (DocBlobs), kept once loaded.
 @MainActor
 @Observable
 final class DocImageCache {
@@ -146,6 +146,20 @@ final class DocImageCache {
             if let (data, _) = try? await URLSession.shared.data(from: url), let image = UIImage(data: data) {
                 images[key] = image
             }
+        }
+        return nil
+    }
+    /// Kept content's picture, if it's decoded; fetched (if it isn't here) and decoded if not.
+    func image(_ ref: DocBlobRef) -> UIImage? {
+        let key = ref.source
+        if let image = images[key] { return image }
+        guard !loading.contains(key) else { return nil }
+        loading.insert(key)
+        Task {
+            guard let file = try? await DocBlobs.store.file(for: ref),
+                  let image = await Task.detached(priority: .userInitiated, operation: { DocBlobImages.decode(file) }).value
+            else { return }
+            images[key] = image
         }
         return nil
     }

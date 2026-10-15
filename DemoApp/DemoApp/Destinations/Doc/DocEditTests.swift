@@ -11,6 +11,7 @@
 
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 import DocKit
 import MarkdownView
 import MessagingUI
@@ -829,6 +830,59 @@ final class DocEditTests {
             let next = try self.blockAfter(line.id)
             try self.expect(next.kind == .paragraph && next.text.isEmpty, "after: \(next.kind)")
             try self.expectCursor(next.id, 0)
+        }
+        await test("Slash menu: a source's image and file go in where the slash was, kept by their content, the caret below; one undo takes them out") {
+            let source = DocTestInsertSource { [Self.pickedImage(), Self.pickedText()] }
+            DocInsertSources.all.append(source)
+            defer { DocInsertSources.all.removeAll { $0.id == source.id } }
+            let line = try await emptyLine()
+            let count = self.demo.doc.blocks.count
+            try await self.type("/testsource")
+            try self.expect(self.editor.slash.items.map(\.id) == [source.id], "items \(self.editor.slash.items.map(\.id))")
+            try await self.enter()
+            await self.editor.inserting?.value
+            try await self.settle()
+            guard case .image(let image)? = self.demo.doc.block(line.id)?.kind else { throw Failure(description: "line is \(String(describing: self.demo.doc.block(line.id)?.kind))") }
+            let ref = try self.expectValue(DocBlobRef(source: image.source), "source \(image.source)")
+            try self.expect(image.alt == "Picked", "alt \(image.alt)")
+            try self.expect(DocMediaLayout.naturalSize(image.source) == CGSize(width: 300, height: 200), "natural size \(String(describing: DocMediaLayout.naturalSize(image.source)))")
+            let file = try self.blockAfter(line.id)
+            guard case .file(let attached) = file.kind else { throw Failure(description: "after the image: \(file.kind)") }
+            try self.expect(attached.name == "notes.txt" && attached.size == Self.notes.utf8.count && DocBlobRef(source: attached.source) != nil,
+                            "file \(attached)")
+            let next = try self.blockAfter(file.id)
+            try self.expect(next.kind == .paragraph && next.text.isEmpty, "after the file: \(next.kind)")
+            try self.expectCursor(next.id, 0)
+            // The same content is the same ref, kept once.
+            let again = try await DocBlobs.store.put(Self.writePNG(), type: .png)
+            try self.expect(again.ref == ref, "kept again as \(again.ref.hex)")
+            let kept = try await DocBlobs.store.file(for: ref)
+            try self.expect(DocBlobImages.reads(kept), "kept file isn't the image")
+            try await self.undo()
+            try self.expect(self.demo.doc.blocks.count == count && self.demo.doc.block(line.id)?.kind == .paragraph && self.text(line.id) == "/testsource",
+                            "after undo: \(self.demo.doc.blocks.count) blocks, \(String(describing: self.demo.doc.block(line.id)?.kind)) \(self.text(line.id).debugDescription)")
+        }
+        await test("Slash menu: a source after text puts what's picked after the line; nothing picked takes only the “/query”") {
+            var picks: [DocPicked] = []
+            let source = DocTestInsertSource { picks }
+            DocInsertSources.all.append(source)
+            defer { DocInsertSources.all.removeAll { $0.id == source.id } }
+            let line = try await emptyLine()
+            try await self.type("abc /testsource")
+            try await self.enter()
+            await self.editor.inserting?.value
+            try await self.settle()
+            try self.expect(self.text(line.id) == "abc " && self.demo.doc.block(line.id)?.kind == .paragraph, "cancelled: \(self.text(line.id).debugDescription)")
+            try self.expectCursor(line.id, 4)
+            picks = [Self.pickedImage()]
+            try await self.type("/testsource")
+            try await self.enter()
+            await self.editor.inserting?.value
+            try await self.settle()
+            try self.expect(self.text(line.id) == "abc ", "line \(self.text(line.id).debugDescription)")
+            let image = try self.blockAfter(line.id)
+            guard case .image = image.kind else { throw Failure(description: "after the line: \(image.kind)") }
+            try self.expectCursor(line.id, 4)
         }
         await test("Slash menu after text keeps the text: “abc /quote” makes a quote of “abc ”") {
             let line = try await emptyLine()
@@ -3668,4 +3722,42 @@ final class DocEditTests {
         editor.requestRedo()
         try await settle()
     }
+
+    static let notes = "Notes picked for the test.\n"
+
+    /// A 300 × 200 PNG (at 72 dpi), in a folder of its own.
+    static func writePNG() -> URL {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 200), format: format).image { context in
+            UIColor.systemTeal.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 300, height: 200))
+        }
+        let url = DocInsertSources.folder().appendingPathComponent("Picked.png")
+        try? image.pngData()?.write(to: url)
+        return url
+    }
+
+    static func pickedImage() -> DocPicked { .file(writePNG(), name: "Picked.png", type: .png) }
+
+    static func pickedText() -> DocPicked {
+        let url = DocInsertSources.folder().appendingPathComponent("notes.txt")
+        try? notes.write(to: url, atomically: true, encoding: .utf8)
+        return .file(url, name: "notes.txt", type: .plainText)
+    }
+}
+
+/// A source that gives what it's told, with no picker.
+private struct DocTestInsertSource: DocInsertSource {
+    let picks: () -> [DocPicked]
+    let id = "insert-test"
+    let title = "Test Source"
+    let symbol = "testtube.2"
+    let glyph = DocBlockIcon.Glyph.folder
+    let keywords = ["testsource"]
+    var isAvailable: Bool { true }
+
+    init(picks: @escaping () -> [DocPicked]) { self.picks = picks }
+
+    func pick(over presenter: UIViewController) async -> [DocPicked] { picks() }
 }

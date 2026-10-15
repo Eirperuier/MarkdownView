@@ -11,6 +11,9 @@
 //
 
 import SwiftUI
+import ImageIO
+import Synchronization
+import UniformTypeIdentifiers
 import DocKit
 import FlooDesign
 import CardModel
@@ -148,7 +151,8 @@ private struct DocImageLayout: Layout {
 
 // MARK: Shared
 
-/// An image from a source: an asset (`asset:name`, the demo's), or a URL. It takes the
+/// An image from a source: an asset (`asset:name`, the demo's), kept content (a blob
+/// ref, DocBlobs), or a URL. It takes the
 /// frame it's given (its caller keeps its shape).
 private struct DocMediaPreview<Placeholder: View>: View {
     let source: String?
@@ -192,7 +196,8 @@ enum DocMediaLayout {
     }
 
     static func naturalSize(_ source: String) -> CGSize? {
-        asset(source).map { $0.size }
+        if let ref = DocBlobRef(source: source) { return DocBlobImages.naturalSize(ref) }
+        return asset(source).map { $0.size }
     }
 
     static func asset(_ source: String) -> UIImage? {
@@ -218,10 +223,12 @@ enum DocMediaLayout {
         return CGSize(width: natural.width * scale, height: natural.height * scale)
     }
 
-    /// The picture a source has here: an asset, or a URL's once it's loaded.
+    /// The picture a source has here: an asset, or kept content's or a URL's once it's
+    /// loaded.
     @MainActor static func picture(_ source: String?) -> UIImage? {
         guard let source else { return nil }
         if let image = asset(source) { return image }
+        if let ref = DocBlobRef(source: source) { return DocImageCache.shared.image(ref) }
         guard let url = URL(string: source), url.scheme?.hasPrefix("http") == true else { return nil }
         return DocImageCache.shared.image(url)
     }
@@ -529,5 +536,58 @@ private struct DocCardGap: Layout {
 
     private func gap(_ width: CGFloat) -> CGFloat {
         CGFloat(CardSize.gutter(grid: DocMediaLayout.cardGrid)) * width / designWidth
+    }
+}
+
+// MARK: Kept images
+
+/// Images kept by the store (DocBlobs), read with ImageIO: their size from their header
+/// (no decoding, so a page lays out at once), their picture decoded off the main thread
+/// at most a page's size (DocImageCache).
+enum DocBlobImages {
+    /// Decoded no larger than this, in pixels across: a page at its widest, at 3×.
+    static let largest = 2400
+
+    /// Whether ImageIO reads the file as an image.
+    static func reads(_ file: URL) -> Bool {
+        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil) else { return false }
+        return CGImageSourceGetCount(source) > 0 && CGImageSourceCopyPropertiesAtIndex(source, 0, nil) != nil
+    }
+
+    /// Its size in points: its pixels at its resolution (a 144 dpi screenshot is half
+    /// its pixels), turned as it's shown. Nil while it isn't here.
+    static func naturalSize(_ ref: DocBlobRef) -> CGSize? {
+        if let size = sizes.withLock({ $0[ref] }) { return size }
+        guard let file = DocBlobs.store.local(ref), let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue
+        else { return nil }
+        let dpi = (properties[kCGImagePropertyDPIWidth] as? NSNumber)?.doubleValue ?? 72
+        let scale = 72 / max(72, dpi)
+        let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        let size = orientation >= 5 ? CGSize(width: height * scale, height: width * scale) : CGSize(width: width * scale, height: height * scale)
+        sizes.withLock { $0[ref] = size }
+        return size
+    }
+
+    private static let sizes = Mutex<[DocBlobRef: CGSize]>([:])
+
+    /// The picture, turned as it's shown, at most `largest` pixels across.
+    static func decode(_ file: URL) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: largest,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
+    }
+
+    /// Its type, as ImageIO reads it (for a name to open it by).
+    static func type(_ file: URL) -> UTType? {
+        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil), let type = CGImageSourceGetType(source) else { return nil }
+        return UTType(type as String)
     }
 }

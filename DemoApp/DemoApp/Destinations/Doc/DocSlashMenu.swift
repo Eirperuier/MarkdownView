@@ -5,7 +5,8 @@
 //  The command menu (Craft's): what can be done to the caret's block, in groups. See
 //  DocSlashMenu for how it opens and closes. Choosing removes the "/query" typed, then
 //  acts: the block turns into the chosen kind (its text stays), takes a colour or a
-//  decoration, is copied, duplicated or deleted, or a divider or table goes in.
+//  decoration, is copied, duplicated or deleted, or a divider or table goes in, or an
+//  image or file from where the person picks it (DocInsertSources).
 //
 
 import SwiftUI
@@ -29,6 +30,8 @@ struct DocCommand: Identifiable, Equatable, Sendable {
         case table(rows: Int, columns: Int)
         /// The block becomes a page, its words the title, and the window goes into it.
         case page
+        /// Images and files from a source (DocInsertSource's id), picked there.
+        case insert(String)
         /// Marks, colour and box off; the kind stays.
         case clearFormat
         case delete
@@ -41,6 +44,8 @@ struct DocCommand: Identifiable, Equatable, Sendable {
     let symbol: String
     /// A colour's token: its swatch is the icon.
     var swatch: String? = nil
+    /// Its drawing, where it isn't its id's (DocBlockIcon.Glyph.of).
+    var glyph: DocBlockIcon.Glyph? = nil
     var keywords: [String] = []
     var action: Action? = nil
     var children: [DocCommand] = []
@@ -51,8 +56,18 @@ struct DocCommand: Identifiable, Equatable, Sendable {
         DocCommand(id: id, title: title, symbol: symbol, children: children)
     }
 
-    /// Craft's command menu, what DocKit can do of it, in its order.
-    static let all: [DocCommand] = [
+    /// Craft's command menu, what DocKit can do of it, in its order; inserting from the
+    /// sources this device has, after the blocks.
+    @MainActor static var all: [DocCommand] { blocks + inserts + edits }
+
+    @MainActor static var inserts: [DocCommand] {
+        DocInsertSources.available.map { source in
+            DocCommand(id: source.id, title: source.title, symbol: source.symbol, glyph: source.glyph, keywords: source.keywords,
+                       action: .insert(source.id))
+        }
+    }
+
+    private static let blocks: [DocCommand] = [
         group("list", String(localized: "List"), "list.bullet", [
             .init(id: "task", title: String(localized: "Todo List"), symbol: "checkmark.square", keywords: ["todo", "task", "check", "daiban"], action: .kind(.listItem(style: .task(done: false)))),
             .init(id: "toggle", title: String(localized: "Toggle List"), symbol: "play.fill", keywords: ["toggle", "collapse", "zhedie"], action: .kind(.listItem(style: .toggle(open: true)))),
@@ -91,15 +106,18 @@ struct DocCommand: Identifiable, Equatable, Sendable {
         .init(id: "math", title: String(localized: "Math Block"), symbol: "function", keywords: ["math", "latex", "equation", "gongshi"], action: .kind(.math)),
         .init(id: "divider", title: String(localized: "Divider"), symbol: "minus", keywords: ["divider", "line", "hr", "fengexian"], action: .divider),
         .init(id: "page", title: String(localized: "Page"), symbol: "doc.text", keywords: ["page", "subpage", "yemian"], action: .page),
+    ]
+
+    private static let edits: [DocCommand] = [
         .init(id: "clear", title: String(localized: "Clear Format"), symbol: "xmark.square", keywords: ["clear", "format", "qingchu"], action: .clearFormat),
         .init(id: "delete", title: String(localized: "Delete Block"), symbol: "trash", keywords: ["delete", "remove", "shanchu"], action: .delete),
     ]
 
     /// Every command that acts, groups opened, in order.
-    static let leaves: [DocCommand] = {
+    @MainActor static var leaves: [DocCommand] {
         func flatten(_ commands: [DocCommand]) -> [DocCommand] { commands.flatMap { $0.isGroup ? flatten($0.children) : [$0] } }
         return flatten(all)
-    }()
+    }
 
     /// "/3x4" (or 3*4, 3×4): a table that size, rows first, up to 9 by 9. A size on its
     /// way ("3x", the columns not typed yet) is the square one until they come.
@@ -112,10 +130,11 @@ struct DocCommand: Identifiable, Equatable, Sendable {
     /// The commands whose title or a keyword contains the query (case-insensitive), out
     /// of their groups: those it starts first ("biao": 标题 before 列表), each in order.
     /// None typed: the menu's top.
-    static func matching(_ query: String) -> [DocCommand] {
+    @MainActor static func matching(_ query: String) -> [DocCommand] {
         if let sized = sized(query) { return [sized] }
         let query = query.lowercased()
         guard !query.isEmpty else { return all }
+        let leaves = leaves
         let words = { (command: DocCommand) in [command.title.lowercased()] + command.keywords }
         let starts = leaves.filter { words($0).contains { $0.hasPrefix(query) } }
         let contains = leaves.filter { command in !starts.contains(command) && words(command).contains { $0.contains(query) } }
@@ -311,6 +330,8 @@ extension DocEditor {
         let here = DocPosition(block: block.id, offset: typed.lowerBound)
         switch action {
         case .kind, .divider, .table, .page: break
+        case .insert(let source):
+            return insert(from: source, in: block, replacing: typed, from: head)
         default:
             if !typed.isEmpty {
                 commitSlash([.deleteText(block: block.id, range: typed, removed: DocText())],
@@ -372,7 +393,7 @@ extension DocEditor {
         case .duplicate: blocks.duplicate([id])
         case .clearFormat: clearFormat(of: [id])
         case .delete: blocks.delete([id])
-        case .kind, .divider, .table, .page: break
+        case .kind, .divider, .table, .page, .insert: break
         }
     }
 
