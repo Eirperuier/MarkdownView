@@ -600,7 +600,8 @@ enum DocOptionColor {
     }
 }
 
-/// A field's value as a chip: a select's option in its colour, the rest quiet.
+/// A field's value as a chip: a select's option in its colour, softened toward the text's
+/// on a faint wash of it (no outline); the rest quiet.
 struct DocChip: View {
     let text: String
     var color: Color?
@@ -612,13 +613,12 @@ struct DocChip: View {
             Text(text).lineLimit(1)
         }
         .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(color ?? FlooDesignTokens.ColorRole.Content.secondary)
+        .foregroundStyle(color.map { $0.mix(with: FlooDesignTokens.ColorRole.Content.primary, by: 0.2) }
+                         ?? FlooDesignTokens.ColorRole.Content.secondary)
         .padding(.horizontal, 7)
         .frame(height: Metrics.chipHeight)
-        .background((color ?? .primary).opacity(color == nil ? FlooDesignTokens.Opacity.faint : 0.18),
+        .background(color.map { $0.opacity(FlooDesignTokens.State.selectedOpacity) } ?? FlooDesignTokens.ColorRole.Surface.control,
                     in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs + 1, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs + 1, style: .continuous)
-            .strokeBorder((color ?? .primary).opacity(color == nil ? FlooDesignTokens.Opacity.faint : 0.22), lineWidth: FlooDesignTokens.Border.hairline))
     }
 
     /// An option's chip, in its colour.

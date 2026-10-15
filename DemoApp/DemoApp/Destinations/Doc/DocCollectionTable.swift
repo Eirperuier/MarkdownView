@@ -52,15 +52,15 @@ struct DocCollectionTable: View {
             VStack(spacing: 0) {
                 head(widths)
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                    Divider().overlay(FlooDesignTokens.Border.subtle)
+                    FlooDesignDivider()
                     record(row, number: index + 1, widths: widths)
                 }
-                Divider().overlay(FlooDesignTokens.Border.subtle)
+                FlooDesignDivider()
                 foot(widths, rows: rows)
             }
             .fixedSize(horizontal: true, vertical: false)
             .overlay(RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)
-                .strokeBorder(FlooDesignTokens.Border.subtle, lineWidth: FlooDesignTokens.Border.standard))
+                .strokeBorder(FlooDesignTokens.Border.separator, lineWidth: FlooDesignTokens.Border.hairline))
             .clipShape(RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
@@ -95,7 +95,7 @@ struct DocCollectionTable: View {
             Image(systemName: "plus")
                 .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
                 .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                .frame(width: Metrics.addFieldWidth - FlooDesignTokens.Border.standard, height: Metrics.headHeight)
+                .frame(width: Metrics.addFieldWidth - FlooDesignTokens.Border.hairline, height: Metrics.headHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(FlooDesignPlainButtonStyle(in: Rectangle()))
@@ -123,7 +123,7 @@ struct DocCollectionTable: View {
             }
             if controller.isEditable {
                 separator
-                Color.clear.frame(width: Metrics.addFieldWidth - FlooDesignTokens.Border.standard)
+                Color.clear.frame(width: Metrics.addFieldWidth - FlooDesignTokens.Border.hairline)
             }
         }
         .frame(minHeight: Metrics.rowHeight)
@@ -199,7 +199,7 @@ struct DocCollectionTable: View {
     }
 
     private var separator: some View {
-        Rectangle().fill(FlooDesignTokens.Border.subtle).frame(width: FlooDesignTokens.Border.standard)
+        FlooDesignDivider(.vertical)
     }
 }
 
