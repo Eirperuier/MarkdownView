@@ -432,9 +432,9 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         return TextContent(.attributedString(display))
     }
 
-    /// `font` at the typography's bold weight (a heavier one is kept), its size, italics and
-    /// monospacing kept. Only the system's faces, the ones the typography makes; another
-    /// face keeps its own bold (the bold trait).
+    /// `font` at the typography's bold weight (a heavier one is kept), its size, italics,
+    /// monospacing and design (serif, rounded) kept. Only the system's faces, the ones the
+    /// typography makes; another face keeps its own bold (the bold trait).
     private func strengthened(_ font: PlatformFont) -> PlatformFont {
         let weight = typography.strongWeight
         #if canImport(UIKit)
@@ -446,6 +446,9 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         var result = symbolic.contains(.traitMonoSpace)
             ? UIFont.monospacedSystemFont(ofSize: font.pointSize, weight: weight)
             : UIFont.systemFont(ofSize: font.pointSize, weight: weight)
+        if let design = Self.systemDesign(of: font), let designed = result.fontDescriptor.withDesign(design) {
+            result = UIFont(descriptor: designed, size: font.pointSize)
+        }
         if symbolic.contains(.traitItalic),
            let italic = result.fontDescriptor.withSymbolicTraits(result.fontDescriptor.symbolicTraits.union(.traitItalic)) {
             result = UIFont(descriptor: italic, size: font.pointSize)
@@ -460,11 +463,33 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         var result = symbolic.contains(.monoSpace)
             ? NSFont.monospacedSystemFont(ofSize: font.pointSize, weight: weight)
             : NSFont.systemFont(ofSize: font.pointSize, weight: weight)
+        if let design = Self.systemDesign(of: font), let designed = result.fontDescriptor.withDesign(design) {
+            result = NSFont(descriptor: designed, size: font.pointSize) ?? result
+        }
         if symbolic.contains(.italic) {
             result = NSFont(descriptor: result.fontDescriptor.withSymbolicTraits(result.fontDescriptor.symbolicTraits.union(.italic)), size: font.pointSize) ?? result
         }
         return result
         #endif
+    }
+
+    #if canImport(UIKit)
+    private typealias SystemDesign = UIFontDescriptor.SystemDesign
+    #else
+    private typealias SystemDesign = NSFontDescriptor.SystemDesign
+    #endif
+
+    /// Which of the system font's other designs `font` is in (nil: the default one), by its
+    /// family: a font's descriptor doesn't say.
+    private static func systemDesign(of font: PlatformFont) -> SystemDesign? {
+        let base = PlatformFont.systemFont(ofSize: font.pointSize)
+        return [SystemDesign.serif, .rounded, .monospaced].first { design in
+            #if canImport(UIKit)
+            base.fontDescriptor.withDesign(design).map { UIFont(descriptor: $0, size: font.pointSize).familyName } == font.familyName
+            #else
+            base.fontDescriptor.withDesign(design).flatMap { NSFont(descriptor: $0, size: font.pointSize)?.familyName } == font.familyName
+            #endif
+        }
     }
 
     private func mediumWeightFont(ofSize size: CGFloat) -> PlatformFont {

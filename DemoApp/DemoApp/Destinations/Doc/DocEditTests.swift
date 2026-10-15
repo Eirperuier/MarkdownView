@@ -636,6 +636,13 @@ final class DocEditTests {
             let drawn = view.textStorage.length > 0 ? view.textStorage.attribute(.font, at: 0, effectiveRange: nil) as? UIFont : nil
             let serif = UIFont.systemFont(ofSize: 17).fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: 17).familyName }
             try self.expect(drawn?.familyName == serif, "drawn in \(String(describing: drawn?.familyName)), not \(String(describing: serif))")
+            self.editor.toggle(.bold, over: 0..<5, in: line.id)
+            try await Task.sleep(for: .milliseconds(400))
+            let bold = self.editor.textView(for: line.id).flatMap { $0.textStorage.attribute(.font, at: 0, effectiveRange: nil) as? UIFont }
+            try self.expect(bold?.familyName == serif && bold?.fontDescriptor.symbolicTraits.contains(.traitBold) == true,
+                            "bold drawn in \(String(describing: bold?.fontName))")
+            self.editor.toggle(.bold, over: 0..<5, in: line.id)
+            try self.expect(self.demo.doc.block(line.id)?.text.marks.isEmpty == true, "still bold")
             try await self.enter()
             let next = try self.blockAfter(line.id)
             try self.expect(next.font == .serif, "the new line is in \(String(describing: next.font))")
