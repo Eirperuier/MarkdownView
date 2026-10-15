@@ -236,8 +236,8 @@ public struct DocCollection: Hashable, Sendable, Codable {
     }
 }
 
-/// A page block's page: the document it opens, its title (the page's first heading) and
-/// a preview of what's under it, both as they were when the page was last left.
+/// A page block's page: the document it opens, its title (the heading the page starts
+/// with) and a preview of what's under it, both as they were when the page was last left.
 public struct DocPage: Hashable, Sendable, Codable {
     public var doc: DocID
     public var title: String
@@ -251,10 +251,11 @@ public struct DocPage: Hashable, Sendable, Codable {
         self.preview = preview
     }
 
-    /// What a page block keeps of `page`: its first heading, and the words of the first
-    /// few blocks with words after it.
+    /// What a page block keeps of `page`: the heading it starts with (none: untitled, as
+    /// Craft's page whose first line isn't its title), and the words of the first few
+    /// blocks with words after it.
     public static func summary(of page: Doc) -> (title: String, preview: String) {
-        let heading = page.blocks.firstIndex { if case .heading = $0.kind { true } else { false } }
+        let heading: Int? = if case .heading? = page.blocks.first?.kind { 0 } else { nil }
         let title = heading.map { page.blocks[$0].text.string } ?? ""
         let rest = page.blocks.indices.filter { $0 != heading }.lazy
             .map { page.blocks[$0].text.string.split(separator: "\n").first.map(String.init) ?? "" }

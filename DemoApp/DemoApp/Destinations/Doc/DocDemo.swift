@@ -177,15 +177,23 @@ final class DocDemo {
            let data = try? Data(contentsOf: FileManager.default.temporaryDirectory.appendingPathComponent(name)),
            let written = try? JSONDecoder().decode(Doc.self, from: data) {
             self.init(doc: written)
+        } else if let root = DocStore.shared.root, let kept = DocStore.shared.load(root) {
+            // The first page as it was left (DocStore).
+            self.init(doc: kept)
         } else {
             DocTiming.begin("corpus")
-            self.init(doc: DocDemoCorpus.doc(id: Identifier(rawValue: UUID())))
+            let doc = DocDemoCorpus.doc(id: Identifier(rawValue: UUID()))
+            DocStore.shared.setRoot(doc.id)
+            self.init(doc: doc)
         }
     }
 
     /// A record's page: the collection whose record it is, whose fields show under its
     /// title (DocPages.openRecord).
-    @ObservationIgnored let record: DocRecordLink?
+    /// Brought up to where the collection is now each time the page opens (DocPages).
+    @ObservationIgnored var record: DocRecordLink? {
+        didSet { publish() }
+    }
 
     /// A document of its own: the corpus's, or a page opened from another (a record's, its
     /// collection given).
@@ -215,8 +223,11 @@ final class DocDemo {
     /// Rows again: a record's fields came or went in its collection.
     func republish() { publish() }
 
+    /// The corpus again; the documents kept (its pages too) gone with what was in them.
     func reset() {
         stop()
+        DocStore.shared.removeAll()
+        DocStore.shared.setRoot(doc.id)
         doc = DocDemoCorpus.doc(id: doc.id)
         history = DocHistory()
         publish()
@@ -234,6 +245,8 @@ final class DocDemo {
     private func publish() {
         let started = CFAbsoluteTimeGetCurrent()
         defer { lastPublishMs = (CFAbsoluteTimeGetCurrent() - started) * 1000 }
+        // Every change comes through here: kept as it is now (written a moment later).
+        DocStore.shared.save(doc)
         var result: [DocRow] = []
         var uncompiled: [BlockKind] = []
         var emitted = false

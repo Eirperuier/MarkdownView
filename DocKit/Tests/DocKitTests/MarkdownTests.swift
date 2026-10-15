@@ -156,10 +156,13 @@ struct MarkdownExportTests {
 
     @Test
     func aPageIsSummedUpByItsHeadingAndWhatFollows() {
-        let page = Doc(id: fixedID(0), markdown: "Intro\n\n# Trip notes\n\n- Flights\n\n---\n\nHotel\nby the sea\n\nCar\n\nBikes\n")
+        let page = Doc(id: fixedID(0), markdown: "# Trip notes\n\n- Flights\n\n---\n\nHotel\nby the sea\n\nCar\n\nBikes\n")
         let summary = DocPage.summary(of: page)
         #expect(summary.title == "Trip notes")
-        #expect(summary.preview == "Intro · Flights · Hotel · Car")
+        #expect(summary.preview == "Flights · Hotel · Car · Bikes")
+        // A heading further down isn't its title: the page is untitled.
+        let untitled = DocPage.summary(of: Doc(id: fixedID(0), markdown: "Intro\n\n# Trip notes\n\nHotel\n"))
+        #expect(untitled.title.isEmpty && untitled.preview == "Intro · Trip notes · Hotel")
     }
 
     @Test

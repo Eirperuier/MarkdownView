@@ -151,8 +151,6 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @ObservationIgnored var openURL: OpenURLAction?
     /// Goes into the page a page block opens (DocPages).
     @ObservationIgnored var openPage: ((DocBlockID) -> Void)?
-    /// Keeps a page made here (Group) for its page block to open.
-    @ObservationIgnored var keepPage: ((Doc) -> Void)?
     /// The image Quick Look shows.
     @ObservationIgnored private var previewing: URL?
     /// Rows flying to where they landed: the selection shows once they're down.
@@ -1480,7 +1478,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     }
 
     /// A copy of the selected blocks (with the blocks nested under them) right after the
-    /// last of them, in order; a table's copy gets a database of its own. The copies of
+    /// last of them, in order; a table's copy gets a database of its own, a page's a page. The copies of
     /// the selected ones become the selection.
     func duplicateSelection() {
         setSelection(duplicate(selected))
@@ -1511,6 +1509,11 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
                 steps.append(.createDatabase(database: database))
                 collection.database = database.id
                 copy.kind = .collection(collection: collection)
+            }
+            // A page's copy opens a copy of the page (DocStore).
+            if case .page(var page) = original.kind {
+                page.doc = DocStore.shared.copyPage(page.doc)
+                copy.kind = .page(page: page)
             }
             steps.append(.insertBlock(block: copy, after: after))
             after = copy.id

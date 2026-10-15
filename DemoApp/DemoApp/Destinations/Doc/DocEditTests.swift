@@ -2768,6 +2768,57 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(self.demo.doc.block(id) == nil, "the line stayed")
         }
+        await test("a page block grouped into another page opens from there, the way to it through that page; a duplicated page block opens a copy of its page") {
+            let pages = try self.expectValue(self.pages, "no pages")
+            let blocks = self.editor.blocks
+            let paragraph = try self.block("Loading older")
+            let before = self.demo.doc.blocks.map(\.id)
+            let index = try self.expectValue(before.firstIndex(of: paragraph.id), "no index")
+            // A page of the paragraph, opened and left.
+            blocks.select([paragraph.id])
+            blocks.groupSelection()
+            let inner = try self.expectValue(self.demo.doc.blocks.dropFirst(index).first, "no page block")
+            guard case .page(let innerPage) = inner.kind else { throw Failure(description: "not a page: \(inner.kind)") }
+            pages.open(inner.id)
+            try? await Task.sleep(for: .milliseconds(300))
+            try self.expect(pages.current.demo.doc.blocks.first?.text == paragraph.text && DocPage.summary(of: pages.current.demo.doc).title.isEmpty, "the page holds \(pages.current.demo.doc.blocks.count) blocks, titled \(pages.current.title)")
+            pages.back()
+            try? await Task.sleep(for: .milliseconds(300))
+            // That page block and the next block grouped into another page.
+            let next = try self.expectValue(self.demo.doc.blocks.dropFirst(index + 1).first { $0.indent <= inner.indent }, "no next")
+            blocks.select([inner.id, next.id])
+            blocks.groupSelection()
+            let outer = try self.expectValue(self.demo.doc.blocks.dropFirst(index).first, "no outer page block")
+            guard case .page = outer.kind else { throw Failure(description: "not a page: \(outer.kind)") }
+            pages.open(outer.id)
+            try? await Task.sleep(for: .milliseconds(300))
+            let outside = pages.current
+            let moved = try self.expectValue(outside.demo.doc.blocks.first { if case .page(let page) = $0.kind { page.doc == innerPage.doc } else { false } }, "the page block didn't move in")
+            pages.open(moved.id)
+            try? await Task.sleep(for: .milliseconds(300))
+            try self.expect(pages.current.id == innerPage.doc && pages.current.parent?.page === outside && pages.current.ancestors.count == 2,
+                            "opened from \(pages.current.ancestors.count) pages up, the right one: \(pages.current.parent?.page === outside)")
+            // Written in and left, the block where it is now takes its words.
+            let line = try self.expectValue(pages.current.demo.doc.blocks.first, "no line")
+            pages.current.demo.edit([.insertText(block: line.id, at: 0, text: DocText(string: "新 "))], before: nil, after: nil)
+            pages.back()
+            try? await Task.sleep(for: .milliseconds(300))
+            guard case .page(let updated)? = outside.demo.doc.block(moved.id)?.kind else { throw Failure(description: "the moved block is gone") }
+            try self.expect(updated.preview.hasPrefix("新 "), "the moved block's preview: \(updated.preview)")
+            // Duplicated, it opens a page of its own with the same words.
+            outside.editor.blocks.select([moved.id])
+            outside.editor.blocks.duplicateSelection()
+            let copy = try self.expectValue(outside.demo.doc.blocks.first { $0.id != moved.id && { if case .page = $0.kind { true } else { false } }($0) }, "no copy")
+            guard case .page(let copied) = copy.kind else { throw Failure(description: "not a page") }
+            let original = try self.expectValue(DocStore.shared.load(innerPage.doc), "the page isn't kept")
+            let duplicate = try self.expectValue(DocStore.shared.load(copied.doc), "the copy isn't kept")
+            try self.expect(copied.doc != innerPage.doc && duplicate.blocks.map(\.text) == original.blocks.map(\.text)
+                            && Set(duplicate.blocks.map(\.id)).isDisjoint(with: original.blocks.map(\.id)), "the copy shares the page")
+            pages.back()
+            try? await Task.sleep(for: .milliseconds(300))
+            for _ in 0..<4 where self.demo.doc.blocks.map(\.id) != before { try await self.undo() }
+            try self.expect(self.demo.doc.blocks.map(\.id) == before, "the groups didn't undo")
+        }
         await test("cards next to each other share a line; a point on each picks that one") {
             let line = try self.expectValue(self.linkCards(), "no line of cards")
             await show(line[0])

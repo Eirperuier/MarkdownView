@@ -37,7 +37,9 @@ enum DocPageMetrics {
 final class DocOpenPage {
     let demo: DocDemo
     let editor: DocEditor
-    let parent: (page: DocOpenPage, block: DocBlockID)?
+    /// Where it was opened from last: a page block moves (Group, a cut and paste), and its
+    /// page goes back out to where it is now.
+    var parent: (page: DocOpenPage, block: DocBlockID)?
     /// Shown once: its launch options ran and its scroll was set (DocPageView).
     var appeared = false
 
@@ -104,24 +106,26 @@ final class DocPages {
     /// A page opened in this window.
     func page(_ id: DocID) -> DocOpenPage? { opened[id] }
 
-    /// Pages made of blocks of another (Group), not opened yet.
-    @ObservationIgnored private var made: [DocID: Doc] = [:]
+    /// The first page alone again (Reset): the pages opened before are gone.
+    func reset() {
+        path = [root]
+        opened = [root.id: root]
+        written = []
+    }
 
-    /// A page made of blocks of another: its page block opens it.
-    func keep(_ page: Doc) { made[page.id] = page }
-
-    /// Goes into the page a block of the current page opens: as it was left, as it was
-    /// made (Group), as the corpus has it, or new, its title as its first heading and an
-    /// empty line under it.
+    /// Goes into the page a block of the current page opens: as it was left (this run or
+    /// before, DocStore), as the corpus has it, or new, its title as its first heading and
+    /// an empty line under it.
     func open(_ block: DocBlockID) {
         DocTiming.begin("open page")
         let from = current
         guard case .page(let page)? = from.demo.doc.block(block)?.kind else { return }
         let opening: DocOpenPage
         if let known = opened[page.doc] {
+            known.parent = (from, block)
             opening = known
         } else {
-            let doc = made[page.doc] ?? DocDemoCorpus.page(page.doc) ?? Doc(id: page.doc, blocks: [
+            let doc = DocStore.shared.load(page.doc) ?? DocDemoCorpus.page(page.doc) ?? Doc(id: page.doc, blocks: [
                 DocBlock(id: .generate(), kind: .heading(level: 1), text: DocText(string: page.title)),
                 DocBlock(id: .generate(), kind: .paragraph),
             ])
@@ -134,8 +138,8 @@ final class DocPages {
     }
 
     /// Goes into a record's page (Craft's arrow on a record): the document with the record's
-    /// id, as it was left (its title brought up to the record's), or new: the record's title
-    /// as its first heading, an empty line under it.
+    /// id, as it was left (this run or before; its title brought up to the record's), or
+    /// new: the record's title as its first heading, an empty line under it.
     func openRecord(_ row: RowID, in block: DocBlockID) {
         let from = current
         let link = DocRecordLink(parent: from.demo, editor: from.editor, block: block, row: row)
@@ -143,18 +147,22 @@ final class DocPages {
         let id = DocID(rawValue: row.rawValue)
         let opening: DocOpenPage
         if let known = opened[id] {
+            // The collection may have moved since (Group, a cut and paste).
+            known.parent = (from, block)
+            known.demo.record = link
             opening = known
-            if let heading = known.demo.doc.blocks.first(where: { if case .heading = $0.kind { true } else { false } }), heading.text.string != title {
-                known.demo.edit([.deleteText(block: heading.id, range: 0..<heading.text.length, removed: heading.text),
-                                 .insertText(block: heading.id, at: 0, text: DocText(string: title))], before: nil, after: nil)
-            }
         } else {
-            let doc = Doc(id: id, blocks: [
+            let doc = DocStore.shared.load(id) ?? Doc(id: id, blocks: [
                 DocBlock(id: .generate(), kind: .heading(level: 1), text: DocText(string: title)),
                 DocBlock(id: .generate(), kind: .paragraph),
             ])
             opening = DocOpenPage(demo: DocDemo(doc: doc, record: link), parent: (from, block))
             opened[id] = opening
+        }
+        // Its title is the record's as it is now.
+        if let heading = opening.demo.doc.blocks.first, case .heading = heading.kind, heading.text.string != title {
+            opening.demo.edit([.deleteText(block: heading.id, range: 0..<heading.text.length, removed: heading.text),
+                               .insertText(block: heading.id, at: 0, text: DocText(string: title))], before: nil, after: nil)
         }
         from.editor.blocks.clear()
         path.append(opening)
@@ -164,20 +172,18 @@ final class DocPages {
     /// were left.
     private(set) var written: Set<RowID> = []
 
-    /// Whether a record's page has something written in it (its title cell shows a page).
-    func recordHasPage(_ row: RowID) -> Bool { written.contains(row) }
+    /// Whether a record's page has something written in it (its title cell shows a page):
+    /// as it was left, this run or before (DocStore).
+    func recordHasPage(_ row: RowID) -> Bool {
+        let id = DocID(rawValue: row.rawValue)
+        guard opened[id] == nil else { return written.contains(row) }
+        return DocStore.shared.load(id).map(Self.isWritten) ?? false
+    }
 
-    /// A duplicated record's page: the original's as it was left, its blocks under new ids
-    /// (none if the original's was never opened: the copy's is new too).
+    /// A duplicated record's page: a copy of the original's as it was left (none if it
+    /// never was: the copy's is new too).
     func copyRecordPage(_ row: RowID, to copy: RowID) {
-        guard let original = opened[DocID(rawValue: row.rawValue)], let record = original.record, let parent = original.parent else { return }
-        let doc = Doc(id: DocID(rawValue: copy.rawValue), blocks: original.demo.doc.blocks.map { block in
-            var block = block
-            block.id = .generate()
-            return block
-        })
-        let link = DocRecordLink(parent: record.parent, editor: parent.page.editor, block: record.block, row: copy)
-        opened[doc.id] = DocOpenPage(demo: DocDemo(doc: doc, record: link), parent: parent)
+        DocStore.shared.copyPage(DocID(rawValue: row.rawValue), as: DocID(rawValue: copy.rawValue))
         if written.contains(row) { written.insert(copy) }
     }
 

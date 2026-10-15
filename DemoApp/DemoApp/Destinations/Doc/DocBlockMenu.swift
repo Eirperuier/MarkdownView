@@ -131,7 +131,7 @@ extension DocBlockController {
         let ids = Set(groups(selected).flatMap { $0 })
         let blocks = demo.doc.blocks
         let moving = blocks.filter { ids.contains($0.id) }
-        guard let first = blocks.firstIndex(where: { ids.contains($0.id) }), let keepPage else { return }
+        guard let first = blocks.firstIndex(where: { ids.contains($0.id) }) else { return }
         let lowest = moving.map(\.indent).min() ?? 0
         var databases: [DatabaseID: Database] = [:]
         var steps: [DocStep] = []
@@ -149,7 +149,7 @@ extension DocBlockController {
         steps.append(.insertBlock(block: block, after: first == 0 ? nil : blocks[first - 1].id))
         for block in moving.reversed() { steps.append(.deleteBlock(block: block, after: nil)) }
         steps += databases.values.map { .deleteDatabase(database: $0) }
-        keepPage(page)
+        DocStore.shared.save(page)
         clear()
         guard demo.edit(steps, before: editor.selection, after: editor.selection) != nil else { return }
         select([block.id])
