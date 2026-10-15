@@ -7,8 +7,8 @@
 //  highlight's colour and a pen mark, each with what the text has now. The places draw
 //  it their own way:
 //  - the Mac's menu over the selection (DocSelectionToolbar): FlooDesign's action menu,
-//    the marks as keys, the colours as its colour settings whose palettes open as the
-//    menu's next level, the pen as a choice;
+//    the marks as keys (a strip, until its last key unfolds the rest), the colours as its
+//    colour settings whose palettes open as the menu's next level, the pen as a choice;
 //  - the Format submenu of the text's system menu (a right-click; the phone's edit menu,
 //    the phone's only one for selected text);
 //  - the format panels take its marks.
@@ -113,9 +113,24 @@ struct DocTextFormat {
     // MARK: The Mac's menu over the selection
 
     /// The marks as keys; the colours as colour settings, their palettes the next level;
-    /// the pen as a choice; then the format panel.
-    func menuSections(linkFrom view: @escaping () -> UIView?) -> [FlooDesignActionMenuSection] {
-        let keys: [FlooDesignSegments.Item] = [
+    /// the pen as a choice; then the format panel. With `unfolded`, the keys end with one
+    /// that unfolds the rest and folds it again, and folded the keys are all there is (a
+    /// strip over the text).
+    func menuSections(linkFrom view: @escaping () -> UIView?, unfolded: Binding<Bool>? = nil) -> [FlooDesignActionMenuSection] {
+        var keys = keys(linkFrom: view)
+        let isUnfolded = unfolded?.wrappedValue ?? true
+        if let unfolded {
+            keys.append(.init(id: "more", symbol: isUnfolded ? "chevron.up" : "chevron.down",
+                              title: isUnfolded ? String(localized: "Fewer Options") : String(localized: "More Options"), isOn: false) {
+                withAnimation(FlooDesignTokens.Motion.step) { unfolded.wrappedValue.toggle() }
+            })
+        }
+        let strip = FlooDesignActionMenuSection(controls: [.segments("text-marks", keys)])
+        return isUnfolded ? [strip] + rest : [strip]
+    }
+
+    private func keys(linkFrom view: @escaping () -> UIView?) -> [FlooDesignSegments.Item] {
+        [
             .init(id: "highlight", symbol: "highlighter", title: String(localized: "Highlight"), isOn: isOn(.highlight)) { toggleHighlight() },
         ] + Self.marks.map { item in
             .init(id: item.id, symbol: item.symbol, title: item.title, isOn: isOn(item.mark.kind)) { toggle(item.mark) }
@@ -124,9 +139,12 @@ struct DocTextFormat {
                 if let view = view() { link(from: view) }
             },
         ]
+    }
+
+    /// Under the keys: the colours, the pen, the format panel.
+    private var rest: [FlooDesignActionMenuSection] {
         let penTitle = Self.pens.first { $0.mark == pen }?.title ?? String(localized: "None")
         return [
-            .init(controls: [.segments("text-marks", keys)]),
             .init(controls: [
                 .color(String(localized: "Highlight"), picked: highlightFill, id: "text-highlight", sections: [
                     .init(controls: [.swatches("text-highlights", highlightSwatches)]),

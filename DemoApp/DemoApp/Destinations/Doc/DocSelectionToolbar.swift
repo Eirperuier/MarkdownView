@@ -3,9 +3,12 @@
 //  DemoApp
 //
 //  The Mac's menu over selected text: FlooDesign's action menu above the selection's
-//  first line, at the block's start, with what the text takes (DocTextFormat): the
-//  marks and a link as keys, the highlight's and the text's colours (their palettes open
-//  as the menu's next level, the way its levels do), a pen mark, the format panel. It
+//  first line, at the block's start, with what the text takes (DocTextFormat). It opens
+//  as a strip, the marks and a link as keys; its last key unfolds the rest under them,
+//  the surface growing as it does for a level, from the same corner (the strip is placed
+//  where the menu unfolded fits, above the text or else below): the highlight's and the
+//  text's colours
+//  (their palettes open as the menu's next level), a pen mark, the format panel. It
 //  comes once the selection settles, and goes when the selection collapses or leaves the
 //  text; the keys stay with the text (it isn't a right-click's menu).
 //
@@ -23,6 +26,8 @@ private typealias Metrics = FlooDesignTokens.Component.SelectionToolbar
 final class DocSelectionToolbarModel {
     var block: DocBlockID?
     var range: Range<Int> = 0..<0
+    /// More than the keys shown (each selection opens it folded).
+    var isUnfolded = false
 
     var ranges: [(block: DocBlockID, range: Range<Int>)] {
         block.map { [($0, range)] } ?? []
@@ -82,6 +87,7 @@ final class DocSelectionToolbarController {
     private func show(_ target: (block: DocBlockID, range: Range<Int>, view: UITextView)) {
         model.block = target.block
         model.range = target.range
+        model.isUnfolded = false
         place(target.view)
         presenter.anchorView = anchor
         presenter.show(
@@ -93,29 +99,32 @@ final class DocSelectionToolbarController {
         isShown = true
     }
 
-    /// The anchor: the selection's first line, from the text's start (the toolbar sits
-    /// over the block, not over the selected words).
+    /// The anchor: the selected lines, from the text's start (the toolbar sits over the
+    /// block, not over the selected words; under the last line where there's no room above).
     private func place(_ view: UITextView) {
         guard let range = view.selectedTextRange else { return }
         let line = view.firstRect(for: range)
         guard !line.isNull, !line.isInfinite else { return }
+        let bottom = view.selectionRects(for: range).map(\.rect).filter { !$0.isNull && !$0.isEmpty }.map(\.maxY).max() ?? line.maxY
         let start = view.textContainerInset.left + view.textContainer.lineFragmentPadding - Metrics.leadingOverhang
         if anchor.superview !== view { view.addSubview(anchor) }
-        anchor.frame = CGRect(x: start, y: line.minY, width: max(1, line.maxX - start), height: line.height)
+        anchor.frame = CGRect(x: start, y: line.minY, width: max(1, line.maxX - start), height: max(line.height, bottom - line.minY))
     }
 }
 
 /// The menu: what the selected text takes, read in its body (so it follows the text).
 struct DocSelectionToolbar: View {
     let editor: DocEditor
-    let model: DocSelectionToolbarModel
+    @Bindable var model: DocSelectionToolbarModel
     let dismiss: () -> Void
 
     var body: some View {
-        FlooDesignActionMenu(sections: { [editor, model] _ in
-            DocTextFormat(editor: editor, ranges: model.ranges).menuSections {
-                model.block.flatMap { editor.textView(for: $0) }
-            }
+        let format = DocTextFormat(editor: editor, ranges: model.ranges)
+        let view = { [editor, model] in model.block.flatMap { editor.textView(for: $0) } }
+        FlooDesignActionMenu(sections: { [unfolded = $model.isUnfolded] _ in
+            format.menuSections(linkFrom: view, unfolded: unfolded)
+        }, unfolded: {
+            format.menuSections(linkFrom: view, unfolded: .constant(true))
         }, dismiss: dismiss)
     }
 }

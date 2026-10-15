@@ -673,6 +673,13 @@ final class DocEditTests {
             let sections = format.menuSections { nil }
             try self.expect(sections.flatMap(\.controls).map(\.id) == ["text-marks", "text-highlight", "text-color", "text-pen"]
                             && sections.flatMap(\.items).map(\.title) == ["Format Panel"], "menu \(sections.flatMap(\.controls).map(\.id))")
+            // Over the text it opens as the keys alone, its last key unfolding the rest.
+            var unfolded = false
+            let fold = Binding { unfolded } set: { unfolded = $0 }
+            let strip = format.menuSections(linkFrom: { nil }, unfolded: fold)
+            try self.expect(strip.count == 1 && strip.flatMap(\.controls).map(\.id) == ["text-marks"], "strip \(strip.flatMap(\.controls).map(\.id))")
+            fold.wrappedValue = true
+            try self.expect(format.menuSections(linkFrom: { nil }, unfolded: fold).flatMap(\.controls).map(\.id) == ["text-marks", "text-highlight", "text-color", "text-pen"], "unfolded")
             @MainActor func system() -> [String] {
                 format.systemMenu(linkFrom: UIView()).children.flatMap { ($0 as? UIMenu).map { $0.options.contains(.displayInline) ? $0.children : [$0] } ?? [$0] }
                     .map { ($0 as? UIAction).map { "\($0.title)\($0.state == .on ? "✓" : "")" } ?? ($0 as? UIMenu)?.title ?? "" }
@@ -1727,6 +1734,7 @@ final class DocEditTests {
         let bar = editor.keyboardBar
         await test("the keyboard bar has no keys for selected text (the system's text menu has its Format), nor the slash, which would type over it") {
             let block = try self.block("Loading older")
+            await self.bringIntoView(block.id)
             try await self.select(block.id, 0..<7)
             try self.expect(bar.testItems.map(\.id) == ["format", "more", "dismiss"], "keys \(bar.testItems.map(\.id))")
         }
