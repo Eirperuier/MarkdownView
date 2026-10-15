@@ -2777,6 +2777,11 @@ final class DocEditTests {
             // A page of the paragraph, opened and left.
             blocks.select([paragraph.id])
             try self.expect(!blocks.canGroup, "Group offered for one block")
+            // A block and one nested under it are two (Craft's).
+            let parent = try self.block("每一块都能直接编辑"), child = try self.block("嵌套列表")
+            blocks.select([parent.id, child.id])
+            try self.expect(blocks.canGroup, "Group not offered for a block and one nested under it")
+            blocks.select([paragraph.id])
             blocks.groupSelection()
             let inner = try self.expectValue(self.demo.doc.blocks.dropFirst(index).first, "no page block")
             guard case .page(let innerPage) = inner.kind else { throw Failure(description: "not a page: \(inner.kind)") }

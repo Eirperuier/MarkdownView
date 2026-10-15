@@ -1962,7 +1962,7 @@ struct DocBlockSelectionBar: View {
                 Button {
                     blocks.groupSelection()
                 } label: {
-                    FlooDesignActionTile(title: String(localized: "Group"), symbol: "doc.text", color: Action.neutral)
+                    FlooDesignActionTile(title: String(localized: "Group"), symbol: "wand.and.sparkles", color: Action.neutral)
                 }
             }
             Menu {

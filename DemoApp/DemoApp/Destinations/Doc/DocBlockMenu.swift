@@ -24,7 +24,7 @@ extension DocBlockController {
         let editable = tops.first.flatMap { demo.doc.block($0) }.map { !several && $0.kind.carriesText } ?? false
         var sections: [FlooDesignActionMenuSection] = []
         if several {
-            sections.append(.init(title: String(localized: "\(tops.count) items"), [
+            sections.append(.init(title: String(localized: "\(selected.count) items"), [
                 .action(String(localized: "Group")) { [weak self] in self?.groupSelection() },
             ]))
         } else if editable, let block = tops.first {
@@ -124,9 +124,9 @@ extension DocBlockController {
         reshape { demo.edit(steps, before: editor.selection, after: editor.selection) }
     }
 
-    /// Whether Group is offered: several blocks selected (not counting those nested under
-    /// a selected one), on the Mac's menu and the phone's Actions.
-    var canGroup: Bool { groups(selected).count > 1 }
+    /// Whether Group is offered: two blocks or more selected, one nested under the other
+    /// too (Craft's), on the Mac's menu and the phone's selection bar.
+    var canGroup: Bool { selected.count > 1 }
 
     /// The selected blocks (with the blocks nested under them, a table's or collection's
     /// records too) moved into a new page, a page block where the first of them was
