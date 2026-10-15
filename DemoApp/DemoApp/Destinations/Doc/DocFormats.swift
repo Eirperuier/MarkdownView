@@ -72,35 +72,82 @@ extension BlockKind: DocFormattable {
     }
 }
 
-/// A table's cell, as the format panels see it (Craft's Table Style is a cell's own
-/// panel): any body cell takes an alignment, a typeface, a fill and its table's settings;
-/// a text or number column's a number format; a text column's marks and a colour on its text.
+/// Table cells, as the format panels see them (Craft's Table Style is the cells' own
+/// panel): the edited one, its row or column picked by its bar, or the whole table
+/// selected. Any of them takes an alignment, a typeface, a fill and its table's settings;
+/// a text or number column's body cell a number format; a text column's marks and a
+/// colour on its text. A setting goes on the cells that take it, all in one step.
 @MainActor
 struct DocFormatCell: DocFormattable {
+    enum Scope: Equatable {
+        case cell
+        case line(DocTableLine)
+        case table
+    }
+
+    /// The edited cell (the whole table's: its first).
     let key: DocCellKey
+    let scope: Scope
     let tables: DocTableController
 
+    var cells: [DocCellKey] { tables.cells(scope, of: key) }
+
     var formats: DocFormats {
-        guard tables.isEditable, key.row != nil else { return [] }
+        cells.reduce(into: DocFormats()) { $0.formUnion(Self.formats(of: $1, in: tables)) }
+    }
+
+    static func formats(of key: DocCellKey, in tables: DocTableController) -> DocFormats {
+        guard tables.isRestylable else { return [] }
         var formats: DocFormats = [.alignment, .typeface, .fill, .table]
-        if tables.holdsNumbers(key) { formats.insert(.numberFormat) }
-        if tables.holdsText(key) { formats.formUnion([.marks, .color]) }
+        guard key.row != nil else { return formats }
+        switch tables.columnType(key) {
+        case .text?: formats.formUnion([.numberFormat, .marks, .color])
+        case .number?: formats.insert(.numberFormat)
+        default: break
+        }
         return formats
     }
 
-    /// The text selected in it, else all of it.
-    var range: (block: DocBlockID, range: Range<Int>)? { tables.formatRange(key) }
+    /// The text selected in the edited cell, else all of each cell's.
+    var ranges: [(block: DocBlockID, range: Range<Int>)] { cells.compactMap(tables.formatRange) }
 
-    var style: CellStyle { tables.cellStyle(key) }
+    /// What the cells share (a setting they differ in: none); a cell's typeface is its
+    /// table's when it has none of its own. The whole table's typeface is the table's.
+    var style: CellStyle {
+        let font = tables.demo.doc.block(key.block)?.font
+        let all = cells.map { tables.cellStyle($0) }
+        func shared<Value: Equatable>(_ value: (CellStyle) -> Value?) -> Value? {
+            guard let first = all.first.flatMap(value), all.allSatisfy({ value($0) == first }) else { return nil }
+            return first
+        }
+        let fonts: [Typeface?] = all.map { $0.font ?? font }
+        let sharedFont = fonts.first.flatMap { first in fonts.allSatisfy { $0 == first } ? first : nil }
+        return CellStyle(alignment: shared(\.alignment), font: sharedFont, number: shared(\.number), fill: shared(\.fill))
+    }
+
     var table: DocKit.TableStyle { tables.tableStyle(key.block) }
     var size: (rows: Int, columns: Int) { tables.size(of: key.block) }
 
-    func setStyle(_ change: (inout CellStyle) -> Void) { tables.setCellStyle(key, change) }
+    /// `change` on each cell that takes `format`.
+    func setStyle(_ format: DocFormats, _ change: (inout CellStyle) -> Void) {
+        tables.setCellStyles(cells.filter { Self.formats(of: $0, in: tables).contains(format) }, change)
+    }
+
     func setTable(_ change: (inout DocKit.TableStyle) -> Void) { tables.setTableStyle(key.block, change) }
     func resize(rows: Int? = nil, columns: Int? = nil) { tables.resize(key, rows: rows, columns: columns) }
 
     /// A setting pressed again goes back to the table's (Craft's alignment keys).
     func toggle(_ alignment: CellAlignment) {
-        setStyle { $0.alignment = $0.alignment == alignment ? nil : alignment }
+        let next = style.alignment == alignment ? nil : alignment
+        setStyle(.alignment) { $0.alignment = next }
+    }
+
+    /// The cells' own typeface; the whole table's is the table's, the cells' own going.
+    func setFont(_ font: Typeface?) {
+        if scope == .table {
+            tables.setTableFont(key.block, font)
+        } else {
+            setStyle(.typeface) { $0.font = font }
+        }
     }
 }

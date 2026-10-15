@@ -63,7 +63,7 @@ struct DocFormatSheet: View {
             case .more: more
             case .cellFont: cellFonts
             case .cellNumber: cellNumbers
-            case .cellFill: fills(current: formatting.cell?.style.fill) { token in formatting.cell?.setStyle { $0.fill = token } }
+            case .cellFill: fills(current: formatting.cell?.style.fill) { token in formatting.cell?.setStyle(.fill) { $0.fill = token } }
             case .stripe: fills(current: formatting.cell?.table.stripe) { token in formatting.cell?.setTable { $0.stripe = token } }
             case .table: table
             }
@@ -331,7 +331,7 @@ struct DocFormatSheet: View {
                 HStack(spacing: Tokens.Component.Tile.spacing) {
                     ForEach(row, id: \.self) { font in
                         chip(isOn: current == font, identifier: "sheet-font-\(font?.rawValue ?? "default")") {
-                            cell?.setStyle { $0.font = font }
+                            cell?.setFont(font)
                             go(.main)
                         } label: {
                             Text(font?.title ?? String(localized: "Default"))
@@ -348,7 +348,7 @@ struct DocFormatSheet: View {
         let cell = formatting.cell
         let current = cell?.style.number
         let set = { (format: CellNumberFormat?) in
-            cell?.setStyle { $0.number = format }
+            cell?.setStyle(.numberFormat) { $0.number = format }
             go(.main)
         }
         return VStack(spacing: Metrics.rowSpacing) {

@@ -47,10 +47,17 @@ struct DocFormatting {
     /// The selected blocks of text, else the one the cursor is in.
     var targets: [DocBlock] { decorated.filter { $0.kind.formats.contains(.textStyle) } }
 
-    /// The cell the cursor is in, when no blocks are selected: its own panel (Craft's).
+    /// The cells' own panel (Craft's): the table alone selected, all of its cells; else,
+    /// no blocks selected, the edited cell (a header's too), or its row or column picked
+    /// by its bar.
     var cell: DocFormatCell? {
-        guard editor.blocks.selected.isEmpty, let id = editor.cursor.selection?.head.block, let key = editor.tables.cell(of: id) else { return nil }
-        return DocFormatCell(key: key, tables: editor.tables)
+        let tables = editor.tables
+        let selected = editor.blocks.selected
+        if selected.count == 1, let block = selected.first, let first = tables.firstCell(of: block) {
+            return DocFormatCell(key: first, scope: .table, tables: tables)
+        }
+        guard selected.isEmpty, let key = tables.editing else { return nil }
+        return DocFormatCell(key: key, scope: tables.line.map { .line($0) } ?? .cell, tables: tables)
     }
 
     var inCell: Bool { cell != nil }
@@ -67,7 +74,7 @@ struct DocFormatting {
     /// The selected text, else all the text of the selected blocks (or the caret's); in a
     /// cell, its selected text, else all of it.
     var markRanges: [(block: DocBlockID, range: Range<Int>)] {
-        if let cell { return cell.range.map { [$0] } ?? [] }
+        if let cell { return cell.ranges }
         if editor.blocks.selected.isEmpty, let selection = editor.cursor.selection, selection.anchor.block == selection.head.block {
             let range = min(selection.anchor.offset, selection.head.offset)..<max(selection.anchor.offset, selection.head.offset)
             if !range.isEmpty { return [(selection.head.block, range)] }

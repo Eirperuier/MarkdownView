@@ -28,6 +28,68 @@ extension DocTableController {
         commit(key.block, [.setCellStyle(row: key.row, column: key.column, style: style, previous: previous)])
     }
 
+    /// Each cell's style changed, in one step; a style left with nothing set goes.
+    func setCellStyles(_ keys: [DocCellKey], _ change: (inout CellStyle) -> Void) {
+        guard let block = keys.first?.block else { return }
+        let steps: [DatabaseStep] = keys.compactMap { key in
+            var style = cellStyle(key)
+            let previous = style
+            change(&style)
+            return style == previous ? nil : .setCellStyle(row: key.row, column: key.column, style: style, previous: previous)
+        }
+        commit(block, steps)
+    }
+
+    /// The cells a format panel acts on: the edited one, its row or column, or all of
+    /// the table's (its header's first).
+    func cells(_ scope: DocFormatCell.Scope, of key: DocCellKey) -> [DocCellKey] {
+        guard let (_, database) = database(key.block) else { return [] }
+        switch scope {
+        case .cell:
+            return [key]
+        case .line(.row):
+            return database.columns.map { DocCellKey(block: key.block, row: key.row, column: $0.id) }
+        case .line(.column):
+            return [DocCellKey(block: key.block, row: nil, column: key.column)]
+                + database.rows.map { DocCellKey(block: key.block, row: $0.id, column: key.column) }
+        case .table:
+            return ([nil] + database.rows.map(\.id)).flatMap { row in
+                database.columns.map { DocCellKey(block: key.block, row: row, column: $0.id) }
+            }
+        }
+    }
+
+    /// The table's first cell (the header's), for a panel over all of it.
+    func firstCell(of block: DocBlockID) -> DocCellKey? {
+        guard let (_, database) = database(block), let column = database.columns.first else { return nil }
+        return DocCellKey(block: block, row: nil, column: column.id)
+    }
+
+    /// The table's typeface, its cells' own going: one step.
+    func setTableFont(_ block: DocBlockID, _ font: Typeface?) {
+        guard let (id, _) = database(block), let first = firstCell(of: block), let previous = demo.doc.block(block) else { return }
+        var steps: [DocStep] = []
+        if previous.font != font { steps.append(.setFont(block: block, font: font, previous: previous.font)) }
+        for key in cells(.table, of: first) {
+            let style = cellStyle(key)
+            guard style.font != nil else { continue }
+            var plain = style
+            plain.font = nil
+            steps.append(.database(id: id, step: .setCellStyle(row: key.row, column: key.column, style: plain, previous: style)))
+        }
+        guard !steps.isEmpty else { return }
+        _ = demo.edit(steps, before: nil, after: nil, merge: nil)
+        editor.settleSelection()
+    }
+
+    /// Whether the format panels change cells: the page is editable, or (a phone) its
+    /// blocks are being selected, which takes their text's editing away.
+    var isRestylable: Bool { !demo.isAgentWriting && (isEditable || editor.blocks.isSelecting) }
+
+    func columnType(_ key: DocCellKey) -> ColumnType? {
+        database(key.block)?.database.columns.first { $0.id == key.column }?.type
+    }
+
     /// Whether the cell's column holds numbers a format can show: a number column's, or
     /// a text column's typed numbers.
     func holdsNumbers(_ key: DocCellKey) -> Bool {

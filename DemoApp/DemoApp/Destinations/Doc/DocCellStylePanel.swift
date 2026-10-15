@@ -65,9 +65,9 @@ struct DocCellStylePanel: View {
                     menuTile(style.font?.sample ?? Typeface.system.sample, style.font?.title ?? String(localized: "Default Font"), picker: .font)
                         .disabled(!formatting.takes(.typeface))
                         .flooDesignActionMenu(isPresented: open == .font, configuration: .init(), onDismiss: { open = nil }) { _ in
-                            [.init(.rows, [.action(String(localized: "Default Font"), isOn: style.font == nil, id: "default") { cell.setStyle { $0.font = nil } }]
+                            [.init(.rows, [.action(String(localized: "Default Font"), isOn: style.font == nil, id: "default") { cell.setFont(nil) }]
                                 + Typeface.allCases.map { font in
-                                    .action(font.title, isOn: style.font == font, id: font.rawValue) { cell.setStyle { $0.font = font } }
+                                    .action(font.title, isOn: style.font == font, id: font.rawValue) { cell.setFont(font) }
                                 })]
                         }
                 }
@@ -86,7 +86,7 @@ struct DocCellStylePanel: View {
                     }
                     .disabled(!formatting.takes(.table))
                     colorRow(String(localized: "Cell Fill Color"), picked: style.fill.flatMap(DocColors.fill), picker: .fill) {
-                        fills(current: style.fill) { token in cell.setStyle { $0.fill = token } }
+                        fills(current: style.fill) { token in cell.setStyle(.fill) { $0.fill = token } }
                     }
                     .disabled(!formatting.takes(.fill))
                     colorRow(String(localized: "Text Color"), picked: textColor, picker: .text) {
@@ -109,7 +109,7 @@ struct DocCellStylePanel: View {
 
     /// Plain text, number and percent; a currency in a submenu (Craft's).
     private func numberMenu(_ current: CellNumberFormat?) -> [FlooDesignActionMenuSection] {
-        let set = { (format: CellNumberFormat?) in cell.setStyle { $0.number = format } }
+        let set = { (format: CellNumberFormat?) in cell.setStyle(.numberFormat) { $0.number = format } }
         let currencies = CellNumberFormat.currencies.map { code in
             FlooDesignActionMenuItem.action(CellNumberFormat.currency(code: code).title, isOn: current == .currency(code: code), id: code) {
                 set(.currency(code: code))

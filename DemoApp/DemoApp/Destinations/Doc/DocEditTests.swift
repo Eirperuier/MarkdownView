@@ -1407,9 +1407,9 @@ final class DocEditTests {
             let before = try database()
             let cell = try self.expectValue(DocFormatting(editor: self.editor).cell, "no cell panel")
             cell.toggle(.right)
-            cell.setStyle { $0.font = .serif }
-            cell.setStyle { $0.number = .percent }
-            cell.setStyle { $0.fill = "blue-2" }
+            cell.setFont(.serif)
+            cell.setStyle(.numberFormat) { $0.number = .percent }
+            cell.setStyle(.fill) { $0.fill = "blue-2" }
             let style = CellStyle(alignment: .right, font: .serif, number: .percent, fill: "blue-2")
             try self.expect(try database().cellStyle(row: key.row, column: key.column) == style, "style \(cell.style)")
             let row = try database().rows.firstIndex { $0.id == key.row }.map { $0 + 1 } ?? -1
@@ -1437,6 +1437,35 @@ final class DocEditTests {
             try self.expect(cell.size == (size.rows + 1, size.columns + 1), "size \(cell.size)")
             for _ in 0..<9 { try await self.undo() }
             try self.expect(try database() == before && self.demo.doc.block(key.block)?.font == nil, "nine undos didn't put the table back")
+        }
+        await test("Table: a header cell, a picked column and the whole table selected have the cells' panel, a setting on all of them in one step; the whole table's typeface is the table's") {
+            _ = try await click(0, 1)
+            let header = try editedKey()
+            let before = try database()
+            let first = try self.expectValue(DocFormatting(editor: self.editor).cell, "no panel in the header")
+            try self.expect(first.scope == .cell && first.formats.isSuperset(of: [.alignment, .typeface, .fill]), "the header's \(first.formats.rawValue)")
+            first.toggle(.center)
+            try self.expect(try database().cellStyle(row: nil, column: header.column).alignment == .center, "the header isn't centred")
+            _ = try await click(1, 1)
+            let key = try editedKey()
+            self.editor.tables.pick(.column, of: key)
+            let column = try self.expectValue(DocFormatting(editor: self.editor).cell, "no panel for the column")
+            try self.expect(column.scope == .line(.column), "scope \(column.scope)")
+            column.setStyle(.fill) { $0.fill = "red-2" }
+            let rows = try database().rows
+            try self.expect(([nil] + rows.map(\.id)).allSatisfy { (try? database().cellStyle(row: $0, column: key.column).fill) == "red-2" }, "the column isn't all red")
+            try self.expect(column.style.fill == "red-2", "the panel shows \(String(describing: column.style.fill))")
+            self.editor.tables.endEditing()
+            self.editor.blocks.beginSelecting(key.block)
+            let table = try self.expectValue(DocFormatting(editor: self.editor).cell, "no panel for the table")
+            try self.expect(table.scope == .table && table.style.fill == nil, "scope \(table.scope) fill \(String(describing: table.style.fill))")
+            table.toggle(.right)
+            try self.expect(table.cells.allSatisfy { (try? database().cellStyle(row: $0.row, column: $0.column).alignment) == .right }, "not all right-aligned")
+            table.setFont(.serif)
+            try self.expect(self.demo.doc.block(key.block)?.font == .serif && table.style.font == .serif, "the table's font \(String(describing: self.demo.doc.block(key.block)?.font))")
+            self.editor.blocks.endSelecting()
+            for _ in 0..<4 { try await self.undo() }
+            try self.expect(try database() == before && self.demo.doc.block(key.block)?.font == nil, "four undos didn't put the table back")
         }
         await test("Table: a cell's menu is that cell's, and goes when another cell is edited") {
             _ = try await click(2, 1)
@@ -1824,17 +1853,21 @@ final class DocEditTests {
                 try self.expect(blocks.testSheetFrames.isEmpty, "sheets stay on screen: \(blocks.testSheetFrames)")
             }
         }
-        await test("what each block takes decides the format panels: text its styles and marks, an image its size and fit, a table a level, the box and a typeface; together, a style goes on the text only") {
+        await test("what each block takes decides the format panels: text its styles and marks, an image its size and fit, a table alone its cells' panel; together, a style goes on the text only") {
             let blocks = self.editor.blocks
             let text = try self.block("Loading older")
             let image = try self.expectValue(self.demo.doc.blocks.first { if case .image = $0.kind { true } else { false } }, "no image")
             let table = try self.expectValue(self.demo.doc.blocks.first { if case .database = $0.kind { true } else { false } }, "no table")
             blocks.beginSelecting(text.id)
-            for (ids, formats) in [([text.id], DocFormats.text), ([image.id], [.indent, .box, .image]), ([table.id], DocFormats.block.union(.typeface))] {
+            for (ids, formats) in [([text.id], DocFormats.text), ([image.id], [.indent, .box, .image])] {
                 blocks.select(ids)
                 let taken = DocFormatting(editor: self.editor).formats
                 try self.expect(taken == formats, "\(ids): \(taken.rawValue), wanted \(formats.rawValue)")
             }
+            blocks.select([table.id])
+            let cells = DocFormatting(editor: self.editor).cell
+            try self.expect(cells?.scope == .table && cells?.formats.isSuperset(of: [.alignment, .typeface, .fill, .table]) == true,
+                            "the table's panel \(String(describing: cells?.scope)) \(String(describing: cells?.formats.rawValue))")
             blocks.select([text.id, image.id])
             let formatting = DocFormatting(editor: self.editor)
             try self.expect(formatting.takes(.textStyle) && formatting.takes(.image) && formatting.targets.map(\.id) == [text.id], "targets \(formatting.targets.map(\.id))")

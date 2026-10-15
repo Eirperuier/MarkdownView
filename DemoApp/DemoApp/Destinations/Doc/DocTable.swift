@@ -527,7 +527,7 @@ final class DocTableController {
     /// What the menu's Format acts on in a body cell of text: the text selected in it,
     /// else all of it (Craft's). Nil for a header cell, another kind of column, no text.
     func formatRange(_ key: DocCellKey) -> (block: DocBlockID, range: Range<Int>)? {
-        guard holdsText(key) else { return nil }
+        guard key.row != nil, columnType(key) == .text else { return nil }
         let id = textID(key)
         let length = docText(key).length
         if let selection = editor.selection, selection.head.block == id, selection.anchor.block == id, selection.anchor.offset != selection.head.offset {
