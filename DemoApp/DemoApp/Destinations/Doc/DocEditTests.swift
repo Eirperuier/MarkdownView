@@ -1164,16 +1164,17 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(try database() == before, "undo left the cell \(self.editor.tables.docText(key))")
         }
-        await test("Table: the cell menu's Format marks all of the cell's text, or what is selected in it; ticked when on") {
+        await test("Table: the cell menu's Format marks all of the cell's text, or what is selected in it; shown on when on") {
             _ = try await click(3, 1)
             let key = try editedKey()
             let before = try database()
-            self.editor.tables.toggleFormat(.italic, at: key)
+            let formatting = DocFormatting(editor: self.editor)
+            formatting.toggle(.italic)
             let all = self.editor.tables.docText(key)
             try self.expect(all.marks == [MarkSpan(range: 0..<all.length, mark: .italic)], "marks \(all.marks)")
-            try self.expect(self.editor.tables.formatIsOn(.italic, at: key), "italic not ticked")
-            self.editor.tables.setColor("red", at: key)
-            try self.expect(self.editor.tables.color(at: key) == .color("red"), "colour \(String(describing: self.editor.tables.color(at: key)))")
+            try self.expect(formatting.markIsOn(.italic), "italic not shown on")
+            formatting.setColor("red")
+            try self.expect(formatting.color == .color("red"), "colour \(String(describing: formatting.color))")
             try await self.undo()
             try await self.undo()
             try self.expect(try database() == before, "undo left \(self.editor.tables.docText(key))")
@@ -1391,7 +1392,7 @@ final class DocEditTests {
             try self.expect(formatting.targets.isEmpty && formatting.decorated.isEmpty, "the table took the cell's place")
             let before = try database()
             formatting.toggle(.bold)
-            try self.expect(self.editor.tables.formatIsOn(.bold, at: key), "the cell isn't bold")
+            try self.expect(formatting.markIsOn(.bold), "the cell isn't bold")
             if !DocBlockController.usesHandles {
                 self.editor.blocks.formatCaretBlock()
                 try self.expect(self.editor.panels.sheetPage == .main && !self.editor.blocks.isSelecting, "page \(String(describing: self.editor.panels.sheetPage)) selecting \(self.editor.blocks.isSelecting)")

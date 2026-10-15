@@ -543,31 +543,6 @@ final class DocTableController {
         return database.columns.first(where: { $0.id == key.column })?.type == .text
     }
 
-    func formatIsOn(_ mark: Mark, at key: DocCellKey) -> Bool {
-        guard let target = formatRange(key) else { return false }
-        return DocEditor.covers(docText(key), target.range, with: mark.kind)
-    }
-
-    func toggleFormat(_ mark: Mark, at key: DocCellKey) {
-        guard let target = formatRange(key) else { return }
-        editor.toggle(mark, over: [target])
-    }
-
-    /// The text's colour (nil: the default one).
-    func setColor(_ token: String?, at key: DocCellKey) {
-        guard let target = formatRange(key) else { return }
-        editor.set(.color, to: token.map(Mark.color), over: [target])
-    }
-
-    func color(at key: DocCellKey) -> Mark? {
-        formatRange(key).flatMap { editor.common(.color, over: [$0]) }
-    }
-
-    func promptLink(at key: DocCellKey) {
-        guard let target = formatRange(key), let view = view(for: key) else { return }
-        editor.promptLink(over: target.range, in: target.block, from: view)
-    }
-
     // MARK: Structure
 
     func isAvailable(_ action: DocTableAction, at key: DocCellKey) -> Bool {
@@ -1257,28 +1232,14 @@ struct DocTableMenuSections {
         }
     }
 
-    /// Craft's Text Format: the marks, a link, the colour, on the selected text or the cell's.
+    /// Craft's Format: the cells' text, number format and colours (the format panel's),
+    /// on the edited cell (its selected text, else all of it) or its picked row or column.
     private var format: FlooDesignActionMenuItem? {
-        let key = target.key
-        guard target.line == nil, controller.formatRange(key) != nil else { return nil }
-        let marks: [FlooDesignActionMenuItem] = (DocFormatting.marks + [("highlight", "highlighter", String(localized: "Highlight"), Mark.highlight(color: nil))]).map { item in
-            .action(item.title, symbol: item.symbol, isOn: controller.formatIsOn(item.mark, at: key), id: "format-\(item.id)") { [controller] in
-                controller.toggleFormat(item.mark, at: key)
-            }
-        }
-        let link = FlooDesignActionMenuItem.action(controller.formatIsOn(.link(url: ""), at: key) ? String(localized: "Edit Link…") : String(localized: "Link…"),
-                                                   symbol: "link", id: "format-link") { [controller] in controller.promptLink(at: key) }
-        let current = controller.color(at: key)
-        let colors = FlooDesignActionMenuItem.submenu(String(localized: "Text Color"), symbol: "paintpalette", id: "format-color", sections: [
-            .init(.rows, [.action(String(localized: "Default"), isOn: current == nil, id: "color-none") { [controller] in controller.setColor(nil, at: key) }]
-                + DocColors.palette.map { item in
-                    .action(item.title, isOn: current == .color(item.token), id: "color-\(item.token)") { [controller] in controller.setColor(item.token, at: key) }
-                }),
-        ])
-        return .submenu(String(localized: "Format"), symbol: "textformat", id: "format", sections: [
-            .init(.rows, marks),
-            .init(.rows, [link, colors]),
-        ])
+        let formatting = DocFormatting(editor: controller.editor)
+        guard let cell = formatting.cell, cell.key == target.key, cell.scope == (target.line.map { .line($0) } ?? .cell),
+              !cell.formats.isEmpty
+        else { return nil }
+        return .submenu(String(localized: "Format"), symbol: "textformat", id: "format", sections: DocFormatMenu.cellSections(cell, formatting))
     }
 
     func sections(for presentation: FlooDesignPanelPresentation) -> [FlooDesignActionMenuSection] {

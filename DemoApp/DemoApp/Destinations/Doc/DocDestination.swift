@@ -78,12 +78,10 @@ private struct DocPageView: View {
                 .padding(.vertical, FlooDesignTokens.Space.sm)
                 // The Mac's format panel: under the bar at the window's right, open until
                 // its Aa closes it (Craft's).
-                .flooDesignAnchoredPanel(isPresented: editor.panels.showsFormat,
-                                  configuration: .init(horizontalAlignment: .trailing, anchorGap: 0, dismissesOnOutsideTouch: false),
-                                  onDismiss: { editor.panels.showsFormat = false }) {
-                    FlooDesignFloatingPanelSurface(contentInset: FlooDesignTokens.Component.FloatingPanel.roomyInset) {
-                        DocFormatPanel(editor: editor, demo: demo)
-                    }
+                .flooDesignActionMenu(isPresented: editor.panels.showsFormat, title: String(localized: "Format"),
+                                      configuration: .init(horizontalAlignment: .trailing, anchorGap: 0, dismissesOnOutsideTouch: false),
+                                      onDismiss: { editor.panels.showsFormat = false }) { [editor] _ in
+                    DocFormatMenu(editor: editor).sections
                 }
             Divider()
             TiledView(items: demo.rows, scrollPosition: $scrollPosition) { row in

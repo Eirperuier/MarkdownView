@@ -49,34 +49,13 @@ extension FlooDesignTokens.Component {
         static let settleDelay: Duration = .milliseconds(220)
     }
 
-    /// The Mac's format panel (Craft's): sections of tiles, segments and swatches.
+    /// The Mac's format panel's own tiles (FlooDesign's menu draws the rest): the quote's
+    /// bar, a typeface's tile (Craft's Font: its sample over its name).
     enum FormatPanel {
-        static let width: CGFloat = 246
-        static let title = Font.system(size: 17, weight: .bold)
-        static let titleGap: CGFloat = 14
-        static let sectionLabel = Font.system(size: 12, weight: .semibold)
-        static let sectionLabelGap = Tokens.Space.sm
-        /// Below a section, and above one that follows segments or another kind of section.
-        static let sectionGap = Tokens.Space.lg
-        static let sectionLead: CGFloat = 18
-        static let label = Font.system(size: 15)
-        static let segmentGap = Tokens.Space.sm
-        /// A tall tile (a layout, a decoration, an image choice).
-        static let tallTile: CGFloat = 40
-        static let swatch: CGFloat = 32
-        static let swatchSpacing = Tokens.Space.sm
-        static let swatchColumns = 6
         static let quoteBar = CGSize(width: 3.5, height: 18)
-        /// A typeface's tile (Craft's Font): its sample over its name.
         static let fontTile: CGFloat = 52
         static let fontSample: CGFloat = 17
         static let fontName = Font.system(size: 11)
-        /// A cell's panel (Craft's Table Style): a row's symbol, a stepper's count and keys,
-        /// a colour setting's ring.
-        static let rowIcon: CGFloat = 22
-        static let countWidth: CGFloat = 34
-        static let stepperWidth: CGFloat = 72
-        static let ring: CGFloat = 26
     }
 
     /// The phone's format sheet (Craft's): pages of rows the same height, so it doesn't jump.

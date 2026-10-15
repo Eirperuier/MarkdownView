@@ -3,13 +3,15 @@
 //  DemoApp
 //
 //  The Mac's format panel: Craft's sections (the text styles as tiles, marks, lists
-//  and indent as segments, the quote and the box as decorations, the colours) in the
-//  anchored panel the math editor uses, opened from the bar's Aa. It acts on the selected
-//  blocks, or the block the cursor is in; marks on the selected text, or on the selected
-//  blocks' text, and so does the colour. What the blocks take (DocFormattable) decides:
-//  the shared sections stay, greyed where none of them takes one, and a kind's own come
-//  after (a link's layout, an image's size and fit). The cursor in a table's cell, the
-//  panel is the cell's (DocCellStylePanel).
+//  and indent as segments, the quote and the box as decorations, the colours, the
+//  typefaces), FlooDesign's menu of controls opened from the bar's Aa. It acts on the
+//  selected blocks, or the block the cursor is in; marks on the selected text, or on the
+//  selected blocks' text, and so does the colour. What the blocks take (DocFormattable)
+//  decides: the shared sections stay, greyed where none of them takes one, and a kind's
+//  own come after (a link's layout, an image's size and fit). In a table, the panel is
+//  the cells' (Craft's Table Style): the table's size and headers, then the sections the
+//  cell menu's Format shows (its text, its number format, its colours), whose choices
+//  and palettes open as the menu's next level.
 //
 
 import SwiftUI
@@ -18,6 +20,7 @@ import FlooDesign
 
 private typealias Tokens = FlooDesignTokens
 private typealias Metrics = FlooDesignTokens.Component.FormatPanel
+private typealias Controls = FlooDesignTokens.Component.ActionMenu.Controls
 
 /// The editor's selection, observable.
 @MainActor
@@ -38,258 +41,273 @@ final class DocPanels {
     var copiedFormat: DocCopiedFormat?
 }
 
-struct DocFormatPanel: View {
+/// The format panel's sections: the blocks', or the cells'. Read inside a view's body,
+/// so the panel follows the document and the selection.
+@MainActor
+struct DocFormatMenu {
     let editor: DocEditor
-    let demo: DocDemo
-
-    var body: some View {
-        let formatting = formatting
-        if let cell = formatting.cell {
-            DocCellStylePanel(cell: cell, formatting: formatting, editor: editor)
-        } else {
-            blocks
-        }
-    }
-
-    private var blocks: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Format")
-                .font(Metrics.title)
-                .padding(.bottom, Metrics.titleGap)
-            // Text first offers its kinds; a link, file or image its layout, after the
-            // segments (as Craft orders them).
-            // Text styles: how big a block's text is (Craft's six, ⌃1–⌃6).
-            if !decorated.isEmpty {
-                section(String(localized: "Titles")) {
-                    HStack(spacing: Tokens.Component.Tile.spacing) {
-                        ForEach(DocFormatting.styles.prefix(3), id: \.key) { tile($0) }
-                    }
-                }
-                section(String(localized: "Content")) {
-                    HStack(spacing: Tokens.Component.Tile.spacing) {
-                        ForEach(DocFormatting.styles.suffix(3), id: \.key) { tile($0) }
-                    }
-                }
-            }
-            segments
-            if formatting.takes(.layout) {
-                section(String(localized: "Layout")) {
-                    HStack(spacing: Tokens.Component.Tile.spacing) {
-                        ForEach(DocLayout.allCases, id: \.self) { layout in
-                            choice(isOn: editor.blocks.selectedLayouts == [layout], help: layout.title) {
-                                editor.blocks.setLayout(layout)
-                            } label: {
-                                FlooDesignMediaStyleGlyph(layout.style)
-                                    .frame(maxWidth: .infinity, minHeight: Metrics.tallTile)
-                            }
-                        }
-                    }
-                }
-                .padding(.top, Metrics.sectionLead)
-            }
-            if formatting.takes(.image) {
-                section(String(localized: "Image Size")) {
-                    HStack(spacing: Tokens.Component.Tile.spacing) {
-                        imageChoice(String(localized: "Auto"), symbol: "rectangle.center.inset.filled", isOn: editor.blocks.selectedImageSizes == [.auto]) { editor.blocks.setImage(size: .auto) }
-                        imageChoice(String(localized: "Large"), symbol: "rectangle", isOn: editor.blocks.selectedImageSizes == [.large]) { editor.blocks.setImage(size: .large) }
-                    }
-                }
-                .padding(.top, Metrics.sectionLead)
-                section(String(localized: "Image Display")) {
-                    HStack(spacing: Tokens.Component.Tile.spacing) {
-                        imageChoice(String(localized: "Fill"), symbol: "square.arrowtriangle.4.outward", isOn: editor.blocks.selectedImageFits == [.fill]) { editor.blocks.setImage(fit: .fill) }
-                        imageChoice(String(localized: "Fit"), symbol: "arrow.down.and.line.horizontal.and.arrow.up", isOn: editor.blocks.selectedImageFits == [.fit]) { editor.blocks.setImage(fit: .fit) }
-                    }
-                }
-            }
-            // Decorations (Craft's): the quote, its bar at the left (Craft's Focus; a kind
-            // of text block here), and the grey box any blocks can sit in.
-            if !decorated.isEmpty {
-                section(String(localized: "Decorations")) {
-                    HStack(spacing: Tokens.Component.Tile.spacing) {
-                        choice(isOn: kindIsOn(.quote), help: String(localized: "Quote")) {
-                            formatting.toggleQuote()
-                        } label: {
-                            HStack(spacing: Tokens.Space.md) {
-                                Capsule().frame(width: Metrics.quoteBar.width, height: Metrics.quoteBar.height)
-                                Text("Quote").font(Metrics.label)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: Metrics.tallTile)
-                        }
-                        .disabled(!formatting.takes(.quote))
-                        .accessibilityIdentifier("format-quote")
-                        choice(isOn: formatting.isBoxed, help: String(localized: "Block")) {
-                            formatting.toggleBox()
-                        } label: {
-                            Text("Block")
-                                .font(Metrics.label)
-                                .frame(maxWidth: .infinity, minHeight: Metrics.tallTile - 12)
-                                .background(Tokens.ColorRole.Surface.pressed, in: .rect(cornerRadius: Tokens.Radius.sm, style: .continuous))
-                                .padding(Tokens.Space.sm - 2)
-                        }
-                        .disabled(!formatting.takes(.box))
-                        .accessibilityIdentifier("format-block")
-                    }
-                }
-                .padding(.top, Metrics.sectionLead)
-            }
-            if !decorated.isEmpty || formatting.takes(.color) {
-                section(String(localized: "Color")) {
-                    colors
-                        .disabled(markRanges.isEmpty)
-                        .opacity(markRanges.isEmpty ? Tokens.State.disabledOpacity : 1)
-                }
-                .padding(.top, decorated.isEmpty ? Metrics.sectionLead : 0)
-            }
-            // The blocks' typeface (Craft's Font): pressed again, the document's.
-            if !decorated.isEmpty {
-                section(String(localized: "Font")) {
-                    HStack(spacing: Tokens.Component.Tile.spacing) {
-                        ForEach(Typeface.blockOrder, id: \.self) { font in
-                            choice(isOn: formatting.font == font, help: font.title) {
-                                formatting.setFont(font)
-                            } label: {
-                                VStack(spacing: Tokens.Space.xs) {
-                                    Text(font.sample)
-                                        .font(.system(size: Metrics.fontSample, design: DocCellLook.design(font)))
-                                    Text(font.title)
-                                        .font(Metrics.fontName)
-                                        .foregroundStyle(Tokens.ColorRole.Content.secondary)
-                                }
-                                .frame(maxWidth: .infinity, minHeight: Metrics.fontTile)
-                            }
-                            .accessibilityIdentifier("format-font-\(font.rawValue)")
-                        }
-                    }
-                    .disabled(!formatting.takes(.typeface))
-                }
-            }
-        }
-        .frame(width: Metrics.width)
-    }
-
-    // MARK: Colour
-
-    /// Craft's colours: none, the palette, and any colour (the system's picker); the
-    /// one the text has is ringed.
-    private var colors: some View {
-        let ranges = markRanges
-        let current = editor.common(.color, over: ranges)
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Metrics.swatchSpacing), count: Metrics.swatchColumns),
-                         spacing: Metrics.swatchSpacing) {
-            swatch(nil, title: String(localized: "Default"), isOn: current == nil, ranges: ranges)
-            ForEach(DocColors.palette, id: \.token) { item in
-                swatch(item.token, title: item.title, isOn: current == .color(item.token), ranges: ranges)
-            }
-            custom(current, ranges: ranges)
-        }
-    }
-
-    /// Any colour: Craft's rainbow ring, the colour inside it once one is picked
-    /// (FlooDesign's colour well, the system's picker).
-    private func custom(_ current: Mark?, ranges: [(block: DocBlockID, range: Range<Int>)]) -> some View {
-        let picked: String? = if case .color(let token)? = current, token.hasPrefix("#") { token } else { nil }
-        return FlooDesignColorWell(Circle(), title: String(localized: "Other Color"), picked: picked.map(DocColors.swatch) ?? Tokens.ColorRole.Surface.canvas,
-                                   selection: Binding {
-            picked.map(DocColors.swatch) ?? .primary
-        } set: { color in
-            editor.set(.color, to: .color(DocColors.hex(color)), over: ranges, merge: editor.colorMergeKey(over: ranges))
-        })
-        .frame(width: Metrics.swatch, height: Metrics.swatch)
-        .accessibilityIdentifier("color-custom")
-    }
-
-    private func swatch(_ token: String?, title: String, isOn: Bool, ranges: [(block: DocBlockID, range: Range<Int>)]) -> some View {
-        Button {
-            editor.endColorChanges()
-            editor.set(.color, to: token.map(Mark.color), over: ranges)
-        } label: {
-            FlooDesignSwatch(Circle(), fill: token.map(DocColors.swatch) ?? Tokens.ColorRole.Surface.canvas, isOn: isOn,
-                             chosen: .ring(Tokens.ColorRole.Content.primary))
-                .frame(width: Metrics.swatch, height: Metrics.swatch)
-        }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
-        .help(title)
-        .accessibilityLabel(title)
-        .accessibilityIdentifier("color-\(token ?? "none")")
-    }
-
-    private var segments: some View {
-        VStack(spacing: Metrics.segmentGap) {
-            FlooDesignSegments(items: DocFormatting.marks.map { item in
-                .init(id: item.id, symbol: item.symbol, title: item.title, isOn: markIsOn(item.mark), isEnabled: !markRanges.isEmpty) {
-                    formatting.toggle(item.mark)
-                }
-            })
-            FlooDesignSegments(items: DocFormatting.lists.map { item in
-                .init(id: item.id, symbol: item.symbol, title: item.title, isOn: kindIsOn(item.kind), isEnabled: formatting.takes(.list)) {
-                    formatting.toggleList(item.kind)
-                }
-            })
-            FlooDesignSegments(items: [
-                .init(id: "outdent", symbol: "decrease.indent", title: String(localized: "Outdent"), isOn: false, isEnabled: canIndent(-1)) {
-                    formatting.indent(by: -1)
-                },
-                .init(id: "indent", symbol: "increase.indent", title: String(localized: "Indent"), isOn: false, isEnabled: canIndent(1)) {
-                    formatting.indent(by: 1)
-                },
-            ])
-        }
-    }
-
-    // MARK: What it acts on
 
     private var formatting: DocFormatting { DocFormatting(editor: editor) }
-    private var decorated: [DocBlock] { formatting.decorated }
-    private var markRanges: [(block: DocBlockID, range: Range<Int>)] { formatting.markRanges }
-    private func markIsOn(_ mark: Mark) -> Bool { formatting.markIsOn(mark) }
-    private func kindIsOn(_ kind: BlockKind) -> Bool { formatting.kindIsOn(kind) }
-    private func canIndent(_ delta: Int) -> Bool { formatting.canIndent(delta) }
 
-    // MARK: Pieces
+    var sections: [FlooDesignActionMenuSection] {
+        let formatting = formatting
+        if let cell = formatting.cell { return Self.tableSections(cell, formatting) + Self.cellSections(cell, formatting) }
+        return blockSections(formatting)
+    }
 
-    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: Metrics.sectionLabelGap) {
-            Text(title)
-                .font(Metrics.sectionLabel)
-                .foregroundStyle(Tokens.ColorRole.Content.secondary)
-            content()
+    // MARK: Blocks
+
+    private func blockSections(_ formatting: DocFormatting) -> [FlooDesignActionMenuSection] {
+        let decorated = formatting.decorated
+        var sections: [FlooDesignActionMenuSection] = []
+        // Text first offers its kinds; a link, file or image its layout, after the
+        // segments (as Craft orders them).
+        // Text styles: how big a block's text is (Craft's six, ⌃1–⌃6).
+        if !decorated.isEmpty {
+            sections.append(.init(String(localized: "Titles"), controls: [.tiles("titles", DocFormatting.styles.prefix(3).map { styleTile($0, formatting) })]))
+            sections.append(.init(String(localized: "Content"), controls: [.tiles("content", DocFormatting.styles.suffix(3).map { styleTile($0, formatting) })]))
         }
-        .padding(.bottom, Metrics.sectionGap)
-    }
-
-    /// A choice on a soft tile, outlined in the tint when it's in use.
-    private func choice(isOn: Bool, help: String, action: @escaping () -> Void, @ViewBuilder label: () -> some View) -> some View {
-        Button(action: action, label: label)
-            .buttonStyle(FlooDesignTileButtonStyle(isOn: isOn))
-            .help(help)
-    }
-
-    /// An image's size or fit: its name, and its symbol at the right (Craft's).
-    private func imageChoice(_ title: String, symbol: String, isOn: Bool, action: @escaping () -> Void) -> some View {
-        choice(isOn: isOn, help: title, action: action) {
-            HStack {
-                Text(title).font(Metrics.label)
-                Spacer(minLength: Tokens.Space.xs)
-                Image(systemName: symbol).font(Metrics.label)
-            }
-            .padding(.horizontal, Tokens.Space.md)
-            .frame(maxWidth: .infinity, minHeight: Metrics.tallTile)
+        sections.append(.init(controls: segments(formatting)))
+        if formatting.takes(.layout) {
+            sections.append(.init(String(localized: "Layout"), controls: [.tiles("layout", DocLayout.allCases.map { layout in
+                FlooDesignMenuTile(id: "layout-\(layout)", help: layout.title, isOn: editor.blocks.selectedLayouts == [layout]) {
+                    editor.blocks.setLayout(layout)
+                } label: {
+                    FlooDesignMediaStyleGlyph(layout.style)
+                        .frame(maxWidth: .infinity, minHeight: Controls.tallTile)
+                }
+            })]))
         }
+        if formatting.takes(.image) {
+            let sizes = editor.blocks.selectedImageSizes
+            let fits = editor.blocks.selectedImageFits
+            sections.append(.init(String(localized: "Image Size"), controls: [.tiles("image-size", [
+                imageTile(String(localized: "Auto"), symbol: "rectangle.center.inset.filled", isOn: sizes == [.auto]) { editor.blocks.setImage(size: .auto) },
+                imageTile(String(localized: "Large"), symbol: "rectangle", isOn: sizes == [.large]) { editor.blocks.setImage(size: .large) },
+            ])]))
+            sections.append(.init(String(localized: "Image Display"), controls: [.tiles("image-fit", [
+                imageTile(String(localized: "Fill"), symbol: "square.arrowtriangle.4.outward", isOn: fits == [.fill]) { editor.blocks.setImage(fit: .fill) },
+                imageTile(String(localized: "Fit"), symbol: "arrow.down.and.line.horizontal.and.arrow.up", isOn: fits == [.fit]) { editor.blocks.setImage(fit: .fit) },
+            ])]))
+        }
+        // Decorations (Craft's): the quote, its bar at the left (Craft's Focus; a kind
+        // of text block here), and the grey box any blocks can sit in.
+        if !decorated.isEmpty {
+            sections.append(.init(String(localized: "Decorations"), controls: [.tiles("decorations", [
+                FlooDesignMenuTile(id: "quote", help: String(localized: "Quote"), isOn: formatting.kindIsOn(.quote), isEnabled: formatting.takes(.quote),
+                                   identifier: "format-quote") {
+                    formatting.toggleQuote()
+                } label: {
+                    HStack(spacing: Tokens.Space.md) {
+                        Capsule().frame(width: Metrics.quoteBar.width, height: Metrics.quoteBar.height)
+                        Text("Quote").font(Controls.label)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: Controls.tallTile)
+                },
+                FlooDesignMenuTile(id: "block", help: String(localized: "Block"), isOn: formatting.isBoxed, isEnabled: formatting.takes(.box),
+                                   identifier: "format-block") {
+                    formatting.toggleBox()
+                } label: {
+                    Text("Block")
+                        .font(Controls.label)
+                        .frame(maxWidth: .infinity, minHeight: Controls.tallTile - 12)
+                        .background(Tokens.ColorRole.Surface.pressed, in: .rect(cornerRadius: Tokens.Radius.sm, style: .continuous))
+                        .padding(Tokens.Space.sm - 2)
+                },
+            ])]))
+        }
+        if !decorated.isEmpty || formatting.takes(.color) {
+            sections.append(.init(String(localized: "Color"), controls: [
+                .swatches("color", isEnabled: !formatting.markRanges.isEmpty, Self.textColors(formatting, none: Tokens.ColorRole.Surface.canvas, identifier: "color")),
+            ]))
+        }
+        // The blocks' typeface (Craft's Font): pressed again, the document's.
+        if !decorated.isEmpty {
+            sections.append(.init(String(localized: "Font"), controls: [.tiles("font", isEnabled: formatting.takes(.typeface), Typeface.blockOrder.map { font in
+                FlooDesignMenuTile(id: "font-\(font.rawValue)", help: font.title, isOn: formatting.font == font, identifier: "format-font-\(font.rawValue)") {
+                    formatting.setFont(font)
+                } label: {
+                    VStack(spacing: Tokens.Space.xs) {
+                        Text(font.sample)
+                            .font(.system(size: Metrics.fontSample, design: DocCellLook.design(font)))
+                        Text(font.title)
+                            .font(Metrics.fontName)
+                            .foregroundStyle(Tokens.ColorRole.Content.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: Metrics.fontTile)
+                }
+            })]))
+        }
+        return sections
     }
 
-    private func tile(_ style: (key: String, title: String, size: CGFloat, weight: Font.Weight, kind: BlockKind)) -> some View {
-        let isOn = kindIsOn(style.kind)
-        return Button {
+    private func segments(_ formatting: DocFormatting) -> [FlooDesignMenuControl] {
+        let hasText = !formatting.markRanges.isEmpty
+        return [
+            .segments("marks", DocFormatting.marks.map { item in
+                .init(id: item.id, symbol: item.symbol, title: item.title, isOn: formatting.markIsOn(item.mark), isEnabled: hasText) {
+                    formatting.toggle(item.mark)
+                }
+            }),
+            .segments("lists", DocFormatting.lists.map { item in
+                .init(id: item.id, symbol: item.symbol, title: item.title, isOn: formatting.kindIsOn(item.kind), isEnabled: formatting.takes(.list)) {
+                    formatting.toggleList(item.kind)
+                }
+            }),
+            .segments("indent", [
+                .init(id: "outdent", symbol: "decrease.indent", title: String(localized: "Outdent"), isOn: false, isEnabled: formatting.canIndent(-1)) {
+                    formatting.indent(by: -1)
+                },
+                .init(id: "indent", symbol: "increase.indent", title: String(localized: "Indent"), isOn: false, isEnabled: formatting.canIndent(1)) {
+                    formatting.indent(by: 1)
+                },
+            ]),
+        ]
+    }
+
+    private func styleTile(_ style: (key: String, title: String, size: CGFloat, weight: Font.Weight, kind: BlockKind),
+                           _ formatting: DocFormatting) -> FlooDesignMenuTile {
+        FlooDesignMenuTile(id: "style-\(style.key)", help: "⌃\(style.key)", isOn: formatting.kindIsOn(style.kind),
+                           isEnabled: formatting.takes(.textStyle), identifier: "format-style-\(style.key)") {
             formatting.setTextStyle(style.kind)
         } label: {
             Text(style.title)
                 .font(.system(size: style.size, weight: style.weight))
                 .frame(maxWidth: .infinity, minHeight: Tokens.Component.Tile.minHeight)
         }
-        .buttonStyle(FlooDesignTileButtonStyle(isOn: isOn))
-        .disabled(!formatting.takes(.textStyle))
-        .help("⌃\(style.key)")
-        .accessibilityIdentifier("format-style-\(style.key)")
+    }
+
+    /// An image's size or fit: its name, and its symbol at the right (Craft's).
+    private func imageTile(_ title: String, symbol: String, isOn: Bool, perform: @escaping () -> Void) -> FlooDesignMenuTile {
+        FlooDesignMenuTile(id: title, help: title, isOn: isOn, perform: perform) {
+            HStack {
+                Text(title).font(Controls.label)
+                Spacer(minLength: Tokens.Space.xs)
+                Image(systemName: symbol).font(Controls.label)
+            }
+            .padding(.horizontal, Tokens.Space.md)
+            .frame(maxWidth: .infinity, minHeight: Controls.tallTile)
+        }
+    }
+
+    // MARK: Colours
+
+    /// Craft's text colours: none, the palette, and any colour (the system's picker);
+    /// the one the text has is ringed.
+    static func textColors(_ formatting: DocFormatting, none: Color, identifier: String) -> FlooDesignMenuSwatches {
+        let current = formatting.editor.common(.color, over: formatting.markRanges)
+        let picked: String? = if case .color(let token)? = current, token.hasPrefix("#") { token } else { nil }
+        let swatch = { (token: String?, title: String) in
+            FlooDesignMenuSwatches.Swatch(id: token ?? "none", title: title, fill: token.map(DocColors.swatch) ?? none,
+                                          isOn: current == token.map(Mark.color), identifier: "\(identifier)-\(token ?? "none")") {
+                formatting.setColor(token)
+            }
+        }
+        return FlooDesignMenuSwatches(chosen: .ring(Tokens.ColorRole.Content.primary),
+                                      [swatch(nil, String(localized: "Default"))] + DocColors.palette.map { swatch($0.token, $0.title) },
+                                      well: .init(title: String(localized: "Other Color"), picked: picked.map(DocColors.swatch) ?? none,
+                                                  selection: Binding { picked.map(DocColors.swatch) ?? .primary } set: { formatting.pickColor($0) },
+                                                  identifier: "\(identifier)-custom"))
+    }
+
+    /// Craft's fills: none, six hues by three strengths twice, any colour.
+    static func fills(current: String?, set: @escaping (String?) -> Void) -> FlooDesignMenuSwatches {
+        let custom: String? = if let current, current.hasPrefix("#") { current } else { nil }
+        return FlooDesignMenuSwatches(shape: .rounded, DocColors.fillGrid.enumerated().map { index, token in
+            let title = token.map(DocColors.fillTitle) ?? String(localized: "None")
+            return .init(id: token ?? "none-\(index)", title: title, fill: token.flatMap(DocColors.fill) ?? Tokens.ColorRole.Surface.canvas,
+                         isOn: current == token, identifier: "fill-\(token ?? "none")") { set(token) }
+        }, well: .init(title: String(localized: "Other Color"), picked: custom.flatMap(DocColors.fill),
+                       selection: Binding { custom.flatMap(DocColors.fill) ?? .primary } set: { set(DocColors.hex($0)) }))
+    }
+
+    // MARK: Cells
+
+    /// The table's: its rows and columns, its header row and column.
+    static func tableSections(_ cell: DocFormatCell, _ formatting: DocFormatting) -> [FlooDesignActionMenuSection] {
+        let size = cell.size
+        let table = cell.table
+        let takes = formatting.takes(.table)
+        let keys = { (title: String) in (fewer: String(localized: "Remove \(title)"), more: String(localized: "Add \(title)")) }
+        return [
+            .init(controls: [
+                .stepper(String(localized: "Rows"), symbol: "rectangle.split.1x2", value: size.rows, least: 1, keys: keys(String(localized: "Rows")),
+                         isEnabled: takes) { cell.resize(rows: $0) },
+                .stepper(String(localized: "Columns"), symbol: "rectangle.split.2x1", value: size.columns, least: 1, keys: keys(String(localized: "Columns")),
+                         isEnabled: takes) { cell.resize(columns: $0) },
+            ]),
+            .init(String(localized: "Header"), controls: [
+                .toggle(String(localized: "Header Row"), symbol: "rectangle.topthird.inset.filled", isOn: table.hasHeaderRow, isEnabled: takes) { on in
+                    cell.setTable { $0.headerRow = on }
+                },
+                .toggle(String(localized: "Header Column"), symbol: "rectangle.leftthird.inset.filled", isOn: table.hasHeaderColumn, isEnabled: takes) { on in
+                    cell.setTable { $0.headerColumn = on }
+                },
+            ]),
+        ]
+    }
+
+    /// The cells' own (Craft's Format in the cell menu): their text's marks, alignment and
+    /// typeface; how a number in them reads; the rows' stripe, their fill, their text's colour.
+    static func cellSections(_ cell: DocFormatCell, _ formatting: DocFormatting) -> [FlooDesignActionMenuSection] {
+        let style = cell.style
+        let table = cell.table
+        let hasText = formatting.takes(.marks) && !formatting.markRanges.isEmpty
+        let textColor: Color? = if case .color(let token)? = formatting.color { DocColors.swatch(token) } else { nil }
+        return [
+            .init(String(localized: "Text Style"), controls: [
+                .segments("cell-marks", DocFormatting.marks.map { item in
+                    .init(id: item.id, symbol: item.symbol, title: item.title, isOn: formatting.markIsOn(item.mark), isEnabled: hasText) {
+                        formatting.toggle(item.mark)
+                    }
+                }),
+                .segments("cell-alignment", CellAlignment.allCases.map { alignment in
+                    .init(id: alignment.rawValue, symbol: alignment.symbol, title: alignment.title, isOn: style.alignment == alignment,
+                          isEnabled: formatting.takes(.alignment)) {
+                        cell.toggle(alignment)
+                    }
+                }),
+                .picker(String(localized: "Font"), value: style.font?.title ?? String(localized: "Default Font"), sample: (style.font ?? .system).sample,
+                        isEnabled: formatting.takes(.typeface), id: "cell-font", sections: [
+                    .init(.rows, [.action(String(localized: "Default Font"), isOn: style.font == nil, id: "font-default") { cell.setFont(nil) }]
+                        + Typeface.allCases.map { font in
+                            .action(font.title, isOn: style.font == font, id: "font-\(font.rawValue)") { cell.setFont(font) }
+                        }),
+                ]),
+            ]),
+            .init(String(localized: "Cell Format"), controls: [
+                .picker(String(localized: "Cell Format"), value: style.number?.title ?? String(localized: "Plain Text"),
+                        isEnabled: formatting.takes(.numberFormat), id: "cell-number", sections: numbers(style.number) { format in
+                    cell.setStyle(.numberFormat) { $0.number = format }
+                }),
+            ]),
+            .init(String(localized: "Cell Style"), controls: [
+                .color(String(localized: "Alternating Row Color"), picked: table.stripe.flatMap(DocColors.fill), isEnabled: formatting.takes(.table),
+                       id: "cell-stripe", sections: [.init(controls: [.swatches("stripes", fills(current: table.stripe) { token in cell.setTable { $0.stripe = token } })])]),
+                .color(String(localized: "Cell Fill Color"), picked: style.fill.flatMap(DocColors.fill), isEnabled: formatting.takes(.fill),
+                       id: "cell-fill", sections: [.init(controls: [.swatches("fills", fills(current: style.fill) { token in cell.setStyle(.fill) { $0.fill = token } })])]),
+                .color(String(localized: "Text Color"), picked: textColor, isEnabled: formatting.takes(.color) && !formatting.markRanges.isEmpty,
+                       id: "cell-text-color", sections: [.init(controls: [
+                           .swatches("text-colors", textColors(formatting, none: Tokens.ColorRole.Content.primary, identifier: "cell-color")),
+                       ])]),
+            ]),
+        ]
+    }
+
+    /// Plain text, number and percent; a currency in a submenu (Craft's).
+    private static func numbers(_ current: CellNumberFormat?, set: @escaping (CellNumberFormat?) -> Void) -> [FlooDesignActionMenuSection] {
+        let currencies = CellNumberFormat.currencies.map { code in
+            FlooDesignActionMenuItem.action(CellNumberFormat.currency(code: code).title, isOn: current == .currency(code: code), id: code) {
+                set(.currency(code: code))
+            }
+        }
+        return [
+            .init(.rows, [
+                .action(String(localized: "Plain Text"), isOn: current == nil, id: "plain") { set(nil) },
+                .action(CellNumberFormat.number.title, isOn: current == .number, id: "number") { set(.number) },
+                .action(CellNumberFormat.percent.title, isOn: current == .percent, id: "percent") { set(.percent) },
+            ]),
+            .init(.rows, [.submenu(String(localized: "Currency"), id: "currency", sections: [.init(.rows, currencies)])]),
+        ]
     }
 }
