@@ -295,6 +295,22 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         return CGRect(x: left, y: row.minY + above, width: width, height: max(0, row.height - above - below))
     }
 
+    /// How far the Mac's highlight on a selected block goes past its sides.
+    static let highlightSide: CGFloat = 10
+
+    /// What the Mac's highlight on a selected block covers: its page part, and a table
+    /// wider than the page as far as its cells show past the page's sides (it scrolls),
+    /// up to the list's edges.
+    private func highlightFrame(_ id: DocBlockID) -> CGRect? {
+        guard let page = pageFrame(id) else { return nil }
+        guard let list, let row = reader?.frame(forItem: id.description), let cells = editor.tables.cellsFrame(id) else { return page }
+        let drawn = cells.offsetBy(dx: row.minX, dy: 0)
+        let room = list.bounds.insetBy(dx: Self.highlightSide, dy: 0)
+        let left = min(page.minX, max(drawn.minX, room.minX))
+        let right = max(page.maxX, min(drawn.maxX, room.maxX))
+        return CGRect(x: left, y: page.minY, width: right - left, height: page.height)
+    }
+
     /// The block itself: its row's page part, or a link, file or image's box where its
     /// row is placed (an image in a gallery fills its place).
     private func contentFrame(_ id: DocBlockID) -> CGRect? {
@@ -356,7 +372,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         let text = Self.usesHandles && landings == 0 ? selected.filter { demo.doc.block($0).map { !DocMediaView.draws($0.kind) } ?? false } : []
         let outset = Self.highlightOutset
         let moves = CACurrentMediaTime() < overlaysMoveUntil
-        highlights = place(text.compactMap { pageFrame($0)?.insetBy(dx: 0, dy: -outset) }, in: highlights, outset: 10, moves: moves) {
+        highlights = place(text.compactMap { highlightFrame($0)?.insetBy(dx: 0, dy: -outset) }, in: highlights, outset: Self.highlightSide, moves: moves) {
             let view = DocSelectionHighlight()
             view.backgroundColor = FlooDesignTokens.UIKitColor.accent.withAlphaComponent(MarkdownBlockSelectionStyle.highlightOpacity)
             view.layer.cornerRadius = MarkdownBlockSelectionStyle.highlightCornerRadius
@@ -538,21 +554,28 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// selects it and a drag moves it, and the pointer is the I-beam over text only
     /// where a click would edit it. On a phone every row does but while selecting,
     /// when a tap on any block selects it or takes it out, never edits; while the agent
-    /// writes (the page a preview), every row. A view's row always does on the Mac (its
-    /// controls are live; its handle selects and moves it).
+    /// writes (the page a preview), every row. A view's, a collection's and a table's row
+    /// always does on the Mac: its controls or cells are live and it scrolls across; its
+    /// handle selects and moves it, and a table's first click selects it (clickSelects).
     func blockTakes(_ id: DocBlockID, editsText: Bool) -> Bool {
-        blockTakes(id, editsText: editsText, isView: isView(id))
+        blockTakes(id, editsText: editsText, takesClicks: takesClicks(id))
     }
 
-    /// The same, `isView` told by the caller: a row's view knows it from its row. Reading
+    /// The same, `takesClicks` told by the caller: a row's view knows it from its row. Reading
     /// it from the document would make every row's view depend on the whole document,
     /// and render again on each edit anywhere in it.
-    func blockTakes(_ id: DocBlockID, editsText: Bool, isView: Bool) -> Bool {
+    func blockTakes(_ id: DocBlockID, editsText: Bool, takesClicks: Bool) -> Bool {
         guard !demo.isAgentWriting else { return true }
         guard Self.usesHandles else { return !isSelecting }
-        if selected.contains(id) || isView { return true }
+        if selected.contains(id) || takesClicks { return true }
         guard let editing = typing ?? editor.sources.editing ?? editor.tables.editing?.block else { return false }
         return editing == id || editsText
+    }
+
+    /// Whether a click in a block that takes its clicks (a table's cell) selects the block
+    /// instead, as a click on a row that doesn't take them would (blockTakes).
+    func clickSelects(_ id: DocBlockID) -> Bool {
+        Self.usesHandles && !blockTakes(id, editsText: true, takesClicks: false)
     }
 
     /// Whether the Mac's click and drag on the list take a touch on `view` at `point`
@@ -569,13 +592,14 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     private func pressTakes(_ id: DocBlockID) -> Bool {
         guard Self.usesHandles, !demo.isAgentWriting, drag == nil else { return false }
         let editsText = demo.rows.first { $0.block == id }?.editsText ?? false
-        return !(blockTakes(id, editsText: editsText) && editsText) && !isView(id)
+        return !(blockTakes(id, editsText: editsText) && editsText) && !takesClicks(id)
     }
 
-    /// A view or a collection: its controls take clicks (its handle selects it).
-    private func isView(_ id: DocBlockID) -> Bool {
+    /// A view, a collection or a table: it takes its clicks (its handle selects it; a
+    /// table's first click too, clickSelects), so it scrolls across while not selected.
+    private func takesClicks(_ id: DocBlockID) -> Bool {
         switch demo.doc.block(id)?.kind {
-        case .view?, .collection?: true
+        case .view?, .collection?, .database?: true
         default: false
         }
     }

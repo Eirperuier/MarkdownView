@@ -78,9 +78,10 @@ struct DocRow: Identifiable, Equatable {
     var sourceIsEmpty: Bool { sourceText.isEmpty }
     /// Whether the row has text to edit: a text block's, a cell's, code's or maths'.
     var editsText: Bool { text != nil || sourceKind != nil || table != nil }
-    /// A view or a collection: its controls take clicks.
-    var isView: Bool {
-        if collection != nil { return true }
+    /// A view, a collection or a table: it takes its clicks (a view's controls, a table's
+    /// cells), and scrolls across while it isn't selected.
+    var takesClicks: Bool {
+        if collection != nil || table != nil { return true }
         if case .view? = media { return true }
         return false
     }

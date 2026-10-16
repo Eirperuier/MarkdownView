@@ -497,7 +497,7 @@ private struct DocRowView: View {
         }
         // On the Mac a click first selects the block; on a phone, while selecting, a tap
         // selects it (DocBlockController.blockTakes).
-        .allowsHitTesting(row.block.map { blocks.blockTakes($0, editsText: row.editsText, isView: row.isView) } ?? true)
+        .allowsHitTesting(row.block.map { blocks.blockTakes($0, editsText: row.editsText, takesClicks: row.takesClicks) } ?? true)
         // A dropped block shows once what flies to it is down.
         .opacity(row.block.map(blocks.isLanding) == true ? 0 : 1)
         .coordinateSpace(.named(DocRowSpace.name))

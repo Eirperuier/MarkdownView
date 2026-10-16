@@ -1297,6 +1297,22 @@ final class DocEditTests {
                 try self.expect(self.editor.tables.editing == nil, "still editing")
                 try self.expect(self.editor.blocks.selected == [try table().block], "selected \(self.editor.blocks.selected.count)")
             }
+            await test("Table: its row takes clicks while not selected (it scrolls across); the first click selects the table, the next edits the cell") {
+                let t = try table()
+                let snapshot = DocTableSnapshot(block: t.block, database: t.database)
+                self.editor.tables.endEditing()
+                self.editor.blocks.clear()
+                self.demo.bringIntoView(t.block)
+                try? await Task.sleep(for: .milliseconds(300))
+                let row = try self.expectValue(self.demo.rows.first { $0.block == t.block }, "no row for the table")
+                try self.expect(self.editor.blocks.blockTakes(t.block, editsText: row.editsText, takesClicks: row.takesClicks), "the table's row doesn't take clicks")
+                self.editor.tables.clicked(snapshot, at: MarkdownTableCellPosition(row: 2, column: 1))
+                try self.expect(self.editor.blocks.selected == [t.block] && self.editor.tables.editing == nil,
+                                "first click: selected \(self.editor.blocks.selected.count), editing \(String(describing: self.editor.tables.editing))")
+                self.editor.tables.clicked(snapshot, at: MarkdownTableCellPosition(row: 2, column: 1))
+                _ = try await cellEditor(t.key(2, 1), step: "second click")
+                self.editor.tables.endEditing()
+            }
         }
         await test("Table: a cell is a place of its own: the keyboard bar has Aa, its menu, ⋮ (a column's name: its menu, ⋮); the menu key opens the cell's menu") {
             let bar = self.editor.keyboardBar

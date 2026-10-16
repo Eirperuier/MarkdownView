@@ -367,7 +367,15 @@ final class DocTableController {
         editor.leaveCells()
     }
 
-    /// A click on a table cell MarkdownView rendered (row 0 is the header).
+    /// A click on a table cell MarkdownView rendered. On the Mac the first selects the
+    /// table, as a click on a block of text would (its row takes clicks so that it scrolls
+    /// across, DocBlockController.blockTakes); then they edit cells.
+    func clicked(_ table: DocTableSnapshot, at position: MarkdownTableCellPosition) {
+        if formulaPanel(in: table.block) == nil, editor.blocks.clickSelects(table.block) { return editor.blocks.click(table.block) }
+        tapped(table, at: position)
+    }
+
+    /// A click on a table cell MarkdownView rendered (row 0 is the header): it edits it.
     func tapped(_ table: DocTableSnapshot, at position: MarkdownTableCellPosition) {
         // While the Mac's panel writes a formula of this table's, a cell puts its reference in.
         if let formula = formulaPanel(in: table.block) {
@@ -392,7 +400,15 @@ final class DocTableController {
         return key.row.map { row in database.rows.contains { $0.id == row } } ?? true
     }
 
-    func placed(_ block: DocBlockID, cells frame: CGRect?) { cellFrames[block] = frame }
+    func placed(_ block: DocBlockID, cells frame: CGRect?) {
+        cellFrames[block] = frame
+        // A selected table's highlight follows the table as it scrolls across.
+        if editor.blocks.selected.contains(block) { editor.blocks.layoutOverlays() }
+    }
+
+    /// Where the table's cells are in its row (DocRowSpace): out past the page's sides
+    /// when it's wider and scrolled.
+    func cellsFrame(_ block: DocBlockID) -> CGRect? { cellFrames[block] }
     func placed(_ block: DocBlockID, grid: MarkdownTableGrid?) { grids[block] = grid }
 
     /// The cell at `point` in the table's row (DocRowSpace).
@@ -1131,7 +1147,7 @@ struct DocTableRowView: View {
             .markdownDisplayMathRendersSynchronously()
             .markdownTableAppearance(controller.appearance(of: table))
             .markdownTableCellsSelectable()
-            .markdownTableCellTap { [table, controller] position in controller.tapped(table, at: position) }
+            .markdownTableCellTap { [table, controller] position in controller.clicked(table, at: position) }
             .markdownTableCellReplacement(controller.replaced(in: table)) { [table, controller] position in controller.replacement(in: table, at: position) }
             // The Mac's formula written by a cell: the letters, numbers and rings on the table.
             .markdownTableDecoration(controller.formulaPanel(in: table.block).map { formula in
