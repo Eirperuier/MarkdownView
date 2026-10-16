@@ -4,8 +4,14 @@
 //
 //  Code and math blocks are edited as their source. A code block keeps MarkdownView's
 //  chrome (header, language, copy, background): its lines are replaced by an editor
-//  (MarkdownView's code block replacement). A math block shows its LaTeX in an editor
-//  above the rendered formula, which follows as you type. Read, both are MarkdownView's.
+//  (MarkdownView's code block replacement). A math block is written as a cell's formula
+//  is (DocTableFormula), its LaTeX in a panel and the formula, ringed, following on the
+//  page: on the Mac the panel is under the block (the menus' anchored panel), on a phone
+//  it's glass over the keyboard (its bar), the page scrolled to show the block above it.
+//  Under the LaTeX a row of keys puts in what's long to type (a fraction, a root, powers
+//  and indices, a sum, an integral; symbols in the system's menu), the caret in their
+//  first braces. The panel goes when the LaTeX lets the focus go. Read, both are
+//  MarkdownView's.
 //
 //  Keys: Return keeps the line's indentation, Tab / Shift-Tab indent and outdent the
 //  line by four spaces, ↑ on the first line and ↓ on the last go to the block above and
@@ -44,6 +50,14 @@ final class DocSourceController {
     @ObservationIgnored private var views: [DocBlockID: [WeakSourceView]] = [:]
     @ObservationIgnored private var pendingFocus: (block: DocBlockID, offset: Int?, reveals: Bool)?
     @ObservationIgnored private var session: UInt64 = 0
+    /// The keyboard bar's height while it's up (a phone): the math panel sits on it.
+    var keyboardBarHeight: CGFloat = 0
+    /// Where each math block is on the page: the page scrolls to show it over the panel.
+    @ObservationIgnored var mathRows: [DocBlockID: WeakView] = [:]
+
+    struct WeakView {
+        weak var view: UIView?
+    }
 
     static let languages = ["swift", "python", "javascript", "typescript", "json", "bash", "sql", "go", "rust", "kotlin", "java", "c", "cpp", "html", "css", "yaml", "markdown"]
 
@@ -128,6 +142,36 @@ final class DocSourceController {
         if let editing { view(for: editing)?.highlightNow() }
         pendingFocus = nil
         editing = nil
+    }
+
+    /// The source let the focus go: a math block's panel goes with it.
+    func ended(_ block: DocBlockID) {
+        guard editing == block, demo.doc.block(block)?.kind == .math else { return }
+        endEditing()
+    }
+
+    /// A math key: `snippet` in place of the selection, the caret `caret` units into it
+    /// (in its first braces). A command run on into a letter after it is kept apart.
+    func insert(_ snippet: String, caret: Int? = nil, in block: DocBlockID) {
+        guard let view = view(for: block) else { return }
+        var snippet = snippet
+        let range = view.selectedRange
+        let after = NSMaxRange(range) < view.text.utf16.count ? (view.text as NSString).substring(with: NSRange(location: NSMaxRange(range), length: 1)) : ""
+        if caret == nil, snippet.last?.isLetter == true, after.first?.isLetter == true { snippet += " " }
+        view.insertText(snippet)
+        if let caret { view.selectedRange = NSRange(location: range.location + caret, length: 0) }
+    }
+
+    /// The page shows the math block over the phone's panel (`room` tall, on the keyboard bar).
+    func revealMath(_ block: DocBlockID, over room: CGFloat) {
+        DocScrolling.keyboardPanel = room
+        if let row = mathRows[block]?.view { DocScrolling.reveal(row) }
+        // Again once the keyboard has come up (the page's room changes under it).
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard let self, self.editing == block, let row = self.mathRows[block]?.view else { return }
+            DocScrolling.reveal(row)
+        }
     }
 
     func began(_ block: DocBlockID) {
@@ -427,6 +471,10 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     func textViewDidBeginEditing(_ textView: UITextView) {
         if let block { controller?.began(block) }
     }
+
+    func textViewDidEndEditing(_ textView: UITextView) {
+        if let block { controller?.ended(block) }
+    }
 }
 
 struct DocSourceField: UIViewRepresentable {
@@ -639,8 +687,9 @@ struct DocCodeLanguageMenu: View {
     }
 }
 
-/// A math block: MarkdownView's formula; while it's edited, its LaTeX in an anchored
-/// panel under it (Matrix's Composer panel), the formula following the typing.
+/// A math block: MarkdownView's formula; while it's edited, ringed (a cell's formula's
+/// way), its LaTeX in a panel: on the Mac under it, on a phone over the keyboard
+/// (DocMathKeyboardPanel, the page's).
 struct DocMathRowView: View {
     let block: DocBlockID
     let tree: MarkdownTree
@@ -661,29 +710,56 @@ struct DocMathRowView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .background {
-            // The formula being edited, marked where the panel comes from.
-            if editing {
-                RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.md, style: .continuous)
-                    .fill(FlooDesignTokens.ColorRole.Surface.selected)
-                    .padding(.horizontal, -(FlooDesignTokens.Space.sm - 2))
-            }
+        .overlay {
+            RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.md, style: .continuous)
+                .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
+                .padding(.horizontal, -(FlooDesignTokens.Space.sm - 2))
+                .opacity(editing ? 1 : 0)
+                .animation(FlooDesignTokens.Motion.reveal, value: editing)
+                .allowsHitTesting(false)
         }
+        .background { DocViewAnchor { [block, controller] in controller.mathRows[block] = .init(view: $0) } }
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded { [block, controller] in
             if controller.editing != block { controller.focus(block) }
         })
-        .flooDesignAnchoredPanel(isPresented: editing, onDismiss: { [block, controller] in controller.dismiss(block) }) {
+        .flooDesignAnchoredPanel(isPresented: editing && DocDevice.isMac, onDismiss: { [block, controller] in controller.dismiss(block) }) {
             DocMathPanel(block: block, text: controller.text(block), controller: controller)
         }
     }
 }
 
-/// The panel's content: the LaTeX, and done.
+/// The phone's math panel: glass on the keyboard bar while a math block is edited, the
+/// page scrolled to show the block above it.
+struct DocMathKeyboardPanel: View {
+    let controller: DocSourceController
+    let demo: DocDemo
+
+    var body: some View {
+        let block = controller.editing.flatMap { demo.doc.block($0) }.flatMap { $0.kind == .math ? $0.id : nil }
+        ZStack(alignment: .bottom) {
+            if let block {
+                DocMathPanel(block: block, text: controller.text(block), controller: controller)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [controller] height in
+                        controller.revealMath(block, over: height)
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: FlooDesignTokens.Motion.revealStartScale, anchor: .bottom)))
+                    .onDisappear { DocScrolling.keyboardPanel = 0 }
+            }
+        }
+        .padding(.bottom, controller.keyboardBarHeight)
+        .animation(FlooDesignTokens.Motion.reveal, value: block)
+    }
+}
+
+/// The panel's content: the LaTeX, and the keys under it. In the anchored panel's
+/// surface beside the block (the Mac), on glass over the keyboard (a phone).
 struct DocMathPanel: View {
     let block: DocBlockID
     let text: String
     let controller: DocSourceController
+
+    private typealias Tokens = FlooDesignTokens
 
     /// As wide as a formula line wants, within the window.
     private var width: CGFloat {
@@ -692,28 +768,95 @@ struct DocMathPanel: View {
     }
 
     var body: some View {
-        FlooDesignFloatingPanelSurface {
-            VStack(alignment: .leading, spacing: FlooDesignTokens.Space.sm) {
-                HStack {
-                    Text("LaTeX")
-                        .font(FlooDesignTokens.Typography.sectionLabel.font)
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                    Spacer()
-                    Button("Done") { controller.dismiss(block) }
-                        .font(FlooDesignTokens.Typography.sectionLabel.font)
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Accent.primary)
-                        .padding(.horizontal, FlooDesignTokens.Space.sm)
-                        .padding(.vertical, FlooDesignTokens.Space.xxs)
-                        .buttonStyle(FlooDesignPlainButtonStyle(in: Capsule()))
-                }
-                .padding(.horizontal, FlooDesignTokens.Space.sm)
-                DocSourceField(block: block, text: text, controller: controller, font: codeFont,
-                               insets: UIEdgeInsets(top: FlooDesignTokens.Space.sm, left: FlooDesignTokens.Space.sm,
-                                                    bottom: FlooDesignTokens.Space.sm, right: FlooDesignTokens.Space.sm))
-                    .background(FlooDesignTokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.md, style: .continuous))
-            }
-            .flooDesignPanelWidth(width)
+        if DocDevice.isMac {
+            FlooDesignFloatingPanelSurface { content }
+                .flooDesignPanelWidth(width)
+        } else {
+            content
+                .padding(Tokens.Space.sm)
+                .flooDesignGlass(.regular, in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
+                .padding(.horizontal, Tokens.Space.md)
+                .padding(.bottom, Tokens.Space.sm)
         }
+    }
+
+    private var content: some View {
+        VStack(spacing: Tokens.Space.sm) {
+            DocSourceField(block: block, text: text, controller: controller, font: codeFont,
+                           insets: UIEdgeInsets(top: Tokens.Space.sm, left: Tokens.Space.sm, bottom: Tokens.Space.sm, right: Tokens.Space.sm))
+                .background(Tokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+            HStack(spacing: Tokens.Space.sm) {
+                ForEach(DocMathKey.keys) { key in
+                    Button { controller.insert(key.snippet, caret: key.caret, in: block) } label: {
+                        Text(verbatim: key.title)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(FlooDesignButtonStyle(.secondary))
+                    .accessibilityLabel(key.name)
+                }
+                Menu {
+                    ForEach(DocMathKey.symbols, id: \.self) { section in
+                        Section {
+                            ForEach(section) { key in
+                                Button("\(key.title)   \(key.snippet)") { controller.insert(key.snippet, in: block) }
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(maxWidth: .infinity)
+                }
+                .menuStyle(.button)
+                .buttonStyle(FlooDesignButtonStyle(.secondary))
+                .accessibilityLabel("More Symbols")
+            }
+        }
+    }
+}
+
+/// A key of the math panel: what it shows, and the LaTeX it puts in (the caret `caret`
+/// units into it, in its first braces).
+struct DocMathKey: Identifiable, Hashable {
+    let title: String
+    let name: String
+    let snippet: String
+    var caret: Int?
+
+    var id: String { snippet }
+
+    /// What's long to type: a fraction, a root, a power, an index, a sum, an integral.
+    static let keys = [
+        DocMathKey(title: "a⁄b", name: "Fraction", snippet: "\\frac{}{}", caret: 6),
+        DocMathKey(title: "√x", name: "Square Root", snippet: "\\sqrt{}", caret: 6),
+        DocMathKey(title: "xⁿ", name: "Power", snippet: "^{}", caret: 2),
+        DocMathKey(title: "xₙ", name: "Index", snippet: "_{}", caret: 2),
+        DocMathKey(title: "∑", name: "Sum", snippet: "\\sum_{}^{}", caret: 6),
+        DocMathKey(title: "∫", name: "Integral", snippet: "\\int_{}^{}", caret: 6),
+    ]
+
+    /// The symbols in the menu: Greek letters, then relations and operators.
+    static let symbols: [[DocMathKey]] = [
+        [("α", "alpha"), ("β", "beta"), ("γ", "gamma"), ("δ", "delta"), ("θ", "theta"), ("λ", "lambda"),
+         ("μ", "mu"), ("π", "pi"), ("σ", "sigma"), ("φ", "phi"), ("ω", "omega")],
+        [("≤", "leq"), ("≥", "geq"), ("≠", "neq"), ("≈", "approx"), ("±", "pm"), ("×", "times"),
+         ("·", "cdot"), ("∞", "infty"), ("∂", "partial"), ("→", "to")],
+    ].map { $0.map { DocMathKey(title: $0.0, name: $0.1, snippet: "\\" + $0.1) } }
+}
+
+/// A UIView where this view is, for UIKit's scrolling to it.
+struct DocViewAnchor: UIViewRepresentable {
+    let onResolve: (UIView) -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        onResolve(view)
     }
 }
 

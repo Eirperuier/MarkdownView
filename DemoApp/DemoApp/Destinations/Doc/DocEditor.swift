@@ -159,6 +159,8 @@ final class DocEditor {
         let keyboard = window.map { $0.convert(DocScrolling.keyboard, from: nil) } ?? .null
         let shows = editingPlace != nil && !keyboard.isNull && keyboard.height > 0 && keyboard.minY < (window?.bounds.maxY ?? 0) - 1
         DocScrolling.keyboardBar = shows ? DocKeyboardBar.height : 0
+        let height = shows ? DocKeyboardBar.height : 0
+        if sources.keyboardBarHeight != height { sources.keyboardBarHeight = height }
         keyboardBarStage.place(shows: shows, keyboard: keyboard, duration: duration, curve: curve)
     }
     /// For the edit tests' reports.

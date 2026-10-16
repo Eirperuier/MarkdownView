@@ -130,6 +130,8 @@ private struct DocPageView: View {
             }
             #if !targetEnvironment(macCatalyst)
             .overlay { DocKeyboardBarHost(stage: editor.keyboardBarStage).ignoresSafeArea() }
+            // A math block's LaTeX and keys, on the keyboard bar (DocSourceEditing).
+            .overlay(alignment: .bottom) { DocMathKeyboardPanel(controller: editor.sources, demo: demo) }
             #endif
             .overlay { DocSlashMenuView(menu: editor.slash) }
             .overlay(alignment: .bottom) { DocBlockSelectionBar(blocks: editor.blocks) }

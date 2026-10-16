@@ -1196,11 +1196,24 @@ final class DocEditTests {
             view.insertText("E = mc^2")
             try self.expect(self.text(line.id) == "E = mc^2", "model \(self.text(line.id).debugDescription)")
             try self.expect((self.demo.doc.markdown(of: line.id) ?? "").contains("$$\nE = mc^2\n$$"), "markdown")
+            // A key: a fraction, the caret in its numerator; a symbol kept apart from a letter after it.
+            let fraction = try self.expectValue(DocMathKey.keys.first { $0.name == "Fraction" }, "no fraction key")
+            self.editor.sources.insert(fraction.snippet, caret: fraction.caret, in: line.id)
+            try self.expect(self.text(line.id) == "E = mc^2\\frac{}{}" && view.selectedRange == NSRange(location: 14, length: 0),
+                            "after the fraction key \(self.text(line.id).debugDescription), caret \(view.selectedRange)")
+            view.insertText("x")
+            view.selectedRange = NSRange(location: 14, length: 0)
+            self.editor.sources.insert("\\alpha", in: line.id)
+            try self.expect(self.text(line.id) == "E = mc^2\\frac{\\alpha x}{}", "after α \(self.text(line.id).debugDescription)")
             let existing = try firstBlock { $0 == .math }
             if existing.id != line.id {
                 let other = try await edit(existing)
                 try self.expect(other.text == existing.text.string, "existing formula shows \(other.text.debugDescription)")
             }
+            // Its panel goes when the LaTeX lets the focus go (the keyboard's key, a click elsewhere).
+            self.editor.dismissKeyboard()
+            try await self.settle()
+            try self.expect(self.editor.sources.editing == nil, "still editing \(String(describing: self.editor.sources.editing))")
         }
 
         // MARK: Tables
