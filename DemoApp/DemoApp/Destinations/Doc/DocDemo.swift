@@ -78,6 +78,13 @@ struct DocRow: Identifiable, Equatable {
     var sourceIsEmpty: Bool { sourceText.isEmpty }
     /// Whether the row has text to edit: a text block's, a cell's, code's or maths'.
     var editsText: Bool { text != nil || sourceKind != nil || table != nil }
+    /// A code block: its long lines scroll across, while it isn't selected too (on the
+    /// Mac its row takes events for that, and its text view only the scrolling,
+    /// DocSourceTextView.hitTest).
+    var scrollsAcross: Bool {
+        if case .code? = sourceKind { return true }
+        return false
+    }
     /// A view, a collection or a table: it takes its clicks (a view's controls, a table's
     /// cells), and scrolls across while it isn't selected.
     var takesClicks: Bool {

@@ -92,6 +92,11 @@ final class DocSourceController {
         views[block]?.compactMap(\.view).first { $0.window?.isKeyWindow == true }
     }
 
+    /// The block's text view on screen, its window key or not (the tests').
+    func testShownView(_ block: DocBlockID) -> DocSourceTextView? {
+        views[block]?.compactMap(\.view).first { $0.window != nil }
+    }
+
     /// Edits the block with the caret at `offset` (nil: where a click put it, or the end).
     /// `reveals`: the page scrolls to show the editor (not for a click on it).
     func focus(_ block: DocBlockID, at offset: Int? = nil, reveals: Bool = true) {
@@ -306,6 +311,15 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
         insertSubview(view, at: 0)
         return view
     }()
+
+    /// On the Mac a code block whose row doesn't take clicks (DocBlockController.clickSelects)
+    /// still scrolls across: its row takes events for that (DocRow.scrollsAcross), and the
+    /// text view only the scrolling. A click goes on to the list, which selects the block.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let hit = super.hitTest(point, with: event) else { return nil }
+        guard event?.type != .scroll, let block, controller?.editor.blocks.clickSelects(block) == true else { return hit }
+        return nil
+    }
 
     /// The caret is a line of text tall: TextKit's own reaches over the line spacing
     /// below the line, into the gap before the next one.

@@ -1055,6 +1055,20 @@ final class DocEditTests {
                 try self.expect(self.editor.sources.editing == nil, "still editing")
                 try self.expect(self.editor.blocks.selected == [block.id], "selected \(self.editor.blocks.selected.count)")
             }
+            await test("Code block: while not selected its row takes events, for scrolling across; its text view takes no click, which selects the block") {
+                let block = try codeBlock()
+                self.editor.sources.endEditing()
+                self.editor.blocks.clear()
+                self.demo.bringIntoView(block.id)
+                for _ in 0..<60 where self.editor.sources.testShownView(block.id) == nil { try? await Task.sleep(for: .milliseconds(16)) }
+                let view = try self.expectValue(self.editor.sources.testShownView(block.id), "no source view on screen")
+                let center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+                try self.expect(view.window != nil && self.editor.blocks.clickSelects(block.id), "the block takes clicks while not selected")
+                try self.expect(view.hitTest(center, with: nil) == nil, "the text view takes a click while the block isn't selected")
+                self.editor.blocks.select([block.id])
+                try self.expect(view.hitTest(center, with: nil) != nil, "the text view takes no click while the block is selected")
+                self.editor.blocks.clear()
+            }
         }
         await test("Code block: its source is a place: the keyboard bar has Aa, the code's menu and ⋮ for the block") {
             let block = try codeBlock()
