@@ -542,8 +542,28 @@ struct MarkdownTableContent: View {
         return AdaptiveTableCellLook(
             isHeader: item.isHeader && appearance.headerRow,
             isHeaderColumn: !item.isHeader && item.column == 0 && appearance.headerColumn,
-            cell: cell
+            cell: cell,
+            joins: joins(row: item.row, column: item.column, fill: cell?.fill)
         )
+    }
+
+    /// The sides where the next cell has the same fill: cells of one fill read as one block.
+    /// Fills are compared as they draw, light and dark: a host's dynamic colour is a new
+    /// `Color` each time it's made.
+    private func joins(row: Int, column: Int, fill: Color?) -> AdaptiveTableFillJoins {
+        guard let fill else { return AdaptiveTableFillJoins() }
+        let schemes: [EnvironmentValues] = [ColorScheme.light, .dark].map { scheme in
+            var environment = EnvironmentValues()
+            environment.colorScheme = scheme
+            return environment
+        }
+        let drawn = schemes.map { fill.resolve(in: $0) }
+        func same(_ row: Int, _ column: Int) -> Bool {
+            guard let other = appearance.cells[MarkdownTableCellPosition(row: row, column: column)]?.fill else { return false }
+            return other == fill || schemes.map { other.resolve(in: $0) } == drawn
+        }
+        return AdaptiveTableFillJoins(top: same(row - 1, column), bottom: same(row + 1, column),
+                                      leading: same(row, column - 1), trailing: same(row, column + 1))
     }
 
     /// The stripe's colour; nil, the table's own.
@@ -1692,11 +1712,19 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     }
 
     /// The cell's fill, out to the middle of the space to its neighbours (as far past the
-    /// table's edges), as the stripe is drawn.
+    /// table's edges), as the stripe is drawn; square where it meets a neighbour's of the
+    /// same colour, so a run of them is one block.
     @ViewBuilder
     private var fill: some View {
         if let color = look.cell?.fill {
-            RoundedRectangle(cornerRadius: markdownTableScrollableStripeCornerRadius, style: .continuous)
+            let joins = look.joins, radius = markdownTableScrollableStripeCornerRadius
+            UnevenRoundedRectangle(
+                topLeadingRadius: joins.top || joins.leading ? 0 : radius,
+                bottomLeadingRadius: joins.bottom || joins.leading ? 0 : radius,
+                bottomTrailingRadius: joins.bottom || joins.trailing ? 0 : radius,
+                topTrailingRadius: joins.top || joins.trailing ? 0 : radius,
+                style: .continuous
+            )
                 .fill(color)
                 .padding(.leading, -MarkdownTableAppearance.rowOutset.leading)
                 .padding(.trailing, -MarkdownTableAppearance.rowOutset.trailing)
@@ -1710,6 +1738,7 @@ fileprivate struct AdaptiveTableCellLook: Hashable {
     var isHeader = false
     var isHeaderColumn = false
     var cell: MarkdownTableCellAppearance?
+    var joins = AdaptiveTableFillJoins()
 
     /// The selectable text's paragraphs' alignment.
     var paragraphAlignment: NSTextAlignment {
@@ -1721,6 +1750,14 @@ fileprivate struct AdaptiveTableCellLook: Hashable {
         case nil: .natural
         }
     }
+}
+
+/// The sides of a cell's fill that meet a neighbour's of the same colour.
+fileprivate struct AdaptiveTableFillJoins: Hashable {
+    var top = false
+    var bottom = false
+    var leading = false
+    var trailing = false
 }
 
 /// The host's tap on a cell (`markdownTableCellTap`), anywhere in the cell.
