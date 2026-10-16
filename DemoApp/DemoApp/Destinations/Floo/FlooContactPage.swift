@@ -198,8 +198,12 @@ struct FlooContactPage: View {
                 .padding(.horizontal, 2)
             }
             if !service.sources.devices.isEmpty {
-                Text("点一台在线的设备，那台设备上会打开「\(service.name)」的设置。")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(
+                    FlooSettingsFormat.all[service.id] == nil
+                        ? "点一台在线的设备，那台设备上会打开「\(service.name)」的设置。"
+                        : "点已经在用的设备，看它在那台设备上的设置；点在线的其他设备，在那台设备上开通。"
+                )
+                .font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(14)
@@ -227,6 +231,10 @@ struct FlooContactPage: View {
                 : provides ? (device.online ? (service.id == "github" ? "gh 已登录" : "已允许") : "\(device.lastSeen ?? "")在线", device.online ? .green : .gray)
                 : can ? ("去设置", Color.accentColor) : ("不支持", .gray)
             bubbleButton(symbol: device.symbol, name: device.name, state: state, dimmed: !can && !provides) {
+                if provides, FlooSettingsFormat.all[service.id] != nil {
+                    demo.path.append(.settings(service.id, device.id))
+                    return
+                }
                 guard can, !provides, !asked, device.online else { return }
                 if device.id == FlooDevice.this {
                     demo.following[service.id]?.devices.insert(device.id)

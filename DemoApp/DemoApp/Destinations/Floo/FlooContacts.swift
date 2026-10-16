@@ -217,6 +217,8 @@ enum FlooContactsRoute: Hashable {
     case hooks(String)
     case moments(String)
     case post(String, Int)
+    /// A provider's settings: the service, the device it is on.
+    case settings(String, String)
 
     static var launchPath: [FlooContactsRoute] {
         (UserDefaults.standard.string(forKey: "flooContactsPath") ?? "").split(separator: " ").compactMap { step in
@@ -227,6 +229,7 @@ enum FlooContactsRoute: Hashable {
             case "chat": return .chat(parts[1])
             case "moments": return .moments(parts[1])
             case "post": return .post(parts[1], Int(parts.count > 2 ? parts[2] : "0") ?? 0)
+            case "settings" where parts.count > 2: return .settings(parts[1], parts[2])
             default: return nil
             }
         }
@@ -243,6 +246,8 @@ final class FlooContactsDemo {
     /// What's put in a conversation's input: a prompt tapped on its page.
     var drafts: [String: String] = [:]
     var toast: String?
+    /// Each provider's settings file, by service and device (`floo.provider_settings`).
+    var settings: [String: [String: [String: FlooJSON]]] = FlooContactsDemo.startSettings
     @ObservationIgnored private var cards: [String: CardSession] = [:]
 
     static let start: [String: FlooFollowing] = [
@@ -284,8 +289,13 @@ final class FlooContactsDemo {
         ),
     ]
 
+    static let startSettings: [String: [String: [String: FlooJSON]]] = [
+        "calendar": ["iphone": ["excluded": .array([.string("cal-therapy")]), "new_events": .string("cal-home")]],
+    ]
+
     func reset() {
         following = Self.start
+        settings = Self.startSettings
         devices = FlooDevice.all
         path = []
         asking = nil
@@ -364,6 +374,12 @@ struct FlooContactsDestination: View {
                     case .hooks(let id): FlooHooksPage(service: FlooService.named(id)!)
                     case .moments(let id): FlooMomentsPage(demo: demo, service: FlooService.named(id)!)
                     case .post(let id, let index): FlooPostPage(demo: demo, service: FlooService.named(id)!, index: index)
+                    case .settings(let id, let device):
+                        if let format = FlooSettingsFormat.all[id], let device = demo.device(device) {
+                            FlooProviderSettingsPage(
+                                demo: demo, service: FlooService.named(id)!, device: device, format: format
+                            )
+                        }
                     }
                 }
         }

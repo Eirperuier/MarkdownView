@@ -23,15 +23,15 @@
     "title": "Batch modify Gmail messages"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create email draft"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create Gmail filter"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create label"
    },
    {
@@ -67,7 +67,7 @@
     "title": "Fetch Message by Thread ID"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Forward email message"
    },
    {
@@ -111,11 +111,11 @@
     "title": "Get Vacation Settings"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Import message"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Insert message into mailbox"
    },
    {
@@ -179,7 +179,7 @@
     "title": "Patch send-as alias"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Reply to email thread"
    },
    {
@@ -191,7 +191,7 @@
     "title": "Send Draft"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Send Email"
    },
    {
@@ -263,6 +263,7 @@
    "localized": {
     "zh-Hans": {
      "description": "搜索和阅读 Gmail 账号里的邮件，写草稿和回复，发送邮件，用标签整理。新邮件一到就能知道。",
+     "name": "Gmail",
      "prompts": [
       "今天早上来的邮件里，哪些要回？",
       "找一下房东最近发的那封邮件",
@@ -318,7 +319,7 @@
     "title": "Get ACL Rule"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create ACL Rule"
    },
    {
@@ -334,7 +335,7 @@
     "title": "Update ACL Rule"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Watch ACL Changes"
    },
    {
@@ -350,7 +351,7 @@
     "title": "Get Single Calendar by ID"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Insert Calendar into List"
    },
    {
@@ -362,7 +363,7 @@
     "title": "Update Calendar List Entry"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Watch Calendar List"
    },
    {
@@ -386,11 +387,11 @@
     "title": "Get Color Definitions"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a new calendar"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create Event"
    },
    {
@@ -398,7 +399,7 @@
     "title": "Delete event"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a calendar"
    },
    {
@@ -406,7 +407,7 @@
     "title": "Get Event"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Import Event"
    },
    {
@@ -426,7 +427,7 @@
     "title": "Move Event"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Watch Events"
    },
    {
@@ -474,7 +475,7 @@
     "title": "Patch Event"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Quick Add Event"
    },
    {
@@ -490,7 +491,7 @@
     "title": "List Settings"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Watch Settings"
    },
    {
@@ -691,15 +692,15 @@
     "title": "Add assignees to an issue"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Add email for auth user"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Add field to user project"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Add item to user project"
    },
    {
@@ -907,7 +908,7 @@
     "title": "Compare two commits"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Configure JIT runner for an org"
    },
    {
@@ -923,55 +924,55 @@
     "title": "Convert Pull Request to Draft"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a blob"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a check run"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a check suite"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a codespace for the authenticated user"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a codespace from a pull request"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a codespace in a repository"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a commit"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a commit comment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a commit status"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a custom organization role"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a deploy key"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a deployment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a deployment branch policy"
    },
    {
@@ -979,31 +980,31 @@
     "title": "Create a deployment status"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a discussion"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a discussion comment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a fork"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a gist"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a gist comment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a GitHub App from a manifest"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a github pages deployment"
    },
    {
@@ -1011,155 +1012,155 @@
     "title": "Create a github pages site"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a label"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a milestone"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a project card"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a pull request"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a reference"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a registration token for a repository"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a registration token for an organization"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a release"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a remove token for a repository"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a remove token for an organization"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a reply for a review comment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a repository dispatch event"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a repository for the authenticated user"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a repository from an unpublished codespace"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a repository project"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a repository ruleset"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a repository using a template"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a repository variable"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a repository webhook"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a review comment for a pull request"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a review for a pull request"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a scoped access token"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a dependency snapshot"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a tag object"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a team"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a temporary private fork"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a tree"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a user project"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a workflow dispatch event"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create an autolink reference for a repository"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create an environment variable"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create an issue"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create an issue comment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create an organization project"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create an organization repository"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create an organization variable"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create an organization webhook"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a branch"
    },
    {
@@ -1167,11 +1168,11 @@
     "title": "Create commit signature protection"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a custom deployment protection rule on an environment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create draft item for user project"
    },
    {
@@ -1183,11 +1184,11 @@
     "title": "Create inference embeddings"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create issue type"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create JIT runner config for repo"
    },
    {
@@ -1235,35 +1236,35 @@
     "title": "Create reaction for a commit comment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create reaction for a pull request review comment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create reaction for a release"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create reaction for a team discussion"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create reaction for a team discussion comment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create reaction for an issue"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create reaction for an issue comment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create repository"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create Sponsors Tier"
    },
    {
@@ -1275,11 +1276,11 @@
     "title": "Create or Update Organization Secret with LibSodium"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create user list"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create view for user project"
    },
    {
@@ -1687,7 +1688,7 @@
     "title": "Force cancel a workflow run"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Fork a gist"
    },
    {
@@ -3439,7 +3440,7 @@
     "title": "Ping an organization webhook"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Privately report a security vulnerability"
    },
    {
@@ -3651,7 +3652,7 @@
     "title": "Replace repository access for an org Codespaces secret"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Request a github pages build"
    },
    {
@@ -4147,11 +4148,11 @@
     "title": "Change User Status"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Upload a release asset"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Upload an analysis as sarif data"
    },
    {
@@ -4179,6 +4180,7 @@
    "localized": {
     "zh-Hans": {
      "description": "读取 GitHub 上你的仓库、issue、PR、review 和检查结果，发评论、开 issue；你选的仓库有新动静时能知道。",
+     "name": "GitHub",
      "prompts": [
       "有哪些 PR 在等我 review？",
       "上一次 CI 为什么没过？",
@@ -4261,23 +4263,23 @@
     "title": "Archive Notion Page"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create comment"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create Notion Database"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create Notion file upload"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create Notion page"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create Notion view"
    },
    {
@@ -4297,7 +4299,7 @@
     "title": "Delete Notion view query"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Duplicate page"
    },
    {
@@ -4349,11 +4351,11 @@
     "title": "Get Notion view query results"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Insert row database"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Insert Row From Natural Language"
    },
    {
@@ -4465,6 +4467,7 @@
    "localized": {
     "zh-Hans": {
      "description": "搜索和阅读 Notion 工作区里的页面与数据库，写新页面，往已有页面里添内容，更新数据库里的条目。页面有改动、有新评论时能知道。",
+     "name": "Notion",
      "prompts": [
       "找一下上周规划会的笔记",
       "把这几点加到项目页面里",
@@ -4522,11 +4525,11 @@
     "title": "Add call participants"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Add emoji"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Add an emoji alias"
    },
    {
@@ -4534,11 +4537,11 @@
     "title": "Add Enterprise user to workspace"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Add reaction to message"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Add a remote file"
    },
    {
@@ -4574,35 +4577,35 @@
     "title": "Convert public channel to private"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a reminder"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create Slack Canvas"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create channel"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a channel-based conversation"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create Enterprise team"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create Slack List"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create Slack List item"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Create a Slack user group"
    },
    {
@@ -4774,7 +4777,7 @@
     "title": "Invite users to channel"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Invite user to workspace"
    },
    {
@@ -4958,7 +4961,7 @@
     "title": "Rename an emoji"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Reserve Slack file upload"
    },
    {
@@ -5006,11 +5009,11 @@
     "title": "Revoke a file's public url"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Start RTM session"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Schedule message"
    },
    {
@@ -5030,15 +5033,15 @@
     "title": "Search messages"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Send ephemeral message"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Share a me message in a channel"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Send message"
    },
    {
@@ -5110,7 +5113,7 @@
     "title": "Share a remote file in channels"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Start call"
    },
    {
@@ -5154,7 +5157,7 @@
     "title": "Update a Slack message"
    },
    {
-    "effect": "unknown",
+    "effect": "write",
     "title": "Upload or create a file in Slack"
    },
    {
@@ -5170,6 +5173,7 @@
    "localized": {
     "zh-Hans": {
      "description": "读取 Slack 工作区里的频道和私信，搜索以前的对话，发消息和回复。有新消息时能知道。",
+     "name": "Slack",
      "prompts": [
       "今天 #general 里我错过了什么？",
       "这周有人提到我吗？",
@@ -5286,12 +5290,12 @@
   "presentation": {
    "category": "productivity",
    "color": "#FF9500",
-   "description": "Read, add, complete and change the to-dos in Reminders on your iPhone or Mac, in any of your lists. Changes are noticed as they happen.",
+   "description": "Read, add, complete and change the to-dos in Reminders on your iPhone or Mac, in any of your lists. A to-do with a time alerts you then. Changes are noticed as they happen.",
    "developer": "Apple",
    "icon": "/v1/icons/reminders.png",
    "localized": {
     "zh-Hans": {
-     "description": "读取、添加、完成和修改 iPhone 或 Mac 上「提醒事项」里各个列表的待办。待办有变化时能知道。",
+     "description": "读取、添加、完成和修改 iPhone 或 Mac 上「提醒事项」里各个列表的待办。带时间的待办到时会提醒你。待办有变化时能知道。",
      "name": "提醒事项",
      "prompts": [
       "今天还有哪些没做？",
@@ -5514,6 +5518,10 @@
    },
    {
     "effect": "write",
+    "title": "Hand in Codex's changes"
+   },
+   {
+    "effect": "write",
     "title": "Stop Codex"
    },
    {
@@ -5563,16 +5571,16 @@
   ],
   "presentation": {
    "category": "development",
-   "description": "Start Codex sessions in the projects on your computer, send them tasks, answer their approval requests, and read what they did. You hear when a run finishes or needs you.",
+   "description": "Start Codex sessions in the projects on your computer, each in a worktree of its own if you like, send them tasks, answer their approval requests, and read what they did. When you want the changes, they become a pull request. You hear when a run finishes or needs you.",
    "developer": "OpenAI",
    "localized": {
     "zh-Hans": {
-     "description": "在你电脑上的项目里开 Codex 会话，给它派任务，回应它的批准请求，看它做了什么。跑完或需要你时会告诉你。",
+     "description": "在你电脑上的项目里开 Codex 会话（可以各用一个独立的 worktree），给它派任务，回应它的批准请求，看它做了什么；你要时，把改动提成 PR。跑完或需要你时会告诉你。",
      "name": "Codex",
      "prompts": [
       "让 Codex 修一下项目里挂掉的测试",
       "Codex 上一次会话改了什么？",
-      "让 Codex review 一下我当前的分支"
+      "把 Codex 刚才的改动提成 PR"
      ],
      "short_description": "运行和跟进编程会话"
     }
@@ -5582,7 +5590,7 @@
    "prompts": [
     "Ask Codex to fix the failing test in my project",
     "What did Codex change in its last session?",
-    "Have Codex review my current branch"
+    "Open a pull request with what Codex changed"
    ],
    "short_description": "Run and follow coding sessions",
    "terms_of_service": "https://openai.com/policies/terms-of-use",

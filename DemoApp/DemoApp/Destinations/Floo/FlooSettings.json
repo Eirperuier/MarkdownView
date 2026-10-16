@@ -1,0 +1,60 @@
+{
+ "calendar": {
+  "format": {
+   "properties": {
+    "excluded": {
+     "description": "The calendars floo keeps out of: their events aren't read, changed or added to",
+     "items": {
+      "choices": {
+       "from": "calendars",
+       "group": "account",
+       "key": "id",
+       "label": "title",
+       "tint": "color"
+      },
+      "type": "string"
+     },
+     "type": "array",
+     "uniqueItems": true
+    },
+    "new_events": {
+     "choices": {
+      "from": "calendars",
+      "group": "account",
+      "key": "id",
+      "label": "title",
+      "tint": "color",
+      "where": {
+       "writable": true
+      }
+     },
+     "description": "Where floo puts a new event when it names no calendar; the default calendar when not set",
+     "type": "string"
+    }
+   },
+   "type": "object"
+  },
+  "words": {
+   "en": {
+    "excluded": {
+     "summary": "floo doesn't read, change or add events in these.",
+     "title": "Calendars floo leaves alone"
+    },
+    "new_events": {
+     "summary": "Where floo puts an event when it names no calendar. Not set: your default calendar.",
+     "title": "New events go to"
+    }
+   },
+   "zh-Hans": {
+    "excluded": {
+     "summary": "这些日历里的日程，floo 不读、不改，也不往里加。",
+     "title": "floo 不碰的日历"
+    },
+    "new_events": {
+     "summary": "floo 新建日程没指定日历时放在这里；不选就放进系统默认日历。",
+     "title": "新日程默认放在"
+    }
+   }
+  }
+ }
+}
