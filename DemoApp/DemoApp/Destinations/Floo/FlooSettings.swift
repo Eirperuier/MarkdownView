@@ -139,90 +139,60 @@ struct FlooProviderSettingsPage: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    /// Each key a row, its words under it: one that picks several opens a page of them, one
+    /// that picks one is a picker on its own page, the rest are their type's control.
     @ViewBuilder private func field(_ key: String, _ schema: FlooJSON) -> some View {
-        if schema["type"]?.string == "array", let choices = schema["items"]?["choices"] {
-            // `complement`: the file lists the ones left unchecked.
-            let complement = choices["complement"] == .bool(true)
-            choiceSections(key, choices) { id in (file[key]?.items.contains(.string(id)) == true) != complement } tap: { id in
-                var picked = file[key]?.items ?? []
-                if let index = picked.firstIndex(of: .string(id)) { picked.remove(at: index) } else {
-                    picked.append(.string(id))
+        Section {
+            if schema["type"]?.string == "array", let choices = schema["items"]?["choices"] {
+                let options = options(choices)
+                // `complement`: the file lists the ones left unchecked.
+                let complement = choices["complement"] == .bool(true)
+                let checked = { (id: String) in (file[key]?.items.contains(.string(id)) == true) != complement }
+                let count = options.filter { checked($0.id) }.count
+                NavigationLink {
+                    FlooChecklist(title: format.title(key), options: options, checked: checked) { id in
+                        var listed = file[key]?.items ?? []
+                        if let index = listed.firstIndex(of: .string(id)) { listed.remove(at: index) } else {
+                            listed.append(.string(id))
+                        }
+                        change(key, listed.isEmpty ? nil : .array(listed))
+                    }
+                } label: {
+                    LabeledContent(format.title(key), value: count == options.count ? "全部" : "\(count)")
                 }
-                change(key, picked.isEmpty ? nil : .array(picked))
-            }
-        } else if let choices = schema["choices"] {
-            choiceSections(key, choices, none: true) { id in file[key]?.string == id } tap: { id in
-                change(key, .string(id))
-            }
-        } else {
-            Section {
+            } else if let choices = schema["choices"] {
+                let options = options(choices)
+                Picker(format.title(key), selection: Binding(
+                    get: { file[key]?.string ?? "" },
+                    set: { change(key, $0.isEmpty ? nil : .string($0)) }
+                )) {
+                    Text("系统默认").tag("")
+                    ForEach(FlooSettingChoice.groups(options), id: \.self) { group in
+                        Section(group) {
+                            ForEach(options.filter { $0.group == group }) { FlooSettingChoiceLabel(option: $0).tag($0.id) }
+                        }
+                    }
+                }
+                .pickerStyle(.navigationLink)
+            } else {
                 plain(key, schema)
-            } footer: {
-                format.summary(key).map(Text.init)
             }
+        } footer: {
+            format.summary(key).map(Text.init)
         }
     }
 
-    /// What `choices.from` lists, filtered by `where`: a section for each `group`, the
-    /// key's title over the first (over "system default" when one may be left unpicked) and its words
-    /// under the last.
-    @ViewBuilder private func choiceSections(
-        _ key: String,
-        _ choices: FlooJSON,
-        none: Bool = false,
-        picked: @escaping (String) -> Bool,
-        tap: @escaping (String) -> Void
-    ) -> some View {
-        let listed = FlooListed.answer(service.id, choices["from"]?.string ?? "", on: device.id).filter { item in
-            (choices["where"]?.fields ?? [:]).allSatisfy { item[$0.key] == $0.value }
-        }
+    /// What `choices.from` lists, filtered by `where`, with the properties its roles name.
+    private func options(_ choices: FlooJSON) -> [FlooSettingChoice] {
         let keyed = { (item: FlooJSON, role: String) in choices[role]?.string.flatMap { item[$0]?.string } }
-        let groups = listed.reduce(into: [String]()) { order, item in
-            let group = keyed(item, "group") ?? ""
-            if !order.contains(group) { order.append(group) }
+        return FlooListed.answer(service.id, choices["from"]?.string ?? "", on: device.id).compactMap { item in
+            guard (choices["where"]?.fields ?? [:]).allSatisfy({ item[$0.key] == $0.value }),
+                  let id = keyed(item, "key") else { return nil }
+            return FlooSettingChoice(
+                id: id, label: keyed(item, "label") ?? id,
+                tint: keyed(item, "tint").flatMap(Color.init(hex:)), group: keyed(item, "group") ?? ""
+            )
         }
-        if none {
-            Section {
-                row(title: "系统默认", tint: nil, picked: file[key] == nil) { change(key, nil) }
-            } header: {
-                Text(format.title(key)).font(.headline).foregroundStyle(.primary).textCase(nil)
-            }
-        }
-        ForEach(Array(groups.enumerated()), id: \.element) { index, group in
-            Section {
-                ForEach(listed.filter { (keyed($0, "group") ?? "") == group }, id: \.self) { item in
-                    if let id = keyed(item, "key") {
-                        row(
-                            title: keyed(item, "label") ?? id,
-                            tint: keyed(item, "tint").flatMap(Color.init(hex:)),
-                            picked: picked(id)
-                        ) { tap(id) }
-                    }
-                }
-            } header: {
-                VStack(alignment: .leading, spacing: 10) {
-                    if index == 0 && !none {
-                        Text(format.title(key)).font(.headline).foregroundStyle(.primary).textCase(nil)
-                    }
-                    if !group.isEmpty { Text(group) }
-                }
-            } footer: {
-                if index == groups.count - 1, let summary = format.summary(key) { Text(summary) }
-            }
-        }
-    }
-
-    private func row(title: String, tint: Color?, picked: Bool, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                if let tint { Circle().fill(tint).frame(width: 12, height: 12) }
-                Text(title).foregroundStyle(.primary)
-                Spacer()
-                if picked { Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint) }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     /// A key that picks from nothing: its control is its type's.
@@ -260,5 +230,63 @@ struct FlooProviderSettingsPage: View {
     /// One key set or removed; the others stay (`ProviderSettingsChange`'s `set` / `remove`).
     private func change(_ key: String, _ value: FlooJSON?) {
         demo.settings[service.id, default: [:]][device.id, default: [:]][key] = value
+    }
+}
+
+/// One of what a setting picks from.
+struct FlooSettingChoice: Identifiable, Hashable {
+    let id: String
+    let label: String
+    let tint: Color?
+    let group: String
+
+    /// Their groups, in the order listed.
+    static func groups(_ options: [FlooSettingChoice]) -> [String] {
+        options.reduce(into: [String]()) { order, option in
+            if !order.contains(option.group) { order.append(option.group) }
+        }
+    }
+}
+
+struct FlooSettingChoiceLabel: View {
+    let option: FlooSettingChoice
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let tint = option.tint { Circle().fill(tint).frame(width: 12, height: 12) }
+            Text(option.label)
+        }
+    }
+}
+
+/// A setting that picks several: each checked or not, a section for each group.
+struct FlooChecklist: View {
+    let title: String
+    let options: [FlooSettingChoice]
+    let checked: (String) -> Bool
+    let toggle: (String) -> Void
+
+    var body: some View {
+        List {
+            ForEach(FlooSettingChoice.groups(options), id: \.self) { group in
+                Section(group) {
+                    ForEach(options.filter { $0.group == group }) { option in
+                        Button { toggle(option.id) } label: {
+                            HStack {
+                                FlooSettingChoiceLabel(option: option).foregroundStyle(.primary)
+                                Spacer()
+                                if checked(option.id) {
+                                    Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
