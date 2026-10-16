@@ -10,13 +10,17 @@
 //  switch on each item's page instead of a list. Above or among them, read only, is what the
 //  definition's `info` operation answers, drawn by that operation's output format. The words
 //  layer lays the page out in sections and names the keys, their values, what leaving one
-//  unset is, and the properties shown. The format, the info's format and the words are the
-//  real ones (FlooSettings.json, exported by DemoApp/Scripts/floo-catalog.py); what the
-//  operations answer on each device, and the files, are scripted.
+//  unset is, and the properties shown, and each row's icon (a symbol on a system colour, as
+//  iOS Settings draws them). A card on top shows the service's icon, its name and the device;
+//  a percentage is a thick bar under its row, as Codex's usage page draws a limit. The format,
+//  the info's format and the words are the real ones (FlooSettings.json, exported by
+//  DemoApp/Scripts/floo-catalog.py); what the operations answer on each device, and the
+//  files, are scripted.
 //  `-flooContactsPath "service:calendar settings:calendar:iphone"` opens one.
 //
 
 import SwiftUI
+import FlooDesign
 
 // MARK: - JSON as the formats are written
 
@@ -60,12 +64,27 @@ enum FlooJSON: Decodable, Hashable {
 }
 
 /// What a setting, or a property of what an operation answers, is called: a line on it, its
-/// values' names, and what leaving it unset is called (`SettingWords`).
+/// values' names, and what leaving it unset is called; its row's symbol and the colour under
+/// it (`SettingWords`).
 struct FlooFieldWords: Decodable, Hashable {
     var title: String?
     var summary: String?
     var values: [String: String]?
     var unset: String?
+    var symbol: String?
+    var tint: String?
+
+    /// Its row's icon, when the words give it one: the symbol on its colour (a system
+    /// colour's name, gray when none).
+    var icon: FlooRowIcon? {
+        symbol.map { FlooRowIcon(symbol: $0, tint: tint.flatMap { FlooDesignSettingsIcon.color(named: $0) } ?? .gray) }
+    }
+}
+
+/// A row's icon, as iOS Settings draws one.
+struct FlooRowIcon: Hashable {
+    let symbol: String
+    let tint: Color
 }
 
 /// A section of the page: settings by key, what `info` answers by path (`SettingsSection`).
@@ -130,6 +149,11 @@ struct FlooSettingsFormat: Decodable {
         languages.lazy.compactMap { $0.settings[key]?.unset }.first
     }
 
+    /// The key's row's icon (kept with the words of one language, the same in all).
+    func icon(_ key: String) -> FlooRowIcon? {
+        languages.lazy.compactMap { $0.settings[key]?.icon }.first
+    }
+
     /// The words for a property of what `operation` answers, at `path`, each field from the
     /// first language that has it.
     func property(_ operation: String, _ path: String) -> FlooFieldWords? {
@@ -137,15 +161,19 @@ struct FlooSettingsFormat: Decodable {
         guard !found.isEmpty else { return nil }
         return FlooFieldWords(
             title: found.lazy.compactMap(\.title).first, summary: found.lazy.compactMap(\.summary).first,
-            values: found.lazy.compactMap(\.values).first, unset: nil
+            values: found.lazy.compactMap(\.values).first, unset: nil,
+            symbol: found.lazy.compactMap(\.symbol).first, tint: found.lazy.compactMap(\.tint).first
         )
     }
 
-    /// The properties of what `operation` lists that have names, by path in path order: what
-    /// an item's page shows.
-    func named(_ operation: String) -> [(property: String, name: String)] {
+    /// The properties of what `operation` lists that have names, by path in path order, with
+    /// their rows' icons: what an item's page shows.
+    func named(_ operation: String) -> [FlooNamedProperty] {
         let paths = Set(languages.flatMap { ($0.properties[operation] ?? [:]).keys })
-        return paths.sorted().compactMap { path in property(operation, path)?.title.map { (path, $0) } }
+        return paths.sorted().compactMap { path in
+            let words = property(operation, path)
+            return words?.title.map { FlooNamedProperty(property: path, name: $0, icon: words?.icon) }
+        }
     }
 
     /// How the page is laid out; none when the words don't say.
@@ -318,6 +346,14 @@ struct FlooProviderSettingsPage: View {
 
     var body: some View {
         List {
+            Section {
+                FlooDesignSettingsHeader(service.name, subtitle: device.name) {
+                    FlooServiceIcon(
+                        url: service.icon, name: service.name, tint: service.tint,
+                        size: FlooDesignTokens.Component.Settings.headerIcon
+                    )
+                }
+            }
             if !device.online {
                 Section {
                     Label(
@@ -339,7 +375,9 @@ struct FlooProviderSettingsPage: View {
                 }
             }
         }
-        .navigationTitle("\(service.name) · \(device.name.replacingOccurrences(of: "这台 ", with: ""))")
+        // The same room above every section's title, whether the one before has words under it or not.
+        .listSectionSpacing(FlooDesignTokens.Component.Settings.sectionSpacing)
+        .navigationTitle(service.name)
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $shown) { option in
             FlooSettingChoicePage(
@@ -403,7 +441,7 @@ struct FlooProviderSettingsPage: View {
         let properties = (section.properties ?? []).filter { value(at: $0) != nil }
         if !keys.isEmpty || !properties.isEmpty {
             Section {
-                ForEach(properties, id: \.self) { path in shown(path) }
+                ForEach(said(properties), id: \.path) { row in shown(row.path, under: row.under) }
                 ForEach(keys, id: \.self) { key in
                     if let schema = format.schema(key) { row(key, schema) }
                 }
@@ -425,14 +463,15 @@ struct FlooProviderSettingsPage: View {
     /// A key as a row among others: a list that picks from choices opens its own page, a list
     /// of values is a switch for each, a text opens its own page; the rest are their type's control.
     @ViewBuilder private func row(_ key: String, _ schema: FlooJSON) -> some View {
-        let title = format.title(key)
         if schema["type"]?.string == "array", schema["items"]?["choices"] != nil {
             Button { listing = FlooSettingKey(key: key) } label: {
-                LabeledContent(title) {
+                LabeledContent {
                     HStack(spacing: 6) {
                         Text(file[key] == nil ? (format.unset(key) ?? "") : "\(chosen(key))")
                         Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
                     }
+                } label: {
+                    label(key)
                 }
                 .contentShape(Rectangle())
             }
@@ -444,15 +483,18 @@ struct FlooProviderSettingsPage: View {
                     set: { on in if checked(key, value) != on { toggle(key, value) } }
                 ))
                 .toggleStyle(.switch)
+                .tint(FlooDesignTokens.Component.Settings.switchTint)
                 .disabled(!canToggle(key, value))
             }
         } else if schema["type"]?.string == "string", schema["choices"] == nil, schema["enum"] == nil {
             Button { editing = FlooSettingKey(key: key) } label: {
-                LabeledContent(title) {
+                LabeledContent {
                     HStack(spacing: 6) {
                         Text(file[key]?.string ?? format.unset(key) ?? "").lineLimit(1).frame(maxWidth: 240, alignment: .trailing)
                         Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
                     }
+                } label: {
+                    label(key)
                 }
                 .contentShape(Rectangle())
             }
@@ -460,6 +502,12 @@ struct FlooProviderSettingsPage: View {
         } else {
             single(key, schema)
         }
+    }
+
+    /// A key's row's label: its icon when the words give it one, its title.
+    private func label(_ key: String) -> some View {
+        let icon = format.icon(key)
+        return FlooDesignSettingsLabel(format.title(key), symbol: icon?.symbol, tint: icon?.tint ?? .gray)
     }
 
     /// How many a list that picks from choices has checked.
@@ -488,9 +536,39 @@ struct FlooProviderSettingsPage: View {
         format.info.flatMap { format.property($0.operation, path) }
     }
 
-    /// What `info` answers at `path`, read only: a value is a row of its name; an object is its
-    /// named properties; a list is a row for each item; a table a row for each entry.
-    @ViewBuilder private func shown(_ path: String) -> some View {
+    /// The rows of what a section shows of `info`: a time listed right after another property
+    /// of the same object is said under that one's row (when a saved reset expires, under how
+    /// many there are), not on a row of its own.
+    private func said(_ paths: [String]) -> [(path: String, under: [String])] {
+        let parent = { (path: String) in path.split(separator: ".").dropLast().joined(separator: ".") }
+        return paths.reduce(into: []) { rows, path in
+            if let last = rows.last, !parent(path).isEmpty, parent(path) == parent(last.path),
+               outputSchema(at: path)?["format"]?.string == "date-time" {
+                rows[rows.count - 1].under.append(path)
+            } else {
+                rows.append((path, []))
+            }
+        }
+    }
+
+    /// A time said under a row: how long until it, then what happens then ("6 天 1 小时后重置").
+    private func when(_ value: FlooJSON?, _ path: String) -> String? {
+        value?.string.flatMap(Self.date).map { "\(Self.relative($0))后\(words(path)?.title ?? "")" }
+    }
+
+    /// A row of what `info` answers: its icon and name, a line under them, its value.
+    private func infoRow(_ title: String, value: String, subtitle: String? = nil, icon: FlooRowIcon?) -> some View {
+        LabeledContent {
+            Text(value)
+        } label: {
+            FlooDesignSettingsLabel(title, subtitle: subtitle, symbol: icon?.symbol, tint: icon?.tint ?? .gray)
+        }
+    }
+
+    /// What `info` answers at `path`, read only: a value is a row of its name, the times
+    /// `under` it said under it; an object is its named properties; a list is a row for each
+    /// item; a table a row for each entry.
+    @ViewBuilder private func shown(_ path: String, under: [String] = []) -> some View {
         let schema = outputSchema(at: path)
         if let value = value(at: path) {
             if schema?["type"]?.string == "array", schema?["items"]?["type"]?.string == "object" {
@@ -499,38 +577,51 @@ struct FlooProviderSettingsPage: View {
                 ForEach(entries(value), id: \.self) { key in entry(path, key, value[key] ?? .null) }
             } else if schema?["type"]?.string == "object" {
                 ForEach(value.fields.keys.sorted().filter { words("\(path).\($0)")?.title != nil }, id: \.self) { name in
-                    LabeledContent(words("\(path).\(name)")?.title ?? name, value: text(value[name] ?? .null, at: "\(path).\(name)"))
+                    let words = words("\(path).\(name)")
+                    infoRow(words?.title ?? name, value: text(value[name] ?? .null, at: "\(path).\(name)"), icon: words?.icon)
                 }
             } else {
-                LabeledContent(words(path)?.title ?? path, value: text(value, at: path))
+                let subtitle = under.compactMap { when(self.value(at: $0), $0) }.joined(separator: "\n")
+                infoRow(
+                    words(path)?.title ?? path, value: text(value, at: path),
+                    subtitle: subtitle.isEmpty ? nil : subtitle, icon: words(path)?.icon
+                )
             }
         }
     }
 
     /// An item of a list: named by the value of the property whose values have names (the
-    /// week of a weekly limit), a bar for a percentage, when it comes next under it.
+    /// week of a weekly limit), when it comes next under the name; a percentage how much of it
+    /// is used, beside the name and as a thick bar under them (Codex's usage page).
     @ViewBuilder private func item(_ path: String, _ item: FlooJSON) -> some View {
         let fields = item.fields.keys.sorted()
         let label = fields.lazy.compactMap { name in self.words("\(path).\(name)")?.values?[item[name]?.text ?? ""] }.first
         let percent = fields.first { outputSchema(at: "\(path).\($0)")?["format"]?.string == "percent" }
-        let when = fields.first { outputSchema(at: "\(path).\($0)")?["format"]?.string == "date-time" }
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(label ?? words(path)?.title ?? path)
-                Spacer()
-                if let percent, let used = item[percent]?.number {
-                    Text((used / 100).formatted(.percent.precision(.fractionLength(0)))).foregroundStyle(.secondary)
+        let time = fields.first { outputSchema(at: "\(path).\($0)")?["format"]?.string == "date-time" }
+        let icon = words(path)?.icon
+        let used = percent.flatMap { item[$0]?.number }
+        let settings = FlooDesignTokens.Component.Settings.self
+        VStack(alignment: .leading, spacing: settings.meterGap) {
+            LabeledContent {
+                if let percent, let used {
+                    Text([words("\(path).\(percent)")?.title, (used / 100).formatted(.percent.precision(.fractionLength(0)))]
+                        .compactMap(\.self).joined(separator: " "))
                 }
+            } label: {
+                FlooDesignSettingsLabel(
+                    label ?? words(path)?.title ?? path,
+                    subtitle: time.flatMap { when(item[$0], "\(path).\($0)") },
+                    symbol: icon?.symbol, tint: icon?.tint ?? .gray
+                )
             }
-            if let percent, let used = item[percent]?.number {
-                ProgressView(value: min(max(used / 100, 0), 1)).progressViewStyle(.linear)
-            }
-            if let when, let date = item[when]?.string.flatMap(Self.date) {
-                Text("\(Self.relative(date))后\(words("\(path).\(when)")?.title ?? "")")
-                    .font(.footnote).foregroundStyle(.secondary)
+            if let used {
+                // Under the row's words, to its end.
+                FlooDesignMeter(value: used / 100, tint: icon?.tint ?? .accentColor)
+                    .padding(.leading, icon == nil ? 0 : settings.icon + settings.iconGap)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.top, 4)
+        .padding(.bottom, settings.meterGap)
     }
 
     /// The keys of a table, as the settings are laid out when they are settings' keys.
@@ -539,19 +630,17 @@ struct FlooProviderSettingsPage: View {
         return value.fields.keys.sorted { (order.firstIndex(of: $0) ?? .max, $0) < (order.firstIndex(of: $1) ?? .max, $1) }
     }
 
-    /// An entry of a table: called as its key is (a setting's key is the setting's title), its
-    /// value what its unnamed properties hold, its named ones under it.
+    /// An entry of a table: called as its key is (a setting's key is the setting's title, and
+    /// has its icon), its value what its unnamed properties hold, its named ones under it.
     @ViewBuilder private func entry(_ path: String, _ key: String, _ value: FlooJSON) -> some View {
         let title = words("\(path).\(key)")?.title ?? (format.schema(key) != nil ? format.title(key) : key)
         let named = value.fields.keys.sorted().filter { words("\(path).\($0)")?.title != nil }
         let plain = value.fields.keys.sorted().filter { !named.contains($0) }.compactMap { value[$0] }
-        VStack(alignment: .leading, spacing: 2) {
-            LabeledContent(title, value: (plain.isEmpty ? [value] : plain).map { setting(key, $0) }.joined(separator: " "))
-            ForEach(named, id: \.self) { name in
-                Text("\(words("\(path).\(name)")?.title ?? name) \(value[name]?.text ?? "")")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-        }
+        let under = named.map { "\(words("\(path).\($0)")?.title ?? $0) \(value[$0]?.text ?? "")" }.joined(separator: "\n")
+        infoRow(
+            title, value: (plain.isEmpty ? [value] : plain).map { setting(key, $0) }.joined(separator: " "),
+            subtitle: under.isEmpty ? nil : under, icon: words("\(path).\(key)")?.icon ?? format.icon(key)
+        )
     }
 
     /// A value as a setting `key` would show it: its value's name, or the label of the choice it is.
@@ -587,7 +676,7 @@ struct FlooProviderSettingsPage: View {
     // MARK: Lists
 
     /// The properties named for what `operation` lists: what an item's page shows.
-    private func names(of operation: String) -> [(property: String, name: String)] {
+    private func names(of operation: String) -> [FlooNamedProperty] {
         format.named(operation)
     }
 
@@ -599,7 +688,7 @@ struct FlooProviderSettingsPage: View {
                   options(schema["items"]?["choices"] ?? .null).contains(where: { $0.id == option.id }),
                   !FlooSettingsFormat.heldOff(schema).contains(where: { file[$0]?.items.contains(.string(option.id)) == true })
             else { return nil }
-            return FlooSettingSwitch(key: key, title: format.title(key), summary: format.summary(key))
+            return FlooSettingSwitch(key: key, title: format.title(key), summary: format.summary(key), icon: format.icon(key))
         }
     }
 
@@ -673,31 +762,38 @@ struct FlooProviderSettingsPage: View {
         let held = FlooSettingsFormat.heldOff(schema).flatMap { file[$0]?.items ?? [] }
         if let choices = schema["choices"] {
             let options = options(choices).filter { !held.contains(.string($0.id)) }
-            Picker(title, selection: selection(key)) {
+            Picker(selection: selection(key)) {
                 Text(format.unset(key) ?? "默认").tag("")
                 ForEach(FlooSettingChoice.groups(options), id: \.self) { group in
                     Section(group) {
                         ForEach(options.filter { $0.group == group }) { FlooSettingChoiceLabel(option: $0).tag($0.id) }
                     }
                 }
+            } label: {
+                label(key)
             }
             .pickerStyle(.navigationLink)
         } else if let values = schema["enum"]?.items.filter({ !held.contains($0) }).compactMap(\.string), !values.isEmpty {
-            Picker(title, selection: selection(key)) {
+            Picker(selection: selection(key)) {
                 Text(format.unset(key) ?? "默认").tag("")
                 Section {
                     ForEach(values, id: \.self) { Text(format.name(key, value: $0)).tag($0) }
                 }
+            } label: {
+                label(key)
             }
             .pickerStyle(.navigationLink)
         } else {
             switch schema["type"]?.string {
             case "boolean":
-                Toggle(title, isOn: Binding(
+                Toggle(isOn: Binding(
                     get: { file[key] == .bool(true) },
                     set: { change(key, .bool($0)) }
-                ))
+                )) {
+                    label(key)
+                }
                 .toggleStyle(.switch)
+                .tint(FlooDesignTokens.Component.Settings.switchTint)
             case "integer", "number":
                 let low = Int(schema["minimum"]?.number ?? 0)
                 let high = Int(schema["maximum"]?.number ?? 1_000)
@@ -735,6 +831,13 @@ struct FlooProviderSettingsPage: View {
     private func change(_ key: String, _ value: FlooJSON?) {
         demo.settings[service.id, default: [:]][device.id, default: [:]][key] = value
     }
+}
+
+/// A property of what an operation lists, as an item's page shows it.
+struct FlooNamedProperty: Hashable {
+    let property: String
+    let name: String
+    let icon: FlooRowIcon?
 }
 
 /// A key whose own page is open.
@@ -863,13 +966,14 @@ struct FlooSettingSwitch: Hashable {
     let key: String
     let title: String
     let summary: String?
+    let icon: FlooRowIcon?
 }
 
 /// One of what a setting picks from, as its operation listed it: each property that has a
 /// name, in the order named; then a switch for each key folded into its list, its words under it.
 struct FlooSettingChoicePage: View {
     let option: FlooSettingChoice
-    let names: [(property: String, name: String)]
+    let names: [FlooNamedProperty]
     let switches: () -> [FlooSettingSwitch]
     let isOn: (String) -> Bool
     let set: (String, Bool) -> Void
@@ -878,13 +982,20 @@ struct FlooSettingChoicePage: View {
         List {
             Section {
                 ForEach(names.filter { option.properties[$0.property] != nil }, id: \.property) { named in
-                    LabeledContent(named.name, value: Self.text(option.properties[named.property]!))
+                    LabeledContent {
+                        Text(Self.text(option.properties[named.property]!))
+                    } label: {
+                        FlooDesignSettingsLabel(named.name, symbol: named.icon?.symbol, tint: named.icon?.tint ?? .gray)
+                    }
                 }
             }
             ForEach(switches(), id: \.self) { item in
                 Section {
-                    Toggle(item.title, isOn: Binding(get: { isOn(item.key) }, set: { set(item.key, $0) }))
-                        .toggleStyle(.switch)
+                    Toggle(isOn: Binding(get: { isOn(item.key) }, set: { set(item.key, $0) })) {
+                        FlooDesignSettingsLabel(item.title, symbol: item.icon?.symbol, tint: item.icon?.tint ?? .gray)
+                    }
+                    .toggleStyle(.switch)
+                    .tint(FlooDesignTokens.Component.Settings.switchTint)
                 } footer: {
                     item.summary.map(Text.init)
                 }

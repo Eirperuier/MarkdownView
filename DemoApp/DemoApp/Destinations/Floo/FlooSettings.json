@@ -64,9 +64,13 @@
     "properties": {
      "calendars": {
       "account": {
+       "symbol": "person.crop.circle.fill",
+       "tint": "blue",
        "title": "Account"
       },
       "default": {
+       "symbol": "star.fill",
+       "tint": "yellow",
        "title": "System Default"
       }
      }
@@ -79,11 +83,15 @@
      },
      "new_events": {
       "summary": "New events created without a specified calendar are added here.",
+      "symbol": "calendar",
+      "tint": "red",
       "title": "Default Calendar",
       "unset": "System Default"
      },
      "read_only": {
       "summary": "Allow floo to add, edit, and delete events in this calendar. When turned off, events are view-only.",
+      "symbol": "pencil",
+      "tint": "orange",
       "title": "Allow Editing"
      }
     }
@@ -384,6 +392,8 @@
        "title": "Account"
       },
       "account.email": {
+       "symbol": "envelope.fill",
+       "tint": "blue",
        "title": "Email"
       },
       "account.kind": {
@@ -395,6 +405,8 @@
        }
       },
       "account.plan": {
+       "symbol": "checkmark.seal.fill",
+       "tint": "purple",
        "title": "Plan",
        "values": {
         "business": "Business",
@@ -409,6 +421,8 @@
        "title": "Credits"
       },
       "credits.balance": {
+       "symbol": "creditcard.fill",
+       "tint": "orange",
        "title": "Credits"
       },
       "credits.unlimited": {
@@ -424,6 +438,8 @@
        "title": "Limit Reached"
       },
       "limits": {
+       "symbol": "gauge.with.dots.needle.33percent",
+       "tint": "green",
        "title": "Usage Limits"
       },
       "limits.resets_at": {
@@ -454,12 +470,16 @@
        "title": "Saved Limit Resets"
       },
       "saved_resets.available": {
+       "symbol": "arrow.counterclockwise",
+       "tint": "teal",
        "title": "Saved Limit Resets"
       },
       "saved_resets.next_expires_at": {
        "title": "Expires"
       },
       "version": {
+       "symbol": "number",
+       "tint": "gray",
        "title": "Version"
       }
      }
@@ -530,6 +550,8 @@
     "settings": {
      "approval": {
       "summary": "Determines when Codex asks for approval before acting in new sessions.",
+      "symbol": "hand.raised.fill",
+      "tint": "red",
       "title": "Approval",
       "unset": "Codex Default",
       "values": {
@@ -540,6 +562,8 @@
      },
      "effort": {
       "summary": "New sessions started without a specified reasoning effort use this level. If unsupported by the model, the model’s default is used.",
+      "symbol": "brain.fill",
+      "tint": "pink",
       "title": "Reasoning Effort",
       "unset": "Codex Default",
       "values": {
@@ -570,16 +594,22 @@
      },
      "folders": {
       "summary": "Codex can work for floo only in selected folders and their subfolders. If no limit is set, Codex can work in any folder.",
+      "symbol": "folder.fill",
+      "tint": "blue",
       "title": "Folders",
       "unset": "Any Folder"
      },
      "instructions": {
       "summary": "Included in every new session started by floo.",
+      "symbol": "text.quote",
+      "tint": "orange",
       "title": "Additional Instructions",
       "unset": "None"
      },
      "mode": {
       "summary": "New sessions started without specified permissions use this mode.",
+      "symbol": "lock.shield.fill",
+      "tint": "blue",
       "title": "Permissions",
       "unset": "Codex Default",
       "values": {
@@ -590,15 +620,21 @@
      },
      "model": {
       "summary": "New sessions started without a specified model use this model.",
+      "symbol": "cpu.fill",
+      "tint": "indigo",
       "title": "Model",
       "unset": "Codex Default"
      },
      "network": {
       "summary": "Allow commands run by Codex in workspace mode to access the network in new sessions.",
+      "symbol": "network",
+      "tint": "blue",
       "title": "Network Access"
      },
      "reasoning_summary": {
       "summary": "Determines how much reasoning detail Codex includes in new sessions.",
+      "symbol": "text.bubble.fill",
+      "tint": "purple",
       "title": "Reasoning Summary",
       "unset": "Codex Default",
       "values": {
@@ -610,6 +646,8 @@
      },
      "reviewer": {
       "summary": "Determines who responds to approval requests in new sessions.",
+      "symbol": "person.fill.checkmark",
+      "tint": "green",
       "title": "Approver",
       "unset": "Codex Default",
       "values": {
@@ -619,6 +657,8 @@
      },
      "speed": {
       "summary": "New sessions started without a specified speed use this setting. Fast uses more of your plan’s usage limit.",
+      "symbol": "hare.fill",
+      "tint": "orange",
       "title": "Speed",
       "unset": "Codex Default",
       "values": {
@@ -628,6 +668,8 @@
      },
      "verbosity": {
       "summary": "Determines the length of Codex responses in new sessions.",
+      "symbol": "text.alignleft",
+      "tint": "gray",
       "title": "Output Verbosity",
       "unset": "Codex Default",
       "values": {
@@ -638,6 +680,8 @@
      },
      "web_search": {
       "summary": "Determines how Codex searches the web in new sessions.",
+      "symbol": "magnifyingglass",
+      "tint": "teal",
       "title": "Web Search",
       "unset": "Codex Default",
       "values": {
