@@ -1180,6 +1180,18 @@ final class DocEditTests {
             try await self.settle()
             try self.expectCursor(line.id, 0)
         }
+        await test("Code block: a long line runs on, never wrapping: the code scrolls sideways to the caret") {
+            let block = try codeBlock()
+            let view = try await edit(block)
+            let height = view.bounds.height
+            view.selectedRange = NSRange(location: 0, length: 0)
+            view.insertText(String(repeating: "x", count: 400))
+            try await self.settle()
+            try self.expect(abs(view.bounds.height - height) < 1, "height \(height) → \(view.bounds.height)")
+            try self.expect(view.contentSize.width > view.bounds.width + 100, "content \(view.contentSize.width) in \(view.bounds.width)")
+            try self.expect(view.contentOffset.x > 0 && view.contentOffset.y == 0, "offset \(view.contentOffset)")
+            try await self.undo()
+        }
         await test("Code block: its menu sets the language and copies the code; the block's menu has it too") {
             let block = try codeBlock()
             _ = try await edit(block)
