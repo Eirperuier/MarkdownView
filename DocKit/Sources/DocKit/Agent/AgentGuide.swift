@@ -266,7 +266,7 @@ private let layoutFields = [
 /// The records of a table or a collection.
 private let recordFields = [
     AgentField("columns", shape: .list(Column.agentFields)),
-    AgentField("rows", about: "{column name: value}, or the values in the columns' order"),
+    AgentField("rows", about: "{column name: value}, or the values in the columns' order; a text column's values are text, a string or runs"),
 ]
 
 extension Database: AgentDescribed {
