@@ -261,6 +261,20 @@ final class DocEditTests {
             try self.expect(self.text(block.id).hasPrefix("Loading older"), "joined \(self.text(block.id).prefix(16))")
             try self.expectCursor(block.id, 7)
         }
+        await test("Backspace at the start of an indented paragraph steps it out a level; at the page's edge it joins the one before") {
+            let block = try self.block("Loading older")
+            try await self.focus(block.id, at: 7)
+            try await self.enter()
+            let next = try self.blockAfter(block.id)
+            try await self.type("\t")
+            try self.expect(self.demo.doc.block(next.id)?.indent == block.indent + 1, "Tab: indent \(String(describing: self.demo.doc.block(next.id)?.indent))")
+            try await self.backspace()
+            try self.expect(self.demo.doc.block(next.id)?.indent == block.indent, "backspace: indent \(String(describing: self.demo.doc.block(next.id)?.indent))")
+            try self.expectCursor(next.id, 0)
+            try await self.backspace()
+            try self.expect(self.demo.doc.block(next.id) == nil, "the second backspace didn't join it")
+            try self.expectCursor(block.id, 7)
+        }
         await test("Return in a list item makes the next item; Return on an empty one leaves the list") {
             let item = try self.block("行首输入")
             try await self.focus(item.id, at: item.text.length)

@@ -909,15 +909,16 @@ final class DocEditor {
         }
     }
 
-    /// Backspace with the cursor at the start of a block: a list item steps out a
-    /// level, then becomes a paragraph; a heading, quote or caption becomes a paragraph; a
-    /// paragraph joins the block before it (or deletes a divider or image there).
+    /// Backspace with the cursor at the start of a block: an indented block steps out a
+    /// level (with the blocks nested under it); then a list item, heading, quote or
+    /// caption becomes a paragraph, and a paragraph joins the block before it (or deletes
+    /// a divider or image there).
     private func deleteBackward(atStartOf block: DocBlock) -> Bool {
         let id = block.id
         // A cell's text has nothing before it to join.
         if tables.cell(of: id) != nil { return true }
         switch block.kind {
-        case .listItem where block.indent > 0:
+        case _ where block.indent > 0:
             indent(block, by: -1)
         case .listItem, .heading, .quote, .caption:
             setKind(block, kind: .paragraph, indent: block.indent)
