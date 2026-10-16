@@ -136,9 +136,9 @@ final class DocTableController {
     private(set) var menu: DocTableMenuTarget?
     /// A formula being written on a phone, on the table's own page (DocTableFormula).
     var formula: DocFormulaEditing?
-    /// Where the edited cell is in the window, as its ring is (its fill's place): where
-    /// the table flies from and back to while its formula is written.
-    @ObservationIgnored var editedCellFrame: CGRect?
+    /// Where each table is on the page, in the window: its formula's page lays it out as
+    /// wide (its columns where they were), and it flies from there and back.
+    @ObservationIgnored var tableFrames: [DocBlockID: CGRect] = [:]
     @ObservationIgnored private var views: [DocCellKey: [WeakCellView]] = [:]
     @ObservationIgnored private var textIDs: [DocCellKey: DocBlockID] = [:]
     @ObservationIgnored private var textKeys: [DocBlockID: DocCellKey] = [:]
@@ -1012,9 +1012,6 @@ struct DocTableCellEditor: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: controller.look(key).frameAlignment)
             .anchorPreference(key: DocTableRingKey.self, value: .bounds) { DocTableRingAnchor(key: key, bounds: $0) }
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { [controller] frame in
-                controller.editedCellFrame = frame.insetBy(dx: -Handles.ringOutset.width, dy: -Handles.ringOutset.height)
-            }
             .overlay {
                 // Where MarkdownView draws the cell's fill (Handles.ringOutset). While its row
                 // or column is picked, that one is ringed instead (DocTableEdges).
@@ -1129,6 +1126,10 @@ struct DocTableRowView: View {
             .markdownTableCellTap { [table, controller] position in controller.tapped(table, at: position) }
             .markdownTableCellReplacement(controller.replaced(in: table)) { [table, controller] position in controller.replacement(in: table, at: position) }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { [block = table.block, controller] in controller.tableFrames[block] = $0 }
+            // While its formula is written it's on a page of its own (DocTableFormula): one
+            // table on screen, the one flying there and back.
+            .opacity(controller.formula?.key.block == table.block ? 0 : 1)
             .overlayPreferenceValue(DocTableRingKey.self) { ring in
                 // The table's own edges: wider than the page it scrolls, so its right edge
                 // can be out of sight.

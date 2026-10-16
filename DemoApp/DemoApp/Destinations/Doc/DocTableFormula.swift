@@ -106,6 +106,10 @@ extension DocTableController {
         let editing = DocFormulaEditing(key: key, cell: MarkdownTableCellPosition(row: r + 1, column: c),
                                         text: DatabaseFormula.isFormula(current) ? String(current.dropFirst()) : "")
         willEdit(key)
+        // The keyboard goes down while the table flies, and comes back for the formula
+        // once it's landed (Craft's): changing it mid-flight would hold the flight up.
+        view(for: key)?.resignFirstResponder()
+        editor.leaveCells()
         // The cell's menu (a sheet) goes first: one thing presented at a time.
         let waits = menu != nil
         closeMenu()
@@ -166,9 +170,13 @@ struct DocFormulaView: View {
             .padding(.vertical, Tokens.Space.sm)
             .opacity(formula.isShown ? 1 : 0)
             ScrollView(.vertical) {
+                // As wide as on the page, moved right by the rows' numbers (Craft's): what
+                // that leaves out on the right is its last column's room, and a table wider
+                // than the page scrolls as it does there.
                 table
-                    .padding(.leading, Tokens.Space.lg + DocFormulaDecoration.gutterWidth + DocFormulaDecoration.gap + MarkdownTableAppearance.rowOutset.leading)
-                    .padding(.trailing, Tokens.Space.lg)
+                    .frame(width: controller.tableFrames[formula.key.block]?.width)
+                    .padding(.leading, DocFormulaDecoration.leadingRoom)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, Tokens.Space.lg + DocFormulaDecoration.gutterHeight + DocFormulaDecoration.gap)
                     .padding(.bottom, Tokens.Space.lg)
                     .offset(flight)
@@ -196,24 +204,29 @@ struct DocFormulaView: View {
                 .markdownTableCellsSelectable()
                 .markdownTableCellTap { [formula] position in formula.point(at: position) }
                 .markdownTableCellReplacement([cell]) { [key = formula.key, controller] position in
-                    position == cell ? AnyView(DocFormulaPlaceholder(look: controller.look(key))) : nil
+                    position == cell ? AnyView(DocFormulaPlaceholder(shown: controller.result(key) ?? controller.text(key), look: controller.look(key))) : nil
                 }
                 .markdownTableDecoration { [formula] frames in
-                    AnyView(DocFormulaDecoration(frames: frames, formula: formula, landed: landed))
+                    AnyView(DocFormulaDecoration(frames: frames, formula: formula))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .modifier(DocBlockType())
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { landed($0) }
         }
     }
 
-    /// The cell is laid out here: the table flies from the cell's place on the page.
+    /// The table is laid out here: it flies from its place on the page.
     private func landed(_ frame: CGRect) {
         guard landing == nil else { return }
         landing = frame
-        if let origin = controller.editedCellFrame {
+        if let origin = controller.tableFrames[formula.key.block] {
             flight = CGSize(width: origin.minX - frame.minX, height: origin.minY - frame.minY)
         }
-        withAnimation(Tokens.Motion.layout) { flight = .zero }
+        withAnimation(Tokens.Motion.layout) {
+            flight = .zero
+        } completion: { [formula] in
+            formula.field?.becomeFirstResponder()
+        }
         withAnimation(Tokens.Motion.reveal) {
             covers = true
             formula.isShown = true
@@ -224,11 +237,11 @@ struct DocFormulaView: View {
     private func done() {
         controller.writeFormula()
         formula.field?.resignFirstResponder()
-        // Where the cell is on the page after this render (the table's text has changed).
+        // Where the table is on the page after this render (its text has changed).
         Task { @MainActor in
             withAnimation(Tokens.Motion.dismiss) { formula.isShown = false }
             withAnimation(Tokens.Motion.layout) {
-                if let landing, let origin = controller.editedCellFrame {
+                if let landing, let origin = controller.tableFrames[formula.key.block] {
                     flight = CGSize(width: origin.minX - landing.minX, height: origin.minY - landing.minY)
                 }
             } completion: {
@@ -238,15 +251,25 @@ struct DocFormulaView: View {
     }
 }
 
-/// The formula's cell while it's written: Craft's "Edit Formula".
+/// The formula's cell while it's written: Craft's "Edit Formula". It takes the room of
+/// what the cell shows on the page, so its column is as wide as there (the table flies
+/// between the two without its columns moving); the words are drawn in the column's
+/// room, smaller if they don't fit it.
 private struct DocFormulaPlaceholder: View {
+    let shown: String
     let look: DocCellLook
 
     var body: some View {
-        Text("Edit Formula")
-            .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+        Text(verbatim: shown)
             .lineLimit(1)
+            .hidden()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: look.frameAlignment)
+            .overlay(alignment: Alignment(horizontal: look.frameAlignment.horizontal, vertical: .center)) {
+                Text("Edit Formula")
+                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
     }
 }
 
@@ -255,11 +278,13 @@ private struct DocFormulaPlaceholder: View {
 struct DocFormulaDecoration: View {
     let frames: MarkdownTableCellFrames
     let formula: DocFormulaEditing
-    let landed: (CGRect) -> Void
 
     static let gutterWidth: CGFloat = 24
     static let gutterHeight: CGFloat = 24
     static let gap: CGFloat = FlooDesignTokens.Space.xs
+    /// What the table leaves on its left for the rows' numbers: a cell's fill reaches past
+    /// its text, then the gap, the numbers, and a little room to the screen's edge.
+    static let leadingRoom = MarkdownTableAppearance.rowOutset.leading + gap + gutterWidth + FlooDesignTokens.Space.xs
 
     private typealias Tokens = FlooDesignTokens
 
@@ -300,12 +325,6 @@ struct DocFormulaDecoration: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .opacity(formula.isShown ? 1 : 0)
-        .onGeometryChange(for: CGRect?.self) { [cell = formula.cell, frames] proxy in
-            let origin = proxy.frame(in: .global).origin
-            return frames[cell]?.offsetBy(dx: origin.x, dy: origin.y)
-        } action: { frame in
-            if let frame { landed(frame) }
-        }
     }
 
     /// The first row's cells, or the first column's, in order.
@@ -425,7 +444,7 @@ private struct DocFormulaField: UIViewRepresentable {
         field.done = done
         formula.field = field
         field.show(formula.text, selection: formula.selection)
-        DispatchQueue.main.async { field.becomeFirstResponder() }
+        // The keyboard comes once the table has landed (DocFormulaView).
         return field
     }
 

@@ -1694,9 +1694,10 @@ final class DocEditTests {
         }
         await test("Table: a formula shows its result in the table, its text in the editor (a phone: on the table's own page); 插入公式 starts one") {
             let view = try await click(4, 2)
-            self.editor.tables.perform(.insertFormula, at: try editedKey())
+            let key = try editedKey()
+            self.editor.tables.perform(.insertFormula, at: key)
             if !DocDevice.isMac {
-                try await self.writeFormulaOnPhone(at: try editedKey())
+                try await self.writeFormulaOnPhone(at: key)
                 return
             }
             try? await Task.sleep(for: .milliseconds(200))
