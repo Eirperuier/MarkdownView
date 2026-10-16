@@ -133,7 +133,8 @@ enum FlooListed {
     /// layer; one not named here isn't shown.
     static func names(_ service: String) -> [(property: String, name: String)] {
         guard service == "calendar" else { return [] }
-        return [("account", "账户"), ("writable", "可编辑"), ("default", "系统默认日历")]
+        // Whether floo may change one is the Allow Editing switch; one nobody can change has none.
+        return [("account", "账户"), ("default", "系统默认日历")]
     }
 }
 
