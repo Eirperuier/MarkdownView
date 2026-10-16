@@ -64,12 +64,15 @@ enum FlooJSON: Decodable, Hashable {
 }
 
 /// What a setting, or a property of what an operation answers, is called: a line on it, its
-/// values' names, and what leaving it unset is called (`SettingWords`).
+/// values' names, what leaving it unset is called, and how a property's value is said with
+/// its unit (`SettingWords`).
 struct FlooFieldWords: Decodable, Hashable {
     var title: String?
     var summary: String?
     var values: [String: String]?
     var unset: String?
+    /// `{}` the value as shown; in a percentage's, `{left}` what is left of 100%.
+    var phrase: String?
 }
 
 /// A section of the page: settings by key, what `info` answers by path (`SettingsSection`).
@@ -141,7 +144,8 @@ struct FlooSettingsFormat: Decodable {
         guard !found.isEmpty else { return nil }
         return FlooFieldWords(
             title: found.lazy.compactMap(\.title).first, summary: found.lazy.compactMap(\.summary).first,
-            values: found.lazy.compactMap(\.values).first, unset: nil
+            values: found.lazy.compactMap(\.values).first, unset: nil,
+            phrase: found.lazy.compactMap(\.phrase).first
         )
     }
 
@@ -424,16 +428,20 @@ struct FlooProviderSettingsPage: View {
                     if let schema = format.schema(key) { row(key, schema) }
                 }
             } header: {
-                section.title.map(Text.init)
-            } footer: {
-                // A key alone says what it is under it; several are said on their own pages.
-                let said = section.summary ?? (keys.count == 1 && properties.isEmpty ? format.summary(keys[0]) : nil)
-                if said != nil || updated {
-                    VStack(alignment: .leading, spacing: 6) {
-                        if let said { Text(said) }
-                        if updated { Text("更新于 \(FlooListed.updated.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)))") }
+                // What the section is, under its title and above its card (Codex's usage page). A
+                // key alone says what it is there; several are said on their own pages, a switch
+                // under its title.
+                let alone = keys.count == 1 && properties.isEmpty && !isSwitch(keys[0]) ? format.summary(keys[0]) : nil
+                if section.title != nil || section.summary ?? alone != nil {
+                    VStack(alignment: .leading, spacing: 4) {
+                        section.title.map(Text.init)
+                        if let said = section.summary ?? alone {
+                            Text(said).font(.footnote).fontWeight(.regular).foregroundStyle(.secondary).textCase(nil)
+                        }
                     }
                 }
+            } footer: {
+                if updated { Text("更新于 \(FlooListed.updated.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)))") }
             }
         }
     }
@@ -482,10 +490,13 @@ struct FlooProviderSettingsPage: View {
         }
     }
 
-    /// A key's row's label: its title.
+    /// A key's row's label: its title; a switch, with no page of its own, says what it does
+    /// under it.
     private func label(_ key: String) -> some View {
-        FlooDesignSettingsLabel(format.title(key))
+        FlooDesignSettingsLabel(format.title(key), subtitle: isSwitch(key) ? format.summary(key) : nil)
     }
+
+    private func isSwitch(_ key: String) -> Bool { format.schema(key)?["type"]?.string == "boolean" }
 
     /// How many a list that picks from choices has checked.
     private func chosen(_ key: String) -> Int {
@@ -513,14 +524,13 @@ struct FlooProviderSettingsPage: View {
         format.info.flatMap { format.property($0.operation, path) }
     }
 
-    /// The rows of what a section shows of `info`: a time listed right after another property
-    /// of the same object is said under that one's row (when a saved reset expires, under how
-    /// many there are), not on a row of its own.
+    /// The rows of what a section shows of `info`: a property listed right after another of
+    /// the same object is said under that one's row (the account under its plan, when the next
+    /// saved reset expires under how many there are), not on a row of its own.
     private func said(_ paths: [String]) -> [(path: String, under: [String])] {
         let parent = { (path: String) in path.split(separator: ".").dropLast().joined(separator: ".") }
         return paths.reduce(into: []) { rows, path in
-            if let last = rows.last, !parent(path).isEmpty, parent(path) == parent(last.path),
-               outputSchema(at: path)?["format"]?.string == "date-time" {
+            if let last = rows.last, !parent(path).isEmpty, parent(path) == parent(last.path) {
                 rows[rows.count - 1].under.append(path)
             } else {
                 rows.append((path, []))
@@ -528,9 +538,26 @@ struct FlooProviderSettingsPage: View {
         }
     }
 
-    /// A time said under a row: how long until it, then what happens then ("6 天 1 小时后重置").
+    /// A property said under a row: in its words' phrase ("6 天 1 小时后重置"); without one, a
+    /// time as how long until it, then what happens then, the rest as shown.
     private func when(_ value: FlooJSON?, _ path: String) -> String? {
-        value?.string.flatMap(Self.date).map { "\(Self.relative($0))后\(words(path)?.title ?? "")" }
+        guard let value else { return nil }
+        return phrased(value, at: path)
+            ?? value.string.flatMap(Self.date).map { "\(Self.relative($0))后\(words(path)?.title ?? "")" }
+            ?? text(value, at: path)
+    }
+
+    /// A value said with its unit, as its words' `phrase` has it: `{}` the value as shown (a
+    /// time as how long until it), `{left}` what is left of a percentage; nil without one.
+    private func phrased(_ value: FlooJSON, at path: String) -> String? {
+        guard let phrase = words(path)?.phrase else { return nil }
+        let shown: String =
+            switch (value, outputSchema(at: path)?["format"]?.string) {
+            case (.string(let when), "date-time"): Self.date(when).map(Self.relative) ?? when
+            default: text(value, at: path)
+            }
+        let left = value.number.map { (max(0, 100 - $0) / 100).formatted(.percent.precision(.fractionLength(0))) }
+        return phrase.replacingOccurrences(of: "{left}", with: left ?? "").replacingOccurrences(of: "{}", with: shown)
     }
 
     /// A row of what `info` answers: its name, a line under it, its value.
@@ -557,6 +584,11 @@ struct FlooProviderSettingsPage: View {
                     let words = words("\(path).\(name)")
                     infoRow(words?.title ?? name, value: text(value[name] ?? .null, at: "\(path).\(name)"))
                 }
+            } else if let headline = phrased(value, at: path) {
+                // Said with its unit, as Codex's usage page does: the value is the row's words,
+                // what it is (or what is said under it) beneath.
+                let subtitle = under.compactMap { when(self.value(at: $0), $0) }.joined(separator: "\n")
+                FlooDesignSettingsLabel(headline, subtitle: subtitle.isEmpty ? words(path)?.title : subtitle)
             } else {
                 let subtitle = under.compactMap { when(self.value(at: $0), $0) }.joined(separator: "\n")
                 infoRow(
@@ -568,20 +600,23 @@ struct FlooProviderSettingsPage: View {
     }
 
     /// An item of a list: named by the value of the property whose values have names (the
-    /// week of a weekly limit), when it comes next under the name; a percentage how much of it
-    /// is used, beside the name and as a thick bar under them (Codex's usage page).
+    /// week of a weekly limit), when it comes next under the name; a percentage beside the name
+    /// as its words say it (what is left of a limit) and as a thick bar under them, filled to
+    /// what it says (Codex's usage page).
     @ViewBuilder private func item(_ path: String, _ item: FlooJSON) -> some View {
         let fields = item.fields.keys.sorted()
         let label = fields.lazy.compactMap { name in self.words("\(path).\(name)")?.values?[item[name]?.text ?? ""] }.first
         let percent = fields.first { outputSchema(at: "\(path).\($0)")?["format"]?.string == "percent" }
         let time = fields.first { outputSchema(at: "\(path).\($0)")?["format"]?.string == "date-time" }
         let used = percent.flatMap { item[$0]?.number }
+        let left = percent.flatMap { words("\(path).\($0)")?.phrase?.contains("{left}") } == true
         let settings = FlooDesignTokens.Component.Settings.self
         VStack(alignment: .leading, spacing: settings.meterGap) {
             LabeledContent {
                 if let percent, let used {
-                    Text([words("\(path).\(percent)")?.title, (used / 100).formatted(.percent.precision(.fractionLength(0)))]
-                        .compactMap(\.self).joined(separator: " "))
+                    Text(phrased(.number(used), at: "\(path).\(percent)")
+                        ?? [words("\(path).\(percent)")?.title, (used / 100).formatted(.percent.precision(.fractionLength(0)))]
+                            .compactMap(\.self).joined(separator: " "))
                 }
             } label: {
                 FlooDesignSettingsLabel(
@@ -591,7 +626,7 @@ struct FlooProviderSettingsPage: View {
             }
             if let used {
                 // Under the row's words, to its end.
-                FlooDesignMeter(value: used / 100)
+                FlooDesignMeter(value: left ? max(0, 100 - used) / 100 : used / 100)
             }
         }
         .padding(.top, 4)

@@ -395,6 +395,7 @@
        }
       },
       "account.plan": {
+       "phrase": "ChatGPT {}",
        "title": "Plan",
        "values": {
         "business": "Business",
@@ -409,7 +410,8 @@
        "title": "Credits"
       },
       "credits.balance": {
-       "title": "Credits"
+       "phrase": "{} credits remaining",
+       "title": "Current Balance"
       },
       "credits.unlimited": {
        "title": "Unlimited"
@@ -427,9 +429,11 @@
        "title": "Usage Limits"
       },
       "limits.resets_at": {
+       "phrase": "Resets in {}",
        "title": "Resets"
       },
       "limits.used_percent": {
+       "phrase": "{left} left",
        "title": "Used"
       },
       "limits.window_minutes": {
@@ -451,13 +455,15 @@
        "title": "Allowed Web Search"
       },
       "saved_resets": {
-       "title": "Saved Limit Resets"
+       "title": "Usage Limit Resets"
       },
       "saved_resets.available": {
-       "title": "Saved Limit Resets"
+       "phrase": "{} available",
+       "title": "Available"
       },
       "saved_resets.next_expires_at": {
-       "title": "Expires"
+       "phrase": "Next reset expires in {}",
+       "title": "Next Expires"
       },
       "version": {
        "title": "Version"
@@ -467,19 +473,33 @@
     "sections": [
      {
       "properties": [
-       "account.email",
-       "account.plan"
+       "account.plan",
+       "account.email"
       ],
-      "title": "Account"
+      "summary": "The ChatGPT account Codex is signed in with on this Mac. Its plan is managed in ChatGPT.",
+      "title": "Plan"
      },
      {
       "properties": [
-       "limits",
-       "credits.balance",
+       "limits"
+      ],
+      "summary": "Sessions floo starts count toward your plan's Codex usage limits.",
+      "title": "Usage Limits"
+     },
+     {
+      "properties": [
+       "credits.balance"
+      ],
+      "summary": "Credits let you keep using Codex when you reach a usage limit.",
+      "title": "Credits"
+     },
+     {
+      "properties": [
        "saved_resets.available",
        "saved_resets.next_expires_at"
       ],
-      "title": "Usage"
+      "summary": "Use a reset in Codex to restore your usage limits.",
+      "title": "Usage Limit Resets"
      },
      {
       "keys": [
@@ -594,7 +614,7 @@
       "unset": "Codex Default"
      },
      "network": {
-      "summary": "Allow commands run by Codex in workspace mode to access the network in new sessions.",
+      "summary": "Allow commands Codex runs in Workspace mode to access the network.",
       "title": "Network Access"
      },
      "reasoning_summary": {
@@ -666,7 +686,8 @@
        }
       },
       "account.plan": {
-       "title": "方案",
+       "phrase": "ChatGPT {}",
+       "title": "套餐",
        "values": {
         "business": "Business",
         "edu": "Edu",
@@ -680,7 +701,8 @@
        "title": "积分"
       },
       "credits.balance": {
-       "title": "积分"
+       "phrase": "剩余 {} 积分",
+       "title": "当前余额"
       },
       "credits.unlimited": {
        "title": "无限制"
@@ -695,18 +717,20 @@
        "title": "已达限额"
       },
       "limits": {
-       "title": "使用限额"
+       "title": "用量限额"
       },
       "limits.resets_at": {
+       "phrase": "{}后重置",
        "title": "重置"
       },
       "limits.used_percent": {
+       "phrase": "剩余 {left}",
        "title": "已用"
       },
       "limits.window_minutes": {
        "values": {
-        "10080": "本周额度",
-        "300": "5 小时额度"
+        "10080": "每周限额",
+        "300": "5 小时限额"
        }
       },
       "requirements": {
@@ -722,13 +746,15 @@
        "title": "允许的网页搜索模式"
       },
       "saved_resets": {
-       "title": "备用重置次数"
+       "title": "用量限额重置"
       },
       "saved_resets.available": {
-       "title": "备用重置次数"
+       "phrase": "{} 次可用",
+       "title": "可用"
       },
       "saved_resets.next_expires_at": {
-       "title": "过期"
+       "phrase": "下一次重置将在 {}后过期",
+       "title": "下次过期"
       },
       "version": {
        "title": "版本"
@@ -738,19 +764,33 @@
     "sections": [
      {
       "properties": [
-       "account.email",
-       "account.plan"
+       "account.plan",
+       "account.email"
       ],
-      "title": "账户"
+      "summary": "此 Mac 上的 Codex 所登录的 ChatGPT 账户。套餐通过 ChatGPT 管理。",
+      "title": "套餐"
      },
      {
       "properties": [
-       "limits",
-       "credits.balance",
+       "limits"
+      ],
+      "summary": "floo 启动的会话也会计入套餐的 Codex 用量限额。",
+      "title": "用量限额"
+     },
+     {
+      "properties": [
+       "credits.balance"
+      ],
+      "summary": "达到用量限额时，可使用积分继续使用 Codex。",
+      "title": "积分"
+     },
+     {
+      "properties": [
        "saved_resets.available",
        "saved_resets.next_expires_at"
       ],
-      "title": "用量"
+      "summary": "在 Codex 中使用一次重置，即可恢复用量限额。",
+      "title": "用量限额重置"
      },
      {
       "keys": [
@@ -865,7 +905,7 @@
       "unset": "Codex 默认"
      },
      "network": {
-      "summary": "允许新会话中 Codex 在工作区模式下运行的命令访问网络。",
+      "summary": "允许 Codex 在“工作区”模式下运行的命令访问网络。",
       "title": "联网"
      },
      "reasoning_summary": {
