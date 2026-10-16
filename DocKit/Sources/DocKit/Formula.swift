@@ -53,10 +53,38 @@ public enum DatabaseFormula {
         }
     }
 
+    /// Where a formula is, for the cells its directions name (`ABOVE`, `BELOW`, `LEFT`,
+    /// `RIGHT`): its row (0 the header) and column, and its table's body rows and columns.
+    public struct Place: Equatable, Sendable {
+        public var row: Int
+        public var column: Int
+        public var rows: Int
+        public var columns: Int
+
+        public init(row: Int, column: Int, rows: Int, columns: Int) {
+            self.row = row
+            self.column = column
+            self.rows = rows
+            self.columns = columns
+        }
+
+        /// The cells a direction names from here, as a formula computes them (none: nil).
+        func cells(_ word: String) -> (rows: ClosedRange<Int>, columns: ClosedRange<Int>)? {
+            switch word {
+            case "ABOVE": row > 1 ? (1...(row - 1), column...column) : nil
+            case "BELOW": row > 0 && row < rows ? ((row + 1)...rows, column...column) : nil
+            case "LEFT": column > 0 && row > 0 ? (row...row, 0...(column - 1)) : nil
+            case "RIGHT": column + 1 < columns && row > 0 ? (row...row, (column + 1)...(columns - 1)) : nil
+            default: nil
+            }
+        }
+    }
+
     /// The references in `text` (a formula's, without its `=`), in order: a cell (`B2`)
-    /// or a range (`A2:C4`); a function's name isn't one. Read by the words alone, so a
-    /// formula half typed has its references too.
-    public static func references(in text: String) -> [Reference] {
+    /// or a range (`A2:C4`), and with the formula's `place` a direction (`ABOVE`); a
+    /// function's name isn't one. Read by the words alone, so a formula half typed has its
+    /// references too.
+    public static func references(in text: String, at place: Place? = nil) -> [Reference] {
         // Half-width forms are one UTF-16 unit, as the full-width ones they replace.
         let units = Array(halfWidth(Substring(text)).utf16)
         func isWord(_ unit: UInt16) -> Bool {
@@ -78,7 +106,13 @@ public enum DatabaseFormula {
             let start = index
             let (end, cell) = word(at: start)
             index = end
-            guard let (row, column) = cell, end == units.count || units[end] != 40 /* ( */ else { continue }
+            guard end == units.count || units[end] != 40 /* ( */ else { continue }
+            if cell == nil, let place,
+               let cells = place.cells(String(decoding: units[start..<end], as: UTF16.self).uppercased()) {
+                references.append(Reference(range: start..<end, rows: cells.rows, columns: cells.columns))
+                continue
+            }
+            guard let (row, column) = cell else { continue }
             if end + 1 < units.count, units[end] == 58 /* : */, isWord(units[end + 1]) {
                 let (rangeEnd, other) = word(at: end + 1)
                 if let (toRow, toColumn) = other {

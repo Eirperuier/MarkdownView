@@ -470,7 +470,8 @@ struct MarkdownTableContent: View {
                         position: MarkdownTableCellPosition(row: item.row, column: item.column),
                         hooks: hooks,
                         isReplaced: isReplaced,
-                        look: look
+                        look: look,
+                        tellsPlace: cellHooks.decoration != nil
                     )
                         .equatable()
                         .tableCellHash(item.contentHash ^ (isReplaced ? Self.replacedHashSalt : 0) ^ look.hashValue, identity: item.id)
@@ -491,6 +492,7 @@ struct MarkdownTableContent: View {
                         hooks: hooks,
                         isReplaced: isReplaced,
                         look: look,
+                        tellsPlace: cellHooks.decoration != nil,
                         selectableUpgraded: upgraded,
                         onSelectableUpgrade: { upgradedCells.insert(item.id) }
                     )
@@ -1477,6 +1479,9 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     var isReplaced: Bool = false
     /// The host's look for it (MarkdownTableAppearance).
     var look = AdaptiveTableCellLook()
+    /// It tells where it is, for the host's decoration (`markdownTableDecoration`): a
+    /// decoration coming or going renders it again.
+    var tellsPlace = false
     /// 惰性升级:本 cell 已被点按 → 内容走可选中渲染(见 MarkdownTableContent.upgradedCells)。
     var selectableUpgraded: Bool = false
     var onSelectableUpgrade: (() -> Void)? = nil
@@ -1495,6 +1500,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         && lhs.hooks === rhs.hooks
         && lhs.isReplaced == rhs.isReplaced
         && lhs.look == rhs.look
+        && lhs.tellsPlace == rhs.tellsPlace
         && lhs.selectableUpgraded == rhs.selectableUpgraded
     }
 
@@ -1675,7 +1681,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     /// Where the cell is, as its fill draws it, for a host's decoration.
     @ViewBuilder
     private var place: some View {
-        if hooks.hooks.decoration != nil {
+        if tellsPlace {
             // The anchor on what the padding lays out wider, not on the padding (as wide as
             // the cell).
             Color.clear

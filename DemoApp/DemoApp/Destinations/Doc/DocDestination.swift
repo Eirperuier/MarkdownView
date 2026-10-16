@@ -278,6 +278,20 @@ private struct DocPageView: View {
                         editor.tables.showMenu(key)
                     }
                 }
+                // -docFormula <text>: and write a formula in the cell under 21%, 16%, 17%, <text>
+                // typed in it.
+                if let text = UserDefaults.standard.string(forKey: "docFormula"), let snapshot = table.table,
+                   let key = editor.tables.key(in: snapshot, at: MarkdownTableCellPosition(row: 4, column: 2)) {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    editor.tables.tapped(snapshot, at: MarkdownTableCellPosition(row: 4, column: 2))
+                    editor.tables.perform(.insertFormula, at: key)
+                    try? await Task.sleep(for: .milliseconds(900))
+                    if let formula = editor.tables.formula {
+                        let caret = NSRange(location: text.utf16.count, length: 0)
+                        formula.typed(text, selection: caret)
+                        formula.field?.show(text, selection: caret)
+                    }
+                }
             }
             // -docShowHandle YES: a list item's handle under the pointer and the item after
             // it selected (on a phone, selecting).

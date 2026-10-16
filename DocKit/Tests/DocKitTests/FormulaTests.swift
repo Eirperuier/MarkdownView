@@ -134,6 +134,24 @@ struct FormulaTests {
     }
 
     @Test
+    func directionReferences() {
+        // In row 3, column 1 of a table of 4 body rows and 3 columns: the cells a direction
+        // computes with (the header isn't above); none where there are none.
+        let place = DatabaseFormula.Place(row: 3, column: 1, rows: 4, columns: 3)
+        #expect(DatabaseFormula.references(in: "SUM(above)+LEFT", at: place) == [
+            .init(range: 4..<9, rows: 1...2, columns: 1...1),
+            .init(range: 11..<15, rows: 3...3, columns: 0...0),
+        ])
+        #expect(DatabaseFormula.references(in: "BELOW+RIGHT", at: place) == [
+            .init(range: 0..<5, rows: 4...4, columns: 1...1),
+            .init(range: 6..<11, rows: 3...3, columns: 2...2),
+        ])
+        #expect(DatabaseFormula.references(in: "SUM(ABOVE)", at: .init(row: 1, column: 0, rows: 4, columns: 3)).isEmpty)
+        // Without a place they're words.
+        #expect(DatabaseFormula.references(in: "SUM(ABOVE)").isEmpty)
+    }
+
+    @Test
     func columnNames() {
         #expect(DatabaseFormula.columnName(0) == "A")
         #expect(DatabaseFormula.columnName(25) == "Z")

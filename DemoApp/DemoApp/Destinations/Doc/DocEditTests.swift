@@ -1362,10 +1362,10 @@ final class DocEditTests {
         }
         await test("Table: every menu action changes the table, and one undo puts it back exactly") {
             let before = try database()
-            // A phone writes a formula on the table's own page (its own test).
+            // A formula is written apart from its cell (its own test).
             let actions: [DocTableAction] = [.insertRowAbove, .insertRowBelow, .insertColumnLeft, .insertColumnRight,
                                              .moveRowUp, .moveRowDown, .moveColumnLeft, .moveColumnRight,
-                                             .sortAscending, .sortDescending] + (DocDevice.isMac ? [.insertFormula] : []) + [.deleteRow, .deleteColumn, .clearCell]
+                                             .sortAscending, .sortDescending, .deleteRow, .deleteColumn, .clearCell]
             for action in actions {
                 _ = try await click(2, 1)
                 let key = try editedKey()
@@ -1692,23 +1692,12 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(self.demo.doc.block(t.block) != nil && self.demo.doc.databases[t.database.id] == t.database, "not back")
         }
-        await test("Table: a formula shows its result in the table, its text in the editor (a phone: on the table's own page); 插入公式 starts one") {
-            let view = try await click(4, 2)
+        await test("Table: 插入公式 writes a formula apart from its cell (a phone: the table's own page; the Mac: a panel under the cell); the cell shows its result") {
+            _ = try await click(4, 2)
             let key = try editedKey()
             self.editor.tables.perform(.insertFormula, at: key)
-            if !DocDevice.isMac {
-                try await self.writeFormulaOnPhone(at: key)
-                return
-            }
-            try? await Task.sleep(for: .milliseconds(200))
-            try self.expect(try cellText(4, 2) == "=SUM(ABOVE)", "cell \(String(describing: try? cellText(4, 2)))")
-            let shown = self.editor.tables.view(for: try table().key(4, 2)) ?? view
-            try self.expect(shown.text == "=SUM(ABOVE)", "editor shows \(shown.text.debugDescription)")
-            // 21% + 16% + 17% above it.
-            let result = self.editor.tables.result(try table().key(4, 2))
-            try self.expect(result == "0.54", "result \(String(describing: result))")
-            let markdown = self.demo.doc.markdown(of: try table().block) ?? ""
-            try self.expect(markdown.replacing("\\", with: "").contains("| 0.54 |"), "markdown \(markdown)")
+            let t = try table()
+            try await self.writeFormulaApart(at: key, table: DocTableSnapshot(block: t.block, database: t.database))
         }
         await test("Table: pasting a spreadsheet range fills cells right and down, adding rows and columns; one undo") {
             let before = try database()
@@ -3606,27 +3595,38 @@ final class DocEditTests {
         }, "the row that stays moved on screen")
     }
 
-    /// A phone's formula page (DocTableFormula), for the cell at `key` (row 4, column 2 of
+    /// A formula written apart (DocTableFormula), for the cell at `key` (row 4, column 2 of
     /// the sample table, under 21%, 16%, 17%): taps on cells put their references in (a
-    /// tap after one moves it), its own cell isn't one, an operator key; Done writes it
-    /// into the cell, one undo step.
-    private func writeFormulaOnPhone(at key: DocCellKey) async throws {
+    /// tap after one moves it; on the Mac through the table's own taps, the panel staying
+    /// open), its own cell isn't one, an operator key; Done writes it into the cell, one
+    /// undo step. On the Mac, a direction after a function's "(" names the cells it
+    /// computes with, and Esc leaves the cell as it was.
+    private func writeFormulaApart(at key: DocCellKey, table: DocTableSnapshot) async throws {
         let tables = editor.tables
         let before = text(of: key)
-        var formula: DocFormulaEditing?
-        for _ in 0..<60 where formula?.field?.isFirstResponder != true {
-            try? await Task.sleep(for: .milliseconds(50))
-            formula = tables.formula
+        func opened(_ step: String) async throws -> DocFormulaEditing {
+            var formula: DocFormulaEditing?
+            for _ in 0..<60 where formula?.field?.isFirstResponder != true {
+                try? await Task.sleep(for: .milliseconds(50))
+                formula = tables.formula
+            }
+            let editing = try expectValue(formula, "no formula")
+            try expect(editing.field?.isFirstResponder == true,
+                       "\(step): the field hasn't the keyboard (\(String(describing: DocFirstResponder.current.map { Swift.type(of: $0) })), field in a window: \(editing.field?.window != nil), first responder's formula is this: \((DocFirstResponder.current as? DocFormulaTextField)?.formula === editing), in a window: \((DocFirstResponder.current as? UIView)?.window != nil))")
+            return editing
         }
-        let editing = try expectValue(formula, "no formula page")
-        try expect(editing.field?.isFirstResponder == true, "the field hasn't the keyboard")
+        let editing = try await opened("opening")
         try expect(editing.text.isEmpty && editing.cell == MarkdownTableCellPosition(row: 4, column: 2), "formula \(editing.text) at \(editing.cell)")
-        editing.point(at: MarkdownTableCellPosition(row: 1, column: 2))
-        editing.point(at: MarkdownTableCellPosition(row: 2, column: 2))
+        func tap(_ row: Int, _ column: Int) {
+            let position = MarkdownTableCellPosition(row: row, column: column)
+            if DocDevice.isMac { tables.tapped(table, at: position) } else { editing.point(at: position) }
+        }
+        tap(1, 2)
+        tap(2, 2)
         try expect(editing.text == "C3", "a tap after a reference moves it: \(editing.text)")
         editing.insert("+")
-        editing.point(at: editing.cell)
-        editing.point(at: MarkdownTableCellPosition(row: 3, column: 2))
+        tap(4, 2)
+        tap(3, 2)
         try expect(editing.text == "C3+C4" && editing.field?.text == "C3+C4", "formula \(editing.text), field \(String(describing: editing.field?.text))")
         try expect(editing.references.map(\.rows) == [2...2, 3...3], "references \(editing.references)")
         editing.field?.done?()
@@ -3636,6 +3636,21 @@ final class DocEditTests {
         // 16% + 17%.
         try expect(tables.result(key) == "0.33", "result \(String(describing: tables.result(key)))")
         try expect(tables.editing == key, "the cell isn't ringed")
+        if DocDevice.isMac {
+            tables.editFormula(key)
+            let again = try await opened("reopening")
+            try expect(again.text == "C3+C4", "the formula reopens as \(again.text)")
+            again.field?.text = ""
+            again.typed("", selection: NSRange(location: 0, length: 0))
+            again.insert(function: "SUM")
+            try expect(again.opensArguments, "no directions after SUM(")
+            again.insert("ABOVE")
+            // The body cells above it: C2 to C4.
+            try expect(again.references.map(\.rows) == [1...3], "references \(again.references)")
+            again.field?.cancel?()
+            for _ in 0..<60 where tables.formula != nil { try? await Task.sleep(for: .milliseconds(50)) }
+            try expect(tables.formula == nil && text(of: key) == "=C3+C4", "Esc left \(text(of: key))")
+        }
         try await undo()
         try expect(text(of: key) == before, "undo left \(text(of: key))")
     }

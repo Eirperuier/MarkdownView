@@ -134,7 +134,8 @@ final class DocTableController {
     private(set) var line: DocTableLine?
     /// Whose menu is open.
     private(set) var menu: DocTableMenuTarget?
-    /// A formula being written on a phone, on the table's own page (DocTableFormula).
+    /// A formula being written apart from its cell: on a phone on the table's own page,
+    /// on the Mac in a panel under the cell (DocTableFormula).
     var formula: DocFormulaEditing?
     /// Where each table is on the page, in the window: its formula's page lays it out as
     /// wide (its columns where they were), and it flies from there and back.
@@ -368,16 +369,22 @@ final class DocTableController {
 
     /// A click on a table cell MarkdownView rendered (row 0 is the header).
     func tapped(_ table: DocTableSnapshot, at position: MarkdownTableCellPosition) {
+        // While the Mac's panel writes a formula of this table's, a cell puts its reference in.
+        if let formula = formulaPanel(in: table.block) {
+            formula.point(at: position)
+            formula.field?.becomeFirstResponder()
+            return
+        }
         guard isEditable, let key = key(in: table, at: position), key != active || view(for: key)?.isFirstResponder != true else { return }
-        // A phone writes a formula on the table's own page (DocTableFormula).
+        // A formula is written apart from its cell (DocTableFormula).
         if writesFormulaApart(key) { return editFormula(key) }
         focus(key, reveals: false)
     }
 
-    /// A formula's cell on a phone: its formula is written on the table's own page, the
-    /// cell shows what it computes.
+    /// A formula's cell: its formula is written apart from it (DocTableFormula), the cell
+    /// shows what it computes.
     func writesFormulaApart(_ key: DocCellKey) -> Bool {
-        !DocDevice.isMac && key.row != nil && DatabaseFormula.isFormula(text(key))
+        key.row != nil && DatabaseFormula.isFormula(text(key))
     }
 
     private func exists(_ key: DocCellKey) -> Bool {
@@ -738,14 +745,8 @@ final class DocTableController {
             changed(key, to: "")
             session &+= 1
         case .insertFormula:
-            // A phone writes it on the table's own page (DocTableFormula).
-            if !DocDevice.isMac { return editFormula(key) }
-            // Craft starts a formula with "="; a sum of the cells above is the usual one.
-            if !DatabaseFormula.isFormula(text(key)) {
-                changed(key, to: "=SUM(ABOVE)")
-                session &+= 1
-            }
-            focusSoon(key, atEnd: true)
+            // Written apart from the cell (DocTableFormula).
+            editFormula(key)
         case .deleteTable:
             deleteTable(key.block)
         }
@@ -1023,16 +1024,21 @@ struct DocTableCellEditor: View {
                     .allowsHitTesting(false)
             }
             .overlay(alignment: .trailing) {
-                DocTableCellMenu(key: key, controller: controller)
-                    .offset(x: 10)
+                // Not while its formula is written (Craft's).
+                if controller.formula?.key != key {
+                    DocTableCellMenu(key: key, controller: controller)
+                        .offset(x: 10)
+                }
             }
-            .overlay(alignment: .bottomLeading) {
-                // On the Mac a formula is edited as its text; what it computes shows under
-                // the cell.
-                if !controller.writesFormulaApart(key), let result = controller.result(key) {
-                    FlooDesignBadge("= \(result)")
-                        .offset(y: 30)
-                        .allowsHitTesting(false)
+            // The Mac's formula panel, under the cell.
+            .flooDesignAnchoredPanel(isPresented: DocDevice.isMac && controller.formula?.key == key && controller.formula?.isShown == true,
+                                     configuration: controller.formulaPanelConfiguration(key),
+                                     onDismiss: { [controller] in controller.finishFormula(writes: true) }) { [controller] in
+                if let formula = controller.formula {
+                    // A formula of its own: a panel opened again as this one goes has its own field.
+                    DocFormulaPanel(formula: formula, done: { controller.finishFormula(writes: true) },
+                                    cancel: { controller.finishFormula(writes: false) })
+                        .id(ObjectIdentifier(formula))
                 }
             }
     }
@@ -1041,8 +1047,10 @@ struct DocTableCellEditor: View {
     private var content: some View {
         if key.row == nil {
             DocTableCellField(key: key, text: controller.text(key), isHeader: true, controller: controller)
+        } else if let formula = controller.formulaPanel(in: key.block), formula.key == key {
+            DocFormulaPlaceholder(key: key, controller: controller, formula: formula)
         } else if controller.writesFormulaApart(key) {
-            // What it computes; a tap writes the formula on the table's own page.
+            // What it computes; a click or tap writes the formula apart.
             Text(controller.result(key) ?? "")
                 .lineLimit(1)
                 .contentShape(Rectangle())
@@ -1125,16 +1133,20 @@ struct DocTableRowView: View {
             .markdownTableCellsSelectable()
             .markdownTableCellTap { [table, controller] position in controller.tapped(table, at: position) }
             .markdownTableCellReplacement(controller.replaced(in: table)) { [table, controller] position in controller.replacement(in: table, at: position) }
+            // The Mac's formula written by a cell: the letters, numbers and rings on the table.
+            .markdownTableDecoration(controller.formulaPanel(in: table.block).map { formula in
+                { frames in AnyView(DocFormulaDecoration(frames: frames, formula: formula, ringsCell: false)) }
+            })
             .frame(maxWidth: .infinity, alignment: .leading)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { [block = table.block, controller] in controller.tableFrames[block] = $0 }
-            // While its formula is written it's on a page of its own (DocTableFormula): one
-            // table on screen, the one flying there and back.
-            .opacity(controller.formula?.key.block == table.block ? 0 : 1)
+            // While a phone writes its formula it's on a page of its own (DocTableFormula):
+            // one table on screen, the one flying there and back.
+            .opacity(!DocDevice.isMac && controller.formula?.key.block == table.block ? 0 : 1)
             .overlayPreferenceValue(DocTableRingKey.self) { ring in
                 // The table's own edges: wider than the page it scrolls, so its right edge
                 // can be out of sight.
                 GeometryReader { proxy in
-                    if let ring, ring.key.block == table.block, controller.editing == ring.key {
+                    if let ring, ring.key.block == table.block, controller.editing == ring.key, controller.formula == nil {
                         DocTableEdges(key: ring.key, table: tableBounds.map { proxy[$0] } ?? CGRect(origin: .zero, size: proxy.size), controller: controller,
                                       cell: proxy[ring.bounds].insetBy(dx: -Handles.ringOutset.width, dy: -Handles.ringOutset.height))
                     }

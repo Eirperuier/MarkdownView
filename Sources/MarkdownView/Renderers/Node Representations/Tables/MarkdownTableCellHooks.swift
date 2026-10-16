@@ -166,13 +166,13 @@ private struct MarkdownTableCellReplacementModifier: ViewModifier {
 }
 
 private struct MarkdownTableDecorationModifier: ViewModifier {
-    var decoration: @MainActor (MarkdownTableCellFrames) -> AnyView
+    var decoration: (@MainActor (MarkdownTableCellFrames) -> AnyView)?
     @State private var hook = MarkdownTableCellHook<MarkdownTableCellFrames, AnyView> { _ in AnyView(EmptyView()) }
     @Environment(\.markdownTableCellHooks) private var hooks
 
     func body(content: Content) -> some View {
-        let _ = hook.call = decoration
-        content.environment(\.markdownTableCellHooks, with(hooks) { $0.decoration = hook })
+        let _ = decoration.map { hook.call = $0 }
+        content.environment(\.markdownTableCellHooks, with(hooks) { $0.decoration = decoration == nil ? nil : hook })
     }
 }
 
@@ -201,8 +201,9 @@ extension View {
     /// A view drawn over tables MarkdownView renders, given where their cells are (as
     /// their fills draw them); it scrolls with a table that scrolls, and draws past its
     /// edges too (a column's name above it, a row's number before it). Touches go through
-    /// it to the table.
-    public func markdownTableDecoration(_ decoration: @escaping @MainActor (MarkdownTableCellFrames) -> AnyView) -> some View {
+    /// it to the table. Nil draws nothing, and the cells don't tell where they are (a host
+    /// that decorates for a while keeps the modifier and its table's views).
+    public func markdownTableDecoration(_ decoration: (@MainActor (MarkdownTableCellFrames) -> AnyView)?) -> some View {
         modifier(MarkdownTableDecorationModifier(decoration: decoration))
     }
 }

@@ -2,9 +2,11 @@
 //  DocTableFormula.swift
 //  DemoApp
 //
-//  A cell's formula written on a phone, Craft's way. Insert Formula (the cell's f(x) key
-//  on the keyboard bar, its menu's), or a tap on a formula's cell, takes the table off
-//  the page onto one of its own: it flies from its place to the top, the columns'
+//  A cell's formula written apart from its cell, Craft's way: Insert Formula (the cell's
+//  f(x) key on the keyboard bar, its menu's), or a click or tap on what a formula's cell
+//  computes.
+//
+//  On a phone it takes the table off the page onto one of its own: it flies from its place to the top, the columns'
 //  letters over it and the rows' numbers beside it (what a reference names), the cell
 //  ringed and reading "Edit Formula". Above the keyboard, the formula in a field after
 //  its "=" and a row of keys: the usual functions while it's empty (the rest in the
@@ -14,7 +16,15 @@
 //  writes the formula into the cell, one undo step, and the table flies back; the cell,
 //  still ringed, shows what it computes.
 //
-//  The Mac writes a formula in the cell as its text, what it computes under it.
+//  On the Mac the table stays where it is, the letters, numbers and rings drawn on it,
+//  and the field and keys are in a panel under the cell: the same anchored panel as the
+//  table's menus (Craft's are one kind too, its formula picker a draggable panel as its
+//  context menus are). A click on a cell of the table puts its reference in; Return or a
+//  click anywhere else writes the formula, Esc leaves the cell as it was. The keys are
+//  laid out in a grid, the functions under their full names.
+//
+//  Both: right after a "(" the keys are the directions (ABOVE, BELOW, LEFT, RIGHT), which
+//  are references too, coloured and ringed as the cells they name.
 //
 
 import SwiftUI
@@ -31,27 +41,43 @@ final class DocFormulaEditing: Identifiable {
     /// The cell in its table (row 0 the header): where it's ringed, and what a reference to
     /// it would be (none: it can't name itself).
     let cell: MarkdownTableCellPosition
+    /// Where it is in its table: the cells its directions name.
+    let place: DatabaseFormula.Place
     private(set) var text: String
     /// In UTF-16 units, as the field counts.
-    @ObservationIgnored private(set) var selection: NSRange
+    @ObservationIgnored private(set) var selection: NSRange {
+        didSet { caretMoved() }
+    }
     @ObservationIgnored weak var field: DocFormulaTextField?
     /// What's the formula's page's own is in: its keys, the letters and numbers, the
     /// rings. They come once the table has landed, and go as it flies back.
     var isShown = false
 
-    init(key: DocCellKey, cell: MarkdownTableCellPosition, text: String) {
+    init(key: DocCellKey, cell: MarkdownTableCellPosition, place: DatabaseFormula.Place, text: String) {
         self.key = key
         self.cell = cell
+        self.place = place
         self.text = text
         selection = NSRange(location: text.utf16.count, length: 0)
     }
 
-    var references: [DatabaseFormula.Reference] { DatabaseFormula.references(in: text) }
+    var references: [DatabaseFormula.Reference] { DatabaseFormula.references(in: text, at: place) }
 
-    /// The functions on the keys (Craft's), and those in the menu after them.
-    static let functions = ["SUM", "MIN", "MAX", "AVG", "CNT"]
+    /// The functions on the keys (Craft's: on the Mac by their full names), and those in
+    /// the menu after them.
+    static let functions = DocDevice.isMac ? ["SUM", "MIN", "MAX", "AVERAGE", "COUNT"] : ["SUM", "MIN", "MAX", "AVG", "CNT"]
     static let moreFunctions = ["COUNTA", "MEDIAN", "MODE", "PRODUCT", "ROUND", "ABS", "INT", "SIGN"]
     static let operators = ["+", "-", "*", "/", "(", ")", ":"]
+    static let directions = ["ABOVE", "BELOW", "LEFT", "RIGHT"]
+
+    /// The caret is right after a "(": the keys are what a function takes.
+    private(set) var opensArguments = false
+
+    private func caretMoved() {
+        let opens = selection.length == 0 && selection.location > 0 && selection.location <= text.utf16.count
+            && ["(", "（"].contains((text as NSString).substring(with: NSRange(location: selection.location - 1, length: 1)))
+        if opens != opensArguments { opensArguments = opens }
+    }
 
     /// A reference's colour, by its place among them.
     static func color(_ index: Int) -> Color {
@@ -96,26 +122,36 @@ final class DocFormulaEditing: Identifiable {
     }
 }
 
+private typealias Tokens = FlooDesignTokens
+
 extension DocTableController {
-    /// Insert Formula on a phone: the cell's formula written on the table's own page.
+    /// Insert Formula: the cell's formula written on the table's own page (a phone), or in
+    /// a panel under the cell (the Mac).
     func editFormula(_ key: DocCellKey) {
         guard let row = key.row, let (_, database) = database(key.block),
               let r = database.rows.firstIndex(where: { $0.id == row }), let c = database.columns.firstIndex(where: { $0.id == key.column })
         else { return }
         let current = text(key)
         let editing = DocFormulaEditing(key: key, cell: MarkdownTableCellPosition(row: r + 1, column: c),
+                                        place: DatabaseFormula.Place(row: r + 1, column: c, rows: database.rows.count, columns: database.columns.count),
                                         text: DatabaseFormula.isFormula(current) ? String(current.dropFirst()) : "")
         willEdit(key)
         // The keyboard goes down while the table flies, and comes back for the formula
         // once it's landed (Craft's): changing it mid-flight would hold the flight up.
         view(for: key)?.resignFirstResponder()
         editor.leaveCells()
-        // The cell's menu (a sheet) goes first: one thing presented at a time.
-        let waits = menu != nil
+        // The cell's menu (a sheet) goes first: one thing presented at a time. Beside the
+        // cell (the Mac) the two are panels in the window.
+        let waits = menu != nil && !DocDevice.isMac
         closeMenu()
         Task { @MainActor [weak self] in
             if waits { try? await Task.sleep(for: .milliseconds(450)) }
             guard let self, self.editing == key else { return }
+            if DocDevice.isMac {
+                self.formula = editing
+                withAnimation(Tokens.Motion.reveal) { editing.isShown = true }
+                return
+            }
             // Shown at once: the table's flight is the formula page's own (DocFormulaView).
             var transaction = Transaction()
             transaction.disablesAnimations = true
@@ -133,6 +169,33 @@ extension DocTableController {
         bumpSession()
         changed(formula.key, to: text)
         bumpSession()
+    }
+
+    /// The Mac's panel closes: Return or a click elsewhere writes the formula, Esc leaves
+    /// the cell as it was. The letters, numbers and rings fade with it.
+    func finishFormula(writes: Bool) {
+        guard let formula, formula.isShown else { return }
+        if writes { writeFormula() }
+        formula.field?.resignFirstResponder()
+        withAnimation(Tokens.Motion.dismiss) {
+            formula.isShown = false
+        } completion: { [weak self] in
+            if self?.formula === formula { self?.closeFormula() }
+        }
+    }
+
+    /// The formula written in a panel by this table's cell (the Mac's): the table draws
+    /// its letters, numbers and rings.
+    func formulaPanel(in block: DocBlockID) -> DocFormulaEditing? {
+        DocDevice.isMac && formula?.key.block == block ? formula : nil
+    }
+
+    /// The panel under the cell: centred on it, and open while its table's cells are
+    /// clicked (they put their references in).
+    func formulaPanelConfiguration(_ key: DocCellKey) -> FlooDesignAnchoredPanelConfiguration {
+        var configuration = FlooDesignAnchoredPanelConfiguration(preferredEdge: .below, horizontalAlignment: .center)
+        configuration.keepsOpen = { [weak self] point in self?.tableFrames[key.block]?.contains(point) == true }
+        return configuration
     }
 
     /// The formula's page is gone (the table back on the page).
@@ -208,7 +271,7 @@ struct DocFormulaView: View {
                     position == cell ? AnyView(DocFormulaPlaceholder(key: key, controller: controller, formula: formula)) : nil
                 }
                 .markdownTableDecoration { [formula] frames in
-                    AnyView(DocFormulaDecoration(frames: frames, formula: formula))
+                    AnyView(DocFormulaDecoration(frames: frames, formula: formula, ringsCell: true))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .modifier(DocBlockType())
@@ -255,10 +318,11 @@ struct DocFormulaView: View {
 
 /// The formula's cell while it's written: Craft's "Edit Formula", in the room of what
 /// the cell shows on the page, so its column is as wide as there (the table flies
-/// between the two without its columns moving); the words are drawn in the column's
-/// room, smaller if they don't fit it. What the cell shows comes back as the table flies
-/// back (the result of the formula just written), so it lands as the page has it.
-private struct DocFormulaPlaceholder: View {
+/// between the two without its columns moving, the Mac's stays as it is); the words are
+/// drawn in the column's room, smaller if they don't fit it. What the cell shows comes
+/// back as the table flies back or the panel closes (the result of the formula just
+/// written), so it lands as the page has it.
+struct DocFormulaPlaceholder: View {
     let key: DocCellKey
     let controller: DocTableController
     let formula: DocFormulaEditing
@@ -280,12 +344,14 @@ private struct DocFormulaPlaceholder: View {
 }
 
 /// Over the table: the columns' letters and the rows' numbers, each reference's cells in
-/// its colour, the formula's cell ringed.
+/// its colour, the formula's cell ringed (`ringsCell`; on the page the cell's editor rings it).
 struct DocFormulaDecoration: View {
     let frames: MarkdownTableCellFrames
     let formula: DocFormulaEditing
+    let ringsCell: Bool
 
-    static let gutterWidth: CGFloat = 24
+    /// The numbers' strip: on the Mac it's in the page's margin, which is narrower.
+    static let gutterWidth: CGFloat = DocDevice.isMac ? 20 : 24
     static let gutterHeight: CGFloat = 24
     static let gap: CGFloat = FlooDesignTokens.Space.xs
     /// What the table leaves on its left for the rows' numbers: a cell's fill reaches past
@@ -322,7 +388,7 @@ struct DocFormulaDecoration: View {
                         .offset(x: frame.minX, y: frame.minY)
                 }
             }
-            if let frame = frames[formula.cell] {
+            if ringsCell, let frame = frames[formula.cell] {
                 RoundedRectangle(cornerRadius: MarkdownTableAppearance.cellCornerRadius, style: .continuous)
                     .strokeBorder(Tokens.ColorRole.Accent.primary, lineWidth: Tokens.Border.focus)
                     .frame(width: frame.width, height: frame.height)
@@ -381,54 +447,94 @@ struct DocFormulaDecoration: View {
 
 // MARK: The field and its keys
 
-/// Above the keyboard: the formula after its "=", and the keys.
-private struct DocFormulaPanel: View {
+/// The formula after its "=", and the keys: on glass above the keyboard (a phone), or in
+/// the panel under the cell (the Mac).
+struct DocFormulaPanel: View {
     let formula: DocFormulaEditing
     let done: () -> Void
+    /// Esc in the field (the Mac): the cell as it was.
+    var cancel: (() -> Void)?
 
     private typealias Tokens = FlooDesignTokens
+    /// Craft's panel's width, measured on its Mac app.
+    static let width: CGFloat = 352
 
     var body: some View {
+        if DocDevice.isMac {
+            FlooDesignFloatingPanelSurface { content }
+                .flooDesignPanelWidth(Self.width)
+        } else {
+            content
+                .padding(Tokens.Space.sm)
+                .flooDesignGlass(.regular, in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
+                .padding(.horizontal, Tokens.Space.md)
+                .padding(.bottom, Tokens.Space.sm)
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: Tokens.Space.sm) {
             HStack(spacing: Tokens.Space.xs) {
                 Text(verbatim: "=")
                     .font(.body)
                     .foregroundStyle(Tokens.ColorRole.Content.tertiary)
-                DocFormulaField(formula: formula, done: done)
+                DocFormulaField(formula: formula, done: done, cancel: cancel)
             }
             .padding(.horizontal, Tokens.Space.md)
             .frame(height: Tokens.Control.prominentHeight)
             .background(Tokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
-            HStack(spacing: Tokens.Space.sm) {
-                if formula.text.isEmpty {
-                    ForEach(DocFormulaEditing.functions, id: \.self) { name in
-                        key(name) { formula.insert(function: name) }
-                    }
-                    Menu {
-                        ForEach(DocFormulaEditing.moreFunctions, id: \.self) { name in
-                            Button(name) { formula.insert(function: name) }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .menuStyle(.button)
-                    .buttonStyle(FlooDesignButtonStyle(.secondary))
-                    .accessibilityLabel("More Functions")
-                } else {
-                    ForEach(DocFormulaEditing.operators, id: \.self) { op in
-                        key(op) { formula.insert(op) }
+            keys
+        }
+    }
+
+    private enum Key: Hashable {
+        case function(String), text(String), more
+    }
+
+    /// The keys, by what's at the caret: the functions while nothing's typed (the rest in
+    /// the system's menu), what a function takes right after its "(", else the operators.
+    /// A phone has them in a row; the Mac in rows of three, the directions two by two,
+    /// the operators in one (Craft's).
+    private var keys: some View {
+        let keys: [Key] = formula.text.isEmpty ? DocFormulaEditing.functions.map(Key.function) + [.more]
+            : formula.opensArguments ? DocFormulaEditing.directions.map(Key.text)
+            : DocFormulaEditing.operators.map(Key.text)
+        let columns = !DocDevice.isMac || keys.count > 6 ? keys.count : keys.count == 4 ? 2 : 3
+        let rows = stride(from: 0, to: keys.count, by: columns).map { Array(keys[$0..<min($0 + columns, keys.count)]) }
+        return Grid(horizontalSpacing: Tokens.Space.sm, verticalSpacing: Tokens.Space.sm) {
+            ForEach(rows, id: \.self) { row in
+                GridRow {
+                    ForEach(row, id: \.self) { key in
+                        self.key(key)
                     }
                 }
             }
         }
-        .padding(Tokens.Space.sm)
-        .flooDesignGlass(.regular, in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
-        .padding(.horizontal, Tokens.Space.md)
-        .padding(.bottom, Tokens.Space.sm)
     }
 
-    private func key(_ title: String, action: @escaping () -> Void) -> some View {
+    @ViewBuilder
+    private func key(_ key: Key) -> some View {
+        switch key {
+        case .function(let name):
+            button(name) { formula.insert(function: name) }
+        case .text(let text):
+            button(text) { formula.insert(text) }
+        case .more:
+            Menu {
+                ForEach(DocFormulaEditing.moreFunctions, id: \.self) { name in
+                    Button(name) { formula.insert(function: name) }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(maxWidth: .infinity)
+            }
+            .menuStyle(.button)
+            .buttonStyle(FlooDesignButtonStyle(.secondary))
+            .accessibilityLabel("More Functions")
+        }
+    }
+
+    private func button(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(verbatim: title)
                 .lineLimit(1)
@@ -443,25 +549,27 @@ private struct DocFormulaPanel: View {
 private struct DocFormulaField: UIViewRepresentable {
     let formula: DocFormulaEditing
     let done: () -> Void
+    let cancel: (() -> Void)?
 
     func makeUIView(context: Context) -> DocFormulaTextField {
         let field = DocFormulaTextField()
         field.formula = formula
         field.done = done
-        formula.field = field
+        field.cancel = cancel
         field.show(formula.text, selection: formula.selection)
-        // The keyboard comes once the table has landed (DocFormulaView).
         return field
     }
 
     func updateUIView(_ field: DocFormulaTextField, context: Context) {
         field.done = done
+        field.cancel = cancel
     }
 }
 
 final class DocFormulaTextField: UITextField, UITextFieldDelegate {
     weak var formula: DocFormulaEditing?
     var done: (() -> Void)?
+    var cancel: (() -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -485,6 +593,21 @@ final class DocFormulaTextField: UITextField, UITextFieldDelegate {
 
     /// Its text being set: where the caret passes on the way isn't the person's.
     private var showing = false
+
+    /// The formula's field is the one on screen (a panel on its way out may have made
+    /// one too). On a phone the keyboard comes once the table has landed
+    /// (DocFormulaView); the Mac's panel takes the typing as it opens.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, let formula else { return }
+        formula.field = self
+        if DocDevice.isMac {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.window != nil, self.formula?.field === self else { return }
+                self.becomeFirstResponder()
+            }
+        }
+    }
 
     /// The model's text and caret (a key or a tap changed them).
     func show(_ text: String, selection: NSRange) {
@@ -517,6 +640,14 @@ final class DocFormulaTextField: UITextField, UITextFieldDelegate {
         return false
     }
 
+    /// Esc, where it cancels (the Mac's panel).
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if let cancel, presses.contains(where: { $0.key?.keyCode == .keyboardEscape }), markedTextRange == nil {
+            return cancel()
+        }
+        super.pressesBegan(presses, with: event)
+    }
+
     private var selection: NSRange {
         guard let range = selectedTextRange else { return NSRange(location: (text ?? "").utf16.count, length: 0) }
         return NSRange(location: offset(from: beginningOfDocument, to: range.start), length: offset(from: range.start, to: range.end))
@@ -531,7 +662,7 @@ final class DocFormulaTextField: UITextField, UITextFieldDelegate {
 
     private func colored(_ text: String) -> NSAttributedString {
         let string = NSMutableAttributedString(string: text, attributes: [.font: font ?? .preferredFont(forTextStyle: .body), .foregroundColor: UIColor.label])
-        for (index, reference) in DatabaseFormula.references(in: text).enumerated() {
+        for (index, reference) in DatabaseFormula.references(in: text, at: formula?.place).enumerated() {
             string.addAttribute(.foregroundColor, value: UIColor(DocFormulaEditing.color(index)),
                                 range: NSRange(location: reference.range.lowerBound, length: reference.range.count))
         }
