@@ -290,7 +290,12 @@ final class FlooContactsDemo {
     ]
 
     static let startSettings: [String: [String: [String: FlooJSON]]] = [
-        "calendar": ["iphone": ["excluded": .array([.string("cal-therapy")]), "new_events": .string("cal-home")]],
+        "calendar": [
+            "iphone": [
+                "excluded": .array([.string("cal-therapy")]), "read_only": .array([.string("cal-team")]),
+                "new_events": .string("cal-home"),
+            ],
+        ],
     ]
 
     func reset() {

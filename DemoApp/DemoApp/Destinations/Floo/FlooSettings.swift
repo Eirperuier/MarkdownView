@@ -6,7 +6,8 @@
 //  page for any service, from the format in the provider's own definition. Each key's control
 //  and its limits follow from its data type; one that picks from something lists what the
 //  operation its `choices` name gives (its output's properties for the label, color and
-//  group). The format and the words are the real ones (FlooSettings.json, exported by
+//  group). One that picks several from what another list picks from, held off it (`notIn`), is a
+//  switch on each item's page instead of a list. The format and the words are the real ones (FlooSettings.json, exported by
 //  DemoApp/Scripts/floo-catalog.py); the calendars each device lists, and the files, are
 //  scripted. `-flooContactsPath "service:calendar settings:calendar:iphone"` opens one.
 //
@@ -72,6 +73,27 @@ struct FlooSettingsFormat: Decodable {
     func summary(_ key: String) -> String? {
         words["zh-Hans"]?[key]?.summary ?? words["en"]?[key]?.summary
             ?? format["properties"]?[key]?["description"]?.string
+    }
+
+    /// The keys whose lists a key's values are held off (`notIn`: one name, or several).
+    static func heldOff(_ property: FlooJSON) -> [String] {
+        switch property["notIn"] {
+        case .string(let one)?: [one]
+        case .array(let several)?: several.compactMap(\.string)
+        default: []
+        }
+    }
+
+    /// The list a key that picks several is folded into: another that picks several from the
+    /// same, which it is held off. It isn't a list of its own but a switch on each item's page
+    /// (a calendar read-only or not, on the calendar's page; it can't be both kept out and read-only).
+    func list(holding key: String) -> String? {
+        let properties = format["properties"]?.fields ?? [:]
+        guard let schema = properties[key], schema["type"]?.string == "array",
+              let from = schema["items"]?["choices"]?["from"] else { return nil }
+        return Self.heldOff(schema).first { other in
+            properties[other]?["type"]?.string == "array" && properties[other]?["items"]?["choices"]?["from"] == from
+        }
     }
 }
 
@@ -140,7 +162,7 @@ struct FlooProviderSettingsPage: View {
                     .foregroundStyle(.secondary)
                 }
             }
-            ForEach(format.keys, id: \.self) { key in
+            ForEach(format.keys.filter { format.list(holding: $0) == nil }, id: \.self) { key in
                 if let schema = format.format["properties"]?[key] {
                     field(key, schema)
                 }
@@ -148,7 +170,58 @@ struct FlooProviderSettingsPage: View {
         }
         .navigationTitle("\(service.name) · \(device.name.replacingOccurrences(of: "这台 ", with: ""))")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $shown) { FlooSettingChoicePage(option: $0, names: FlooListed.names(service.id)) }
+        .navigationDestination(item: $shown) { option in
+            FlooSettingChoicePage(
+                option: option, names: FlooListed.names(service.id),
+                switches: { switches(on: option) },
+                isOn: { key in checked(key, option.id) },
+                set: { key, on in if checked(key, option.id) != on { toggle(key, option.id) } }
+            )
+        }
+    }
+
+    /// The switches on an item's page: each key folded into the list it is in, when the item
+    /// is one that key picks from (its `where`) and the lists that key is held off don't hold it.
+    private func switches(on option: FlooSettingChoice) -> [FlooSettingSwitch] {
+        format.keys.compactMap { key in
+            guard let schema = format.format["properties"]?[key], format.list(holding: key) != nil,
+                  options(schema["items"]?["choices"] ?? .null).contains(where: { $0.id == option.id }),
+                  !FlooSettingsFormat.heldOff(schema).contains(where: { file[$0]?.items.contains(.string(option.id)) == true })
+            else { return nil }
+            return FlooSettingSwitch(key: key, title: format.title(key), summary: format.summary(key))
+        }
+    }
+
+    /// Whether `id` is checked in the list under `key`; `complement`: the file lists the ones
+    /// left unchecked.
+    private func checked(_ key: String, _ id: String) -> Bool {
+        let complement = format.format["properties"]?[key]?["items"]?["choices"]?["complement"] == .bool(true)
+        return (file[key]?.items.contains(.string(id)) == true) != complement
+    }
+
+    /// `id` in or out of the list under `key`.
+    private func toggle(_ key: String, _ id: String) {
+        var listed = file[key]?.items ?? []
+        if let index = listed.firstIndex(of: .string(id)) { listed.remove(at: index) } else {
+            listed.append(.string(id))
+        }
+        change(key, listed: listed)
+    }
+
+    /// The list under `key` set; a key held off it (`notIn`) loses what it now holds in the
+    /// same change: one value unset, a list without them.
+    private func change(_ key: String, listed: [FlooJSON]) {
+        change(key, listed.isEmpty ? nil : .array(listed))
+        for (other, property) in format.format["properties"]?.fields ?? [:]
+        where FlooSettingsFormat.heldOff(property).contains(key) {
+            switch file[other] {
+            case .array(let values)?:
+                let kept = values.filter { !listed.contains($0) }
+                if kept.count != values.count { change(other, listed: kept) }
+            case let value? where listed.contains(value): change(other, nil)
+            default: break
+            }
+        }
     }
 
     /// Each key with its words under it: one that picks several is checked in place, a section
@@ -156,24 +229,11 @@ struct FlooProviderSettingsPage: View {
     /// type's control.
     @ViewBuilder private func field(_ key: String, _ schema: FlooJSON) -> some View {
         if schema["type"]?.string == "array", let choices = schema["items"]?["choices"] {
-            // `complement`: the file lists the ones left unchecked.
-            let complement = choices["complement"] == .bool(true)
             FlooChecklist(
                 title: format.title(key), summary: format.summary(key), options: options(choices),
-                checked: { id in (file[key]?.items.contains(.string(id)) == true) != complement },
+                checked: { checked(key, $0) },
                 info: FlooListed.names(service.id).isEmpty ? nil : { shown = $0 }
-            ) { id in
-                var listed = file[key]?.items ?? []
-                if let index = listed.firstIndex(of: .string(id)) { listed.remove(at: index) } else {
-                    listed.append(.string(id))
-                }
-                change(key, listed.isEmpty ? nil : .array(listed))
-                // A key held off this list (`notIn`) whose value it now lists is unset in the same change.
-                for (other, property) in format.format["properties"]?.fields ?? [:]
-                where property["notIn"] == .string(key) {
-                    if let value = file[other], listed.contains(value) { change(other, nil) }
-                }
-            }
+            ) { toggle(key, $0) }
         } else {
             Section {
                 single(key, schema)
@@ -185,8 +245,8 @@ struct FlooProviderSettingsPage: View {
 
     @ViewBuilder private func single(_ key: String, _ schema: FlooJSON) -> some View {
         if let choices = schema["choices"] {
-            // `notIn`: none the list under that key holds.
-            let held = schema["notIn"]?.string.flatMap { file[$0]?.items } ?? []
+            // `notIn`: none the lists under those keys hold.
+            let held = FlooSettingsFormat.heldOff(schema).flatMap { file[$0]?.items ?? [] }
             let options = options(choices).filter { !held.contains(.string($0.id)) }
             Picker(format.title(key), selection: Binding(
                 get: { file[key]?.string ?? "" },
@@ -334,16 +394,36 @@ struct FlooChecklist: View {
     }
 }
 
+/// A switch on an item's page: a key folded into the list the item is in.
+struct FlooSettingSwitch: Hashable {
+    let key: String
+    let title: String
+    let summary: String?
+}
+
 /// One of what a setting picks from, as its operation listed it: each property that has a
-/// name, in the order named.
+/// name, in the order named; then a switch for each key folded into its list, its words under it.
 struct FlooSettingChoicePage: View {
     let option: FlooSettingChoice
     let names: [(property: String, name: String)]
+    let switches: () -> [FlooSettingSwitch]
+    let isOn: (String) -> Bool
+    let set: (String, Bool) -> Void
 
     var body: some View {
         List {
-            ForEach(names.filter { option.properties[$0.property] != nil }, id: \.property) { named in
-                LabeledContent(named.name, value: Self.text(option.properties[named.property]!))
+            Section {
+                ForEach(names.filter { option.properties[$0.property] != nil }, id: \.property) { named in
+                    LabeledContent(named.name, value: Self.text(option.properties[named.property]!))
+                }
+            }
+            ForEach(switches(), id: \.self) { item in
+                Section {
+                    Toggle(item.title, isOn: Binding(get: { isOn(item.key) }, set: { set(item.key, $0) }))
+                        .toggleStyle(.switch)
+                } footer: {
+                    item.summary.map(Text.init)
+                }
             }
         }
         .navigationTitle(option.label)

@@ -30,8 +30,31 @@
       }
      },
      "description": "The calendar for new events that name none; the system default calendar when not set",
-     "notIn": "excluded",
+     "notIn": [
+      "excluded",
+      "read_only"
+     ],
      "type": "string"
+    },
+    "read_only": {
+     "description": "Calendars floo can read but not change: their events can't be added, changed or deleted",
+     "items": {
+      "choices": {
+       "complement": true,
+       "from": "calendars",
+       "group": "account",
+       "key": "id",
+       "label": "title",
+       "tint": "color",
+       "where": {
+        "writable": true
+       }
+      },
+      "type": "string"
+     },
+     "notIn": "excluded",
+     "type": "array",
+     "uniqueItems": true
     }
    },
    "type": "object"
@@ -39,22 +62,30 @@
   "words": {
    "en": {
     "excluded": {
-     "summary": "floo can view and edit events in selected calendars. New calendars are selected automatically.",
+     "summary": "floo can access events in selected calendars. New calendars are selected automatically.",
      "title": "Calendars"
     },
     "new_events": {
      "summary": "New events created without a specified calendar are added here.",
      "title": "Default Calendar"
+    },
+    "read_only": {
+     "summary": "Allow floo to add, edit, and delete events in this calendar. When turned off, events are view-only.",
+     "title": "Allow Editing"
     }
    },
    "zh-Hans": {
     "excluded": {
-     "summary": "floo 可查看和编辑所选日历中的日程。新增日历将自动选中。",
+     "summary": "floo 可访问所选日历中的日程。新增日历将自动选中。",
      "title": "日历"
     },
     "new_events": {
      "summary": "新建日程未指定日历时将添加至此日历。",
      "title": "默认日历"
+    },
+    "read_only": {
+     "summary": "允许 floo 在此日历中添加、编辑和删除日程。关闭后，日程仅可查看。",
+     "title": "允许编辑"
     }
    }
   }
