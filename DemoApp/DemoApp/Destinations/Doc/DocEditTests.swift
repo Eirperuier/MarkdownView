@@ -1611,13 +1611,16 @@ final class DocEditTests {
             var appearance = self.editor.tables.appearance(of: snapshot)
             let look = appearance.cells[MarkdownTableCellPosition(row: row, column: column)]
             try self.expect(look?.alignment == .trailing && look?.fontDesign == .serif && look?.fill != nil, "drawn as \(String(describing: look))")
-            try self.expect(appearance.stripe == .none && appearance.headerRow && !appearance.headerColumn, "a table's own look")
+            try self.expect(appearance.stripe == .standard && appearance.headerRow && !appearance.headerColumn, "a table's own look")
             try self.expect(self.editor.tables.look(key).textAlignment == .right, "the editor isn't right-aligned")
             cell.setTable { $0.headerColumn = true }
             cell.setTable { $0.stripe = "gray-2" }
             appearance = self.editor.tables.appearance(of: DocTableSnapshot(block: key.block, database: try database()))
             let striped = if case .color = appearance.stripe { true } else { false }
             try self.expect(appearance.headerColumn && striped, "the table's look \(appearance.stripe)")
+            cell.setTable { $0.stripe = TableStyle.noStripe }
+            appearance = self.editor.tables.appearance(of: DocTableSnapshot(block: key.block, database: try database()))
+            try self.expect(appearance.stripe == .none, "no stripe drawn as \(appearance.stripe)")
             // The table block's typeface is its cells', unless they have their own.
             self.editor.setFont(.mono, of: [key.block])
             appearance = self.editor.tables.appearance(of: DocTableSnapshot(block: key.block, database: try database()))
@@ -1628,8 +1631,8 @@ final class DocEditTests {
             cell.resize(rows: size.rows + 1)
             cell.resize(columns: size.columns + 1)
             try self.expect(cell.size == (size.rows + 1, size.columns + 1), "size \(cell.size)")
-            for _ in 0..<9 { try await self.undo() }
-            try self.expect(try database() == before && self.demo.doc.block(key.block)?.font == nil, "nine undos didn't put the table back")
+            for _ in 0..<10 { try await self.undo() }
+            try self.expect(try database() == before && self.demo.doc.block(key.block)?.font == nil, "ten undos didn't put the table back")
         }
         await test("Table: a header cell, a picked column and the whole table selected have the cells' panel, a setting on all of them in one step; the whole table's typeface is the table's") {
             _ = try await click(0, 1)

@@ -130,6 +130,8 @@ struct AgentGuideTests {
         #expect(results[0].error == nil, "\(results.map(\.json))")
         let database = try #require(doc.databases[id])
         #expect(database.style == TableStyle(stripe: "blue"))
+        _ = doc.agentEdit([json(#"{"op": "set", "id": "\#(short)", "style": {"stripe": "None"}}"#)])
+        #expect(doc.databases[id]?.style == TableStyle(stripe: TableStyle.noStripe))
         let item = database.columns[0], cost = database.columns[2]
         #expect(item.headerStyle == nil && item.cellStyles == nil)
         #expect(cost.style(row: database.rows[0].id) == CellStyle(alignment: .right, number: .currency(code: "USD"), fill: "red"))

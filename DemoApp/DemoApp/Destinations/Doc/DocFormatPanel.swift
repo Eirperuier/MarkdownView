@@ -211,10 +211,12 @@ struct DocFormatMenu {
     }
 
     /// Craft's fills: none, six hues by three strengths twice, any colour.
-    static func fills(current: String?, set: @escaping (String?) -> Void) -> FlooDesignMenuSwatches {
+    /// `none`: what None sets (a stripe's is `TableStyle.noStripe`, a cell's nil).
+    static func fills(current: String?, none: String? = nil, set: @escaping (String?) -> Void) -> FlooDesignMenuSwatches {
         let custom: String? = if let current, current.hasPrefix("#") { current } else { nil }
-        return FlooDesignMenuSwatches(shape: .rounded, DocColors.fillGrid.enumerated().map { index, token in
-            let title = token.map(DocColors.fillTitle) ?? String(localized: "None")
+        return FlooDesignMenuSwatches(shape: .rounded, DocColors.fillGrid.enumerated().map { index, swatch in
+            let token = swatch ?? none
+            let title = swatch.map(DocColors.fillTitle) ?? String(localized: "None")
             return .init(id: token ?? "none-\(index)", title: title, fill: token.flatMap(DocColors.fill) ?? Tokens.ColorRole.Surface.canvas,
                          isOn: current == token, identifier: "fill-\(token ?? "none")") { set(token) }
         }, well: .init(title: String(localized: "Other Color"), picked: custom.flatMap(DocColors.fill),
@@ -283,7 +285,7 @@ struct DocFormatMenu {
             ]),
             .init(String(localized: "Cell Style"), controls: [
                 .color(String(localized: "Alternating Row Color"), picked: table.stripe.flatMap(DocColors.fill), isEnabled: formatting.takes(.table),
-                       id: "cell-stripe", sections: [.init(controls: [.swatches("stripes", fills(current: table.stripe) { token in cell.setTable { $0.stripe = token } })])]),
+                       id: "cell-stripe", sections: [.init(controls: [.swatches("stripes", fills(current: table.stripe, none: TableStyle.noStripe) { token in cell.setTable { $0.stripe = token } })])]),
                 .color(String(localized: "Cell Fill Color"), picked: style.fill.flatMap(DocColors.fill), isEnabled: formatting.takes(.fill),
                        id: "cell-fill", sections: [.init(controls: [.swatches("fills", fills(current: style.fill) { token in cell.setStyle(.fill) { $0.fill = token } })])]),
                 .color(String(localized: "Text Color"), picked: textColor, isEnabled: formatting.takes(.color) && !formatting.markRanges.isEmpty,

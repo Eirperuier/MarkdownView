@@ -56,6 +56,11 @@ struct TableStyleTests {
         try doc.apply(step(.setTableStyle(style: TableStyle(headerRow: true), previous: nil)))
         #expect(doc.databases[fixedID(30)]?.style == nil)
         #expect(TableStyle().hasHeaderRow && !TableStyle().hasHeaderColumn)
+        // No stripe is a stripe of its own (the default is the table's light one).
+        let plain = TableStyle(stripe: TableStyle.noStripe)
+        try doc.apply(step(.setTableStyle(style: plain, previous: nil)))
+        #expect(doc.databases[fixedID(30)]?.tableStyle == plain)
+        try doc.validate()
     }
 
     /// Renaming a column keeps its cells' styles; deleting it and undoing brings them back,

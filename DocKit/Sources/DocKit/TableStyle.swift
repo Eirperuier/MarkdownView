@@ -1,14 +1,18 @@
 public import Foundation
 
 /// How a table looks as a whole (Craft's Table Style): whether its first row and first
-/// column are headers, and the colour every other body row takes, if any.
+/// column are headers, and the colour every other body row takes.
 public struct TableStyle: Hashable, Sendable, Codable {
     /// The column names' row reads as a header (the default); off, as a row like the rest.
     public var headerRow: Bool?
     /// The first column reads as a header too (off by default).
     public var headerColumn: Bool?
-    /// Every other body row's fill (`CellStyle.fill`'s tokens); nil, none.
+    /// Every other body row's fill (`CellStyle.fill`'s tokens), or `noStripe`; nil, the
+    /// table's own light stripe.
     public var stripe: String?
+
+    /// The stripe that is none: every row the same.
+    public static let noStripe = "none"
 
     public init(headerRow: Bool? = nil, headerColumn: Bool? = nil, stripe: String? = nil) {
         self.headerRow = headerRow
@@ -20,6 +24,11 @@ public struct TableStyle: Hashable, Sendable, Codable {
     public var hasHeaderColumn: Bool { headerColumn ?? false }
     /// No setting differs from the defaults: stored as none.
     public var isPlain: Bool { hasHeaderRow && !hasHeaderColumn && stripe == nil }
+
+    /// Whether its stripe is one a table takes.
+    public var hasValidStripe: Bool {
+        stripe.map { $0 == Self.noStripe || CellStyle.parseFill($0) != nil } ?? true
+    }
 }
 
 /// How one cell looks (Craft's cell style): where its text sits, its typeface, how a

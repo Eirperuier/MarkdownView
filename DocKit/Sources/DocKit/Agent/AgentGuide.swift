@@ -251,7 +251,7 @@ extension TableStyle: AgentDescribed {
         [AgentUsage(["table style"], fields: [
             AgentField("header_row", ["true", "false"], about: "the column names' row reads as a header; true unless given"),
             AgentField("header_column", ["true", "false"], about: "the first column reads as one too; false unless given"),
-            AgentField("stripe", about: "every other row's fill, as a cell's"),
+            AgentField("stripe", about: "every other row's fill, as a cell's, or \"\(TableStyle.noStripe)\"; a light gray unless given"),
         ])]
     }
 }

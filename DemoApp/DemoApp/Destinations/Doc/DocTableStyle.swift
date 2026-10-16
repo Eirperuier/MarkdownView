@@ -174,8 +174,13 @@ extension DocTableController {
                 if let cell = styles[row.id] { cells[MarkdownTableCellPosition(row: r + 1, column: c)] = DocCellLook.appearance(cell) }
             }
         }
-        // A document's table has no stripe until it's given one (Craft's).
-        let stripe = style.stripe.flatMap(DocColors.fill).map(MarkdownTableAppearance.Stripe.color) ?? .none
+        // The table's own light stripe until it's given another, or none.
+        let stripe: MarkdownTableAppearance.Stripe =
+            switch style.stripe {
+            case nil: .standard
+            case TableStyle.noStripe?: .none
+            case let token?: DocColors.fill(token).map(MarkdownTableAppearance.Stripe.color) ?? .standard
+            }
         let font = demo.doc.block(table.block)?.font.map(DocCellLook.design)
         return MarkdownTableAppearance(headerRow: style.hasHeaderRow, headerColumn: style.hasHeaderColumn, stripe: stripe,
                                        fontDesign: font, cells: cells)

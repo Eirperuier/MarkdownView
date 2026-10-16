@@ -64,7 +64,7 @@ struct DocFormatSheet: View {
             case .cellFont: cellFonts
             case .cellNumber: cellNumbers
             case .cellFill: fills(current: formatting.cell?.style.fill) { token in formatting.cell?.setStyle(.fill) { $0.fill = token } }
-            case .stripe: fills(current: formatting.cell?.table.stripe) { token in formatting.cell?.setTable { $0.stripe = token } }
+            case .stripe: fills(current: formatting.cell?.table.stripe, none: TableStyle.noStripe) { token in formatting.cell?.setTable { $0.stripe = token } }
             case .table: table
             }
         }
@@ -375,12 +375,14 @@ struct DocFormatSheet: View {
     }
 
     /// Craft's fills: none, six hues by three strengths twice, any colour.
-    private func fills(current: String?, set: @escaping (String?) -> Void) -> some View {
+    /// `none`: what None sets (a stripe's is `TableStyle.noStripe`, a cell's nil).
+    private func fills(current: String?, none: String? = nil, set: @escaping (String?) -> Void) -> some View {
         let shape = RoundedRectangle(cornerRadius: Metrics.fillRadius, style: .continuous)
         let custom: String? = if let current, current.hasPrefix("#") { current } else { nil }
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Metrics.swatchSpacing), count: Metrics.swatchColumns),
                          spacing: Metrics.fillSpacing) {
-            ForEach(Array(DocColors.fillGrid.enumerated()), id: \.offset) { _, token in
+            ForEach(Array(DocColors.fillGrid.enumerated()), id: \.offset) { _, swatch in
+                let token = swatch ?? none
                 Button {
                     set(token)
                     go(.main)
@@ -389,7 +391,7 @@ struct DocFormatSheet: View {
                         .frame(height: Metrics.fillHeight)
                 }
                 .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
-                .accessibilityLabel(token.map(DocColors.fillTitle) ?? String(localized: "None"))
+                .accessibilityLabel(swatch.map(DocColors.fillTitle) ?? String(localized: "None"))
                 .accessibilityIdentifier("sheet-fill-\(token ?? "none")")
             }
             Button {
@@ -425,7 +427,7 @@ struct DocFormatSheet: View {
                         Label("Header Column", systemImage: "rectangle.leftthird.inset.filled").font(Metrics.label)
                     }
                 }
-                tile(isOn: style.stripe != nil, identifier: "sheet-stripe") { go(.stripe) } label: {
+                tile(isOn: style.stripe != TableStyle.noStripe, identifier: "sheet-stripe") { go(.stripe) } label: {
                     HStack(spacing: Tokens.Space.md) {
                         FlooDesignRainbowSwatch(Circle(), picked: style.stripe.flatMap(DocColors.fill))
                             .frame(width: Tokens.Icon.toolbar, height: Tokens.Icon.toolbar)

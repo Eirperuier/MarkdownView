@@ -81,7 +81,9 @@ extension AgentBlocks {
             }
             style.headerRow = try flag("header_row")
             style.headerColumn = try flag("header_column")
-            style.stripe = try fields["stripe"]?.stringValue.map { (token) throws(AgentFormatError) in try fill(token) }
+            style.stripe = try fields["stripe"]?.stringValue.map { (token) throws(AgentFormatError) in
+                token.lowercased() == TableStyle.noStripe ? TableStyle.noStripe : try fill(token)
+            }
             database.style = style.isPlain ? nil : style
         }
         if case .array(let columns)? = object["columns"] {

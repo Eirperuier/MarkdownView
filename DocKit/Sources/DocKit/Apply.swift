@@ -294,7 +294,7 @@ extension Database {
             columns[index].setStyle(style, row: row)
             return .setCellStyle(row: row, column: column, style: columns[index].style(row: row), previous: previous)
         case .setTableStyle(let style, _):
-            if let stripe = style?.stripe, CellStyle.parseFill(stripe) == nil { throw .invalidStyle }
+            if let style, !style.hasValidStripe { throw .invalidStyle }
             let previous = self.style
             self.style = style.flatMap { $0.isPlain ? nil : $0 }
             return .setTableStyle(style: self.style, previous: previous)

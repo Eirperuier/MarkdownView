@@ -377,7 +377,7 @@ demo 没有服务端,也没有 step 日志:每篇文档(第一页、页面、记
 
 `doc_read` 返回每块的 `{id, kind, markdown}`,这是 Craft API 的形状,模型最熟悉。数据库返回列加行,卡片返回 size 和 data 的摘要。长文档可以只读一个范围(从某块起若干块),或者按文字搜到块。
 
-工具说明里"块和文字怎么写"那一段不手写:每种类型实现 DocKit 的 `AgentDescribed`,列出 `AgentBlocks` 读写它的字段和每个字段能取的值,取值直接用解析器检查时用的同一份常量(`DocBlock.maxIndent`、`DocImage.Fit.allCases`、`CellStyle.fillColors` 等);`AgentGuide` 拼成文字,`doclab guide` 打印出来给评测脚本用。测试保证 `doc_read` 读出的每个键都在说明里出现,位置也对。表格的样式也在这份 JSON 里:表的 `style`(标题行、标题列、条纹),某列全部格子相同的对齐、字体、数字格式、底色写在列上,个别格子的写在 `cells` 里;`set` 一个表格时按列名和行序比出样式差异,每格一个 step。
+工具说明里"块和文字怎么写"那一段不手写:每种类型实现 DocKit 的 `AgentDescribed`,列出 `AgentBlocks` 读写它的字段和每个字段能取的值,取值直接用解析器检查时用的同一份常量(`DocBlock.maxIndent`、`DocImage.Fit.allCases`、`CellStyle.fillColors` 等);`AgentGuide` 拼成文字,`doclab guide` 打印出来给评测脚本用。测试保证 `doc_read` 读出的每个键都在说明里出现,位置也对。表格的样式也在这份 JSON 里:表的 `style`(标题行、标题列、条纹;没写条纹时是表格自己的浅条纹,和聊天里的表格一样,`"none"` 是不要条纹,格子面板的隔行颜色选"无"也是它),某列全部格子相同的对齐、字体、数字格式、底色写在列上,个别格子的写在 `cells` 里;`set` 一个表格时按列名和行序比出样式差异,每格一个 step。
 
 ### 9.2 写:块级操作【定】
 
