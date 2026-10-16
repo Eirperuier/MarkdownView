@@ -78,31 +78,40 @@ struct FlooSettingsFormat: Decodable {
 // MARK: - What the operations list (scripted)
 
 enum FlooListed {
-    /// What `operation` of `service` last answered on `device`: the calendars it has.
+    /// What `operation` of `service` last answered on `device`: the calendars it has, with
+    /// the properties the calendar service's `calendars` gives each.
     static func answer(_ service: String, _ operation: String, on device: String) -> [FlooJSON] {
         guard service == "calendar", operation == "calendars" else { return [] }
-        let calendars: [(String, String, String, String, Bool)] =
+        let calendars: [(String, String, String, String, String, Bool, Bool)] =
             switch device {
             case "iphone": [
-                ("cal-work", "工作", "iCloud", "#1D7AF2", true),
-                ("cal-home", "家", "iCloud", "#34C759", true),
-                ("cal-therapy", "心理咨询", "iCloud", "#AF52DE", true),
-                ("cal-team", "团队", "公司 Exchange", "#FF9500", true),
-                ("cal-holidays", "中国节假日", "订阅的日历", "#FF3B30", false),
-                ("cal-birthdays", "生日", "其他", "#8E8E93", false),
+                ("cal-work", "工作", "iCloud", "synced", "#1D7AF2", true, true),
+                ("cal-home", "家", "iCloud", "synced", "#34C759", true, false),
+                ("cal-therapy", "心理咨询", "iCloud", "synced", "#AF52DE", true, false),
+                ("cal-team", "团队", "公司 Exchange", "exchange", "#FF9500", true, false),
+                ("cal-holidays", "中国节假日", "订阅的日历", "subscription", "#FF3B30", false, false),
+                ("cal-birthdays", "生日", "其他", "birthdays", "#8E8E93", false, false),
             ]
             default: [
-                ("mac-work", "工作", "iCloud", "#1D7AF2", true),
-                ("mac-home", "家", "iCloud", "#34C759", true),
-                ("mac-local", "Mac 上的日历", "我的 Mac", "#FFCC00", true),
+                ("mac-work", "工作", "iCloud", "synced", "#1D7AF2", true, true),
+                ("mac-home", "家", "iCloud", "synced", "#34C759", true, false),
+                ("mac-local", "Mac 上的日历", "我的 Mac", "local", "#FFCC00", true, false),
             ]
             }
-        return calendars.map { id, title, account, color, writable in
+        return calendars.map { id, title, account, kind, color, writable, isDefault in
             .object([
-                "id": .string(id), "title": .string(title), "account": .string(account),
-                "color": .string(color), "writable": .bool(writable),
+                "id": .string(id), "title": .string(title), "account": .string(account), "kind": .string(kind),
+                "color": .string(color), "writable": .bool(writable), "default": .bool(isDefault),
             ])
         }
+    }
+
+    /// What a service's listed things' properties are called, in the order shown. The
+    /// definitions don't name their outputs' properties yet, so these stand in for the words
+    /// layer; one not named here isn't shown.
+    static func names(_ service: String) -> [(property: String, name: String)] {
+        guard service == "calendar" else { return [] }
+        return [("account", "账户"), ("writable", "可编辑"), ("default", "系统默认日历")]
     }
 }
 
@@ -114,6 +123,8 @@ struct FlooProviderSettingsPage: View {
     let service: FlooService
     let device: FlooDevice
     let format: FlooSettingsFormat
+    /// The one whose (i) was tapped: its page is open.
+    @State private var shown: FlooSettingChoice?
 
     private var file: [String: FlooJSON] { demo.settings[service.id]?[device.id] ?? [:] }
 
@@ -137,10 +148,11 @@ struct FlooProviderSettingsPage: View {
         }
         .navigationTitle("\(service.name) · \(device.name.replacingOccurrences(of: "这台 ", with: ""))")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $shown) { FlooSettingChoicePage(option: $0, names: FlooListed.names(service.id)) }
     }
 
     /// Each key with its words under it: one that picks several is checked in place, a section
-    /// for each group; one that picks one is a picker on its own page; the rest are their
+    /// for each group, each with an (i) to its page when its properties have names; one that picks one is a picker on its own page; the rest are their
     /// type's control.
     @ViewBuilder private func field(_ key: String, _ schema: FlooJSON) -> some View {
         if schema["type"]?.string == "array", let choices = schema["items"]?["choices"] {
@@ -148,7 +160,8 @@ struct FlooProviderSettingsPage: View {
             let complement = choices["complement"] == .bool(true)
             FlooChecklist(
                 title: format.title(key), summary: format.summary(key), options: options(choices),
-                checked: { id in (file[key]?.items.contains(.string(id)) == true) != complement }
+                checked: { id in (file[key]?.items.contains(.string(id)) == true) != complement },
+                info: FlooListed.names(service.id).isEmpty ? nil : { shown = $0 }
             ) { id in
                 var listed = file[key]?.items ?? []
                 if let index = listed.firstIndex(of: .string(id)) { listed.remove(at: index) } else {
@@ -200,7 +213,8 @@ struct FlooProviderSettingsPage: View {
                   let id = keyed(item, "key") else { return nil }
             return FlooSettingChoice(
                 id: id, label: keyed(item, "label") ?? id,
-                tint: keyed(item, "tint").flatMap(Color.init(hex:)), group: keyed(item, "group") ?? ""
+                tint: keyed(item, "tint").flatMap(Color.init(hex:)), group: keyed(item, "group") ?? "",
+                properties: item.fields
             )
         }
     }
@@ -249,6 +263,8 @@ struct FlooSettingChoice: Identifiable, Hashable {
     let label: String
     let tint: Color?
     let group: String
+    /// All it was listed with.
+    let properties: [String: FlooJSON]
 
     /// Their groups, in the order listed.
     static func groups(_ options: [FlooSettingChoice]) -> [String] {
@@ -270,12 +286,15 @@ struct FlooSettingChoiceLabel: View {
 }
 
 /// A setting that picks several: each checked or not, a section for each group (its title
-/// heads them when there are none), its words under the last.
+/// heads them when there are none), its words under the last. A row is checked as the system's
+/// Calendars list does it: a circle in its tint, filled and ticked when checked; the row
+/// toggles, its (i) opens its page.
 struct FlooChecklist: View {
     let title: String
     let summary: String?
     let options: [FlooSettingChoice]
     let checked: (String) -> Bool
+    let info: ((FlooSettingChoice) -> Void)?
     let toggle: (String) -> Void
 
     var body: some View {
@@ -283,23 +302,60 @@ struct FlooChecklist: View {
         ForEach(groups, id: \.self) { group in
             Section {
                 ForEach(options.filter { $0.group == group }) { option in
-                    Button { toggle(option.id) } label: {
-                        HStack {
-                            FlooSettingChoiceLabel(option: option).foregroundStyle(.primary)
-                            Spacer()
-                            if checked(option.id) {
-                                Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
+                    HStack(spacing: 12) {
+                        Button { toggle(option.id) } label: {
+                            HStack(spacing: 12) {
+                                let on = checked(option.id), tint = option.tint ?? .accentColor
+                                Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                                    .font(.title2)
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(on ? .white : tint, tint)
+                                    .accessibilityHidden(true)
+                                Text(option.label).foregroundStyle(.primary)
+                                Spacer()
                             }
+                            .contentShape(Rectangle())
                         }
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(checked(option.id) ? .isSelected : [])
+                        if let info {
+                            Button { info(option) } label: { Image(systemName: "info.circle").font(.title3) }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("\(option.label)的信息")
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
             } header: {
                 Text(group.isEmpty ? title : group)
             } footer: {
                 if group == groups.last, let summary { Text(summary) }
             }
+        }
+    }
+}
+
+/// One of what a setting picks from, as its operation listed it: each property that has a
+/// name, in the order named.
+struct FlooSettingChoicePage: View {
+    let option: FlooSettingChoice
+    let names: [(property: String, name: String)]
+
+    var body: some View {
+        List {
+            ForEach(names.filter { option.properties[$0.property] != nil }, id: \.property) { named in
+                LabeledContent(named.name, value: Self.text(option.properties[named.property]!))
+            }
+        }
+        .navigationTitle(option.label)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private static func text(_ value: FlooJSON) -> String {
+        switch value {
+        case .bool(let yes): yes ? "是" : "否"
+        case .string(let text): text
+        case .number(let number): number.formatted()
+        default: ""
         }
     }
 }
