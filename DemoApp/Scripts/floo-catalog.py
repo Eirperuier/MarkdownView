@@ -7,9 +7,10 @@ folder of their JSON (one file per service, `<id>.json`). Run from anywhere:
 
     python3 -I DemoApp/Scripts/floo-catalog.py ~/Developer/floo /tmp/floo-definitions
 
-Writes FlooCatalog.json (the pages) and FlooSettings.json (each service's settings format
-and its settings' words, docs/service-settings.md §3.2; apart, so their keys are read as
-they are written).
+Writes FlooCatalog.json (the pages) and FlooSettings.json (each service's settings format,
+the operation its settings page shows above them with that operation's output format, and
+the page's words by language: the settings', the operations' answers' properties', and the
+sections, docs/service-settings.md §3.2; apart, so their keys are read as they are written).
 """
 import json
 import os
@@ -33,6 +34,17 @@ def worded(presentation, words):
         result["localized"][locale] = {**result["localized"].get(locale, {}),
                                        **{k: v for k, v in text.items() if k in TEXT}}
     return result
+
+
+def page(text):
+    # A settings page's words in one language: the settings', each operation's answers'
+    # properties', and the sections.
+    return {
+        "settings": text.get("settings", {}),
+        "properties": {operation: words["properties"] for operation, words in text.get("operations", {}).items()
+                       if "properties" in words},
+        "sections": text.get("sections", []),
+    }
 
 
 def main(floo, definitions):
@@ -60,10 +72,13 @@ def main(floo, definitions):
         if definition.get("settings"):
             settings[service] = {
                 "format": definition["settings"],
-                "words": {"en": words.get("settings", {}),
-                          **{locale: text["settings"] for locale, text in words.get("localized", {}).items()
-                             if "settings" in text}},
+                "words": {locale: page(text) for locale, text in
+                          [("en", words), *words.get("localized", {}).items()]},
             }
+            info = definition.get("info")
+            if info:
+                output = next(o.get("output") for o in definition["operations"] if o["id"] == info)
+                settings[service]["info"] = {"operation": info, "output": output}
     here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "DemoApp", "Destinations", "Floo")
     for name, value in [("FlooCatalog.json", pages), ("FlooSettings.json", settings)]:
         with open(os.path.join(here, name), "w", encoding="utf-8") as file:

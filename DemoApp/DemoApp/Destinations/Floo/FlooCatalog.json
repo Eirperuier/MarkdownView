@@ -5513,6 +5513,10 @@
     "title": "Delete a Codex session"
    },
    {
+    "effect": "read",
+    "title": "Codex folders"
+   },
+   {
     "effect": "write",
     "title": "Fork a Codex session"
    },

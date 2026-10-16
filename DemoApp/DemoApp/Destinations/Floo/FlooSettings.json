@@ -61,31 +61,862 @@
   },
   "words": {
    "en": {
-    "excluded": {
-     "summary": "floo can access events in selected calendars. New calendars are selected automatically.",
-     "title": "Calendars"
+    "properties": {
+     "calendars": {
+      "account": {
+       "title": "Account"
+      },
+      "default": {
+       "title": "System Default"
+      }
+     }
     },
-    "new_events": {
-     "summary": "New events created without a specified calendar are added here.",
-     "title": "Default Calendar"
-    },
-    "read_only": {
-     "summary": "Allow floo to add, edit, and delete events in this calendar. When turned off, events are view-only.",
-     "title": "Allow Editing"
+    "sections": [],
+    "settings": {
+     "excluded": {
+      "summary": "floo can access events in selected calendars. New calendars are selected automatically.",
+      "title": "Calendars"
+     },
+     "new_events": {
+      "summary": "New events created without a specified calendar are added here.",
+      "title": "Default Calendar",
+      "unset": "System Default"
+     },
+     "read_only": {
+      "summary": "Allow floo to add, edit, and delete events in this calendar. When turned off, events are view-only.",
+      "title": "Allow Editing"
+     }
     }
    },
    "zh-Hans": {
-    "excluded": {
-     "summary": "floo 可访问所选日历中的日程。新增日历将自动选中。",
-     "title": "日历"
+    "properties": {
+     "calendars": {
+      "account": {
+       "title": "账户"
+      },
+      "default": {
+       "title": "系统默认"
+      }
+     }
     },
-    "new_events": {
-     "summary": "新建日程未指定日历时将添加至此日历。",
-     "title": "默认日历"
+    "sections": [],
+    "settings": {
+     "excluded": {
+      "summary": "floo 可访问所选日历中的日程。新增日历将自动选中。",
+      "title": "日历"
+     },
+     "new_events": {
+      "summary": "新建日程未指定日历时将添加至此日历。",
+      "title": "默认日历",
+      "unset": "系统默认"
+     },
+     "read_only": {
+      "summary": "允许 floo 在此日历中添加、编辑和删除日程。关闭后，日程仅可查看。",
+      "title": "允许编辑"
+     }
+    }
+   }
+  }
+ },
+ "codex": {
+  "format": {
+   "properties": {
+    "approval": {
+     "description": "When new sessions ask before acting, when the call doesn't say",
+     "enum": [
+      "untrusted",
+      "on_request",
+      "never"
+     ],
+     "notIn": "excluded_approvals",
+     "type": "string"
     },
-    "read_only": {
-     "summary": "允许 floo 在此日历中添加、编辑和删除日程。关闭后，日程仅可查看。",
-     "title": "允许编辑"
+    "effort": {
+     "description": "The reasoning effort for new sessions when the call names none; the model's own when it takes no such effort",
+     "enum": [
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+     ],
+     "type": "string"
+    },
+    "excluded_approvals": {
+     "complement": true,
+     "description": "Approval settings Codex never runs with for floo, in any session",
+     "items": {
+      "enum": [
+       "untrusted",
+       "on_request",
+       "never"
+      ],
+      "type": "string"
+     },
+     "maxItems": 2,
+     "type": "array",
+     "uniqueItems": true
+    },
+    "excluded_modes": {
+     "complement": true,
+     "description": "Permission modes Codex never runs with for floo, in any session",
+     "items": {
+      "enum": [
+       "read_only",
+       "workspace",
+       "full_access"
+      ],
+      "type": "string"
+     },
+     "maxItems": 2,
+     "type": "array",
+     "uniqueItems": true
+    },
+    "folders": {
+     "description": "The folders Codex works in, with everything under them; anywhere when not set",
+     "items": {
+      "choices": {
+       "from": "folders",
+       "group": "project",
+       "key": "path",
+       "label": "name"
+      },
+      "pattern": "^[/~]",
+      "type": "string"
+     },
+     "type": "array",
+     "uniqueItems": true
+    },
+    "instructions": {
+     "description": "Instructions added for Codex in every session floo starts",
+     "maxLength": 8000,
+     "type": "string"
+    },
+    "mode": {
+     "description": "The permission mode for new sessions when the call names none",
+     "enum": [
+      "read_only",
+      "workspace",
+      "full_access"
+     ],
+     "notIn": "excluded_modes",
+     "type": "string"
+    },
+    "model": {
+     "choices": {
+      "from": "models",
+      "key": "id",
+      "label": "name"
+     },
+     "description": "The model for new sessions when the call names none",
+     "type": "string"
+    },
+    "network": {
+     "description": "Whether commands in sessions floo starts may reach the network in workspace mode",
+     "type": "boolean"
+    },
+    "reasoning_summary": {
+     "description": "How much of its reasoning Codex sums up in sessions floo starts",
+     "enum": [
+      "auto",
+      "concise",
+      "detailed",
+      "none"
+     ],
+     "type": "string"
+    },
+    "reviewer": {
+     "description": "Who answers the approvals of new sessions when the call doesn't say",
+     "enum": [
+      "person",
+      "codex"
+     ],
+     "type": "string"
+    },
+    "speed": {
+     "description": "The speed for new sessions when the call names none; fast uses more of the plan's limits",
+     "enum": [
+      "standard",
+      "fast"
+     ],
+     "type": "string"
+    },
+    "verbosity": {
+     "description": "How long Codex's answers are in sessions floo starts",
+     "enum": [
+      "low",
+      "medium",
+      "high"
+     ],
+     "type": "string"
+    },
+    "web_search": {
+     "description": "Web search in sessions floo starts: off, from a cache, or live",
+     "enum": [
+      "disabled",
+      "cached",
+      "live"
+     ],
+     "type": "string"
+    }
+   },
+   "type": "object"
+  },
+  "info": {
+   "operation": "account",
+   "output": {
+    "properties": {
+     "account": {
+      "properties": {
+       "email": {
+        "type": "string"
+       },
+       "kind": {
+        "description": "chatgpt, apiKey or amazonBedrock.",
+        "type": "string"
+       },
+       "plan": {
+        "type": "string"
+       }
+      },
+      "type": "object"
+     },
+     "credits": {
+      "properties": {
+       "balance": {
+        "type": "number"
+       },
+       "unlimited": {
+        "type": "boolean"
+       }
+      },
+      "type": "object"
+     },
+     "defaults": {
+      "additionalProperties": {
+       "properties": {
+        "file": {
+         "description": "The configuration file it comes from.",
+         "type": "string"
+        },
+        "value": {
+         "type": "string"
+        }
+       },
+       "type": "object"
+      },
+      "description": "What Codex's own configuration sets (model, effort, approval, mode, web_search), and from where.",
+      "type": "object"
+     },
+     "limit_reached": {
+      "description": "Codex can't run until a limit resets.",
+      "type": "boolean"
+     },
+     "limits": {
+      "description": "The plan's usage limits, each over its window.",
+      "items": {
+       "properties": {
+        "resets_at": {
+         "format": "date-time",
+         "type": "string"
+        },
+        "used_percent": {
+         "format": "percent",
+         "type": "number"
+        },
+        "window_minutes": {
+         "type": "integer"
+        }
+       },
+       "type": "object"
+      },
+      "type": "array"
+     },
+     "requirements": {
+      "properties": {
+       "allowed_approvals": {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       "allowed_modes": {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       "allowed_web_search": {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       }
+      },
+      "type": "object"
+     },
+     "saved_resets": {
+      "properties": {
+       "available": {
+        "description": "Limit resets the account has saved to use.",
+        "type": "integer"
+       },
+       "next_expires_at": {
+        "format": "date-time",
+        "type": "string"
+       }
+      },
+      "type": "object"
+     },
+     "version": {
+      "description": "The Codex version running.",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "words": {
+   "en": {
+    "properties": {
+     "account": {
+      "account": {
+       "title": "Account"
+      },
+      "account.email": {
+       "title": "Email"
+      },
+      "account.kind": {
+       "title": "Sign-In Method",
+       "values": {
+        "amazonBedrock": "Amazon Bedrock",
+        "apiKey": "API Key",
+        "chatgpt": "ChatGPT"
+       }
+      },
+      "account.plan": {
+       "title": "Plan",
+       "values": {
+        "business": "Business",
+        "edu": "Edu",
+        "enterprise": "Enterprise",
+        "free": "Free",
+        "plus": "Plus",
+        "pro": "Pro"
+       }
+      },
+      "credits": {
+       "title": "Credits"
+      },
+      "credits.balance": {
+       "title": "Credits"
+      },
+      "credits.unlimited": {
+       "title": "Unlimited"
+      },
+      "defaults": {
+       "title": "Codex Defaults"
+      },
+      "defaults.file": {
+       "title": "From"
+      },
+      "limit_reached": {
+       "title": "Limit Reached"
+      },
+      "limits": {
+       "title": "Usage Limits"
+      },
+      "limits.resets_at": {
+       "title": "Resets"
+      },
+      "limits.used_percent": {
+       "title": "Used"
+      },
+      "limits.window_minutes": {
+       "values": {
+        "10080": "Weekly Limit",
+        "300": "5-Hour Limit"
+       }
+      },
+      "requirements": {
+       "title": "Restrictions"
+      },
+      "requirements.allowed_approvals": {
+       "title": "Allowed Approvals"
+      },
+      "requirements.allowed_modes": {
+       "title": "Allowed Permissions"
+      },
+      "requirements.allowed_web_search": {
+       "title": "Allowed Web Search"
+      },
+      "saved_resets": {
+       "title": "Saved Limit Resets"
+      },
+      "saved_resets.available": {
+       "title": "Saved Limit Resets"
+      },
+      "saved_resets.next_expires_at": {
+       "title": "Expires"
+      },
+      "version": {
+       "title": "Version"
+      }
+     }
+    },
+    "sections": [
+     {
+      "properties": [
+       "account.email",
+       "account.plan"
+      ],
+      "title": "Account"
+     },
+     {
+      "properties": [
+       "limits",
+       "credits.balance",
+       "saved_resets.available",
+       "saved_resets.next_expires_at"
+      ],
+      "title": "Usage"
+     },
+     {
+      "keys": [
+       "folders"
+      ],
+      "title": "Scope"
+     },
+     {
+      "keys": [
+       "model",
+       "effort",
+       "speed",
+       "mode",
+       "approval",
+       "reviewer"
+      ],
+      "summary": "Used when floo starts a new session without specifying a value. When not set, Codex's configuration on this Mac is used.",
+      "title": "Defaults"
+     },
+     {
+      "properties": [
+       "defaults",
+       "version"
+      ],
+      "summary": "These values come from Codex's configuration on this Mac and are used when not set above.",
+      "title": "Codex Configuration"
+     },
+     {
+      "keys": [
+       "excluded_modes",
+       "excluded_approvals"
+      ],
+      "summary": "floo never runs Codex with a mode that is turned off, including in existing sessions. At least one permission mode and one approval mode must remain on.",
+      "title": "Allowed Modes"
+     },
+     {
+      "keys": [
+       "network",
+       "web_search",
+       "reasoning_summary",
+       "verbosity",
+       "instructions"
+      ],
+      "summary": "These settings apply to every session floo starts.",
+      "title": "All Sessions"
+     }
+    ],
+    "settings": {
+     "approval": {
+      "summary": "Determines when Codex asks for approval before acting in new sessions.",
+      "title": "Approval",
+      "unset": "Codex Default",
+      "values": {
+       "never": "Never",
+       "on_request": "On Request",
+       "untrusted": "Unless Trusted"
+      }
+     },
+     "effort": {
+      "summary": "New sessions started without a specified reasoning effort use this level. If unsupported by the model, the model’s default is used.",
+      "title": "Reasoning Effort",
+      "unset": "Codex Default",
+      "values": {
+       "high": "High",
+       "low": "Low",
+       "medium": "Medium",
+       "minimal": "Minimal",
+       "xhigh": "Extra High"
+      }
+     },
+     "excluded_approvals": {
+      "summary": "Approval modes floo is allowed to use with Codex.",
+      "title": "Allowed Approvals",
+      "values": {
+       "never": "Never Ask for Approval",
+       "on_request": "Ask on Request",
+       "untrusted": "Ask Unless Trusted"
+      }
+     },
+     "excluded_modes": {
+      "summary": "Permission modes floo is allowed to use with Codex.",
+      "title": "Allowed Permissions",
+      "values": {
+       "full_access": "Full Access",
+       "read_only": "Read Only",
+       "workspace": "Workspace"
+      }
+     },
+     "folders": {
+      "summary": "Codex can work for floo only in selected folders and their subfolders. If no limit is set, Codex can work in any folder.",
+      "title": "Folders",
+      "unset": "Any Folder"
+     },
+     "instructions": {
+      "summary": "Included in every new session started by floo.",
+      "title": "Additional Instructions",
+      "unset": "None"
+     },
+     "mode": {
+      "summary": "New sessions started without specified permissions use this mode.",
+      "title": "Permissions",
+      "unset": "Codex Default",
+      "values": {
+       "full_access": "Full Access",
+       "read_only": "Read Only",
+       "workspace": "Workspace"
+      }
+     },
+     "model": {
+      "summary": "New sessions started without a specified model use this model.",
+      "title": "Model",
+      "unset": "Codex Default"
+     },
+     "network": {
+      "summary": "Allow commands run by Codex in workspace mode to access the network in new sessions.",
+      "title": "Network Access"
+     },
+     "reasoning_summary": {
+      "summary": "Determines how much reasoning detail Codex includes in new sessions.",
+      "title": "Reasoning Summary",
+      "unset": "Codex Default",
+      "values": {
+       "auto": "Automatic",
+       "concise": "Concise",
+       "detailed": "Detailed",
+       "none": "None"
+      }
+     },
+     "reviewer": {
+      "summary": "Determines who responds to approval requests in new sessions.",
+      "title": "Approver",
+      "unset": "Codex Default",
+      "values": {
+       "codex": "Codex",
+       "person": "Person"
+      }
+     },
+     "speed": {
+      "summary": "New sessions started without a specified speed use this setting. Fast uses more of your plan’s usage limit.",
+      "title": "Speed",
+      "unset": "Codex Default",
+      "values": {
+       "fast": "Fast",
+       "standard": "Standard"
+      }
+     },
+     "verbosity": {
+      "summary": "Determines the length of Codex responses in new sessions.",
+      "title": "Output Verbosity",
+      "unset": "Codex Default",
+      "values": {
+       "high": "High",
+       "low": "Low",
+       "medium": "Medium"
+      }
+     },
+     "web_search": {
+      "summary": "Determines how Codex searches the web in new sessions.",
+      "title": "Web Search",
+      "unset": "Codex Default",
+      "values": {
+       "cached": "Cached",
+       "disabled": "Off",
+       "live": "Live"
+      }
+     }
+    }
+   },
+   "zh-Hans": {
+    "properties": {
+     "account": {
+      "account": {
+       "title": "账户"
+      },
+      "account.email": {
+       "title": "电子邮件"
+      },
+      "account.kind": {
+       "title": "登录方式",
+       "values": {
+        "amazonBedrock": "Amazon Bedrock",
+        "apiKey": "API 密钥",
+        "chatgpt": "ChatGPT"
+       }
+      },
+      "account.plan": {
+       "title": "方案",
+       "values": {
+        "business": "Business",
+        "edu": "Edu",
+        "enterprise": "Enterprise",
+        "free": "免费版",
+        "plus": "Plus",
+        "pro": "Pro"
+       }
+      },
+      "credits": {
+       "title": "积分"
+      },
+      "credits.balance": {
+       "title": "积分"
+      },
+      "credits.unlimited": {
+       "title": "无限制"
+      },
+      "defaults": {
+       "title": "Codex 默认设置"
+      },
+      "defaults.file": {
+       "title": "来自"
+      },
+      "limit_reached": {
+       "title": "已达限额"
+      },
+      "limits": {
+       "title": "使用限额"
+      },
+      "limits.resets_at": {
+       "title": "重置"
+      },
+      "limits.used_percent": {
+       "title": "已用"
+      },
+      "limits.window_minutes": {
+       "values": {
+        "10080": "本周额度",
+        "300": "5 小时额度"
+       }
+      },
+      "requirements": {
+       "title": "访问限制"
+      },
+      "requirements.allowed_approvals": {
+       "title": "允许的审批模式"
+      },
+      "requirements.allowed_modes": {
+       "title": "允许的权限"
+      },
+      "requirements.allowed_web_search": {
+       "title": "允许的网页搜索模式"
+      },
+      "saved_resets": {
+       "title": "备用重置次数"
+      },
+      "saved_resets.available": {
+       "title": "备用重置次数"
+      },
+      "saved_resets.next_expires_at": {
+       "title": "过期"
+      },
+      "version": {
+       "title": "版本"
+      }
+     }
+    },
+    "sections": [
+     {
+      "properties": [
+       "account.email",
+       "account.plan"
+      ],
+      "title": "账户"
+     },
+     {
+      "properties": [
+       "limits",
+       "credits.balance",
+       "saved_resets.available",
+       "saved_resets.next_expires_at"
+      ],
+      "title": "用量"
+     },
+     {
+      "keys": [
+       "folders"
+      ],
+      "title": "范围"
+     },
+     {
+      "keys": [
+       "model",
+       "effort",
+       "speed",
+       "mode",
+       "approval",
+       "reviewer"
+      ],
+      "summary": "floo 启动新会话且未指定值时使用。未设置时，使用此 Mac 上 Codex 的自身配置。",
+      "title": "默认设置"
+     },
+     {
+      "properties": [
+       "defaults",
+       "version"
+      ],
+      "summary": "这些值来自此 Mac 上 Codex 的自身配置，在上方未设置时使用。",
+      "title": "Codex 配置"
+     },
+     {
+      "keys": [
+       "excluded_modes",
+       "excluded_approvals"
+      ],
+      "summary": "floo 不会以已关闭的模式运行 Codex，包括在现有会话中。至少须开启一种权限模式和一种审批模式。",
+      "title": "允许使用的模式"
+     },
+     {
+      "keys": [
+       "network",
+       "web_search",
+       "reasoning_summary",
+       "verbosity",
+       "instructions"
+      ],
+      "summary": "这些设置适用于 floo 启动的每个会话。",
+      "title": "所有会话"
+     }
+    ],
+    "settings": {
+     "approval": {
+      "summary": "决定新会话中 Codex 在执行操作前请求审批的时机。",
+      "title": "审批",
+      "unset": "Codex 默认",
+      "values": {
+       "never": "永不",
+       "on_request": "超出权限时",
+       "untrusted": "非受信任操作时"
+      }
+     },
+     "effort": {
+      "summary": "新会话未指定推理强度时将使用此级别。若所选模型不支持，则使用该模型的默认设置。",
+      "title": "推理强度",
+      "unset": "Codex 默认",
+      "values": {
+       "high": "高",
+       "low": "低",
+       "medium": "中",
+       "minimal": "最低",
+       "xhigh": "超高"
+      }
+     },
+     "excluded_approvals": {
+      "summary": "允许 floo 在运行 Codex 时使用的审批模式。",
+      "title": "允许的审批模式",
+      "values": {
+       "never": "永不询问审批",
+       "on_request": "超出权限时询问",
+       "untrusted": "非受信任操作时询问"
+      }
+     },
+     "excluded_modes": {
+      "summary": "允许 floo 在运行 Codex 时使用的权限模式。",
+      "title": "允许的权限",
+      "values": {
+       "full_access": "完全访问权限",
+       "read_only": "只读",
+       "workspace": "工作区"
+      }
+     },
+     "folders": {
+      "summary": "Codex 仅可在所选文件夹及其子文件夹中为 floo 工作。未设置限制时，Codex 可在任意文件夹中工作。",
+      "title": "文件夹",
+      "unset": "任意文件夹"
+     },
+     "instructions": {
+      "summary": "将包含在由 floo 启动的每个新会话中。",
+      "title": "附加指令",
+      "unset": "无"
+     },
+     "mode": {
+      "summary": "新会话未指定权限时将使用此模式。",
+      "title": "权限",
+      "unset": "Codex 默认",
+      "values": {
+       "full_access": "完全访问权限",
+       "read_only": "只读",
+       "workspace": "工作区"
+      }
+     },
+     "model": {
+      "summary": "新会话未指定模型时将使用此模型。",
+      "title": "模型",
+      "unset": "Codex 默认"
+     },
+     "network": {
+      "summary": "允许新会话中 Codex 在工作区模式下运行的命令访问网络。",
+      "title": "联网"
+     },
+     "reasoning_summary": {
+      "summary": "决定新会话中 Codex 提供的推理摘要详细程度。",
+      "title": "推理摘要",
+      "unset": "Codex 默认",
+      "values": {
+       "auto": "自动",
+       "concise": "简明",
+       "detailed": "详细",
+       "none": "无"
+      }
+     },
+     "reviewer": {
+      "summary": "决定新会话中由谁响应审批请求。",
+      "title": "审批者",
+      "unset": "Codex 默认",
+      "values": {
+       "codex": "Codex",
+       "person": "人工"
+      }
+     },
+     "speed": {
+      "summary": "新会话未指定速度时将使用此设置。“快速”会消耗更多套餐用量额度。",
+      "title": "速度",
+      "unset": "Codex 默认",
+      "values": {
+       "fast": "快速",
+       "standard": "标准"
+      }
+     },
+     "verbosity": {
+      "summary": "决定新会话中 Codex 回复的详细程度。",
+      "title": "输出详细度",
+      "unset": "Codex 默认",
+      "values": {
+       "high": "高",
+       "low": "低",
+       "medium": "中"
+      }
+     },
+     "web_search": {
+      "summary": "决定新会话中 Codex 搜索网页的方式。",
+      "title": "网页搜索",
+      "unset": "Codex 默认",
+      "values": {
+       "cached": "缓存",
+       "disabled": "关闭",
+       "live": "实时"
+      }
+     }
     }
    }
   }

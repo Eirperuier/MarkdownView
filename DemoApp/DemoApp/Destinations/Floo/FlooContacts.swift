@@ -273,6 +273,7 @@ final class FlooContactsDemo {
                 FlooPush(day: "10月5日", time: "20:40", text: "下周三全天没有安排。"),
             ]
         ),
+        "codex": FlooFollowing(devices: ["mac"]),
         "github": FlooFollowing(
             account: "linxiao",
             doing: [FlooDoing(text: "盯着 floo-sandbox 上等你 review 的 PR", asked: "10月2日 你在对话里说的")],
@@ -294,6 +295,15 @@ final class FlooContactsDemo {
             "iphone": [
                 "excluded": .array([.string("cal-therapy")]), "read_only": .array([.string("cal-team")]),
                 "new_events": .string("cal-home"),
+            ],
+        ],
+        "codex": [
+            "mac": [
+                "folders": .array(["~/Developer/floo", "~/Developer/floo-MarkdownView", "~/Developer/tidemark"].map(FlooJSON.string)),
+                "model": .string("gpt-5.5-codex"), "effort": .string("high"), "approval": .string("on_request"),
+                "excluded_modes": .array([.string("full_access")]), "network": .bool(true),
+                "web_search": .string("cached"),
+                "instructions": .string("结束前运行与改动相关的测试，并说明运行了哪些。"),
             ],
         ],
     ]
