@@ -139,46 +139,56 @@ struct FlooProviderSettingsPage: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// Each key a row, its words under it: one that picks several opens a page of them, one
-    /// that picks one is a picker on its own page, the rest are their type's control.
+    /// Each key with its words under it: one that picks several is checked in place, a section
+    /// for each group; one that picks one is a picker on its own page; the rest are their
+    /// type's control.
     @ViewBuilder private func field(_ key: String, _ schema: FlooJSON) -> some View {
-        Section {
-            if schema["type"]?.string == "array", let choices = schema["items"]?["choices"] {
-                let options = options(choices)
-                // `complement`: the file lists the ones left unchecked.
-                let complement = choices["complement"] == .bool(true)
-                let checked = { (id: String) in (file[key]?.items.contains(.string(id)) == true) != complement }
-                let count = options.filter { checked($0.id) }.count
-                NavigationLink {
-                    FlooChecklist(title: format.title(key), options: options, checked: checked) { id in
-                        var listed = file[key]?.items ?? []
-                        if let index = listed.firstIndex(of: .string(id)) { listed.remove(at: index) } else {
-                            listed.append(.string(id))
-                        }
-                        change(key, listed.isEmpty ? nil : .array(listed))
-                    }
-                } label: {
-                    LabeledContent(format.title(key), value: count == options.count ? "全部" : "\(count)")
+        if schema["type"]?.string == "array", let choices = schema["items"]?["choices"] {
+            // `complement`: the file lists the ones left unchecked.
+            let complement = choices["complement"] == .bool(true)
+            FlooChecklist(
+                title: format.title(key), summary: format.summary(key), options: options(choices),
+                checked: { id in (file[key]?.items.contains(.string(id)) == true) != complement }
+            ) { id in
+                var listed = file[key]?.items ?? []
+                if let index = listed.firstIndex(of: .string(id)) { listed.remove(at: index) } else {
+                    listed.append(.string(id))
                 }
-            } else if let choices = schema["choices"] {
-                let options = options(choices)
-                Picker(format.title(key), selection: Binding(
-                    get: { file[key]?.string ?? "" },
-                    set: { change(key, $0.isEmpty ? nil : .string($0)) }
-                )) {
-                    Text("系统默认").tag("")
-                    ForEach(FlooSettingChoice.groups(options), id: \.self) { group in
-                        Section(group) {
-                            ForEach(options.filter { $0.group == group }) { FlooSettingChoiceLabel(option: $0).tag($0.id) }
-                        }
-                    }
+                change(key, listed.isEmpty ? nil : .array(listed))
+                // A key held off this list (`notIn`) whose value it now lists is unset in the same change.
+                for (other, property) in format.format["properties"]?.fields ?? [:]
+                where property["notIn"] == .string(key) {
+                    if let value = file[other], listed.contains(value) { change(other, nil) }
                 }
-                .pickerStyle(.navigationLink)
-            } else {
-                plain(key, schema)
             }
-        } footer: {
-            format.summary(key).map(Text.init)
+        } else {
+            Section {
+                single(key, schema)
+            } footer: {
+                format.summary(key).map(Text.init)
+            }
+        }
+    }
+
+    @ViewBuilder private func single(_ key: String, _ schema: FlooJSON) -> some View {
+        if let choices = schema["choices"] {
+            // `notIn`: none the list under that key holds.
+            let held = schema["notIn"]?.string.flatMap { file[$0]?.items } ?? []
+            let options = options(choices).filter { !held.contains(.string($0.id)) }
+            Picker(format.title(key), selection: Binding(
+                get: { file[key]?.string ?? "" },
+                set: { change(key, $0.isEmpty ? nil : .string($0)) }
+            )) {
+                Text("系统默认").tag("")
+                ForEach(FlooSettingChoice.groups(options), id: \.self) { group in
+                    Section(group) {
+                        ForEach(options.filter { $0.group == group }) { FlooSettingChoiceLabel(option: $0).tag($0.id) }
+                    }
+                }
+            }
+            .pickerStyle(.navigationLink)
+        } else {
+            plain(key, schema)
         }
     }
 
@@ -259,34 +269,37 @@ struct FlooSettingChoiceLabel: View {
     }
 }
 
-/// A setting that picks several: each checked or not, a section for each group.
+/// A setting that picks several: each checked or not, a section for each group (its title
+/// heads them when there are none), its words under the last.
 struct FlooChecklist: View {
     let title: String
+    let summary: String?
     let options: [FlooSettingChoice]
     let checked: (String) -> Bool
     let toggle: (String) -> Void
 
     var body: some View {
-        List {
-            ForEach(FlooSettingChoice.groups(options), id: \.self) { group in
-                Section(group) {
-                    ForEach(options.filter { $0.group == group }) { option in
-                        Button { toggle(option.id) } label: {
-                            HStack {
-                                FlooSettingChoiceLabel(option: option).foregroundStyle(.primary)
-                                Spacer()
-                                if checked(option.id) {
-                                    Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
-                                }
+        let groups = FlooSettingChoice.groups(options)
+        ForEach(groups, id: \.self) { group in
+            Section {
+                ForEach(options.filter { $0.group == group }) { option in
+                    Button { toggle(option.id) } label: {
+                        HStack {
+                            FlooSettingChoiceLabel(option: option).foregroundStyle(.primary)
+                            Spacer()
+                            if checked(option.id) {
+                                Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
                             }
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
+            } header: {
+                Text(group.isEmpty ? title : group)
+            } footer: {
+                if group == groups.last, let summary { Text(summary) }
             }
         }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
     }
 }

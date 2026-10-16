@@ -30,6 +30,7 @@
       }
      },
      "description": "The calendar for new events that name none; the system default calendar when not set",
+     "notIn": "excluded",
      "type": "string"
     }
    },
