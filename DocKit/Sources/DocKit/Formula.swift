@@ -11,7 +11,8 @@
 /// (`B2` is the first body row's second column), ranges are `A2:C4`, and `ABOVE`,
 /// `BELOW`, `LEFT`, `RIGHT` mean the cells that way from the formula's cell (body rows
 /// only). Functions: SUM, AVERAGE, COUNT, COUNTA, MIN, MAX, MEDIAN, MODE, PRODUCT,
-/// ROUND, ABS, INT, SIGN; operators `+ - * / ^`, unary minus and parentheses.
+/// ROUND, ABS, INT, SIGN (AVG and CNT, Craft's keys, are AVERAGE and COUNT); operators
+/// `+ - * / ^`, unary minus and parentheses.
 /// Errors read `#ERROR`, `#REF!`, `#DIV/0!`, `#CYCLE!`.
 public enum DatabaseFormula {
     /// What a cell shows: a formula's result, or the cell's own text.
@@ -36,6 +37,65 @@ public enum DatabaseFormula {
             default: scalar
             }
         }))
+    }
+
+    /// A reference in a formula's text (without its `=`), as it's typed: where it is (in
+    /// UTF-16 units, as a text view counts) and the cells it names (row 0 the header).
+    public struct Reference: Equatable, Sendable {
+        public var range: Range<Int>
+        public var rows: ClosedRange<Int>
+        public var columns: ClosedRange<Int>
+
+        public init(range: Range<Int>, rows: ClosedRange<Int>, columns: ClosedRange<Int>) {
+            self.range = range
+            self.rows = rows
+            self.columns = columns
+        }
+    }
+
+    /// The references in `text` (a formula's, without its `=`), in order: a cell (`B2`)
+    /// or a range (`A2:C4`); a function's name isn't one. Read by the words alone, so a
+    /// formula half typed has its references too.
+    public static func references(in text: String) -> [Reference] {
+        // Half-width forms are one UTF-16 unit, as the full-width ones they replace.
+        let units = Array(halfWidth(Substring(text)).utf16)
+        func isWord(_ unit: UInt16) -> Bool {
+            (48...57).contains(unit) || (65...90).contains(unit) || (97...122).contains(unit)
+        }
+        func word(at start: Int) -> (end: Int, cell: (Int, Int)?) {
+            var end = start
+            while end < units.count, isWord(units[end]) { end += 1 }
+            let word = String(decoding: units[start..<end], as: UTF16.self).uppercased()
+            return (end, Parser.reference(word))
+        }
+        var references: [Reference] = []
+        var index = 0
+        while index < units.count {
+            guard isWord(units[index]), index == 0 || !isWord(units[index - 1]) else {
+                index += 1
+                continue
+            }
+            let start = index
+            let (end, cell) = word(at: start)
+            index = end
+            guard let (row, column) = cell, end == units.count || units[end] != 40 /* ( */ else { continue }
+            if end + 1 < units.count, units[end] == 58 /* : */, isWord(units[end + 1]) {
+                let (rangeEnd, other) = word(at: end + 1)
+                if let (toRow, toColumn) = other {
+                    references.append(Reference(range: start..<rangeEnd, rows: min(row, toRow)...max(row, toRow),
+                                                columns: min(column, toColumn)...max(column, toColumn)))
+                    index = rangeEnd
+                    continue
+                }
+            }
+            references.append(Reference(range: start..<end, rows: row...row, columns: column...column))
+        }
+        return references
+    }
+
+    /// A cell's reference: (row 0, column 0) → `A1`.
+    public static func reference(row: Int, column: Int) -> String {
+        columnName(column) + String(row + 1)
     }
 
     /// A column's letters: 0 → A, 25 → Z, 26 → AA.
@@ -212,10 +272,10 @@ public enum DatabaseFormula {
                 switch name {
                 case "SUM": return values.reduce(0, +)
                 case "PRODUCT": return values.isEmpty ? 0 : values.reduce(1, *)
-                case "AVERAGE":
+                case "AVERAGE", "AVG":
                     guard !values.isEmpty else { throw Failure.divisionByZero }
                     return values.reduce(0, +) / Double(values.count)
-                case "COUNT": return Double(values.count)
+                case "COUNT", "CNT": return Double(values.count)
                 case "COUNTA": return Double(filled)
                 case "MIN": return values.min() ?? 0
                 case "MAX": return values.max() ?? 0

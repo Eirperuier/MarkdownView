@@ -43,6 +43,20 @@ public struct MarkdownTableGridKey: PreferenceKey {
     }
 }
 
+/// Where a table's cells are, as their fills draw them (across to the middle of the space
+/// to the next column, down to their row's edges), in the space of its cells
+/// (MarkdownTableBoundsKey's): what a host's decoration draws by (`markdownTableDecoration`).
+public typealias MarkdownTableCellFrames = [MarkdownTableCellPosition: CGRect]
+
+/// Each cell's place, for the decoration.
+struct MarkdownTableCellFramesKey: PreferenceKey {
+    static let defaultValue: [MarkdownTableCellPosition: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [MarkdownTableCellPosition: Anchor<CGRect>], nextValue: () -> [MarkdownTableCellPosition: Anchor<CGRect>]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
 /// Laid out wherever SwiftUI lays the table out (off the main thread too, when it renders
 /// asynchronously), read on the main thread: its places are behind a lock.
 public final class MarkdownTableGrid: Equatable, @unchecked Sendable {
@@ -88,9 +102,12 @@ struct MarkdownTableCellHooks: Equatable, Sendable {
     var replacement: MarkdownTableCellHook<MarkdownTableCellPosition, AnyView?>?
     /// The cells `replacement` shows a view in.
     var replaced: Set<MarkdownTableCellPosition> = []
+    /// Drawn over the cells, by where they are.
+    var decoration: MarkdownTableCellHook<MarkdownTableCellFrames, AnyView>?
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.onTap === rhs.onTap && lhs.replacement === rhs.replacement && lhs.replaced == rhs.replaced
+            && lhs.decoration === rhs.decoration
     }
 }
 
@@ -148,6 +165,17 @@ private struct MarkdownTableCellReplacementModifier: ViewModifier {
     }
 }
 
+private struct MarkdownTableDecorationModifier: ViewModifier {
+    var decoration: @MainActor (MarkdownTableCellFrames) -> AnyView
+    @State private var hook = MarkdownTableCellHook<MarkdownTableCellFrames, AnyView> { _ in AnyView(EmptyView()) }
+    @Environment(\.markdownTableCellHooks) private var hooks
+
+    func body(content: Content) -> some View {
+        let _ = hook.call = decoration
+        content.environment(\.markdownTableCellHooks, with(hooks) { $0.decoration = hook })
+    }
+}
+
 private func with<Value>(_ value: Value, _ change: (inout Value) -> Void) -> Value {
     var value = value
     change(&value)
@@ -168,5 +196,13 @@ extension View {
         _ replacement: @escaping @MainActor (MarkdownTableCellPosition) -> AnyView?
     ) -> some View {
         modifier(MarkdownTableCellReplacementModifier(cells: cells, replacement: replacement))
+    }
+
+    /// A view drawn over tables MarkdownView renders, given where their cells are (as
+    /// their fills draw them); it scrolls with a table that scrolls, and draws past its
+    /// edges too (a column's name above it, a row's number before it). Touches go through
+    /// it to the table.
+    public func markdownTableDecoration(_ decoration: @escaping @MainActor (MarkdownTableCellFrames) -> AnyView) -> some View {
+        modifier(MarkdownTableDecorationModifier(decoration: decoration))
     }
 }

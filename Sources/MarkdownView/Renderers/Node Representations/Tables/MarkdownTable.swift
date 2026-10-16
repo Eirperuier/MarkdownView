@@ -501,6 +501,14 @@ struct MarkdownTableContent: View {
                         .tableCellHash(item.contentHash ^ (upgraded ? 0x5e1ec7 : 0) ^ (isReplaced ? Self.replacedHashSalt : 0) ^ look.hashValue, identity: item.id)
                 }
             }
+            .overlayPreferenceValue(MarkdownTableCellFramesKey.self) { [decoration = cellHooks.decoration] anchors in
+                if let decoration {
+                    GeometryReader { proxy in
+                        decoration.call(anchors.mapValues { proxy[$0] })
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
             .anchorPreference(key: MarkdownTableBoundsKey.self, value: .bounds) { $0 }
             .preference(key: MarkdownTableGridKey.self, value: grid)
         }
@@ -1515,6 +1523,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
             .textCase(isHeader ? .uppercase : .none)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: cellAlignment)
             .background { fill }
+            .background { place }
             .onAppear { configurePhaseHolder() }
             .onDisappear { phaseHolder.unsubscribe() }
             .onChange(of: revealManagerID) { _, _ in configurePhaseHolder() }
@@ -1661,6 +1670,19 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         guard design != nil || look.isHeaderColumn else { return bodyFont }
         let weight: Font.Weight = look.isHeaderColumn ? .bold : .regular
         return .markdownScaled(.system(.body, design: design ?? .default).weight(weight), .body, weight: weight, design: design ?? .default)
+    }
+
+    /// Where the cell is, as its fill draws it, for a host's decoration.
+    @ViewBuilder
+    private var place: some View {
+        if hooks.hooks.decoration != nil {
+            // The anchor on what the padding lays out wider, not on the padding (as wide as
+            // the cell).
+            Color.clear
+                .anchorPreference(key: MarkdownTableCellFramesKey.self, value: .bounds) { [position] in [position: $0] }
+                .padding(.leading, -MarkdownTableAppearance.rowOutset.leading)
+                .padding(.trailing, -MarkdownTableAppearance.rowOutset.trailing)
+        }
     }
 
     /// The cell's fill, out to the middle of the space to its neighbours (as far past the

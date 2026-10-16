@@ -1362,9 +1362,10 @@ final class DocEditTests {
         }
         await test("Table: every menu action changes the table, and one undo puts it back exactly") {
             let before = try database()
+            // A phone writes a formula on the table's own page (its own test).
             let actions: [DocTableAction] = [.insertRowAbove, .insertRowBelow, .insertColumnLeft, .insertColumnRight,
                                              .moveRowUp, .moveRowDown, .moveColumnLeft, .moveColumnRight,
-                                             .sortAscending, .sortDescending, .insertFormula, .deleteRow, .deleteColumn, .clearCell]
+                                             .sortAscending, .sortDescending] + (DocDevice.isMac ? [.insertFormula] : []) + [.deleteRow, .deleteColumn, .clearCell]
             for action in actions {
                 _ = try await click(2, 1)
                 let key = try editedKey()
@@ -1691,9 +1692,13 @@ final class DocEditTests {
             try await self.undo()
             try self.expect(self.demo.doc.block(t.block) != nil && self.demo.doc.databases[t.database.id] == t.database, "not back")
         }
-        await test("Table: a formula shows its result in the table, its text in the editor; 插入公式 starts one") {
+        await test("Table: a formula shows its result in the table, its text in the editor (a phone: on the table's own page); 插入公式 starts one") {
             let view = try await click(4, 2)
             self.editor.tables.perform(.insertFormula, at: try editedKey())
+            if !DocDevice.isMac {
+                try await self.writeFormulaOnPhone(at: try editedKey())
+                return
+            }
             try? await Task.sleep(for: .milliseconds(200))
             try self.expect(try cellText(4, 2) == "=SUM(ABOVE)", "cell \(String(describing: try? cellText(4, 2)))")
             let shown = self.editor.tables.view(for: try table().key(4, 2)) ?? view
@@ -3599,6 +3604,42 @@ final class DocEditTests {
             sample.still.map { abs($0.minY - sample.offset - (stays.minY - startOffset)) < 0.5 && abs($0.minX - stays.minX) < 0.5 } ?? true
         }, "the row that stays moved on screen")
     }
+
+    /// A phone's formula page (DocTableFormula), for the cell at `key` (row 4, column 2 of
+    /// the sample table, under 21%, 16%, 17%): taps on cells put their references in (a
+    /// tap after one moves it), its own cell isn't one, an operator key; Done writes it
+    /// into the cell, one undo step.
+    private func writeFormulaOnPhone(at key: DocCellKey) async throws {
+        let tables = editor.tables
+        let before = text(of: key)
+        var formula: DocFormulaEditing?
+        for _ in 0..<60 where formula?.field?.isFirstResponder != true {
+            try? await Task.sleep(for: .milliseconds(50))
+            formula = tables.formula
+        }
+        let editing = try expectValue(formula, "no formula page")
+        try expect(editing.field?.isFirstResponder == true, "the field hasn't the keyboard")
+        try expect(editing.text.isEmpty && editing.cell == MarkdownTableCellPosition(row: 4, column: 2), "formula \(editing.text) at \(editing.cell)")
+        editing.point(at: MarkdownTableCellPosition(row: 1, column: 2))
+        editing.point(at: MarkdownTableCellPosition(row: 2, column: 2))
+        try expect(editing.text == "C3", "a tap after a reference moves it: \(editing.text)")
+        editing.insert("+")
+        editing.point(at: editing.cell)
+        editing.point(at: MarkdownTableCellPosition(row: 3, column: 2))
+        try expect(editing.text == "C3+C4" && editing.field?.text == "C3+C4", "formula \(editing.text), field \(String(describing: editing.field?.text))")
+        try expect(editing.references.map(\.rows) == [2...2, 3...3], "references \(editing.references)")
+        editing.field?.done?()
+        for _ in 0..<60 where tables.formula != nil { try? await Task.sleep(for: .milliseconds(50)) }
+        try expect(tables.formula == nil, "the formula page is still up")
+        try expect(text(of: key) == "=C3+C4", "cell \(text(of: key))")
+        // 16% + 17%.
+        try expect(tables.result(key) == "0.33", "result \(String(describing: tables.result(key)))")
+        try expect(tables.editing == key, "the cell isn't ringed")
+        try await undo()
+        try expect(text(of: key) == before, "undo left \(text(of: key))")
+    }
+
+    private func text(of key: DocCellKey) -> String { editor.tables.text(key) }
 
     // MARK: Helpers
 

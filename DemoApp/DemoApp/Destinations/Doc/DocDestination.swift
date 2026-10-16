@@ -135,6 +135,12 @@ private struct DocPageView: View {
             .overlay(alignment: .bottom) { DocBlockSelectionBar(blocks: editor.blocks) }
         }
         .modifier(DocBlockOverlays(reader: reader, blocks: editor.blocks))
+        #if !targetEnvironment(macCatalyst)
+        // A cell's formula, written on the table's own page (DocTableFormula).
+        .fullScreenCover(item: Binding(get: { editor.tables.formula }, set: { if $0 == nil { editor.tables.closeFormula() } })) { formula in
+            DocFormulaView(formula: formula, controller: editor.tables)
+        }
+        #endif
         .onChange(of: demo.focus?.serial) {
             if let focus = demo.focus { reader.scrollTo(id: focus.id, anchor: focus.centered ? .center : nil) }
         }
@@ -183,9 +189,9 @@ private struct DocPageView: View {
                 }
                 return
             }
-            // -docShow code|math|media|view: open at the first code, math, link/file/image
-            // or view block (the top of the first media or view); -docEdit YES edits code
-            // or math.
+            // -docShow code|math|media|view|table: open at the first code, math,
+            // link/file/image, view or table block (the top of the first media or view);
+            // -docEdit YES edits code or math.
             if let kind = UserDefaults.standard.string(forKey: "docShow"),
                let row = demo.rows.first(where: { row in
                    switch kind {
@@ -193,6 +199,7 @@ private struct DocPageView: View {
                    case "media": row.media != nil
                    case "view": if case .view? = row.media { true } else { false }
                    case "page": row.page != nil
+                   case "table": row.table != nil
                    default: row.sourceKind == .math
                    }
                }),
@@ -417,6 +424,23 @@ enum DocRowSpace {
     static let name = "doc-row"
 }
 
+/// How MarkdownView sets the page's blocks (a row's, and a table on a page of its own).
+struct DocBlockType: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .codeHighlighter(DocDestination.highlighter)
+            // Wide tables scroll sideways instead of squeezing their columns.
+            .markdownTableScrollable()
+            // The document's type, and its own spacing between blocks (not a stream block's).
+            .markdownPlatformTypography(DocTypography.fonts)
+            .markdownStreamBlockEdgeInsets(false)
+            // Code at the text's size, monospaced (the editor uses the same font); a table's
+            // cells at the page's body size (their editor's).
+            .font(Font(docCodeFont), for: .codeBlock)
+            .font(Font(DocTableCellField.bodyFont), for: .tableBody)
+    }
+}
+
 struct DocRowCell: TiledCellContent {
     let item: DocRow
     let demo: DocDemo
@@ -533,16 +557,7 @@ private struct DocRowView: View {
         // Tables and code change height when an editor comes or goes (links, files and
         // images are as tall as their layout says).
         .modifier(DocRowHeightReporter(isOn: row.table != nil || row.sourceKind != nil))
-        .codeHighlighter(DocDestination.highlighter)
-        // Wide tables scroll sideways instead of squeezing their columns.
-        .markdownTableScrollable()
-        // The document's type, and its own spacing between blocks (not a stream block's).
-        .markdownPlatformTypography(DocTypography.fonts)
-        .markdownStreamBlockEdgeInsets(false)
-        // Code at the text's size, monospaced (the editor uses the same font); a table's
-        // cells at the page's body size (their editor's).
-        .font(Font(docCodeFont), for: .codeBlock)
-        .font(Font(DocTableCellField.bodyFont), for: .tableBody)
+        .modifier(DocBlockType())
     }
 
     /// A paragraph, heading, list item or quote, from its tree (as MarkdownStreamBlockView

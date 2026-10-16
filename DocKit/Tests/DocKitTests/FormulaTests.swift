@@ -110,6 +110,29 @@ struct FormulaTests {
         #expect(shown(db, 2, 1) == "0.67")
     }
 
+    /// Craft's keys: AVG and CNT.
+    @Test
+    func craftNames() {
+        let db = database([["a", "2", "4", "=AVG(B2:C2)+CNT(B2:C2)"]])
+        #expect(shown(db, 1, 3) == "5")
+    }
+
+    @Test
+    func references() {
+        // A function's name isn't one; letters are read as capitals.
+        #expect(DatabaseFormula.references(in: "SUM(a3:B4)+C2*2-AB10") == [
+            .init(range: 4..<9, rows: 2...3, columns: 0...1),
+            .init(range: 11..<13, rows: 1...1, columns: 2...2),
+            .init(range: 16..<20, rows: 9...9, columns: 27...27),
+        ])
+        // A range typed backwards names the same cells; a half-typed one is its first cell.
+        #expect(DatabaseFormula.references(in: "B4:A3") == [.init(range: 0..<5, rows: 2...3, columns: 0...1)])
+        #expect(DatabaseFormula.references(in: "A3:") == [.init(range: 0..<2, rows: 2...2, columns: 0...0)])
+        // Full-width, as a Chinese input method types it.
+        #expect(DatabaseFormula.references(in: "Ａ３＋Ｂ１") == [.init(range: 0..<2, rows: 2...2, columns: 0...0), .init(range: 3..<5, rows: 0...0, columns: 1...1)])
+        #expect(DatabaseFormula.reference(row: 2, column: 0) == "A3")
+    }
+
     @Test
     func columnNames() {
         #expect(DatabaseFormula.columnName(0) == "A")

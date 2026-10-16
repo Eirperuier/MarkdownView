@@ -134,6 +134,11 @@ final class DocTableController {
     private(set) var line: DocTableLine?
     /// Whose menu is open.
     private(set) var menu: DocTableMenuTarget?
+    /// A formula being written on a phone, on the table's own page (DocTableFormula).
+    var formula: DocFormulaEditing?
+    /// Where the edited cell is in the window, as its ring is (its fill's place): where
+    /// the table flies from and back to while its formula is written.
+    @ObservationIgnored var editedCellFrame: CGRect?
     @ObservationIgnored private var views: [DocCellKey: [WeakCellView]] = [:]
     @ObservationIgnored private var textIDs: [DocCellKey: DocBlockID] = [:]
     @ObservationIgnored private var textKeys: [DocBlockID: DocCellKey] = [:]
@@ -273,6 +278,9 @@ final class DocTableController {
         editor.settleSelection()
     }
 
+    /// What's committed next is an undo step of its own.
+    func bumpSession() { session &+= 1 }
+
     /// The text view typed `text` into the cell.
     func changed(_ key: DocCellKey, to text: String) {
         guard let (_, database) = database(key.block), text != self.text(key) else { return }
@@ -361,7 +369,15 @@ final class DocTableController {
     /// A click on a table cell MarkdownView rendered (row 0 is the header).
     func tapped(_ table: DocTableSnapshot, at position: MarkdownTableCellPosition) {
         guard isEditable, let key = key(in: table, at: position), key != active || view(for: key)?.isFirstResponder != true else { return }
+        // A phone writes a formula on the table's own page (DocTableFormula).
+        if writesFormulaApart(key) { return editFormula(key) }
         focus(key, reveals: false)
+    }
+
+    /// A formula's cell on a phone: its formula is written on the table's own page, the
+    /// cell shows what it computes.
+    func writesFormulaApart(_ key: DocCellKey) -> Bool {
+        !DocDevice.isMac && key.row != nil && DatabaseFormula.isFormula(text(key))
     }
 
     private func exists(_ key: DocCellKey) -> Bool {
@@ -722,6 +738,8 @@ final class DocTableController {
             changed(key, to: "")
             session &+= 1
         case .insertFormula:
+            // A phone writes it on the table's own page (DocTableFormula).
+            if !DocDevice.isMac { return editFormula(key) }
             // Craft starts a formula with "="; a sum of the cells above is the usual one.
             if !DatabaseFormula.isFormula(text(key)) {
                 changed(key, to: "=SUM(ABOVE)")
@@ -994,6 +1012,9 @@ struct DocTableCellEditor: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: controller.look(key).frameAlignment)
             .anchorPreference(key: DocTableRingKey.self, value: .bounds) { DocTableRingAnchor(key: key, bounds: $0) }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { [controller] frame in
+                controller.editedCellFrame = frame.insetBy(dx: -Handles.ringOutset.width, dy: -Handles.ringOutset.height)
+            }
             .overlay {
                 // Where MarkdownView draws the cell's fill (Handles.ringOutset). While its row
                 // or column is picked, that one is ringed instead (DocTableEdges).
@@ -1009,9 +1030,9 @@ struct DocTableCellEditor: View {
                     .offset(x: 10)
             }
             .overlay(alignment: .bottomLeading) {
-                // A formula is edited as its text; what it computes shows under the cell
-                // (Craft shows the two the other way round).
-                if let result = controller.result(key) {
+                // On the Mac a formula is edited as its text; what it computes shows under
+                // the cell.
+                if !controller.writesFormulaApart(key), let result = controller.result(key) {
                     FlooDesignBadge("= \(result)")
                         .offset(y: 30)
                         .allowsHitTesting(false)
@@ -1023,6 +1044,12 @@ struct DocTableCellEditor: View {
     private var content: some View {
         if key.row == nil {
             DocTableCellField(key: key, text: controller.text(key), isHeader: true, controller: controller)
+        } else if controller.writesFormulaApart(key) {
+            // What it computes; a tap writes the formula on the table's own page.
+            Text(controller.result(key) ?? "")
+                .lineLimit(1)
+                .contentShape(Rectangle())
+                .onTapGesture { [controller, key] in controller.editFormula(key) }
         } else {
             DocTableCellText(text: controller.docText(key), look: controller.look(key), hooks: controller.editor.hooks(for: controller.textID(key)))
         }
