@@ -150,7 +150,8 @@ struct DocFormulaView: View {
     let formula: DocFormulaEditing
     let controller: DocTableController
     /// The page's colour over the document: it comes as the table leaves the page, and
-    /// goes once it's back there (the page's table under it, where it landed).
+    /// goes as the table flies back, the document fading in round it (its own table stays
+    /// hidden till this page is gone, so it's the one flying that lands there).
     @State private var covers = false
     /// Where the cell is here and was on the page (the window's space): the table flies
     /// between them.
@@ -204,7 +205,7 @@ struct DocFormulaView: View {
                 .markdownTableCellsSelectable()
                 .markdownTableCellTap { [formula] position in formula.point(at: position) }
                 .markdownTableCellReplacement([cell]) { [key = formula.key, controller] position in
-                    position == cell ? AnyView(DocFormulaPlaceholder(shown: controller.result(key) ?? controller.text(key), look: controller.look(key))) : nil
+                    position == cell ? AnyView(DocFormulaPlaceholder(key: key, controller: controller, formula: formula)) : nil
                 }
                 .markdownTableDecoration { [formula] frames in
                     AnyView(DocFormulaDecoration(frames: frames, formula: formula))
@@ -241,6 +242,7 @@ struct DocFormulaView: View {
         Task { @MainActor in
             withAnimation(Tokens.Motion.dismiss) { formula.isShown = false }
             withAnimation(Tokens.Motion.layout) {
+                covers = false
                 if let landing, let origin = controller.tableFrames[formula.key.block] {
                     flight = CGSize(width: origin.minX - landing.minX, height: origin.minY - landing.minY)
                 }
@@ -251,24 +253,28 @@ struct DocFormulaView: View {
     }
 }
 
-/// The formula's cell while it's written: Craft's "Edit Formula". It takes the room of
-/// what the cell shows on the page, so its column is as wide as there (the table flies
+/// The formula's cell while it's written: Craft's "Edit Formula", in the room of what
+/// the cell shows on the page, so its column is as wide as there (the table flies
 /// between the two without its columns moving); the words are drawn in the column's
-/// room, smaller if they don't fit it.
+/// room, smaller if they don't fit it. What the cell shows comes back as the table flies
+/// back (the result of the formula just written), so it lands as the page has it.
 private struct DocFormulaPlaceholder: View {
-    let shown: String
-    let look: DocCellLook
+    let key: DocCellKey
+    let controller: DocTableController
+    let formula: DocFormulaEditing
 
     var body: some View {
-        Text(verbatim: shown)
+        let look = controller.look(key)
+        Text(verbatim: controller.result(key) ?? controller.text(key))
             .lineLimit(1)
-            .hidden()
+            .opacity(formula.isShown ? 0 : 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: look.frameAlignment)
             .overlay(alignment: Alignment(horizontal: look.frameAlignment.horizontal, vertical: .center)) {
                 Text("Edit Formula")
                     .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
+                    .opacity(formula.isShown ? 1 : 0)
             }
     }
 }
