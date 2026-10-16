@@ -37,22 +37,22 @@
   "words": {
    "en": {
     "excluded": {
-     "summary": "floo doesn't read, change or add events in these.",
-     "title": "Calendars floo leaves alone"
+     "summary": "Selected calendars cannot be viewed or modified by floo.",
+     "title": "Excluded Calendars"
     },
     "new_events": {
-     "summary": "Where floo puts an event when it names no calendar. Not set: your default calendar.",
-     "title": "New events go to"
+     "summary": "New events created without a specified calendar are added here.",
+     "title": "Default Calendar"
     }
    },
    "zh-Hans": {
     "excluded": {
-     "summary": "这些日历里的日程，floo 不读、不改，也不往里加。",
-     "title": "floo 不碰的日历"
+     "summary": "所选日历对 floo 不可见且不可修改。",
+     "title": "排除的日历"
     },
     "new_events": {
-     "summary": "floo 新建日程没指定日历时放在这里；不选就放进系统默认日历。",
-     "title": "新日程默认放在"
+     "summary": "新建日程未指定日历时将添加至此日历。",
+     "title": "默认日历"
     }
    }
   }

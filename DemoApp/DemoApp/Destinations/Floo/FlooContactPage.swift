@@ -80,7 +80,7 @@ struct FlooContactPage: View {
                 demo.path.removeAll()
             }
         } message: {
-            Text("它会停下在为你做的事，断开连接。和它的对话、它发过的动态都留着。")
+            Text("进行中的任务将停止，服务将断开连接。对话记录和动态将保留。")
         }
     }
 
@@ -106,7 +106,7 @@ struct FlooContactPage: View {
             }
             FlooActionButton(
                 symbol: following.quiet ? "bell.slash.fill" : "bell.fill",
-                title: following.quiet ? "少打扰中" : "少打扰", tint: tint, on: following.quiet
+                title: following.quiet ? "静音已开启" : "静音", tint: tint, on: following.quiet
             ) {
                 demo.following[service.id]?.quiet.toggle()
             }
@@ -125,10 +125,10 @@ struct FlooContactPage: View {
         let set = following.devices.compactMap(demo.device)
         let online = set.filter(\.online).map { $0.name.replacingOccurrences(of: "这台 ", with: "") }
         if following.account != nil { return ("已连接", .green) }
-        if !online.isEmpty { return ("在 \(online.joined(separator: "、")) 上", .green) }
-        if !set.isEmpty { return ("提供它的设备都不在线", .gray) }
-        if !following.asked.isEmpty { return ("等你在另一台设备上设置", .orange) }
-        return ("还没连接", .orange)
+        if !online.isEmpty { return ("已在 \(online.joined(separator: "、")) 上启用", .green) }
+        if !set.isEmpty { return ("所有设备均不在线", .gray) }
+        if !following.asked.isEmpty { return ("等待在其他设备上完成设置", .orange) }
+        return ("未连接", .orange)
     }
 
     // MARK: Moments
@@ -184,7 +184,7 @@ struct FlooContactPage: View {
     /// Like AirDrop's row of nearby devices: each with how it stands with this service.
     private var devicesRow: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(service.sources.devices.isEmpty ? "连接" : "在你的设备上").font(.body.weight(.semibold))
+            Text(service.sources.devices.isEmpty ? "连接" : "设备").font(.body.weight(.semibold))
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(bubbles) { bubble in bubbleView(bubble) }
@@ -200,8 +200,8 @@ struct FlooContactPage: View {
             if !service.sources.devices.isEmpty {
                 Text(
                     FlooSettingsFormat.all[service.id] == nil
-                        ? "点一台在线的设备，那台设备上会打开「\(service.name)」的设置。"
-                        : "点已经在用的设备，看它在那台设备上的设置；点在线的其他设备，在那台设备上开通。"
+                        ? "轻点在线设备以在该设备上设置“\(service.name)”。"
+                        : "轻点已启用的设备查看设置，或轻点其他在线设备进行设置。"
                 )
                 .font(.caption).foregroundStyle(.secondary)
             }
@@ -227,9 +227,9 @@ struct FlooContactPage: View {
             let asked = following.asked.contains(device.id)
             let can = service.sources.provides(on: device)
             let state: (String, Color) =
-                asked ? ("等你设置", .orange)
-                : provides ? (device.online ? (service.id == "github" ? "gh 已登录" : "已允许") : "\(device.lastSeen ?? "")在线", device.online ? .green : .gray)
-                : can ? ("去设置", Color.accentColor) : ("不支持", .gray)
+                asked ? ("待设置", .orange)
+                : provides ? (device.online ? (service.id == "github" ? "gh 已登录" : "已启用") : "\(device.lastSeen ?? "")在线", device.online ? .green : .gray)
+                : can ? ("设置", Color.accentColor) : ("不支持", .gray)
             bubbleButton(symbol: device.symbol, name: device.name, state: state, dimmed: !can && !provides) {
                 if provides, FlooSettingsFormat.all[service.id] != nil {
                     demo.path.append(.settings(service.id, device.id))
@@ -272,7 +272,7 @@ struct FlooContactPage: View {
 
     private var doing: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("它在为你做的").font(.body.weight(.semibold))
+            Text("进行中的任务").font(.body.weight(.semibold))
             ForEach(following.doing, id: \.self) { item in
                 Button { demo.path.append(.chat(service.id)) } label: {
                     HStack(spacing: 12) {
@@ -298,7 +298,7 @@ struct FlooContactPage: View {
     /// Like Messages' shared photos: the cards it drew in your conversation.
     private var shared: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("对话里的卡片").font(.body.weight(.semibold))
+            Text("对话中的卡片").font(.body.weight(.semibold))
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
                 ForEach(following.shared, id: \.self) { name in
                     if let session = demo.card(name) {
@@ -599,7 +599,7 @@ struct FlooPostPage: View {
                                 demo.drafts[service.id] = nil
                                 demo.path.append(.chat(service.id))
                             } label: {
-                                Label("在对话里回它", systemImage: "bubble.left")
+                                Label("在对话中回复", systemImage: "bubble.left")
                                     .font(.caption.weight(.medium))
                                     .padding(.horizontal, 10).padding(.vertical, 5)
                                     .background(Color.primary.opacity(0.06), in: Capsule())

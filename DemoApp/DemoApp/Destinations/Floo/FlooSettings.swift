@@ -122,7 +122,7 @@ struct FlooProviderSettingsPage: View {
             if !device.online {
                 Section {
                     Label(
-                        "\(device.name)\(device.lastSeen ?? "")在线。改好的设置存着，等它上线后照着做；下面的列表是它那时报的。",
+                        "\(device.name)上次在线时间为\(device.lastSeen ?? "")。更改将在设备重新上线后生效。",
                         systemImage: "moon.zzz"
                     )
                     .font(.footnote)
@@ -162,7 +162,7 @@ struct FlooProviderSettingsPage: View {
     }
 
     /// What `choices.from` lists, filtered by `where`: a section for each `group`, the
-    /// key's title over the first (over "none" when one may be left unpicked) and its words
+    /// key's title over the first (over "system default" when one may be left unpicked) and its words
     /// under the last.
     @ViewBuilder private func choiceSections(
         _ key: String,
@@ -181,7 +181,7 @@ struct FlooProviderSettingsPage: View {
         }
         if none {
             Section {
-                row(title: "不选", tint: nil, picked: file[key] == nil) { change(key, nil) }
+                row(title: "系统默认", tint: nil, picked: file[key] == nil) { change(key, nil) }
             } header: {
                 Text(format.title(key)).font(.headline).foregroundStyle(.primary).textCase(nil)
             }
