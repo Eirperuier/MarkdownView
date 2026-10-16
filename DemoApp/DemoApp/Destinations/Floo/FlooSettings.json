@@ -3,9 +3,10 @@
   "format": {
    "properties": {
     "excluded": {
-     "description": "The calendars floo keeps out of: their events aren't read, changed or added to",
+     "description": "Calendars floo can't access: their events can't be read, changed or added to",
      "items": {
       "choices": {
+       "complement": true,
        "from": "calendars",
        "group": "account",
        "key": "id",
@@ -28,7 +29,7 @@
        "writable": true
       }
      },
-     "description": "Where floo puts a new event when it names no calendar; the default calendar when not set",
+     "description": "The calendar for new events that name none; the system default calendar when not set",
      "type": "string"
     }
    },
@@ -37,8 +38,8 @@
   "words": {
    "en": {
     "excluded": {
-     "summary": "Selected calendars cannot be viewed or modified by floo.",
-     "title": "Excluded Calendars"
+     "summary": "floo can view and edit events in selected calendars. New calendars are selected automatically.",
+     "title": "Calendars"
     },
     "new_events": {
      "summary": "New events created without a specified calendar are added here.",
@@ -47,8 +48,8 @@
    },
    "zh-Hans": {
     "excluded": {
-     "summary": "所选日历对 floo 不可见且不可修改。",
-     "title": "排除的日历"
+     "summary": "floo 可查看和编辑所选日历中的日程。新增日历将自动选中。",
+     "title": "日历"
     },
     "new_events": {
      "summary": "新建日程未指定日历时将添加至此日历。",

@@ -141,7 +141,9 @@ struct FlooProviderSettingsPage: View {
 
     @ViewBuilder private func field(_ key: String, _ schema: FlooJSON) -> some View {
         if schema["type"]?.string == "array", let choices = schema["items"]?["choices"] {
-            choiceSections(key, choices) { id in file[key]?.items.contains(.string(id)) == true } tap: { id in
+            // `complement`: the file lists the ones left unchecked.
+            let complement = choices["complement"] == .bool(true)
+            choiceSections(key, choices) { id in (file[key]?.items.contains(.string(id)) == true) != complement } tap: { id in
                 var picked = file[key]?.items ?? []
                 if let index = picked.firstIndex(of: .string(id)) { picked.remove(at: index) } else {
                     picked.append(.string(id))
