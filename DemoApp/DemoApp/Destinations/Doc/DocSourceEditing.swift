@@ -711,10 +711,11 @@ struct DocCodeMetrics: Equatable {
     static let litOpacity = 0.045
     static let ringOpacity = 0.37
 
-    /// The gutter, wide enough for the numbers of `lines` lines (one digit: 36 points).
+    /// The gutter: two digits' room (Craft's 36 points, a single digit on its right),
+    /// wider only from a hundred lines.
     func gutterWidth(lines: Int) -> CGFloat {
         let digit = ("0" as NSString).size(withAttributes: [.font: font]).width
-        return (17.5 * scale + CGFloat(String(lines).count) * digit + numberTrailing).rounded()
+        return (9.5 * scale + CGFloat(max(2, String(lines).count)) * digit + numberTrailing).rounded()
     }
 
     /// The text's insets beside the gutter, inside the border.
