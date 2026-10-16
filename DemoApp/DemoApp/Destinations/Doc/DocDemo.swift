@@ -71,9 +71,11 @@ struct DocRow: Identifiable, Equatable {
     let media: BlockKind?
     /// A link, file or image's run across the page (nil: a row as wide as the page).
     var run: DocRowRun?
-    /// A code or math block, edited as its source (and whether it's empty).
+    /// A code or math block, edited as its source.
     let sourceKind: DocSourceKind?
-    let sourceIsEmpty: Bool
+    /// Its source's text (a code or math block's).
+    let sourceText: String
+    var sourceIsEmpty: Bool { sourceText.isEmpty }
     /// Whether the row has text to edit: a text block's, a cell's, code's or maths'.
     var editsText: Bool { text != nil || sourceKind != nil || table != nil }
     /// A view or a collection: its controls take clicks.
@@ -99,7 +101,7 @@ struct DocRow: Identifiable, Equatable {
 
     init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock] = [], text: DocTextRow? = nil, tree: MarkdownTree? = nil,
          isStreaming: Bool = false, table: DocTableSnapshot? = nil, collection: DocCollectionSnapshot? = nil, page: DocPage? = nil,
-         recordFields: Int? = nil, media: BlockKind? = nil, sourceKind: DocSourceKind? = nil, sourceIsEmpty: Bool = false) {
+         recordFields: Int? = nil, media: BlockKind? = nil, sourceKind: DocSourceKind? = nil, sourceText: String = "") {
         self.id = id
         self.block = block
         self.blocks = blocks
@@ -112,7 +114,7 @@ struct DocRow: Identifiable, Equatable {
         self.recordFields = recordFields
         self.media = media
         self.sourceKind = sourceKind
-        self.sourceIsEmpty = sourceIsEmpty
+        self.sourceText = sourceText
         source = text?.plain ?? blocks.map(\.source).joined(separator: "\n\n")
         depth = text?.depth ?? blocks.first?.descriptor.listItemContext?.depth
     }
@@ -120,7 +122,7 @@ struct DocRow: Identifiable, Equatable {
     static func == (lhs: DocRow, rhs: DocRow) -> Bool {
         lhs.id == rhs.id && lhs.isStreaming == rhs.isStreaming && lhs.source == rhs.source && lhs.text == rhs.text && lhs.tree == rhs.tree
             && lhs.table == rhs.table && lhs.collection == rhs.collection && lhs.page == rhs.page && lhs.recordFields == rhs.recordFields && lhs.media == rhs.media && lhs.run == rhs.run
-            && lhs.sourceKind == rhs.sourceKind && lhs.sourceIsEmpty == rhs.sourceIsEmpty
+            && lhs.sourceKind == rhs.sourceKind && lhs.sourceText == rhs.sourceText
             && lhs.depth == rhs.depth
             && lhs.spacingAbove == rhs.spacingAbove && lhs.spacingBelow == rhs.spacingBelow && lhs.role == rhs.role && lhs.box == rhs.box
             && lhs.indent == rhs.indent && lhs.font == rhs.font
@@ -389,7 +391,7 @@ final class DocDemo {
                 } else {
                     DocRow(id: block.id.description, block: block.id, tree: Self.tree(block, in: alone),
                            media: DocMediaView.draws(block.kind) ? block.kind : nil,
-                           sourceKind: DocSourceKind(block.kind), sourceIsEmpty: block.text.isEmpty)
+                           sourceKind: DocSourceKind(block.kind), sourceText: DocSourceKind(block.kind) == nil ? "" : block.text.string)
                 }
                 rowCache[block.id] = (block, nil, row)
                 result.append(row)

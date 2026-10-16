@@ -1056,12 +1056,12 @@ final class DocEditTests {
                 try self.expect(self.editor.blocks.selected == [block.id], "selected \(self.editor.blocks.selected.count)")
             }
         }
-        await test("Code block: its source is a place: the keyboard bar has Aa and ⋮ for the block") {
+        await test("Code block: its source is a place: the keyboard bar has Aa, the code's menu and ⋮ for the block") {
             let block = try codeBlock()
             _ = try await edit(block)
             for _ in 0..<30 where !(self.editor.editingPlace is DocSourcePlace) { try? await Task.sleep(for: .milliseconds(16)) }
             try self.expect((self.editor.editingPlace as? DocSourcePlace)?.block == block.id, "place \(String(describing: self.editor.editingPlace))")
-            try self.expect(self.editor.keyboardBar.testItems.map(\.id) == ["format", "more", "dismiss"], "keys \(self.editor.keyboardBar.testItems.map(\.id))")
+            try self.expect(self.editor.keyboardBar.testItems.map(\.id) == ["format", "menu", "more", "dismiss"], "keys \(self.editor.keyboardBar.testItems.map(\.id))")
             self.editor.dismissKeyboard()
             try await self.settle()
             try self.expect(self.editor.sources.view(for: block.id)?.isFirstResponder != true, "the keyboard key left the source focused")
@@ -1180,11 +1180,25 @@ final class DocEditTests {
             try await self.settle()
             try self.expectCursor(line.id, 0)
         }
-        await test("Code block: the language menu sets it") {
+        await test("Code block: its menu sets the language and copies the code; the block's menu has it too") {
             let block = try codeBlock()
             _ = try await edit(block)
-            self.editor.sources.setLanguage("python", of: block.id)
+            let menu = self.editor.sources.codeMenu(block.id)
+            try self.perform(menu, ["Language", "Python"])
             try self.expect(self.demo.doc.block(block.id)?.kind == .code(language: "python"), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
+            let languages = try self.expectValue(self.editor.sources.codeMenu(block.id).flatMap(\.items).first { $0.id == "language" }?.submenu, "no Language")
+            try self.expect(languages.flatMap(\.items).filter { $0.isOn == true }.map(\.title) == ["Python"], "ticked \(languages.flatMap(\.items).filter { $0.isOn == true }.map(\.title))")
+            try self.perform(menu, ["Language", "Plain Text"])
+            try self.expect(self.demo.doc.block(block.id)?.kind == .code(language: nil), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
+            UIPasteboard.general.string = ""
+            try self.perform(menu, ["Copy Code"])
+            try self.expect(UIPasteboard.general.string == self.text(block.id), "pasteboard \(String(describing: UIPasteboard.general.string?.prefix(20)))")
+            if DocBlockController.usesHandles {
+                self.editor.sources.endEditing()
+                self.editor.blocks.click(block.id)
+                let titles = self.editor.blocks.selectionMenu().flatMap(\.items).map(\.title)
+                try self.expect(titles.starts(with: ["Edit", "Language", "Copy Code"]), "block menu \(titles)")
+            }
         }
         await test("Math block: “/公式” makes one; its LaTeX is edited above the rendered formula") {
             let line = try await emptyLine()

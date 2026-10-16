@@ -4,10 +4,11 @@
 //
 //  The Mac's right-click on a block (Craft's): the block is selected, or stays with the
 //  others selected with it, and our menu (FlooDesign's action menu, by the pointer)
-//  shows what can be done to them, in Craft's order: Edit (one block of text) or, for
-//  several, how many under a title and Group (into a page); cut, copy, duplicate; Format
-//  (copy, paste and clear the format, then the format panel's sections, a link, file or
-//  image's layout among them); Insert above or below; Sort (several); delete. Craft's
+//  shows what can be done to them, in Craft's order: Edit (one block of text; a code
+//  block's language and Copy Code under it) or, for several, how many under a title and
+//  Group (into a page); cut, copy, duplicate; Format (copy, paste and clear the format,
+//  then the format panel's sections, a link, file or image's layout among them); Insert
+//  above or below; Sort (several); delete. Craft's
 //  assistant, Writing Tools, comments, reactions, reminders, Copy As, Paste and Move To
 //  have nothing behind them here and aren't in it.
 //
@@ -29,6 +30,8 @@ extension DocBlockController {
             ]))
         } else if editable, let block = tops.first {
             sections.append(.init(.rows, [.action(String(localized: "Edit")) { [weak self] in self?.edit(block) }]))
+            // A code block's: its language, Copy Code.
+            sections += editor.sources.codeMenu(block)
         }
         sections += [
             .init(.rows, [

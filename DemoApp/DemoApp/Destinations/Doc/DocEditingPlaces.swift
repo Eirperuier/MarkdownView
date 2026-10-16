@@ -152,15 +152,17 @@ struct DocTableCellPlace: DocEditingPlace {
     }
 }
 
-/// A code or math block's source: Aa and ⋮ for the block.
+/// A code or math block's source: Aa, a code block's menu (its language, Copy Code),
+/// and ⋮ for the block.
 struct DocSourcePlace: DocEditingPlace {
     let block: DocBlockID
+    var menu: DocPlaceMenu?
 
     var id: AnyHashable { ["source", block] as [AnyHashable] }
 
     func keys(_ editor: DocEditor) -> (leading: [DocBarKey], trailing: [DocBarKey]) {
-        ([.format { [weak editor, block] in editor?.blocks.formatBlock(block) },
-          .select { [weak editor, block] in editor?.blocks.selectBlock(block) }], [])
+        ([.format { [weak editor, block] in editor?.blocks.formatBlock(block) }] + (menu.map { [$0.key] } ?? [])
+            + [.select { [weak editor, block] in editor?.blocks.selectBlock(block) }], [])
     }
 }
 
@@ -200,7 +202,7 @@ extension DocEditor {
         case let view as DocCellTextView:
             return view.key.map { DocTableCellPlace(key: $0, controller: tables) }
         case let view as DocSourceTextView:
-            return view.block.map { DocSourcePlace(block: $0) }
+            return view.block.map { DocSourcePlace(block: $0, menu: sources.placeMenu($0)) }
         case let view as UITextView where allTextViews.contains(view):
             guard let selection, let block = textBlock(selection.head.block) else { return nil }
             if let cell = tables.cell(of: block.id) { return DocTableCellPlace(key: cell, controller: tables) }

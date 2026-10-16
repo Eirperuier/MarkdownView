@@ -546,8 +546,8 @@ private struct DocRowView: View {
             // with a new id, and the text view being typed in must stay the same view.
             if let table = row.table, let tree = row.tree, !row.isStreaming {
                 DocTableRowView(table: table, tree: tree, controller: tables)
-            } else if let block = row.block, case .code(let language) = row.sourceKind, let tree = row.tree, !row.isStreaming {
-                DocCodeRowView(block: block, language: language, tree: tree, controller: sources)
+            } else if let block = row.block, case .code(let language) = row.sourceKind, !row.isStreaming {
+                DocCodeRowView(block: block, text: row.sourceText, language: language, controller: sources)
             } else if let block = row.block, row.sourceKind == .math, let tree = row.tree, !row.isStreaming {
                 DocMathRowView(block: block, tree: tree, isEmpty: row.sourceIsEmpty, controller: sources)
             } else if let text = row.text, !row.isStreaming {
@@ -600,6 +600,8 @@ private struct DocRowView: View {
             // Rows are measured off screen before they show; math needs its real height then.
             .markdownDisplayMathRendersSynchronously()
             .environment(\.markdownSelectableTextHooks, hooks)
+            // Code the agent writes is in the box it's read and edited in.
+            .codeBlockStyle(DocCodeBlockStyle())
             .frame(maxWidth: .infinity, alignment: .leading)
         if row.isStreaming {
             view

@@ -2,15 +2,18 @@
 //  DocSourceEditing.swift
 //  DemoApp
 //
-//  Code and math blocks are edited as their source. A code block keeps MarkdownView's
-//  chrome (header, language, copy, background): its lines are replaced by an editor
-//  (MarkdownView's code block replacement). A math block is written as a cell's formula
+//  Code and math blocks are edited as their source. A code block is Craft's, read and
+//  edited alike (DocCodeBox): a box with a thin border, the lines numbered in a gutter
+//  on its left and two more numbered after the last, the code beside them; while it's
+//  edited, ringed, its caret's line lit. Its language and Copy Code are in its menu: the
+//  block's (a right-click on it), the text's (a right-click in it on the Mac) and the
+//  keyboard bar's </> on a phone. A math block is written as a cell's formula
 //  is (DocTableFormula), its LaTeX in a panel and the formula, ringed, following on the
 //  page: on the Mac the panel is under the block (the menus' anchored panel), on a phone
 //  it's glass over the keyboard (its bar), the page scrolled to show the block above it.
 //  Under the LaTeX a row of keys puts in what's long to type (a fraction, a root, powers
 //  and indices, a sum, an integral; symbols in the system's menu), the caret in their
-//  first braces. The panel goes when the LaTeX lets the focus go. Read, both are
+//  first braces. The panel goes when the LaTeX lets the focus go. Read, a formula is
 //  MarkdownView's.
 //
 //  Keys: Return keeps the line's indentation, Tab / Shift-Tab indent and outdent the
@@ -59,7 +62,15 @@ final class DocSourceController {
         weak var view: UIView?
     }
 
-    static let languages = ["swift", "python", "javascript", "typescript", "json", "bash", "sql", "go", "rust", "kotlin", "java", "c", "cpp", "html", "css", "yaml", "markdown"]
+    /// A code block's languages (Craft's, by name), as the markdown names them.
+    static let languages: [(id: String, name: String)] = [
+        ("ada", "Ada"), ("bash", "Bash"), ("cpp", "C++"), ("csharp", "C#"), ("css", "CSS"), ("dart", "Dart"),
+        ("dockerfile", "Dockerfile"), ("go", "Go"), ("groovy", "Groovy"), ("haskell", "Haskell"), ("html", "HTML"),
+        ("java", "Java"), ("javascript", "JavaScript"), ("json", "JSON"), ("julia", "Julia"), ("kotlin", "Kotlin"),
+        ("lua", "Lua"), ("markdown", "Markdown"), ("matlab", "Matlab"), ("objectivec", "Objective-C"), ("perl", "Perl"),
+        ("php", "PHP"), ("prolog", "Prolog"), ("python", "Python"), ("r", "R"), ("ruby", "Ruby"), ("rust", "Rust"),
+        ("scala", "Scala"), ("sql", "SQL"), ("swift", "Swift"), ("typescript", "TypeScript"), ("xml", "XML"), ("yaml", "YAML"),
+    ]
 
     init(demo: DocDemo, editor: DocEditor) {
         self.demo = demo
@@ -137,11 +148,11 @@ final class DocSourceController {
 
     /// The focus went elsewhere in the document.
     func endEditing() {
-        // The read block draws from the highlight of the code as it is now: made here,
-        // before it shows, if the last keystroke's hadn't come back yet.
-        if let editing { view(for: editing)?.highlightNow() }
+        let view = editing.flatMap { view(for: $0) }
         pendingFocus = nil
         editing = nil
+        // A code block's text view stays on the page: it lets the focus go too.
+        if let view, view.isFirstResponder { view.resignFirstResponder() }
     }
 
     /// The source let the focus go: a math block's panel goes with it.
@@ -208,6 +219,32 @@ final class DocSourceController {
         session &+= 1
     }
 
+    /// A code block's menu: its language (Plain Text, then by name) and Copy Code.
+    func codeMenu(_ block: DocBlockID) -> [FlooDesignActionMenuSection] {
+        guard case .code(let language)? = demo.doc.block(block)?.kind else { return [] }
+        let languages: [FlooDesignActionMenuSection] = [
+            .init(.rows, [.action(String(localized: "Plain Text"), isOn: language == nil, id: "plain") { [weak self] in
+                self?.setLanguage(nil, of: block)
+            }]),
+            .init(.rows, Self.languages.map { choice in
+                .action(choice.name, isOn: language == choice.id, id: choice.id) { [weak self] in self?.setLanguage(choice.id, of: block) }
+            }),
+        ]
+        return [.init(.rows, [
+            .submenu(String(localized: "Language"), symbol: "chevron.left.forwardslash.chevron.right", id: "language", sections: languages),
+            .action(String(localized: "Copy Code"), symbol: "doc.on.doc", id: "copyCode") { [weak self] in
+                UIPasteboard.general.string = self?.text(block)
+            },
+        ])]
+    }
+
+    /// The menu of a code block's source as a place (nil: a math block's has none).
+    func placeMenu(_ block: DocBlockID) -> DocPlaceMenu? {
+        guard case .code? = demo.doc.block(block)?.kind else { return nil }
+        return DocPlaceMenu(title: String(localized: "Code Block"), symbol: "chevron.left.forwardslash.chevron.right",
+                            opens: .rows { [weak self] in self?.codeMenu(block) ?? [] })
+    }
+
     enum Exit { case up, down, below }
 
     /// Leaves the block for its neighbour's text (a new paragraph below when there is none).
@@ -255,24 +292,25 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     var language: String?
     /// The text's font and line attributes (the field's).
     var baseAttributes: [NSAttributedString.Key: Any] = [:]
-    /// The space above and below each code line; set, alternate lines are striped as in
-    /// MarkdownView's code block, from where the lines actually are.
-    var stripeGap: CGFloat? {
-        didSet { if stripeGap != oldValue { setNeedsLayout() } }
+    /// A code block's lines (DocCodeBox): set, the gutter, the line numbers and the
+    /// caret's line are drawn behind the text, from where the lines actually are.
+    var code: DocCodeMetrics? {
+        didSet { if code != oldValue { setNeedsLayout() } }
     }
-    private lazy var stripes: DocStripeView = {
-        let view = DocStripeView()
+    private lazy var backdrop: DocCodeBackdrop = {
+        let view = DocCodeBackdrop()
         view.isUserInteractionEnabled = false
         view.backgroundColor = .clear
+        view.contentMode = .redraw
         insertSubview(view, at: 0)
         return view
     }()
 
-    /// The caret is a line of text tall: TextKit's own reaches over the paragraph
-    /// spacing below the line, into the gap before the next one.
+    /// The caret is a line of text tall: TextKit's own reaches over the line spacing
+    /// below the line, into the gap before the next one.
     override func caretRect(for position: UITextPosition) -> CGRect {
         var rect = super.caretRect(for: position)
-        if stripeGap != nil, let font, rect.height > font.lineHeight + 1 {
+        if code != nil, let font, rect.height > font.lineHeight + 1 {
             rect.size.height = ceil(font.lineHeight)
         }
         return rect
@@ -283,7 +321,7 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     /// instead of running into the spacing below it.
     override func selectionRects(for range: UITextRange) -> [UITextSelectionRect] {
         let rects = super.selectionRects(for: range)
-        guard stripeGap != nil else { return rects }
+        guard code != nil else { return rects }
         // The bottom of the last line's text: where the caret at the end reaches.
         let bottom = caretRect(for: range.end).maxY
         let lowest = rects.indices.filter { rects[$0].rect.width > 0 && rects[$0].rect.height > 0 }
@@ -295,48 +333,73 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard let gap = stripeGap else { return }
-        stripes.frame = CGRect(origin: .zero, size: CGSize(width: bounds.width, height: max(contentSize.height, bounds.height)))
-        sendSubviewToBack(stripes)
-        var rects: [CGRect] = []
+        guard let code else { return }
+        backdrop.frame = CGRect(origin: .zero, size: CGSize(width: bounds.width, height: max(contentSize.height, bounds.height)))
+        sendSubviewToBack(backdrop)
+        let lines = codeLines(code)
+        var tops = lines.map(\.top)
+        // Numbered on after the last line.
+        if let last = lines.last {
+            tops += (0..<DocCodeMetrics.extraLines).map { last.bottom + code.gap + CGFloat($0) * code.pitch }
+        }
+        var lit: Range<CGFloat>?
+        if isFirstResponder, let line = lines.last(where: { $0.range.location <= selectedRange.location }) {
+            lit = (line.top - code.gap)..<line.bottom
+        }
+        let drawing = DocCodeBackdrop.Drawing(code: code, gutter: code.gutterWidth(lines: tops.count), tops: tops, lit: lit)
+        if backdrop.drawing != drawing { backdrop.drawing = drawing }
+    }
+
+    /// Each line of the code (a paragraph, wrapping inside it): its characters, the top
+    /// of its text, and the bottom of the space below its last line.
+    private func codeLines(_ code: DocCodeMetrics) -> [(range: NSRange, top: CGFloat, bottom: CGFloat)] {
         let text = self.text as NSString
         let manager = layoutManager
         manager.ensureLayout(for: textContainer)
+        func line(_ range: NSRange, first: CGRect, last: CGRect) -> (range: NSRange, top: CGFloat, bottom: CGFloat) {
+            (range, textContainerInset.top + first.minY, textContainerInset.top + last.minY + code.lineHeight + code.gap)
+        }
+        var lines: [(range: NSRange, top: CGFloat, bottom: CGFloat)] = []
         var location = 0
-        var index = 0
-        while location <= text.length {
+        while true {
             let paragraph = text.paragraphRange(for: NSRange(location: location, length: 0))
-            if index % 2 == 1 {
-                let glyphs = manager.glyphRange(forCharacterRange: NSRange(location: paragraph.location, length: max(0, paragraph.length - (text.substring(with: paragraph).hasSuffix("\n") ? 1 : 0))), actualCharacterRange: nil)
-                let first = glyphs.length > 0 ? manager.lineFragmentUsedRect(forGlyphAt: glyphs.location, effectiveRange: nil)
-                    : (paragraph.location < text.length ? manager.lineFragmentUsedRect(forGlyphAt: manager.glyphIndexForCharacter(at: paragraph.location), effectiveRange: nil) : manager.extraLineFragmentUsedRect)
-                let last = glyphs.length > 0 ? manager.lineFragmentUsedRect(forGlyphAt: NSMaxRange(glyphs) - 1, effectiveRange: nil) : first
-                // A line's used rect carries the line spacing below it, but for the
-                // text's very last line.
-                let spacing = NSMaxRange(paragraph) < text.length ? ((baseAttributes[.paragraphStyle] as? NSParagraphStyle)?.lineSpacing ?? 0) : 0
-                rects.append(CGRect(x: 0, y: textContainerInset.top + first.minY - gap, width: bounds.width, height: last.maxY - spacing - first.minY + gap * 2))
+            let body = NSRange(location: paragraph.location, length: paragraph.length - (text.substring(with: paragraph).hasSuffix("\n") ? 1 : 0))
+            if body.length > 0 {
+                let glyphs = manager.glyphRange(forCharacterRange: body, actualCharacterRange: nil)
+                lines.append(line(paragraph, first: manager.lineFragmentUsedRect(forGlyphAt: glyphs.location, effectiveRange: nil),
+                                  last: manager.lineFragmentUsedRect(forGlyphAt: NSMaxRange(glyphs) - 1, effectiveRange: nil)))
+            } else if paragraph.location < text.length {
+                // An empty line: its line break's.
+                let rect = manager.lineFragmentUsedRect(forGlyphAt: manager.glyphIndexForCharacter(at: paragraph.location), effectiveRange: nil)
+                lines.append(line(paragraph, first: rect, last: rect))
+            } else {
+                lines.append(line(paragraph, first: manager.extraLineFragmentUsedRect, last: manager.extraLineFragmentUsedRect))
             }
-            index += 1
             if NSMaxRange(paragraph) >= text.length {
                 // A final empty line after a line break is a line too.
-                if text.length > 0, text.hasSuffix("\n"), index % 2 == 1 {
+                if text.length > 0, text.hasSuffix("\n") {
                     let extra = manager.extraLineFragmentUsedRect
-                    rects.append(CGRect(x: 0, y: textContainerInset.top + extra.minY - gap, width: bounds.width, height: extra.height + gap * 2))
+                    lines.append(line(NSRange(location: text.length, length: 0), first: extra, last: extra))
                 }
-                break
+                return lines
             }
             location = NSMaxRange(paragraph)
         }
-        if stripes.rects != rects { stripes.rects = rects }
     }
 
-    /// Shows `text` (coloured at once), the caret where it was or at the end.
+    /// Shows `text` (coloured at once), the caret where it was or at the end. Code only
+    /// shown, not edited (the agent writing it), is coloured a moment later, what was
+    /// there before keeping its colours: it grows at the end.
     func show(_ text: String) {
         guard self.text != text || attributedText.length == 0, markedTextRange == nil else { return }
         let caret = selectedRange
-        attributedText = NSAttributedString(string: text, attributes: baseAttributes)
+        if controller == nil, attributedText.length > 0, text.hasPrefix(self.text) {
+            textStorage.append(NSAttributedString(string: String(text.dropFirst(self.text.count)), attributes: baseAttributes))
+        } else {
+            attributedText = NSAttributedString(string: text, attributes: baseAttributes)
+        }
         if isFirstResponder { selectedRange = NSRange(location: min(caret.location, text.utf16.count), length: 0) }
-        highlightNow()
+        if controller == nil { scheduleHighlight() } else { highlightNow() }
     }
     private var highlightTask: Task<Void, Never>?
     private static let highlighter = HighlightrCodeHighlighter()
@@ -456,6 +519,8 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
         // Typing moves the caret before the change is reported: one character on.
         if let typed = typedCaret, selectedRange.length == 0, abs(selectedRange.location - typed.location) <= 1, isFirstResponder, typingNow { return }
         controller?.caretMoved()
+        // The caret's line is lit.
+        if code != nil { setNeedsLayout() }
     }
 
     /// Set while UIKit applies a keystroke (between shouldChange and didChange).
@@ -470,45 +535,55 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
 
     func textViewDidBeginEditing(_ textView: UITextView) {
         if let block { controller?.began(block) }
+        if code != nil { setNeedsLayout() }
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {
         if let block { controller?.ended(block) }
+        if code != nil { setNeedsLayout() }
     }
+
+    #if targetEnvironment(macCatalyst)
+    /// Right-click in code: its menu (the language, Copy Code) above the text's.
+    func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard let block, let rows = controller?.codeMenu(block), !rows.isEmpty else { return nil }
+        return UIMenu(children: FlooDesignContextMenus.systemMenu(rows) + suggestedActions)
+    }
+    #endif
 }
 
+/// A source's text view. Without a block and controller it only shows the code (a code
+/// block the agent is writing).
 struct DocSourceField: UIViewRepresentable {
-    let block: DocBlockID
+    var block: DocBlockID?
     let text: String
-    let controller: DocSourceController
+    var controller: DocSourceController?
     let font: UIFont
     var insets = UIEdgeInsets(top: 5, left: 10, bottom: 10, right: 10)
     /// Highlights the code in this language (nil: plain text).
     var language: String?
-    /// Code lines as MarkdownView lays them out: each line (a paragraph, wrapping inside
-    /// it) with this much above and below, alternate lines striped behind. The space
-    /// is the paragraph spacing between lines, and half of it the insets at the ends.
-    var lineGap: CGFloat?
+    /// A code block's lines (DocCodeBox), the insets theirs.
+    var code: DocCodeMetrics?
 
     private var attributes: [NSAttributedString.Key: Any] {
         var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: FlooDesignTokens.UIKitColor.primary]
-        if let lineGap {
+        if let code {
             let style = NSMutableParagraphStyle()
-            // Between the lines a long line wraps into, as MarkdownView spaces them.
-            // TextKit adds it after a paragraph's last line too: the paragraph spacing
-            // makes up the rest of the gap to the next code line.
-            style.lineSpacing = markdownCodeWrappedLineSpacing
-            style.paragraphSpacing = lineGap * 2 - markdownCodeWrappedLineSpacing
-            // SwiftUI's Text wraps with the standard strategy (it pushes a word down
-            // rather than leave one short word alone on a line): the same breaks.
+            // Every line, a code line or one it wraps into, the pitch from the next:
+            // TextKit adds the spacing after a paragraph's last line too.
+            style.lineSpacing = code.gap * 2
             style.lineBreakStrategy = .standard
             attributes[.paragraphStyle] = style
         }
         return attributes
     }
 
+    private var textInsets: UIEdgeInsets {
+        code?.insets(lines: text.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }) ?? insets
+    }
+
     func makeUIView(context: Context) -> DocSourceTextView {
-        // TextKit 1: the stripes are drawn from its line fragments.
+        // TextKit 1: a code block's gutter is drawn from its line fragments.
         let view = DocSourceTextView(usingTextLayoutManager: false)
         view.delegate = view
         view.isScrollEnabled = false
@@ -527,9 +602,9 @@ struct DocSourceField: UIViewRepresentable {
     func updateUIView(_ view: DocSourceTextView, context: Context) {
         view.block = block
         view.controller = controller
-        view.isEditable = controller.isEditable
-        view.textContainerInset = insets
-        view.stripeGap = lineGap
+        view.isEditable = controller?.isEditable ?? false
+        view.textContainerInset = textInsets
+        view.code = code
         // Typed text takes the colour of the token it's typed into until the next
         // highlight, not plain.
         var typing = attributes
@@ -543,67 +618,171 @@ struct DocSourceField: UIViewRepresentable {
         } else if languageChanged {
             view.highlightNow()
         }
-        controller.register(view, for: block)
+        if let block, let controller { controller.register(view, for: block) }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: DocSourceTextView, context: Context) -> CGSize? {
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 300
+        let insets = textInsets
         var height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-        if lineGap != nil {
-            // To the last line's text, not past the spacing after it (a code block's last
-            // line has only its own gap below, the bottom inset).
+        if let code {
+            // To the last line's text, not past the spacing after it: the bottom inset
+            // has the space below it.
             let container = uiView.textContainer
+            let manager = uiView.layoutManager
             container.size = CGSize(width: width - insets.left - insets.right, height: .greatestFiniteMagnitude)
-            uiView.layoutManager.ensureLayout(for: container)
-            height = uiView.layoutManager.usedRect(for: container).maxY + insets.top + insets.bottom
+            manager.ensureLayout(for: container)
+            let glyphs = manager.numberOfGlyphs
+            let last = !manager.extraLineFragmentUsedRect.isEmpty || glyphs == 0 ? manager.extraLineFragmentUsedRect
+                : manager.lineFragmentUsedRect(forGlyphAt: glyphs - 1, effectiveRange: nil)
+            height = insets.top + last.minY + code.lineHeight + insets.bottom
         }
         return CGSize(width: width, height: max(ceil(height), ceil(font.lineHeight + insets.top + insets.bottom)))
     }
 }
 
-/// The document's code block font: the page's body size, monospaced (the rows set
-/// MarkdownView's code block font to the same).
-let docCodeFont = UIFont.monospacedSystemFont(ofSize: MarkdownTextScale.size(of: .body),
+/// The document's code font: Craft's, monospaced at 0.86 of the body text (13 points
+/// beside the Mac's 15).
+let docCodeFont = UIFont.monospacedSystemFont(ofSize: (MarkdownTextScale.size(of: .body) * 0.86).rounded(),
                                               weight: .regular)
-private var codeFont: UIFont { docCodeFont }
 
-/// A code block: MarkdownView's, its lines replaced by the editor while it's edited.
-struct DocCodeRowView: View {
-    let block: DocBlockID
-    let language: String?
-    let tree: MarkdownTree
-    let controller: DocSourceController
+/// Craft's code block, measured on its Mac app (code at 13 points), scaled with the font.
+struct DocCodeMetrics: Equatable {
+    let font: UIFont
 
-    var body: some View {
-        let editing = controller.editing == block
-        MarkdownBlockView(tree: tree)
-            .markdownCodeBlockReplacement { [block, controller] in
-                guard controller.editing == block else { return nil }
-                return AnyView(DocCodeEditor(block: block, text: controller.text(block), language: language, controller: controller))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .topTrailing) {
-                if editing { DocCodeLanguageMenu(block: block, language: language, controller: controller) }
-            }
-            // The editor takes the code's place: the page stays where it is.
-            .simultaneousGesture(TapGesture().onEnded { [block, controller] in
-                if controller.editing != block { controller.focus(block, reveals: false) }
-            })
+    private var scale: CGFloat { font.pointSize / 13 }
+    var lineHeight: CGFloat { font.lineHeight }
+    /// From one line's text to the next's: 20 points.
+    var pitch: CGFloat { (20 * scale).rounded() }
+    /// Above and below a line's text: the pitch's room past it, halved.
+    var gap: CGFloat { (pitch - font.lineHeight) / 2 }
+    /// From the border to the first line's space, and from the last number's to the border.
+    var edge: CGFloat { (9 * scale).rounded() }
+    /// From the numbers' right to the gutter's line, and from the line to the code.
+    var numberTrailing: CGFloat { 10.5 * scale }
+    var codeLeading: CGFloat { 14 * scale }
+
+    /// Lines numbered after the last: room to go on.
+    static let extraLines = 2
+    static let radius: CGFloat = 6
+    static let border: CGFloat = 1
+    static let separator: CGFloat = 0.5
+    /// The ring while it's edited: this far out from the box.
+    static let ringOffset: CGFloat = 2
+    /// The label colour's opacities, measured on Craft's dark page: the box, the gutter
+    /// over it, the border and the gutter's line, the caret's line, the ring.
+    static let fillOpacity = 0.014
+    static let gutterOpacity = 0.014
+    static let lineOpacity = 0.09
+    static let litOpacity = 0.045
+    static let ringOpacity = 0.37
+
+    /// The gutter, wide enough for the numbers of `lines` lines (one digit: 36 points).
+    func gutterWidth(lines: Int) -> CGFloat {
+        let digit = ("0" as NSString).size(withAttributes: [.font: font]).width
+        return (17.5 * scale + CGFloat(String(lines).count) * digit + numberTrailing).rounded()
+    }
+
+    /// The text's insets inside the border, for `lines` lines of code.
+    func insets(lines: Int) -> UIEdgeInsets {
+        UIEdgeInsets(top: edge + gap, left: gutterWidth(lines: lines + Self.extraLines) + Self.separator + codeLeading,
+                     bottom: gap + CGFloat(Self.extraLines) * pitch + edge, right: codeLeading)
     }
 }
 
-/// The code lines as an editor, laid out as MarkdownView's: 10 across (and the 8 its
-/// line's stack keeps before the spacer on the right, where the text wraps), 5 above
-/// and below each line, stripes on alternate lines (drawn by the text view from its lines).
-struct DocCodeEditor: View {
+/// What a code block's text view draws behind its text: the gutter with its line and the
+/// numbers, and, while it's edited, the caret's line lit.
+final class DocCodeBackdrop: UIView {
+    struct Drawing: Equatable {
+        var code: DocCodeMetrics
+        var gutter: CGFloat
+        /// Each numbered line's text top.
+        var tops: [CGFloat]
+        var lit: Range<CGFloat>?
+    }
+
+    var drawing: Drawing? {
+        didSet { setNeedsDisplay() }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: Self, _) in view.setNeedsDisplay() }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ rect: CGRect) {
+        guard let drawing else { return }
+        let label = UIColor.label.resolvedColor(with: traitCollection)
+        let corner = DocCodeMetrics.radius - DocCodeMetrics.border
+        label.withAlphaComponent(DocCodeMetrics.gutterOpacity).setFill()
+        UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: drawing.gutter, height: bounds.height),
+                     byRoundingCorners: [.topLeft, .bottomLeft], cornerRadii: CGSize(width: corner, height: corner)).fill()
+        label.withAlphaComponent(DocCodeMetrics.lineOpacity).setFill()
+        UIBezierPath(rect: CGRect(x: drawing.gutter, y: 0, width: DocCodeMetrics.separator, height: bounds.height)).fill()
+        if let lit = drawing.lit {
+            let left = drawing.gutter + DocCodeMetrics.separator
+            label.withAlphaComponent(DocCodeMetrics.litOpacity).setFill()
+            UIBezierPath(rect: CGRect(x: left, y: lit.lowerBound, width: bounds.width - left, height: lit.upperBound - lit.lowerBound)).fill()
+        }
+        let attributes: [NSAttributedString.Key: Any] = [.font: drawing.code.font, .foregroundColor: UIColor.tertiaryLabel.resolvedColor(with: traitCollection)]
+        for (index, top) in drawing.tops.enumerated() {
+            let number = String(index + 1) as NSString
+            let width = number.size(withAttributes: attributes).width
+            number.draw(at: CGPoint(x: drawing.gutter - drawing.code.numberTrailing - width, y: top), withAttributes: attributes)
+        }
+    }
+}
+
+/// A code block as Craft draws it, read and edited alike: its text view (which draws the
+/// gutter, numbers and lit line, DocCodeMetrics) in a box with a thin border; while it's
+/// edited, a faint ring around the box.
+struct DocCodeBox: View {
+    var block: DocBlockID?
+    let text: String
+    let language: String?
+    var controller: DocSourceController?
+    var isEditing = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: DocCodeMetrics.radius, style: .continuous)
+        DocSourceField(block: block, text: text, controller: controller, font: docCodeFont, language: language,
+                       code: DocCodeMetrics(font: docCodeFont))
+            .padding(DocCodeMetrics.border)
+            .background(shape.fill(Color.primary.opacity(DocCodeMetrics.fillOpacity)))
+            .overlay {
+                shape.strokeBorder(Color.primary.opacity(DocCodeMetrics.lineOpacity), lineWidth: DocCodeMetrics.border)
+                    .allowsHitTesting(false)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: DocCodeMetrics.radius + DocCodeMetrics.ringOffset, style: .continuous)
+                    .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary.opacity(DocCodeMetrics.ringOpacity), lineWidth: DocCodeMetrics.border)
+                    .padding(-DocCodeMetrics.ringOffset)
+                    .opacity(isEditing ? 1 : 0)
+                    .animation(FlooDesignTokens.Motion.reveal, value: isEditing)
+                    .allowsHitTesting(false)
+            }
+    }
+}
+
+/// A code block: Craft's box, its text edited in place.
+struct DocCodeRowView: View {
     let block: DocBlockID
     let text: String
     let language: String?
     let controller: DocSourceController
 
     var body: some View {
-        DocSourceField(block: block, text: text, controller: controller, font: codeFont,
-                       insets: UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 18), language: language, lineGap: 5)
+        DocCodeBox(block: block, text: text, language: language, controller: controller, isEditing: controller.editing == block)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The code blocks MarkdownView draws in the document (the agent writing them): Craft's box.
+struct DocCodeBlockStyle: CodeBlockStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        DocCodeBox(text: configuration.code, language: configuration.language)
     }
 }
 
@@ -629,21 +808,6 @@ final class DocLineSelectionRect: UITextSelectionRect {
     override var isVertical: Bool { base.isVertical }
 }
 
-/// Alternate code lines' stripes: MarkdownView's (tertiary at a tenth).
-final class DocStripeView: UIView {
-    var rects: [CGRect] = [] {
-        didSet { setNeedsDisplay() }
-    }
-
-    override func draw(_ rect: CGRect) {
-        let tertiary = FlooDesignTokens.UIKitColor.tertiary.resolvedColor(with: traitCollection)
-        var alpha: CGFloat = 0
-        tertiary.getRed(nil, green: nil, blue: nil, alpha: &alpha)
-        tertiary.withAlphaComponent(alpha * 0.1).setFill()
-        for stripe in rects where stripe.intersects(rect) { UIRectFill(stripe) }
-    }
-}
-
 /// Reports the row's new height to TiledView: entering or leaving an editor changes
 /// it without the row's item changing. On the whole row (its padding included).
 struct DocRowHeightReporter: ViewModifier {
@@ -663,27 +827,6 @@ struct DocRowHeightReporter: ViewModifier {
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                 updateSelfSizing(measuredHeight: height)
             }
-    }
-}
-
-/// While a code block is edited, its language: a menu over the header's copy button's left.
-struct DocCodeLanguageMenu: View {
-    /// From the header's right edge to the left of its copy button (MarkdownView's).
-    private static let copyButtonClearance: CGFloat = 84
-
-    let block: DocBlockID
-    let language: String?
-    let controller: DocSourceController
-
-    var body: some View {
-        FlooDesignMenuButton(language ?? String(localized: "Language")) {
-            Button("None") { controller.setLanguage(nil, of: block) }
-            ForEach(DocSourceController.languages, id: \.self) { name in
-                Button(name) { controller.setLanguage(name, of: block) }
-            }
-        }
-        .padding(.top, FlooDesignTokens.Space.sm - 2)
-        .padding(.trailing, Self.copyButtonClearance)
     }
 }
 
@@ -780,9 +923,12 @@ struct DocMathPanel: View {
         }
     }
 
+    /// The LaTeX's font: the body text's size, monospaced.
+    private static let latexFont = UIFont.monospacedSystemFont(ofSize: MarkdownTextScale.size(of: .body), weight: .regular)
+
     private var content: some View {
         VStack(spacing: Tokens.Space.sm) {
-            DocSourceField(block: block, text: text, controller: controller, font: codeFont,
+            DocSourceField(block: block, text: text, controller: controller, font: Self.latexFont,
                            insets: UIEdgeInsets(top: Tokens.Space.sm, left: Tokens.Space.sm, bottom: Tokens.Space.sm, right: Tokens.Space.sm))
                 .background(Tokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
             HStack(spacing: Tokens.Space.sm) {
