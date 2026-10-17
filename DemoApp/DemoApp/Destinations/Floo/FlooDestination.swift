@@ -1490,23 +1490,26 @@ private struct FlooLiveCard: View {
     let session: CardSession?
 
     var body: some View {
+        let drawing = !(session?.tree.roots.isEmpty ?? true)
         CardFrame(layout: layout) {
+            // One card view for as long as it's drawn: its own entrances bring in what the
+            // source adds, and a retry's reset takes its views out at once. Swapped for the
+            // request each time the tree was empty for a moment (as a line is half-written),
+            // card views faded out over one another and stayed, half drawn.
             ZStack(alignment: .topLeading) {
-                if let session, !session.tree.roots.isEmpty {
+                if let session {
                     CardView(tree: session.tree)
-                        .transition(.opacity)
-                } else {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "sparkles")
-                        Text(request).lineLimit(layout.size == .glance ? 3 : 4)
-                    }
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .transition(.opacity)
                 }
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "sparkles")
+                    Text(request).lineLimit(layout.size == .glance ? 3 : 4)
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .opacity(drawing ? 0 : 1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .animation(FlooDesignTokens.Motion.layout, value: session?.tree.roots.isEmpty ?? true)
+            .animation(FlooDesignTokens.Motion.layout, value: drawing)
         }
         .overlay { FlooCardEdge(size: layout.size) }
     }
