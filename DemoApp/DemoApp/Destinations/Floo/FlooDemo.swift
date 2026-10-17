@@ -139,21 +139,57 @@ struct FlooRow: Identifiable, Equatable {
     var bubble: FlooBubble?
 }
 
-/// A piece of an agent's bubble: the words between two things that stand on their own (a
-/// code block, a table, a card, options) are one bubble, a row a block, the first rounded
-/// at the top and the last at the bottom.
+/// A block of an agent's words in its bubble: the blocks between two cards are one bubble,
+/// drawn once behind their rows.
 struct FlooBubble: Equatable {
     /// The bubble's first row, which names it.
     let run: String
     let top: Bool
-    /// The bubble ends here as far as it's shown: its last piece, or the last with any of its
-    /// words revealed yet.
-    let bottom: Bool
-    /// Its last piece, whether shown yet or not.
     let last: Bool
-    /// The widest of its pieces' revealed words: every piece is as wide, so they make one bubble
-    /// hugging what's shown of its words.
-    var width: CGFloat = 0
+}
+
+/// What of a bubble's rows is shown, by row: the bubble is drawn around it.
+@MainActor
+@Observable
+final class FlooBubbleState {
+    /// Where a row's words are and how much of them is revealed.
+    struct Shown: Equatable {
+        /// The revealed words, from where they start, in the row; nothing revealed is no height,
+        /// nil not told yet.
+        var words: CGRect?
+        /// All its words, laid out whole.
+        var whole: CGRect
+        /// How wide the words can be.
+        var room: CGFloat
+    }
+
+    /// The coordinate space of a row, where its words are told.
+    static let space = "flooRow"
+
+    /// What each row's words last told, while it was on screen.
+    var rows: [String: Shown] = [:]
+    /// The rows whose words are all revealed. Kept from the reveal itself, which runs on with
+    /// a row off screen: a row that finished there has its bubble whole.
+    private(set) var finished: Set<String> = []
+    @ObservationIgnored private var following: [String: (manager: StreamingRevealManager, listener: UUID)] = [:]
+
+    /// Follows a row's reveal; nil: its words are all there.
+    func follow(_ row: String, reveal manager: StreamingRevealManager?) {
+        if let followed = following[row] {
+            guard followed.manager !== manager else { return }
+            followed.manager.removeRevealCompletionListener(followed.listener)
+            following[row] = nil
+        }
+        guard let manager else {
+            finished.insert(row)
+            return
+        }
+        let listener = manager.addRevealCompletionListener { [weak self] revealed in
+            guard let self else { return }
+            if revealed { finished.insert(row) } else { finished.remove(row) }
+        }
+        following[row] = (manager, listener)
+    }
 }
 
 /// One option of a choice or an ask: a few words, and the complete request tapping it sends.
@@ -364,9 +400,8 @@ final class FlooDemo {
     @ObservationIgnored private(set) var sessions: [String: CardSession] = [:]
     @ObservationIgnored private var versions: [String: Int] = [:]
     @ObservationIgnored private var jumpTarget: String?
-    /// How wide each piece's words came out, by bubble and row.
-    @ObservationIgnored private var bubbleWidths: [String: [String: CGFloat]] = [:]
-    @ObservationIgnored private var bubblesPending = false
+    /// What of each bubble's rows is shown, by bubble.
+    @ObservationIgnored private var bubbleStates: [String: FlooBubbleState] = [:]
     /// 1 is the pace the script is written at; less is faster.
     @ObservationIgnored var pace = 1.0
 
@@ -397,7 +432,7 @@ final class FlooDemo {
         showsErrands = false
         speaking = nil
         jumpTarget = nil
-        bubbleWidths = [:]
+        bubbleStates = [:]
         following = true
         self.title = title
         publish()
@@ -1007,12 +1042,17 @@ final class FlooDemo {
                 } else {
                     var row = FlooRow(id: id, message: message.id, kind: .block(block, streaming: message.streaming))
                     if Self.agentBubbles, Self.inBubble(block) {
-                        row.bubble = FlooBubble(run: id, top: true, bottom: true, last: true)
+                        row.bubble = FlooBubble(run: id, top: true, last: true)
                     }
                     rows.append(row)
                 }
             }
             joinBubbles(&rows)
+            for row in rows {
+                guard let bubble = row.bubble, case .block(let block, _) = row.kind else { continue }
+                let reveal = message.streaming ? message.coordinator.ensureManager(for: block.id) : nil
+                bubbleState(bubble.run).follow(row.id, reveal: reveal)
+            }
             // What it asked rides on its words; the work it went on with is under them.
             for card in message.asks {
                 rows.append(FlooRow(id: "m\(message.id)#ask-\(card.id)", message: message.id, kind: .ask(card)))
@@ -1022,17 +1062,13 @@ final class FlooDemo {
         }
     }
 
-    /// Words go in the bubble; what has a frame of its own or is wider than a line of text
-    /// (code, a table, a directive's view) stands between its pieces.
+    /// All of an agent's markdown goes in its bubble: words, lists, quotes, math, tables and
+    /// code; only a card (a fence of floo's own) stands between bubbles.
     private static func inBubble(_ block: MarkdownStreamBlock) -> Bool {
-        guard case .markdown = block.kind else { return false }
-        switch block.descriptor.kind {
-        case .codeBlock, .table, .blockDirective: return false
-        default: return true
-        }
+        if case .markdown = block.kind { true } else { false }
     }
 
-    /// Next rows in bubbles are one bubble: the first's id names it, only its ends are rounded.
+    /// Next rows in bubbles are one bubble, named by its first row.
     private func joinBubbles(_ rows: inout [FlooRow]) {
         var start = 0
         while start < rows.count {
@@ -1043,37 +1079,19 @@ final class FlooDemo {
             var end = start
             while end + 1 < rows.count, rows[end + 1].bubble != nil { end += 1 }
             let run = rows[start].id
-            let ids = Set(rows[start...end].map(\.id))
-            bubbleWidths[run] = bubbleWidths[run]?.filter { ids.contains($0.key) }
-            let widths = bubbleWidths[run] ?? [:]
-            let width = widths.values.max() ?? 0
-            // Words being revealed show once some of them are; words already there, at once.
-            func shown(_ index: Int) -> Bool {
-                guard case .block(_, let streaming) = rows[index].kind, streaming else { return true }
-                return (widths[rows[index].id] ?? 0) > 0
-            }
             for index in start...end {
-                let bottom = index == end || !shown(index + 1)
-                rows[index].bubble = FlooBubble(run: run, top: index == start, bottom: bottom, last: index == end, width: width)
+                rows[index].bubble = FlooBubble(run: run, top: index == start, last: index == end)
             }
             start = end + 1
         }
     }
 
-    /// How wide a piece's revealed words are: when that makes the bubble wider or narrower, or
-    /// the piece shows, its rows take it.
-    func measured(_ row: String, in run: String, width: CGFloat) {
-        let before = bubbleWidths[run]?.values.max() ?? 0
-        let wasShown = (bubbleWidths[run]?[row] ?? 0) > 0
-        bubbleWidths[run, default: [:]][row] = width
-        // The bubble's width moved, or a piece showed and the one above stops being its end.
-        guard bubbleWidths[run]?.values.max() != before || wasShown != (width > 0), !bubblesPending else { return }
-        // After the layout pass that measured it, once however many pieces changed.
-        bubblesPending = true
-        Task { @MainActor in
-            bubblesPending = false
-            publish()
-        }
+    /// What of a bubble's rows is shown, by its first row.
+    func bubbleState(_ run: String) -> FlooBubbleState {
+        if let state = bubbleStates[run] { return state }
+        let state = FlooBubbleState()
+        bubbleStates[run] = state
+        return state
     }
 
     func message(_ id: Int) -> Message? {

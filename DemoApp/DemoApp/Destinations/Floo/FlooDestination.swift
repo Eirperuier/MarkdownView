@@ -40,6 +40,9 @@ struct FlooDestination: View {
             .heightEstimate { row, width in
                 row.estimatedHeight(width: width)
             }
+            .itemBackground({ $0.bubble?.run }) { run, geometry in
+                FlooBubbleBackground(state: demo.bubbleState(run), geometry: geometry)
+            }
             // Following is yours to leave: only scrolling by hand changes it.
             .onTiledScrollGeometryChange { geometry in
                 fromBottom = geometry.pointsFromBottom
@@ -467,6 +470,7 @@ private struct FlooRowView: View {
             .frame(maxWidth: 720)
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
+            .coordinateSpace(.named(FlooBubbleState.space))
     }
 
     @ViewBuilder
@@ -636,14 +640,17 @@ private struct FlooRowView: View {
     @ViewBuilder
     private func markdown(_ block: MarkdownStreamBlock, streaming: Bool) -> some View {
         if let bubble = row.bubble {
+            let message = streaming ? row.message.flatMap(demo.message) : nil
+            let tells = Self.reportsReveal(block)
             FlooBubblePiece(
                 bubble: bubble,
+                row: row.id,
+                state: demo.bubbleState(bubble.run),
                 heading: Self.isHeading(block),
-                reveals: streaming && row.message.flatMap(demo.message) != nil && Self.reportsReveal(block),
+                reveals: message != nil && tells,
+                starts: tells ? nil : message?.coordinator.ensureManager(for: block.id),
                 indent: CGFloat(block.descriptor.listItemContext?.depth ?? 0) * 20
             ) {
-                demo.measured(row.id, in: bubble.run, width: $0)
-            } content: {
                 revealing(
                     MarkdownStreamBlockView(block)
                         .markdownDisplayMathRendersSynchronously()
@@ -1076,70 +1083,79 @@ private struct FlooReceiptLabel: View {
 }
 
 /// A block of an agent's words in its bubble: the received side of a chat, as a person's
-/// bubble is drawn (radius, padding, room left on the far side), in iMessage's received grey.
-/// A bubble's pieces are as wide as its widest, hugging the words like a single bubble; the
-/// pieces between its ends meet square, overlapping a point so no seam shows.
-///
-/// While its words stream in, the bubble is as big as what of them is revealed, not as the
-/// words will be: it starts around the first glyphs, widens along the first line, then grows
-/// down a line at a time, moving with the layout spring. Words already there have it whole.
+/// bubble is spaced (padding, room left on the far side). The block draws no bubble; it tells
+/// its bubble where its words are and how much of them is revealed, and the bubble is drawn
+/// once behind all its blocks (`FlooBubbleBackground`).
 private struct FlooBubblePiece<Content: View>: View {
     let bubble: FlooBubble
+    let row: String
+    let state: FlooBubbleState
     /// A heading has more room above it than the blocks between, as on a page.
     var heading = false
     /// Its words are revealed as they stream, and tell how far that has got.
     var reveals = false
+    /// The reveal of a block that can't tell how far it has got (a table, code): it shows
+    /// whole once its reveal starts.
+    var starts: StreamingRevealManager? = nil
     /// How far the words start in from the bubble's text edge, past what their reveal measures
     /// (a nested list item's indent).
     var indent: CGFloat = 0
-    /// How wide the revealed words are, nothing revealed being 0.
-    let measured: (CGFloat) -> Void
     @ViewBuilder var content: Content
 
     /// What the words' reveal last told: nil before it has, nil inside once all is revealed.
     @State private var told: CGSize??
     /// The words as laid out whole.
     @State private var whole: CGSize = .zero
+    /// Where the words can be in the row.
+    @State private var frame: CGRect?
+    @State private var started = false
+    @State private var listener: UUID?
 
-    private static var radius: CGFloat { 18 }
-
-    /// The revealed words' size: all of them unless they're being revealed.
-    private var revealed: CGSize {
-        guard reveals, let told else { return reveals ? .zero : whole }
-        guard let told, told.height > 0 else { return told == nil ? whole : .zero }
-        return CGSize(width: told.width + indent, height: told.height)
+    /// The revealed words' size: all of them unless they're being revealed; nil until known.
+    private var revealed: CGSize? {
+        if reveals {
+            guard let told else { return nil }
+            guard let told else { return whole == .zero ? nil : whole }
+            return told.height > 0 ? CGSize(width: told.width + indent, height: told.height) : .zero
+        }
+        if let starts, !started, starts.revealedCount == 0 { return .zero }
+        return whole == .zero ? nil : whole
     }
 
-    private var top: CGFloat { bubble.top ? 10 : heading ? 14 : 6 }
-    private var bottom: CGFloat { bubble.last ? 10 : 6 }
-
-    /// The bubble's own size: as wide as the widest revealed piece, as tall as this piece's
-    /// revealed lines, with the bubble's padding at an end that's showing.
-    private var size: CGSize {
-        let words = revealed
-        // Nothing shown yet: as wide as the bubble already is and no taller than nothing, so it
-        // shows by growing down from the piece above, not in from a corner.
-        guard words.height > 0 else { return CGSize(width: bubble.width + 2 * 14, height: 0) }
-        // Where it ends as shown, the bubble's end padding, past its row if more is to come.
-        let below = bubble.bottom ? 10.0 : 6.0
-        return CGSize(width: max(bubble.width, words.width) + 2 * 14, height: top + words.height + below)
+    private var shown: FlooBubbleState.Shown? {
+        guard let frame, whole != .zero else { return nil }
+        return FlooBubbleState.Shown(
+            words: revealed.map { CGRect(origin: frame.origin, size: $0) },
+            whole: CGRect(origin: frame.origin, size: whole),
+            room: frame.width
+        )
     }
 
     var body: some View {
-        FlooBubbleWidth(width: bubble.width) {
+        FlooBubbleWords {
             content
                 .markdownRevealedExtent(tell)
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { whole = $0 }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(FlooBubbleState.space)) } action: { frame = $0 }
         .padding(.horizontal, 14)
-        .padding(.top, top)
-        .padding(.bottom, bottom)
-        .background(alignment: .topLeading) { shape }
-        .onChange(of: revealed.height > 0 ? revealed.width : 0, initial: true) { _, width in measured(width) }
+        .padding(.top, bubble.top ? 10 : heading ? 14 : 6)
+        .padding(.bottom, bubble.last ? 10 : 6)
         .padding(.top, bubble.top ? 4 : 0)
         .padding(.bottom, bubble.last ? 4 : 0)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.trailing, 48)
+        .onChange(of: shown, initial: true) { _, shown in
+            guard var shown else { return }
+            // A row comes back into view before its reveal tells again: keep what it told.
+            if shown.words == nil { shown.words = state.rows[row]?.words }
+            state.rows[row] = shown
+        }
+        .onAppear { listen() }
+        .onDisappear {
+            if let listener { starts?.removeListener(listener) }
+            listener = nil
+        }
     }
 
     /// Where the words' reveal tells how far it has got.
@@ -1148,39 +1164,93 @@ private struct FlooBubblePiece<Content: View>: View {
         return { told = .some($0) }
     }
 
-    private var motion: Animation? { reveals ? FlooDesignTokens.Motion.layout : nil }
-
-    private var shape: some View {
-        let size = size
-        let shown = revealed.height > 0
-        return UnevenRoundedRectangle(
-            topLeadingRadius: bubble.top ? Self.radius : 0,
-            bottomLeadingRadius: bubble.bottom ? Self.radius : 0,
-            bottomTrailingRadius: bubble.bottom ? Self.radius : 0,
-            topTrailingRadius: bubble.top ? Self.radius : 0,
-            style: .continuous
-        )
-        .fill(Color.flooReceived)
-        // Up a point into the piece above, so no seam shows.
-        .frame(width: size.width, height: size.height + (bubble.top ? 0 : 1))
-        .offset(y: bubble.top ? 0 : -1)
-        .opacity(shown ? 1 : 0)
-        .animation(motion, value: size)
-        .animation(motion, value: bubble.bottom)
-        .animation(motion, value: shown)
+    private func listen() {
+        guard let starts, listener == nil else { return }
+        listener = starts.addListener { count in
+            if count > 0, !started { started = true }
+        }
     }
 }
 
-/// A piece's words as wide as the bubble's widest, never wider than there's room for. The
-/// words keep the lines they were laid out in at the room there is: laid out again at their
-/// own width, text can break its lines differently (a closing comma that hung past the edge).
-private struct FlooBubbleWidth: Layout {
-    let width: CGFloat
+/// A bubble, drawn once behind the blocks it holds: around what of their words is revealed,
+/// as wide as the widest revealed line. While the words stream it grows with the layout spring;
+/// words already there have it whole.
+private struct FlooBubbleBackground: View {
+    let state: FlooBubbleState
+    let geometry: TiledItemBackgroundGeometry<String>
 
+    private static var radius: CGFloat { 18 }
+
+    /// The bubble in the run's space, and whether any of it shows.
+    private var bubble: (rect: CGRect, shown: Bool) {
+        var first: CGRect?
+        var last: CGRect?
+        var width: CGFloat = 0
+        var room: CGFloat = .infinity
+        var start: CGRect?
+        // Where words start across and how wide they can be, from any row that told.
+        let column = geometry.items.lazy.compactMap { state.rows[$0.id] }.first
+        for item in geometry.items {
+            let done = state.finished.contains(item.id)
+            let words: CGRect
+            if let told = state.rows[item.id] {
+                // A row whose reveal finished, on screen or off, is whole.
+                guard let revealed = done ? told.whole : told.words else { continue }
+                words = revealed
+                room = min(room, told.room)
+            } else if done, let column {
+                // All revealed but never on screen: its words fill its row.
+                words = CGRect(
+                    x: column.whole.minX, y: 10,
+                    width: column.room, height: max(0, item.frame.height - 20)
+                )
+            } else {
+                continue
+            }
+            let placed = words.offsetBy(dx: item.frame.minX, dy: item.frame.minY)
+            if start == nil { start = placed }
+            guard placed.height > 0 else { continue }
+            if first == nil { first = placed }
+            last = placed
+            width = max(width, placed.width)
+        }
+        guard let first, let last else {
+            // Nothing shown yet: no bigger than its padding where the words will start.
+            let origin = start?.origin ?? .zero
+            return (CGRect(x: origin.x - 14, y: origin.y - 10, width: 28, height: 0), false)
+        }
+        return (
+            CGRect(x: first.minX - 14, y: first.minY - 10, width: min(width, room) + 28, height: last.maxY - first.minY + 20),
+            true
+        )
+    }
+
+    /// It moves with the layout spring while any of its words are still being revealed.
+    private var motion: Animation? {
+        geometry.items.contains { !state.finished.contains($0.id) } ? FlooDesignTokens.Motion.layout : nil
+    }
+
+    var body: some View {
+        let bubble = bubble
+        RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+            .fill(Color.flooReceived)
+            .frame(width: bubble.rect.width, height: bubble.rect.height)
+            .offset(x: bubble.rect.minX, y: bubble.rect.minY)
+            .opacity(bubble.shown ? 1 : 0)
+            .animation(motion, value: bubble.rect)
+            .animation(motion, value: bubble.shown)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+    }
+}
+
+/// A block's words as wide as they come out, never wider than there's room for. The words
+/// keep the lines they were laid out in at the room there is: laid out again at their own
+/// width, text can break its lines differently (a closing comma that hung past the edge).
+private struct FlooBubbleWords: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let words = subviews.first else { return .zero }
         let size = words.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
-        return CGSize(width: min(proposal.width ?? .infinity, max(width, size.width)), height: size.height)
+        return CGSize(width: min(proposal.width ?? .infinity, size.width), height: size.height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
@@ -1189,8 +1259,7 @@ private struct FlooBubbleWidth: Layout {
 }
 
 extension Color {
-    /// iMessage's received grey: the system's secondary fill as it shows on the page, opaque so
-    /// a bubble's pieces in neighbouring rows can overlap.
+    /// iMessage's received grey: the system's secondary fill as it shows on the page, opaque.
     static let flooReceived = Color(uiColor: UIColor { traits in
         let fill = UIColor.secondarySystemFill.resolvedColor(with: traits)
         let page = UIColor.systemBackground.resolvedColor(with: traits)
