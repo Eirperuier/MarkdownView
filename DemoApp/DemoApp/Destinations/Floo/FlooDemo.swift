@@ -462,6 +462,7 @@ final class FlooDemo {
         isLive = false
         draft = ""
         pages = [:]
+        drafted = [:]
         openPage = nil
         choiceFences = [:]
         approval = nil
@@ -802,8 +803,43 @@ final class FlooDemo {
         workChanged(message.agent)
     }
 
+    /// What each backend card's session was given of its source while it was drawn, and on
+    /// which attempt (FlooLive).
+    @ObservationIgnored private var drafted: [String: (attempt: Int, source: String)] = [:]
+
+    /// A backend card as it's being drawn: its session takes the source as it comes, and
+    /// starts over when the drawing does (a retry).
+    func draftCard(_ key: String, source: String, attempt: Int, data: CardValue) {
+        let session = sessions[key] ?? {
+            let session = CardSession(data: data)
+            sessions[key] = session
+            versions[key, default: 0] += 1
+            return session
+        }()
+        guard !session.isFinal else { return }
+        var given = drafted[key] ?? (attempt, "")
+        if given.attempt != attempt || !source.hasPrefix(given.source) {
+            session.reset()
+            given = (attempt, "")
+        }
+        guard source.count > given.source.count else { return }
+        session.append(source.dropFirst(given.source.count))
+        drafted[key] = (attempt, source)
+    }
+
     /// A card the backend sent, whole: compiled here from its source, shown in its fence's place.
+    /// One drawn here as it was written takes what's left of it and is finished.
     func setCard(_ key: String, source: String?, data: CardValue) {
+        if let session = sessions[key], let given = drafted.removeValue(forKey: key) {
+            if let source, source.hasPrefix(given.source) {
+                session.append(source.dropFirst(given.source.count))
+            } else {
+                session.reset()
+                if let source { session.append(source) }
+            }
+            session.finish()
+            return
+        }
         guard sessions[key] == nil else { return }
         let session = CardSession(data: data)
         if let source { session.append(source) }

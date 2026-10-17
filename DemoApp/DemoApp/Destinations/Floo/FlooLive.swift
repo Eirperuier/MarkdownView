@@ -217,6 +217,16 @@ final class FlooLive {
                 break
             }
         }
+        // Cards being drawn, as they're written: each in the place its stored card takes.
+        for draft in replica.drafts.values where draft.place.message == info.number {
+            let key = "live-\(info.number)-\(draft.place.fence)-\(draft.place.item)"
+            demo.draftCard(key, source: draft.source, attempt: draft.attempt, data: Self.value(draft.data))
+            var keys = message.fenceCards[draft.place.fence] ?? []
+            if !keys.contains(key) {
+                keys.append(key)
+                message.fenceCards[draft.place.fence] = keys.sorted { Self.item($0) < Self.item($1) }
+            }
+        }
         for block in live {
             switch block.kind {
             case .text: words.append(block.text)

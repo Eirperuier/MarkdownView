@@ -1451,34 +1451,32 @@ private struct FlooDrawnCard: View {
 }
 
 /// A card the backend draws, in its frame from the start: the frame is the size its fence
-/// names, so nothing moves when it comes. Until then, what it will show and a light over it;
-/// one that finished with nothing to show keeps the request, still.
+/// names, so nothing moves as it comes. It's drawn as it's written: the first of its views
+/// takes the place of what it will show, and the rest come in after it. One that finished
+/// with nothing to show keeps the request.
 private struct FlooLiveCard: View {
     let request: String
     let layout: CardLayout
     let session: CardSession?
 
-    private var drawn: Bool { session.map { $0.isFinal && !$0.tree.roots.isEmpty } ?? false }
-
     var body: some View {
         CardFrame(layout: layout) {
             ZStack(alignment: .topLeading) {
-                if drawn, let session {
+                if let session, !session.tree.roots.isEmpty {
                     CardView(tree: session.tree)
                         .transition(.opacity)
                 } else {
-                    FlooDrawingSweep(active: !(session?.isFinal ?? false), padding: layout.size.padding)
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "sparkles")
                         Text(request).lineLimit(layout.size == .glance ? 3 : 4)
                     }
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .flooShimmer(!(session?.isFinal ?? false))
+                    .transition(.opacity)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .animation(FlooDesignTokens.Motion.layout, value: drawn)
+            .animation(FlooDesignTokens.Motion.layout, value: session?.tree.roots.isEmpty ?? true)
         }
         .overlay { FlooCardEdge(size: layout.size) }
     }
