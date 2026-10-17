@@ -1195,6 +1195,10 @@ final class FlooDemo {
             var waiting: StreamingRevealManager?
             // Its `floo.` fences' places among them, from 0: where the backend's cards go.
             var fence = 0
+            // A fence with nothing to show yet still ends the bubble before it: the words after
+            // it start their own as they come, not once its card is in.
+            var cut = false
+            var cuts: Set<String> = []
             for block in message.blocks {
                 if waiting != nil { break }
                 if let manager = message.coordinator.manager(for: block.id), !manager.isRevealed { waiting = manager }
@@ -1210,8 +1214,9 @@ final class FlooDemo {
                             let summary = DocPage.summary(of: doc)
                             rows.append(FlooRow(id: "\(id)#page", message: message.id,
                                                 kind: .page(path, DocPage(doc: doc.id, title: summary.title, preview: summary.preview))))
-                        } else if !message.streaming {
-                            live?.loadPage(path)
+                        } else {
+                            cut = true
+                            if !message.streaming { live?.loadPage(path) }
                         }
                         continue
                     }
@@ -1240,6 +1245,7 @@ final class FlooDemo {
                         rows.append(FlooRow(id: "\(id)#mention", message: message.id, kind: .mention(mention)))
                         continue
                     } else if message.number != nil, language != "floo.draw" {
+                        cut = true
                         continue
                     }
                     let card = Self.cardName(language, body)
@@ -1257,11 +1263,13 @@ final class FlooDemo {
                     var row = FlooRow(id: id, message: message.id, kind: .block(block, streaming: message.streaming))
                     if Self.agentBubbles, Self.inBubble(block) {
                         row.bubble = FlooBubble(run: id, top: true, last: true)
+                        if cut { cuts.insert(id) }
                     }
+                    cut = false
                     rows.append(row)
                 }
             }
-            joinBubbles(&rows)
+            joinBubbles(&rows, cuts: cuts)
             for row in rows {
                 guard let bubble = row.bubble, case .block(let block, _) = row.kind else { continue }
                 // Once the words are all in, a reveal still running them out is followed to its end.
@@ -1302,8 +1310,9 @@ final class FlooDemo {
         if case .markdown = block.kind { true } else { false }
     }
 
-    /// Next rows in bubbles are one bubble, named by its first row.
-    private func joinBubbles(_ rows: inout [FlooRow]) {
+    /// Next rows in bubbles are one bubble, named by its first row; a row in `cuts` starts
+    /// its own.
+    private func joinBubbles(_ rows: inout [FlooRow], cuts: Set<String> = []) {
         var start = 0
         while start < rows.count {
             guard rows[start].bubble != nil else {
@@ -1311,7 +1320,7 @@ final class FlooDemo {
                 continue
             }
             var end = start
-            while end + 1 < rows.count, rows[end + 1].bubble != nil { end += 1 }
+            while end + 1 < rows.count, rows[end + 1].bubble != nil, !cuts.contains(rows[end + 1].id) { end += 1 }
             let run = rows[start].id
             for index in start...end {
                 rows[index].bubble = FlooBubble(run: run, top: index == start, last: index == end)
