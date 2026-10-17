@@ -579,8 +579,8 @@ private struct FlooRowView: View {
                 tint: row.message.flatMap(demo.message)?.agent.tint ?? .accentColor,
                 demo: demo
             )
-        case .block(let block, let streaming):
-            markdown(block, streaming: streaming)
+        case .block(let block, let reveals):
+            markdown(block, reveals: reveals)
         case .fence(let language, let body, _, let layout):
             Group {
                 if let layout { liveFence(language, body, layout) } else { fence(language, body) }
@@ -715,9 +715,9 @@ private struct FlooRowView: View {
     }
 
     @ViewBuilder
-    private func markdown(_ block: MarkdownStreamBlock, streaming: Bool) -> some View {
+    private func markdown(_ block: MarkdownStreamBlock, reveals: Bool) -> some View {
         if let bubble = row.bubble {
-            let message = streaming ? row.message.flatMap(demo.message) : nil
+            let message = reveals ? row.message.flatMap(demo.message) : nil
             let tells = Self.reportsReveal(block)
             FlooBubblePiece(
                 bubble: bubble,
@@ -734,7 +734,7 @@ private struct FlooRowView: View {
                         // The bubble spaces its blocks.
                         .markdownStreamBlockEdgeInsets(false),
                     block,
-                    streaming: streaming
+                    reveals: reveals
                 )
             }
         } else {
@@ -744,7 +744,7 @@ private struct FlooRowView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 5),
                 block,
-                streaming: streaming
+                reveals: reveals
             )
         }
     }
@@ -767,8 +767,8 @@ private struct FlooRowView: View {
     }
 
     @ViewBuilder
-    private func revealing(_ view: some View, _ block: MarkdownStreamBlock, streaming: Bool) -> some View {
-        if streaming, let message = row.message.flatMap(demo.message) {
+    private func revealing(_ view: some View, _ block: MarkdownStreamBlock, reveals: Bool) -> some View {
+        if reveals, let message = row.message.flatMap(demo.message) {
             view
                 .markdownStreaming(message.coordinator.ensureManager(for: block.id))
                 .markdownFadeReveal(

@@ -121,7 +121,8 @@ struct FlooRow: Identifiable, Equatable {
         case signature(FlooAgent, String, [FlooMark])
         /// Its work, whether it's opened, and which of its tasks are.
         case process(FlooProcess, expanded: Bool, open: Set<String>)
-        case block(MarkdownStreamBlock, streaming: Bool)
+        /// A block of words; `reveals`: they came in while shown, and come out with their reveal.
+        case block(MarkdownStreamBlock, reveals: Bool)
         /// A ```floo.* fence: its language, what's in it, how far its card is drawn, and for
         /// the backend's cards, the frame its header names (cards.md: size and overflow).
         case fence(String, String, version: Int, layout: CardLayout? = nil)
@@ -353,7 +354,12 @@ final class FlooDemo {
         var process: FlooProcess?
         var text = ""
         var blocks: [MarkdownStreamBlock] = []
-        var streaming = false
+        var streaming = false {
+            didSet { if streaming { streamed = true } }
+        }
+        /// Its words came in while shown: they come out with their reveal, which runs on to its
+        /// end after the stream stops. Words that were there before (history) show whole.
+        private(set) var streamed = false
         /// Its work shows under what it said (a quick answer, then the slow work it started),
         /// not above it.
         var processAfterText = false
@@ -1272,7 +1278,7 @@ final class FlooDemo {
                         )
                     ))
                 } else {
-                    var row = FlooRow(id: id, message: message.id, kind: .block(block, streaming: message.streaming))
+                    var row = FlooRow(id: id, message: message.id, kind: .block(block, reveals: message.streamed))
                     if Self.agentBubbles, Self.inBubble(block) {
                         row.bubble = FlooBubble(run: id, top: true, last: true)
                         if cut { cuts.insert(id) }
