@@ -773,7 +773,9 @@ final class FlooDemo {
         if streaming, message.text.isEmpty { takePlace(message) }
         message.streaming = streaming
         message.text = text
-        commit(message, streaming: streaming)
+        // Words that were all written before they came (the conversation as it was) show
+        // whole: only words being written are revealed.
+        commit(message, streaming: streaming, whole: !streaming && !wasStreaming)
         if wasStreaming, !streaming { message.coordinator.finishQuickly() }
         setPresence(message.agent, streaming ? "正在写…" : nil)
         if !streaming { refreshPresence(message.agent) }
@@ -1065,13 +1067,14 @@ final class FlooDemo {
         return nextID
     }
 
-    private func commit(_ message: Message, streaming: Bool) {
+    private func commit(_ message: Message, streaming: Bool, whole: Bool = false) {
         message.blocks = message.splitter.split(streaming ? Self.settled(message.text) : message.text, isStreaming: streaming)
         message.generation += 1
         message.coordinator.syncBlocks(
             message.blocks.map { ($0.id, $0.revealPlainTextCount) },
             generation: message.generation
         )
+        if whole { message.coordinator.revealAll() }
         publish()
     }
 

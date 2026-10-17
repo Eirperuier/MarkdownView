@@ -1192,9 +1192,8 @@ private struct FlooBubblePiece<Content: View>: View {
             // the list's to move, and the bubble is there at once.
             // While revealing the bubble follows the revealed words, after that the whole words:
             // more words streaming in below the reveal don't move it.
-            // Words told for the first time are laid out, not revealed: the bubble is there at once.
             let laidOut = before.map {
-                $0.words == nil || $0.whole.origin != shown.whole.origin || $0.room != shown.room
+                $0.whole.origin != shown.whole.origin || $0.room != shown.room
                     || (state.finished.contains(row) && $0.whole != shown.whole)
             } ?? true
             var transaction = Transaction(animation: FlooDesignTokens.Motion.layout)
