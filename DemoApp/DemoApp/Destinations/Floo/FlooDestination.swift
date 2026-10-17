@@ -464,6 +464,7 @@ struct FlooRowCell: TiledCellContent {
 private struct FlooRowView: View {
     let row: FlooRow
     let demo: FlooDemo
+    @Environment(\.updateSelfSizing) private var updateSelfSizing
 
     var body: some View {
         content
@@ -471,6 +472,11 @@ private struct FlooRowView: View {
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
             .coordinateSpace(.named(FlooBubbleState.space))
+            // A card changes its row's height by itself (put in once drawn): the list takes
+            // the height the row is laid out at, not one it measures while the card is going in.
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                if case .fence = row.kind { updateSelfSizing(measuredHeight: height) }
+            }
     }
 
     @ViewBuilder
@@ -1305,13 +1311,12 @@ private struct FlooCardFrame<Content: View>: View {
 /// cards of its size come out at, with what it will show and a light passing over it.
 /// Once drawn whole, the card is laid out out of sight first; with its height known, the
 /// frame takes that height in one move as the card fades in, and the rows below move with
-/// it. Nothing in between is shown: a card growing as it streams would push the
+/// it (its row tells the list). Nothing in between is shown: a card growing as it streams would push the
 /// conversation on every chunk.
 private struct FlooDrawnCard: View {
     let request: String
     let size: FlooDemoCards.Size
     let session: CardSession?
-    @Environment(\.updateSelfSizing) private var updateSelfSizing
     /// The finished card's height, as laid out out of sight; it may take a pass or two.
     @State private var measuring: CGFloat?
     /// The card is in place: from the start for one drawn before the row was built.
@@ -1368,9 +1373,8 @@ private struct FlooDrawnCard: View {
             guard measuring != nil, !shown else { return }
             // Settled when a few frames pass with no new height.
             guard (try? await Task.sleep(for: .milliseconds(100))) != nil else { return }
+            // Its row tells the list its new height, and the rows after it follow.
             withAnimation(FlooDesignTokens.Motion.layout) { shown = true }
-            // The rows after it follow with the list's layout motion.
-            updateSelfSizing()
         }
     }
 }
