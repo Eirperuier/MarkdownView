@@ -174,12 +174,11 @@ final class FlooBubbleState {
     private(set) var finished: Set<String> = []
     @ObservationIgnored private var following: [String: (manager: StreamingRevealManager, listener: UUID?)] = [:]
 
-    /// Follows a row's reveal; nil: its words are all there. The row still being written
-    /// (`open`) isn't finished whatever its reveal says: a reveal that has caught up with the
-    /// words so far, or has none yet, tells it's done.
-    func follow(_ row: String, reveal manager: StreamingRevealManager?, open: Bool = false) {
+    /// Follows a row's reveal; nil: its words are all there. A row with no words yet isn't
+    /// finished, whatever its reveal says (a reveal with nothing to reveal tells it's done).
+    func follow(_ row: String, reveal manager: StreamingRevealManager?, empty: Bool = false) {
         if let followed = following[row] {
-            guard followed.manager !== manager || (followed.listener == nil) != open else { return }
+            guard followed.manager !== manager || (followed.listener == nil) != empty else { return }
             if let listener = followed.listener { followed.manager.removeRevealCompletionListener(listener) }
             following[row] = nil
         }
@@ -187,7 +186,7 @@ final class FlooBubbleState {
             finished.insert(row)
             return
         }
-        if open {
+        if empty {
             finished.remove(row)
             following[row] = (manager, nil)
             return
@@ -1064,8 +1063,7 @@ final class FlooDemo {
                 // Once the words are all in, a reveal still running them out is followed to its end.
                 let reveal = message.streaming
                     ? message.coordinator.ensureManager(for: block.id) : message.coordinator.manager(for: block.id)
-                let open = message.streaming && block.id == message.blocks.last?.id
-                bubbleState(bubble.run).follow(row.id, reveal: reveal, open: open)
+                bubbleState(bubble.run).follow(row.id, reveal: reveal, empty: block.revealPlainTextCount == 0)
             }
             // What it asked rides on its words; the work it went on with is under them.
             for card in message.asks {
