@@ -10,6 +10,7 @@
 import SwiftUI
 import MarkdownView
 import MessagingUI
+import CardModel
 import CardUI
 import DocKit
 import FlooDesign
@@ -553,9 +554,11 @@ private struct FlooRowView: View {
             )
         case .block(let block, let streaming):
             markdown(block, streaming: streaming)
-        case .fence(let language, let body, _):
-            fence(language, body)
-                .padding(.vertical, 6)
+        case .fence(let language, let body, _, let layout):
+            Group {
+                if let layout { liveFence(language, body, layout) } else { fence(language, body) }
+            }
+            .padding(.vertical, 6)
         case .choice(let choices, let chosen):
             FlooOptions(choices: choices, chosen: chosen, tint: tint, demo: demo) { index, option in
                 demo.choose(row.id, index, option)
@@ -757,14 +760,14 @@ private struct FlooRowView: View {
         case "floo.draw":
             let card = FlooDemo.cardName(language, lines)
             let request = lines.first { !$0.hasPrefix("card:") } ?? ""
-            let size = card.flatMap { FlooDemoCards.all[$0]?.size ?? demo.cardSizes[$0] } ?? .medium
+            let size = card.flatMap { FlooDemoCards.all[$0]?.size } ?? .medium
             FlooDrawnCard(request: request, size: size, session: card.flatMap { demo.sessions[$0] })
                 .frame(maxWidth: .infinity, alignment: .leading)
         case "floo.card":
             HStack(alignment: .top, spacing: 12) {
                 ForEach(lines, id: \.self) { name in
                     if let session = demo.card(name) {
-                        FlooCardFrame(size: FlooDemoCards.all[name]?.size ?? demo.cardSizes[name] ?? .medium) {
+                        FlooCardFrame(size: FlooDemoCards.all[name]?.size ?? .medium) {
                             CardView(tree: session.tree)
                         }
                     }
@@ -775,6 +778,34 @@ private struct FlooRowView: View {
             if let mention = lines.first.flatMap({ FlooDemoMentions.all[$0] }) {
                 MentionView(mention, now: FlooDemoMentions.date(30, 16, 0))
             }
+        default:
+            EmptyView()
+        }
+    }
+
+    /// The backend's cards, each in its frame (CardFrame: the size its fence names, as
+    /// CardLab and the App draw them): a drawing in its place, or a tool's cards side by side.
+    @ViewBuilder
+    private func liveFence(_ language: String, _ body: String, _ layout: CardLayout) -> some View {
+        let lines = body.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+        switch language {
+        case "floo.draw":
+            FlooLiveCard(
+                request: lines.first { !$0.hasPrefix("card:") } ?? "",
+                layout: layout,
+                session: FlooDemo.cardName(language, lines).flatMap { demo.sessions[$0] }
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case "floo.card":
+            HStack(alignment: .top, spacing: CardSize.gutter()) {
+                ForEach(lines, id: \.self) { name in
+                    if let session = demo.card(name) {
+                        CardFrame(layout: layout) { CardView(tree: session.tree) }
+                            .overlay { FlooCardEdge(size: layout.size) }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         default:
             EmptyView()
         }
@@ -1419,6 +1450,50 @@ private struct FlooDrawnCard: View {
     }
 }
 
+/// A card the backend draws, in its frame from the start: the frame is the size its fence
+/// names, so nothing moves when it comes. Until then, what it will show and a light over it;
+/// one that finished with nothing to show keeps the request, still.
+private struct FlooLiveCard: View {
+    let request: String
+    let layout: CardLayout
+    let session: CardSession?
+
+    private var drawn: Bool { session.map { $0.isFinal && !$0.tree.roots.isEmpty } ?? false }
+
+    var body: some View {
+        CardFrame(layout: layout) {
+            ZStack(alignment: .topLeading) {
+                if drawn, let session {
+                    CardView(tree: session.tree)
+                        .transition(.opacity)
+                } else {
+                    FlooDrawingSweep(active: !(session?.isFinal ?? false), padding: layout.size.padding)
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "sparkles")
+                        Text(request).lineLimit(layout.size == .glance ? 3 : 4)
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .flooShimmer(!(session?.isFinal ?? false))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .animation(FlooDesignTokens.Motion.layout, value: drawn)
+        }
+        .overlay { FlooCardEdge(size: layout.size) }
+    }
+}
+
+/// The hairline around a card's panel, as the demo's own cards have it.
+private struct FlooCardEdge: View {
+    let size: CardSize
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: size.cornerRadius, style: .continuous)
+            .strokeBorder(.primary.opacity(0.1), lineWidth: 0.5)
+    }
+}
+
 /// A light passing across the whole of a card's place while it's drawn, slower than the
 /// one over words at work: the card is coming, it isn't stuck.
 private struct FlooDrawingSweep: View {
@@ -1478,8 +1553,9 @@ extension FlooRow {
             let steps = process.tasks.filter { open.contains($0.id) }.reduce(0) { $0 + $1.steps.count }
             return 40 + CGFloat(process.tasks.count) * 44 + CGFloat(steps) * 21
         case .block(let block, _): return prose(block.source) + (bubble == nil ? 10 : 20)
-        case .fence(let language, let body, _):
+        case .fence(let language, let body, _, let layout):
             guard language != "floo.mention" else { return 90 }
+            if let layout { return layout.size.height() + 12 }
             let card = FlooDemo.cardName(language, body.split(separator: "\n").map(String.init))
             return (card.flatMap { FlooDemoCards.all[$0]?.size } ?? .medium).drawingHeight + 12
         case .mention: return 90

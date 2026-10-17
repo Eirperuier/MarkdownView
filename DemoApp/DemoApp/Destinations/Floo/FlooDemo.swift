@@ -122,8 +122,9 @@ struct FlooRow: Identifiable, Equatable {
         /// Its work, whether it's opened, and which of its tasks are.
         case process(FlooProcess, expanded: Bool, open: Set<String>)
         case block(MarkdownStreamBlock, streaming: Bool)
-        /// A ```floo.* fence: its language, what's in it, and how far its card is drawn.
-        case fence(String, String, version: Int)
+        /// A ```floo.* fence: its language, what's in it, how far its card is drawn, and for
+        /// the backend's cards, the frame its header names (cards.md: size and overflow).
+        case fence(String, String, version: Int, layout: CardLayout? = nil)
         /// A ```floo.choice fence: its options so far, and which one you picked if you did.
         case choice([FlooChoice], chosen: Int?)
         /// An ask card on a message: in the conversation where it was asked.
@@ -413,8 +414,6 @@ final class FlooDemo {
     private(set) var isLive = false
     /// What you're typing, in the live conversation.
     var draft = ""
-    /// Card sizes for sessions that aren't the demo's own cards (FlooLive).
-    @ObservationIgnored private(set) var cardSizes: [String: FlooDemoCards.Size] = [:]
     /// The pages read from the backend, by path (FlooLive.loadPage).
     @ObservationIgnored private var pages: [String: Doc] = [:]
     /// The page open over the conversation.
@@ -462,7 +461,6 @@ final class FlooDemo {
         live = nil
         isLive = false
         draft = ""
-        cardSizes = [:]
         pages = [:]
         openPage = nil
         choiceFences = [:]
@@ -805,13 +803,12 @@ final class FlooDemo {
     }
 
     /// A card the backend sent, whole: compiled here from its source, shown in its fence's place.
-    func setCard(_ key: String, source: String?, data: CardValue, size: FlooDemoCards.Size) {
+    func setCard(_ key: String, source: String?, data: CardValue) {
         guard sessions[key] == nil else { return }
         let session = CardSession(data: data)
         if let source { session.append(source) }
         session.finish()
         sessions[key] = session
-        cardSizes[key] = size
         versions[key, default: 0] += 1
         publish()
     }
@@ -1205,7 +1202,12 @@ final class FlooDemo {
                     rows.append(FlooRow(
                         id: row,
                         message: message.id,
-                        kind: .fence(language, body.joined(separator: "\n"), version: card.flatMap { versions[$0] } ?? 0)
+                        kind: .fence(
+                            language,
+                            body.joined(separator: "\n"),
+                            version: card.flatMap { versions[$0] } ?? 0,
+                            layout: message.number == nil ? nil : Self.cardLayout(info)
+                        )
                     ))
                 } else {
                     var row = FlooRow(id: id, message: message.id, kind: .block(block, streaming: message.streaming))
@@ -1290,6 +1292,15 @@ final class FlooDemo {
     }
 
     /// The lines between a fence's first line and its end.
+    /// The frame a backend card's fence header names: `floo.draw detail overflow=extend`;
+    /// a summary when it names none (cards.md), clipped when it can't grow.
+    nonisolated static func cardLayout(_ info: String) -> CardLayout {
+        let words = info.split(separator: " ").dropFirst()
+        let size = words.lazy.compactMap { CardSize(token: String($0)) }.first ?? .summary
+        let overflow: CardOverflow = words.contains("overflow=extend") ? .extend : .clip
+        return (try? CardLayout(size: size, overflow: overflow)) ?? CardLayout(size: size)
+    }
+
     nonisolated static func fenceBody(_ source: String) -> [String] {
         var lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         guard !lines.isEmpty else { return [] }

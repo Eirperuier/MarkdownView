@@ -205,7 +205,7 @@ final class FlooLive {
             case .card(let card):
                 guard let source = card.source else { continue }
                 let key = "live-\(info.number)-\(card.fence)-\(card.item)"
-                demo.setCard(key, source: source, data: Self.value(card.data), size: card.size == "small" ? .small : .medium)
+                demo.setCard(key, source: source, data: Self.value(card.data))
                 var keys = message.fenceCards[card.fence] ?? []
                 if !keys.contains(key) {
                     keys.append(key)
