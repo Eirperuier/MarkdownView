@@ -394,6 +394,8 @@ final class FlooDemo {
     var following = true
 
     @ObservationIgnored private var entries: [Entry] = []
+    /// Per message, the block whose reveal the next block waits for (`rows(for:)`).
+    @ObservationIgnored private var waits: [Int: (manager: StreamingRevealManager, listener: UUID)] = [:]
     @ObservationIgnored private var nextID = 0
     @ObservationIgnored private var nextTouch = 0
     /// Which option of a floo.choice fence you picked, by the fence's row: picking another
@@ -428,6 +430,8 @@ final class FlooDemo {
         askWaits = [:]
         choiceSaid = [:]
         chosen = [:]
+        for wait in waits.values { wait.manager.removeRevealCompletionListener(wait.listener) }
+        waits = [:]
         approval = nil
         answering = nil
         entries = []
@@ -1034,7 +1038,13 @@ final class FlooDemo {
                 work = FlooRow(id: id, message: message.id, kind: .process(process, expanded: expanded.contains(id), open: open))
             }
             if let work, !message.processAfterText { rows.append(work) }
+            // A block comes in once the blocks before it are revealed, as the reveal goes on
+            // block by block: the next block's row, its marker or a card, doesn't stand there
+            // ahead of the words still coming out.
+            var waiting: StreamingRevealManager?
             for block in message.blocks {
+                if waiting != nil { break }
+                if let manager = message.coordinator.manager(for: block.id), !manager.isRevealed { waiting = manager }
                 let id = "m\(message.id)#\(block.id)"
                 if case .customFence(let language) = block.kind {
                     if language == "floo.choice" {
@@ -1065,13 +1075,31 @@ final class FlooDemo {
                     ? message.coordinator.ensureManager(for: block.id) : message.coordinator.manager(for: block.id)
                 bubbleState(bubble.run).follow(row.id, reveal: reveal, empty: block.revealPlainTextCount == 0)
             }
+            wait(message.id, on: waiting)
             // What it asked rides on its words; the work it went on with is under them.
+            guard waiting == nil else { return rows }
             for card in message.asks {
                 rows.append(FlooRow(id: "m\(message.id)#ask-\(card.id)", message: message.id, kind: .ask(card)))
             }
             if let work, message.processAfterText { rows.append(work) }
             return rows
         }
+    }
+
+    /// Shows a message's next block once `manager`'s block is revealed; nil: nothing waits.
+    private func wait(_ message: Int, on manager: StreamingRevealManager?) {
+        if let current = waits[message] {
+            guard current.manager !== manager else { return }
+            current.manager.removeRevealCompletionListener(current.listener)
+            waits[message] = nil
+        }
+        guard let manager else { return }
+        let listener = manager.addRevealCompletionListener { [weak self] revealed in
+            guard revealed else { return }
+            // Not inside the reveal's own call to its listeners.
+            Task { @MainActor in self?.publish() }
+        }
+        waits[message] = (manager, listener)
     }
 
     /// All of an agent's markdown goes in its bubble: words, lists, quotes, math, tables and
