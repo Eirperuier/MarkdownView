@@ -267,7 +267,10 @@ final class FlooLive {
         for block in live {
             switch block.kind {
             case .text: words.append(block.text)
-            case .toolCall: calls.append((block.id.description, "调用工具"))  // its name comes with the stored call
+            case .toolCall:
+                // The call is known from its first event: its id (what its
+                // progress is under) and its tool's name.
+                if let call = block.call { calls.append((call.id, call.name)) }
             default: break
             }
         }

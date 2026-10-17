@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Exports the floo services the demo shows, as the floo server shows them: each
 definition with its hand-kept words laid over it (floo docs/service-definitions.md §3.4),
-keeping only what the service pages read. Composio's definitions are in the floo
+keeping only what the service pages read, and leaving out the services people aren't shown
+as services (`hidden` in their words: floo's own, whose calls the client shows from the
+server's directory). Composio's definitions are in the floo
 repository (Catalog/composio); a device service's is in its code, so it is read from a
 folder of their JSON (one file per service, `<id>.json`). Run from anywhere:
 
@@ -61,6 +63,8 @@ def main(floo, definitions):
         if os.path.exists(words_path):
             with open(words_path, encoding="utf-8") as file:
                 words = json.load(file)
+        if words.get("hidden"):
+            continue  # floo's own (web, workspace, floo): never in a list of services
         operations = words.get("operations", {})
         pages.append({
             "id": service,
