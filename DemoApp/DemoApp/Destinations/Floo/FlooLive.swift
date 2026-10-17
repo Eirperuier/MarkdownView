@@ -226,7 +226,7 @@ final class FlooLive {
             switch block.content {
             case .text(let text) where block.audience != .model:
                 words.append(text)
-            case .toolCall(let callID, let name, _):
+            case .toolCall(let callID, let name, _, _):
                 calls.append((callID, name))
             case .toolResult(let callID, _, _), .workResult(let callID, _, _, _):
                 answered.insert(callID)
