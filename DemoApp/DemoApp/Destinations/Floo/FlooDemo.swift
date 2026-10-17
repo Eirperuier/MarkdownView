@@ -134,6 +134,8 @@ struct FlooRow: Identifiable, Equatable {
         /// A page the agent wrote (```floo.page): its path under /drive/, and its title and
         /// preview, as Docs' page block shows them.
         case page(String, DocPage)
+        /// Images in its words, taken out of them (FlooImages): one, or a run of them.
+        case images([FlooImage])
     }
 
     let id: String
@@ -1137,7 +1139,8 @@ final class FlooDemo {
     }
 
     private func commit(_ message: Message, streaming: Bool, whole: Bool = false) {
-        message.blocks = message.splitter.split(streaming ? Self.settled(message.text) : message.text, isStreaming: streaming)
+        let text = Self.imagesApart(streaming ? Self.settled(message.text) : message.text)
+        message.blocks = message.splitter.split(text, isStreaming: streaming)
         message.generation += 1
         message.coordinator.syncBlocks(
             message.blocks.map { ($0.id, $0.revealPlainTextCount) },
@@ -1204,6 +1207,11 @@ final class FlooDemo {
                 if let manager = message.coordinator.manager(for: block.id), !manager.isRevealed { waiting = manager }
                 let id = "m\(message.id)#\(block.id)"
                 if case .customFence(let info) = block.kind {
+                    // Its images, out of the words: the demo's own fence, not one of the backend's.
+                    if info == "floo.images" {
+                        rows.append(FlooRow(id: id, message: message.id, kind: .images(Self.images(block.source))))
+                        continue
+                    }
                     defer { fence += 1 }
                     // The fence's name; a size may follow it (`floo.draw medium`).
                     var language = String(info.split(separator: " ").first ?? "")
