@@ -96,6 +96,12 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
     /// Int.max 瞬态(流式 bounce)不折进 latch:bounce 帧全量绘制,rewind 后回到 latch 前沿。
     private var latchedPlainFrontier = 0
 
+    /// Told how much of the text is revealed whenever that changes: nil once all of it is.
+    var onRevealedExtent: (@MainActor (CGSize?) -> Void)?
+    /// What the extent was last worked out from (frontier, text length, width) and what it was.
+    private var extentKey: (frontier: Int, length: Int, width: CGFloat)?
+    private var reportedExtent: CGSize??
+
     func attach(
         _ textView: PlatformTextView,
         manager: StreamingRevealManager,
@@ -113,6 +119,9 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
         }
         self.textView = textView
         self.manager = manager
+        // A new text view or manager: its extent is told afresh.
+        extentKey = nil
+        reportedExtent = nil
         self.fade = fade
         self.colorScheme = colorScheme
         self.characterMap = storageToPlain
@@ -197,6 +206,42 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
         snapOverlay = colorScheme == .dark ? 0.35 : 0.5
         snapTint = revealTint(now: Date())
         advanceFirstSeen(frontier: snapFrontier, manager: manager)
+        reportRevealedExtent(manager: manager)
+    }
+
+    /// The revealed glyphs' extent, from the text's top-leading corner: as wide as the farthest
+    /// revealed glyph reaches, as tall as the last revealed line. Worked out only when the
+    /// frontier, the text or its width has moved.
+    private func reportRevealedExtent(manager: StreamingRevealManager) {
+        guard let onRevealedExtent, let textView else { return }
+        let length = currentTextLength()
+        let key = (frontier: snapFrontier, length: length, width: textView.bounds.width)
+        if let extentKey, extentKey == key { return }
+        extentKey = key
+        let extent: CGSize?
+        if manager.isRevealed {
+            extent = nil
+        } else if snapFrontier <= 0 || length == 0 {
+            extent = .zero
+        } else if let tlm = textView.textLayoutManager, let cm = tlm.textContentManager,
+                  let end = cm.location(cm.documentRange.location, offsetBy: min(snapFrontier, length)),
+                  let range = NSTextRange(location: cm.documentRange.location, end: end) {
+            tlm.ensureLayout(for: range)
+            var bounds = CGRect.null
+            tlm.enumerateTextSegments(in: range, type: .standard, options: []) { _, frame, _, _ in
+                bounds = bounds.union(frame)
+                return true
+            }
+            let inset = textView.textContainerInset
+            extent = bounds.isNull
+                ? .zero
+                : CGSize(width: bounds.maxX + inset.left + inset.right, height: bounds.maxY + inset.top + inset.bottom)
+        } else {
+            extent = nil
+        }
+        if let reportedExtent, reportedExtent == extent { return }
+        reportedExtent = .some(extent)
+        onRevealedExtent(extent)
     }
 
     /// 冻结 per-glyph 首见戳:frontier 前进时给新越过的字盖戳(优先 manager 的戳,已定型的不缓存)。

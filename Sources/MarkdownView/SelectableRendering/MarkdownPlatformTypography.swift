@@ -140,6 +140,10 @@ extension EnvironmentValues {
     /// Whether a stream block adds the vertical padding a whole document gives it at its edges
     /// (a heading's padding, a paragraph's 5 pt). Turn it off where the app spaces blocks itself.
     @Entry public var markdownStreamBlockEdgeInsets = true
+    /// Told how much of a streamed block's text is revealed so far: the size from the text's
+    /// top-leading corner to the far edge and bottom of its revealed glyphs, nil once the whole
+    /// block is revealed. Only selectable text with a streaming reveal reports.
+    @Entry public var markdownRevealedExtent: (@MainActor (CGSize?) -> Void)? = nil
 }
 
 extension View {
@@ -151,6 +155,11 @@ extension View {
     /// Turns a stream block's own edge padding on or off for this subtree.
     nonisolated public func markdownStreamBlockEdgeInsets(_ enabled: Bool) -> some View {
         environment(\.markdownStreamBlockEdgeInsets, enabled)
+    }
+
+    /// Tells `action` how much of each streamed block's text in this subtree is revealed so far.
+    nonisolated public func markdownRevealedExtent(_ action: (@MainActor (CGSize?) -> Void)?) -> some View {
+        environment(\.markdownRevealedExtent, action)
     }
 }
 #endif

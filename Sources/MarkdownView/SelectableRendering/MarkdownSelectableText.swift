@@ -68,6 +68,8 @@ public struct MarkdownSelectableText: View, Equatable {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// The path's fonts: the app's text styles, else the standard ones.
     @Environment(\.markdownPlatformTypography) private var typography
+    /// Told how much of the text is revealed, while it streams.
+    @Environment(\.markdownRevealedExtent) private var revealedExtent
     #if canImport(UIKit)
     @State private var revealCoordinator = RevealCoordinator()
     #endif
@@ -173,7 +175,9 @@ public struct MarkdownSelectableText: View, Equatable {
         guard let manager = streamingManager, let fade = fadeConfig else { return nil }
         let scheme = revealColorScheme
         let coordinator = revealCoordinator
+        let extent = revealedExtent
         return { textView in
+            coordinator.onRevealedExtent = extent
             coordinator.attach(
                 textView,
                 manager: manager,
@@ -189,11 +193,13 @@ public struct MarkdownSelectableText: View, Equatable {
     private func contentChangeHook(map: [Int]) -> (@MainActor (PlatformTextView) -> Void)? {
         let isStreaming = streamingManager != nil && fadeConfig != nil
         let coordinator = revealCoordinator
+        let extent = revealedExtent
         let penRevealed = penMarkRevealedCheck(map: map)
         let external = externalHooks?.onContentChanged
         return { textView in
             MarkdownSelectableTextPlainMap.register(map, for: textView)
             if isStreaming {
+                coordinator.onRevealedExtent = extent
                 coordinator.contentDidChange(storageToPlain: map)
             }
             SelectablePenMarkOverlayView.sync(on: textView, isRevealed: penRevealed)

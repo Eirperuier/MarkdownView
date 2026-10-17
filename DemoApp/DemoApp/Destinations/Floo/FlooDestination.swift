@@ -636,7 +636,12 @@ private struct FlooRowView: View {
     @ViewBuilder
     private func markdown(_ block: MarkdownStreamBlock, streaming: Bool) -> some View {
         if let bubble = row.bubble {
-            FlooBubblePiece(bubble: bubble, heading: Self.isHeading(block)) {
+            FlooBubblePiece(
+                bubble: bubble,
+                heading: Self.isHeading(block),
+                reveals: streaming && row.message.flatMap(demo.message) != nil && Self.reportsReveal(block),
+                indent: CGFloat(block.descriptor.listItemContext?.depth ?? 0) * 20
+            ) {
                 demo.measured(row.id, in: bubble.run, width: $0)
             } content: {
                 revealing(
@@ -662,6 +667,19 @@ private struct FlooRowView: View {
 
     private static func isHeading(_ block: MarkdownStreamBlock) -> Bool {
         if case .heading = block.descriptor.kind { true } else { false }
+    }
+
+    /// Whether the block is one text whose reveal can say how far it has got: a paragraph, a
+    /// heading or a list item without code in it.
+    private static func reportsReveal(_ block: MarkdownStreamBlock) -> Bool {
+        switch block.descriptor.kind {
+        case .paragraph, .heading:
+            return true
+        case .orderedList, .unorderedList:
+            return !block.source.contains("```") && !block.source.contains("~~~")
+        default:
+            return false
+        }
     }
 
     @ViewBuilder
@@ -1061,36 +1079,95 @@ private struct FlooReceiptLabel: View {
 /// bubble is drawn (radius, padding, room left on the far side), in iMessage's received grey.
 /// A bubble's pieces are as wide as its widest, hugging the words like a single bubble; the
 /// pieces between its ends meet square, overlapping a point so no seam shows.
+///
+/// While its words stream in, the bubble is as big as what of them is revealed, not as the
+/// words will be: it starts around the first glyphs, widens along the first line, then grows
+/// down a line at a time, moving with the layout spring. Words already there have it whole.
 private struct FlooBubblePiece<Content: View>: View {
     let bubble: FlooBubble
     /// A heading has more room above it than the blocks between, as on a page.
     var heading = false
+    /// Its words are revealed as they stream, and tell how far that has got.
+    var reveals = false
+    /// How far the words start in from the bubble's text edge, past what their reveal measures
+    /// (a nested list item's indent).
+    var indent: CGFloat = 0
+    /// How wide the revealed words are, nothing revealed being 0.
     let measured: (CGFloat) -> Void
     @ViewBuilder var content: Content
 
+    /// What the words' reveal last told: nil before it has, nil inside once all is revealed.
+    @State private var told: CGSize??
+    /// The words as laid out whole.
+    @State private var whole: CGSize = .zero
+
+    private static var radius: CGFloat { 18 }
+
+    /// The revealed words' size: all of them unless they're being revealed.
+    private var revealed: CGSize {
+        guard reveals, let told else { return reveals ? .zero : whole }
+        guard let told, told.height > 0 else { return told == nil ? whole : .zero }
+        return CGSize(width: told.width + indent, height: told.height)
+    }
+
+    private var top: CGFloat { bubble.top ? 10 : heading ? 14 : 6 }
+    private var bottom: CGFloat { bubble.last ? 10 : 6 }
+
+    /// The bubble's own size: as wide as the widest revealed piece, as tall as this piece's
+    /// revealed lines, with the bubble's padding at an end that's showing.
+    private var size: CGSize {
+        let words = revealed
+        // Nothing shown yet: as wide as the bubble already is and no taller than nothing, so it
+        // shows by growing down from the piece above, not in from a corner.
+        guard words.height > 0 else { return CGSize(width: bubble.width + 2 * 14, height: 0) }
+        // Where it ends as shown, the bubble's end padding, past its row if more is to come.
+        let below = bubble.bottom ? 10.0 : 6.0
+        return CGSize(width: max(bubble.width, words.width) + 2 * 14, height: top + words.height + below)
+    }
+
     var body: some View {
-        let radius = 18.0
         FlooBubbleWidth(width: bubble.width) {
-            content.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { measured($0) }
+            content
+                .markdownRevealedExtent(tell)
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { whole = $0 }
         }
         .padding(.horizontal, 14)
-        .padding(.top, bubble.top ? 10 : heading ? 14 : 6)
-        .padding(.bottom, bubble.bottom ? 10 : 6)
-        .background {
-            UnevenRoundedRectangle(
-                topLeadingRadius: bubble.top ? radius : 0,
-                bottomLeadingRadius: bubble.bottom ? radius : 0,
-                bottomTrailingRadius: bubble.bottom ? radius : 0,
-                topTrailingRadius: bubble.top ? radius : 0,
-                style: .continuous
-            )
-            .fill(Color.flooReceived)
-            .padding(.top, bubble.top ? 0 : -1)
-        }
+        .padding(.top, top)
+        .padding(.bottom, bottom)
+        .background(alignment: .topLeading) { shape }
+        .onChange(of: revealed.height > 0 ? revealed.width : 0, initial: true) { _, width in measured(width) }
         .padding(.top, bubble.top ? 4 : 0)
-        .padding(.bottom, bubble.bottom ? 4 : 0)
+        .padding(.bottom, bubble.last ? 4 : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.trailing, 48)
+    }
+
+    /// Where the words' reveal tells how far it has got.
+    private var tell: (@MainActor (CGSize?) -> Void)? {
+        guard reveals else { return nil }
+        return { told = .some($0) }
+    }
+
+    private var motion: Animation? { reveals ? FlooDesignTokens.Motion.layout : nil }
+
+    private var shape: some View {
+        let size = size
+        let shown = revealed.height > 0
+        return UnevenRoundedRectangle(
+            topLeadingRadius: bubble.top ? Self.radius : 0,
+            bottomLeadingRadius: bubble.bottom ? Self.radius : 0,
+            bottomTrailingRadius: bubble.bottom ? Self.radius : 0,
+            topTrailingRadius: bubble.top ? Self.radius : 0,
+            style: .continuous
+        )
+        .fill(Color.flooReceived)
+        // Up a point into the piece above, so no seam shows.
+        .frame(width: size.width, height: size.height + (bubble.top ? 0 : 1))
+        .offset(y: bubble.top ? 0 : -1)
+        .opacity(shown ? 1 : 0)
+        .animation(motion, value: size)
+        .animation(motion, value: bubble.bottom)
+        .animation(motion, value: shown)
     }
 }
 

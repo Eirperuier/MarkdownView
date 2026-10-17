@@ -146,9 +146,13 @@ struct FlooBubble: Equatable {
     /// The bubble's first row, which names it.
     let run: String
     let top: Bool
+    /// The bubble ends here as far as it's shown: its last piece, or the last with any of its
+    /// words revealed yet.
     let bottom: Bool
-    /// The widest of its pieces' words as laid out: every piece is as wide, so they make one
-    /// bubble hugging its words.
+    /// Its last piece, whether shown yet or not.
+    let last: Bool
+    /// The widest of its pieces' revealed words: every piece is as wide, so they make one bubble
+    /// hugging what's shown of its words.
     var width: CGFloat = 0
 }
 
@@ -1003,7 +1007,7 @@ final class FlooDemo {
                 } else {
                     var row = FlooRow(id: id, message: message.id, kind: .block(block, streaming: message.streaming))
                     if Self.agentBubbles, Self.inBubble(block) {
-                        row.bubble = FlooBubble(run: id, top: true, bottom: true)
+                        row.bubble = FlooBubble(run: id, top: true, bottom: true, last: true)
                     }
                     rows.append(row)
                 }
@@ -1041,20 +1045,29 @@ final class FlooDemo {
             let run = rows[start].id
             let ids = Set(rows[start...end].map(\.id))
             bubbleWidths[run] = bubbleWidths[run]?.filter { ids.contains($0.key) }
-            let width = bubbleWidths[run]?.values.max() ?? 0
+            let widths = bubbleWidths[run] ?? [:]
+            let width = widths.values.max() ?? 0
+            // Words being revealed show once some of them are; words already there, at once.
+            func shown(_ index: Int) -> Bool {
+                guard case .block(_, let streaming) = rows[index].kind, streaming else { return true }
+                return (widths[rows[index].id] ?? 0) > 0
+            }
             for index in start...end {
-                rows[index].bubble = FlooBubble(run: run, top: index == start, bottom: index == end, width: width)
+                let bottom = index == end || !shown(index + 1)
+                rows[index].bubble = FlooBubble(run: run, top: index == start, bottom: bottom, last: index == end, width: width)
             }
             start = end + 1
         }
     }
 
-    /// A piece's words laid out at this width: when that makes the bubble wider or narrower,
-    /// its rows take the new width.
+    /// How wide a piece's revealed words are: when that makes the bubble wider or narrower, or
+    /// the piece shows, its rows take it.
     func measured(_ row: String, in run: String, width: CGFloat) {
         let before = bubbleWidths[run]?.values.max() ?? 0
+        let wasShown = (bubbleWidths[run]?[row] ?? 0) > 0
         bubbleWidths[run, default: [:]][row] = width
-        guard bubbleWidths[run]?.values.max() != before, !bubblesPending else { return }
+        // The bubble's width moved, or a piece showed and the one above stops being its end.
+        guard bubbleWidths[run]?.values.max() != before || wasShown != (width > 0), !bubblesPending else { return }
         // After the layout pass that measured it, once however many pieces changed.
         bubblesPending = true
         Task { @MainActor in
