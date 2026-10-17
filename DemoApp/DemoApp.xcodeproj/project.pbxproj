@@ -137,7 +137,6 @@
 				F100C0DE2E00000000000001 /* XCLocalSwiftPackageReference "Cards" */,
 				F100C0DE2E00000000000030 /* XCLocalSwiftPackageReference "Core" */,
 				F100C0DE2E00000000000031 /* XCLocalSwiftPackageReference "ApplePlatform" */,
-				F100C0DE2E00000000000010 /* XCLocalSwiftPackageReference "DocKit" */,
 				F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -411,10 +410,6 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../floo/Packages/ApplePlatform;
 		};
-		F100C0DE2E00000000000010 /* XCLocalSwiftPackageReference "DocKit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../DocKit;
-		};
 		F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../FlooDesign;
@@ -477,7 +472,7 @@
 		};
 		F100C0DE2E00000000000012 /* DocKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = F100C0DE2E00000000000010 /* XCLocalSwiftPackageReference "DocKit" */;
+			package = F100C0DE2E00000000000030 /* XCLocalSwiftPackageReference "Core" */;
 			productName = DocKit;
 		};
 /* End XCSwiftPackageProductDependency section */
