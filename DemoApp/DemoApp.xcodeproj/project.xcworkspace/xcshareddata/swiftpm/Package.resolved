@@ -1,5 +1,5 @@
 {
-  "originHash" : "538bed0213b30957c9abe581f851a60d9f45043ff106fc42c5e7a31f0b4a7ca8",
+  "originHash" : "7c39940badca8f33b56101135582c435be9a89cc15cfce0740fbc379601938c2",
   "pins" : [
     {
       "identity" : "floo-latexswiftui",
@@ -26,6 +26,15 @@
       }
     },
     {
+      "identity" : "grdb.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/techx-academy/GRDB.swift.git",
+      "state" : {
+        "revision" : "fe3c6f8c73a5a188879a5ea6d3e14a4f6ae23300",
+        "version" : "7.11.1-sqlcipher.1"
+      }
+    },
+    {
       "identity" : "highlightr",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/raspu/Highlightr.git",
@@ -41,6 +50,24 @@
       "state" : {
         "revision" : "00e9c3df6b1c82031c7fe3785028f3d21c0d73ba",
         "version" : "3.5.0"
+      }
+    },
+    {
+      "identity" : "sqlcipher.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sqlcipher/SQLCipher.swift.git",
+      "state" : {
+        "revision" : "39f212458aeb88e33bdac2200a793a3f0d55d32b",
+        "version" : "4.19.0"
+      }
+    },
+    {
+      "identity" : "swift-asn1",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-asn1.git",
+      "state" : {
+        "revision" : "3b6410f7dee09eb33cdd26260c5fd47fda19b0e2",
+        "version" : "1.7.3"
       }
     },
     {
@@ -62,12 +89,30 @@
       }
     },
     {
+      "identity" : "swift-crypto",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-crypto.git",
+      "state" : {
+        "revision" : "1c80d3aff53fedc445b60692980cb4f19a618657",
+        "version" : "5.0.1"
+      }
+    },
+    {
       "identity" : "swift-html-entities",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Kitura/swift-html-entities",
       "state" : {
         "revision" : "d8ca73197f59ce260c71bd6d7f6eb8bbdccf508b",
         "version" : "4.0.1"
+      }
+    },
+    {
+      "identity" : "swift-http-types",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-http-types.git",
+      "state" : {
+        "revision" : "bff4b6903cdc99dda49649dd52f46c11cfd3ed50",
+        "version" : "1.8.0"
       }
     },
     {

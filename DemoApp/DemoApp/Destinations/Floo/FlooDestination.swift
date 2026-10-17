@@ -27,7 +27,9 @@ struct FlooDestination: View {
     @State private var head: (id: String, y: CGFloat)?
 
     static var launchScenario: FlooScenario? {
-        UserDefaults.standard.string(forKey: "flooScenario").flatMap(Int.init).flatMap(FlooScenario.init(rawValue:))
+        // Opened on a stage (`-flooStage`), it's the live conversation.
+        if FlooLive.Stage.launched != nil, UserDefaults.standard.string(forKey: "flooScenario") == nil { return .live }
+        return UserDefaults.standard.string(forKey: "flooScenario").flatMap(Int.init).flatMap(FlooScenario.init(rawValue:))
     }
 
     var body: some View {
@@ -183,16 +185,37 @@ struct FlooDestination: View {
                 .buttonStyle(.plain)
                 .transition(.opacity)
             }
-            HStack(spacing: 10) {
-                Text(demo.composer.isEmpty ? "发消息" : demo.composer)
-                    .foregroundStyle(demo.composer.isEmpty ? .tertiary : .primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(demo.composer.isEmpty ? Color.secondary.opacity(0.4) : Color.accentColor)
+            if demo.isLive {
+                // The backend's conversation: what you type is sent.
+                HStack(spacing: 10) {
+                    TextField("发消息", text: $demo.draft, axis: .vertical)
+                        .lineLimit(1...6)
+                        .onSubmit { demo.sendDraft() }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+                    Button {
+                        demo.sendDraft()
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title)
+                            .foregroundStyle(demo.draft.isEmpty ? Color.secondary.opacity(0.4) : Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(demo.draft.isEmpty)
+                }
+            } else {
+                HStack(spacing: 10) {
+                    Text(demo.composer.isEmpty ? "发消息" : demo.composer)
+                        .foregroundStyle(demo.composer.isEmpty ? .tertiary : .primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title)
+                        .foregroundStyle(demo.composer.isEmpty ? Color.secondary.opacity(0.4) : Color.accentColor)
+                }
             }
         }
         .padding(.horizontal, 12)
@@ -233,7 +256,7 @@ private struct FlooPresence: View {
                 let (index, entry) = item
                 let separator = index == 0 ? Text("") : Text("  ·  ").foregroundStyle(.tertiary)
                 return line + separator
-                    + Text(entry.agent.rawValue).foregroundStyle(entry.agent.tint).fontWeight(.semibold)
+                    + Text(entry.agent.name).foregroundStyle(entry.agent.tint).fontWeight(.semibold)
                     + Text(" \(entry.doing)").foregroundStyle(.secondary)
             }
             .lineLimit(1)
@@ -318,7 +341,7 @@ private struct FlooAskList: View {
                             .frame(width: 15)
                             .padding(.top, 2)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.card.agent.rawValue)
+                            Text(entry.card.agent.name)
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(entry.card.agent.tint)
                             Text(entry.card.items.first { $0.answer == nil }?.question ?? "")
@@ -349,7 +372,7 @@ private struct FlooAnswering: View {
         HStack(spacing: 8) {
             Capsule().fill(item.agent.tint.opacity(0.6)).frame(width: 2.5)
             VStack(alignment: .leading, spacing: 1) {
-                Text("回答\(item.agent.rawValue)").font(.caption.weight(.semibold)).foregroundStyle(item.agent.tint)
+                Text("回答\(item.agent.name)").font(.caption.weight(.semibold)).foregroundStyle(item.agent.tint)
                 Text(item.question).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
@@ -382,7 +405,7 @@ private struct FlooApprovalBar: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: approval.device.contains("Mac") ? "laptopcomputer" : "iphone")
-                Text("\(approval.agent.rawValue) 要在\(approval.place) 上")
+                Text("\(approval.agent.name) 要在\(approval.place) 上")
                 Spacer(minLength: 8)
                 Button {
                     details.toggle()
@@ -536,6 +559,10 @@ private struct FlooRowView: View {
         case .ask(let card):
             FlooAskView(card: card, demo: demo)
                 .padding(.vertical, 6)
+        case .mention(let mention):
+            MentionView(mention)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 6)
         }
     }
 
@@ -589,12 +616,12 @@ private struct FlooRowView: View {
     private func signature(_ agent: FlooAgent, _ time: String, _ marks: [FlooMark]) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Text(String(agent.rawValue.prefix(1)))
+                Text(String(agent.name.prefix(1)))
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 18, height: 18)
                     .background(agent.tint, in: Circle())
-                Text(agent.rawValue).font(.subheadline.weight(.semibold))
+                Text(agent.name).font(.subheadline.weight(.semibold))
                 Text(time).font(.caption).foregroundStyle(.secondary)
                 if marks.contains(.proactive) {
                     Text("主动")
@@ -719,14 +746,16 @@ private struct FlooRowView: View {
         case "floo.draw":
             let card = FlooDemo.cardName(language, lines)
             let request = lines.first { !$0.hasPrefix("card:") } ?? ""
-            let size = card.flatMap { FlooDemoCards.all[$0]?.size } ?? .medium
+            let size = card.flatMap { FlooDemoCards.all[$0]?.size ?? demo.cardSizes[$0] } ?? .medium
             FlooDrawnCard(request: request, size: size, session: card.flatMap { demo.sessions[$0] })
                 .frame(maxWidth: .infinity, alignment: .leading)
         case "floo.card":
             HStack(alignment: .top, spacing: 12) {
                 ForEach(lines, id: \.self) { name in
                     if let session = demo.card(name) {
-                        FlooCardFrame(size: FlooDemoCards.all[name]?.size ?? .medium) { CardView(tree: session.tree) }
+                        FlooCardFrame(size: FlooDemoCards.all[name]?.size ?? demo.cardSizes[name] ?? .medium) {
+                            CardView(tree: session.tree)
+                        }
                     }
                 }
             }
@@ -920,7 +949,7 @@ private struct FlooAskView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
-                Text("\(card.agent.rawValue) \(state)")
+                Text("\(card.agent.name) \(state)")
                 if card.items.count > 1 {
                     Text("· \(card.items.count) 项")
                 }
@@ -1442,6 +1471,7 @@ extension FlooRow {
             guard language != "floo.mention" else { return 90 }
             let card = FlooDemo.cardName(language, body.split(separator: "\n").map(String.init))
             return (card.flatMap { FlooDemoCards.all[$0]?.size } ?? .medium).drawingHeight + 12
+        case .mention: return 90
         case .choice(let choices, _):
             if choices.contains(where: { $0.option.image != nil || $0.option.from != nil }) { return 230 }
             if choices.contains(where: { $0.option.detail != nil }) { return 14 + CGFloat(choices.count) * 56 }

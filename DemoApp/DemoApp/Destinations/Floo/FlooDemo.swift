@@ -16,18 +16,14 @@ import CardModel
 import CardUI
 import FlooDesign
 
-enum FlooAgent: String, Hashable, Sendable {
-    case butler = "管家"
-    case weather = "天气"
-    case health = "健康"
+/// Who wrote a message: the butler, or one of the person's services, by the name it goes by.
+struct FlooAgent: Hashable, Sendable {
+    let name: String
+    let tint: Color
 
-    var tint: Color {
-        switch self {
-        case .butler: .indigo
-        case .weather: .cyan
-        case .health: .pink
-        }
-    }
+    static let butler = FlooAgent(name: "管家", tint: .indigo)
+    static let weather = FlooAgent(name: "天气", tint: .cyan)
+    static let health = FlooAgent(name: "健康", tint: .pink)
 }
 
 enum FlooSpeaker: Hashable, Sendable {
@@ -131,6 +127,8 @@ struct FlooRow: Identifiable, Equatable {
         case choice([FlooChoice], chosen: Int?)
         /// An ask card on a message: in the conversation where it was asked.
         case ask(FlooAskCard)
+        /// Where an answer was found, as the backend checked it (FlooLive).
+        case mention(Mention)
     }
 
     let id: String
@@ -357,6 +355,12 @@ final class FlooDemo {
         })
         let coordinator = StreamingRevealCoordinator<UUID>()
         var generation = 0
+        /// Its number in the backend's conversation (FlooLive); nil for a scripted one.
+        var number: Int64?
+        /// What fills its `floo.` fences, by their place among them from 0 (FlooLive): the
+        /// cards' session keys, or a mention.
+        var fenceCards: [Int: [String]] = [:]
+        var fenceMentions: [Int: Mention] = [:]
 
         init(id: Int, agent: FlooAgent, time: String, marks: [FlooMark]) {
             self.id = id
@@ -394,6 +398,15 @@ final class FlooDemo {
     var following = true
 
     @ObservationIgnored private var entries: [Entry] = []
+    /// The backend this conversation is with, when it's the live one (FlooLive).
+    @ObservationIgnored var live: FlooLive?
+    private(set) var isLive = false
+    /// What you're typing, in the live conversation.
+    var draft = ""
+    /// Card sizes for sessions that aren't the demo's own cards (FlooLive).
+    @ObservationIgnored private(set) var cardSizes: [String: FlooDemoCards.Size] = [:]
+    /// Each choice row's message and fence place, for a choice sent to the backend.
+    @ObservationIgnored private var choiceFences: [String: (message: Int, fence: Int)] = [:]
     /// Per message, the block whose reveal the next block waits for (`rows(for:)`).
     @ObservationIgnored private var waits: [Int: (manager: StreamingRevealManager, listener: UUID)] = [:]
     @ObservationIgnored private var nextID = 0
@@ -432,6 +445,11 @@ final class FlooDemo {
         chosen = [:]
         for wait in waits.values { wait.manager.removeRevealCompletionListener(wait.listener) }
         waits = [:]
+        live = nil
+        isLive = false
+        draft = ""
+        cardSizes = [:]
+        choiceFences = [:]
         approval = nil
         answering = nil
         entries = []
@@ -731,6 +749,60 @@ final class FlooDemo {
         return session
     }
 
+    // MARK: Live (FlooLive)
+
+    /// The conversation is the backend's: you type and send, and what comes is its.
+    func goLive(_ live: FlooLive) {
+        self.live = live
+        isLive = true
+    }
+
+    /// Sends what's typed to the backend.
+    func sendDraft() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let live, !text.isEmpty else { return }
+        draft = ""
+        following = true
+        live.send(text)
+    }
+
+    /// An agent's message as the backend has it now: all its words so far, still coming in or not.
+    func setText(_ message: Message, _ text: String, streaming: Bool) {
+        let wasStreaming = message.streaming
+        guard text != message.text || streaming != wasStreaming else { return }
+        if streaming, message.text.isEmpty { takePlace(message) }
+        message.streaming = streaming
+        message.text = text
+        commit(message, streaming: streaming)
+        if wasStreaming, !streaming { message.coordinator.finishQuickly() }
+        setPresence(message.agent, streaming ? "正在写…" : nil)
+        if !streaming { refreshPresence(message.agent) }
+    }
+
+    /// An agent's work as the backend has it now.
+    func setWork(_ message: Message, _ process: FlooProcess?) {
+        guard message.process != process else { return }
+        message.process = process
+        workChanged(message.agent)
+    }
+
+    /// A card the backend sent, whole: compiled here from its source, shown in its fence's place.
+    func setCard(_ key: String, source: String?, data: CardValue, size: FlooDemoCards.Size) {
+        guard sessions[key] == nil else { return }
+        let session = CardSession(data: data)
+        if let source { session.append(source) }
+        session.finish()
+        sessions[key] = session
+        cardSizes[key] = size
+        versions[key, default: 0] += 1
+        publish()
+    }
+
+    /// Something in the conversation changed that only a new set of rows shows.
+    func refresh() {
+        publish()
+    }
+
     func setPresence(_ agent: FlooAgent, _ doing: String?) {
         presence.removeAll { $0.agent == agent }
         if let doing { presence.append((agent, doing)) }
@@ -827,6 +899,13 @@ final class FlooDemo {
     /// Tapping a floo.choice option sends its `send` as your message and marks it 选了;
     /// picking another later is allowed.
     func choose(_ row: String, _ index: Int, _ option: FlooOption) {
+        if let live, let place = choiceFences[row], let number = message(place.message)?.number {
+            // The backend has your message after: it comes back with the conversation.
+            chosen[row] = index
+            publish()
+            live.choose(message: number, fence: place.fence, item: index, option: option)
+            return
+        }
         chosen[row] = index
         let said = say(.me, option.send ?? option.label, receipt: .read)
         choiceSaid[row] = (option, said)
@@ -1042,20 +1121,46 @@ final class FlooDemo {
             // block by block: the next block's row, its marker or a card, doesn't stand there
             // ahead of the words still coming out.
             var waiting: StreamingRevealManager?
+            // Its `floo.` fences' places among them, from 0: where the backend's cards go.
+            var fence = 0
             for block in message.blocks {
                 if waiting != nil { break }
                 if let manager = message.coordinator.manager(for: block.id), !manager.isRevealed { waiting = manager }
                 let id = "m\(message.id)#\(block.id)"
-                if case .customFence(let language) = block.kind {
+                if case .customFence(let info) = block.kind {
+                    defer { fence += 1 }
+                    // The fence's name; a size may follow it (`floo.draw medium`).
+                    var language = String(info.split(separator: " ").first ?? "")
                     if language == "floo.choice" {
                         let options = Self.choiceOptions(block.source).map { FlooChoice(option: $0.option, tappable: $0.tappable) }
+                        choiceFences[id] = (message.id, fence)
                         rows.append(FlooRow(id: id, message: message.id, kind: .choice(options, chosen: chosen[id])))
                         continue
                     }
-                    let body = Self.fenceBody(block.source)
+                    var body = Self.fenceBody(block.source)
+                    // The backend's cards and mentions come after the words. What comes is a
+                    // new row, not the fence's row changed: views put into a row in place don't
+                    // show on TiledView's reconfigure pass.
+                    var row = id
+                    if message.number != nil, let keys = message.fenceCards[fence] {
+                        // A drawing waits in its place for its one card; a tool's cards show side
+                        // by side.
+                        if language == "floo.draw" {
+                            body = [body.first { !$0.isEmpty } ?? "", "card: \(keys[0])"]
+                        } else {
+                            language = "floo.card"
+                            body = keys
+                            row = "\(id)#\(keys.count)"
+                        }
+                    } else if message.number != nil, let mention = message.fenceMentions[fence] {
+                        rows.append(FlooRow(id: "\(id)#mention", message: message.id, kind: .mention(mention)))
+                        continue
+                    } else if message.number != nil, language != "floo.draw" {
+                        continue
+                    }
                     let card = Self.cardName(language, body)
                     rows.append(FlooRow(
-                        id: id,
+                        id: row,
                         message: message.id,
                         kind: .fence(language, body.joined(separator: "\n"), version: card.flatMap { versions[$0] } ?? 0)
                     ))

@@ -10,13 +10,15 @@ import CardUI
 
 @MainActor
 enum FlooScenario: Int, CaseIterable, Identifiable {
-    case slowWork, interjection, waitingOnYou, catchingUp, group, answerWithCards, pushes, research, longAnswer, errands,
+    // Live goes first in the menu; the scripted ones keep their numbers (`-flooScenario N`).
+    case live = 99, slowWork = 0, interjection, waitingOnYou, catchingUp, group, answerWithCards, pushes, research, longAnswer, errands,
         onDevice
 
     nonisolated var id: Int { rawValue }
 
     var name: String {
         switch self {
+        case .live: "本机后端：连上实验台，真的对话"
         case .slowWork: "慢活：先答一句，回来接着说"
         case .interjection: "插话：它在写的时候你补一句"
         case .waitingOnYou: "等你：它的问题不会被冲走"
@@ -33,6 +35,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
 
     func play(_ m: FlooDemo) async throws {
         switch self {
+        case .live: try await FlooLive.play(m)
         case .slowWork: try await Self.slowWork(m)
         case .interjection: try await Self.interjection(m)
         case .waitingOnYou: try await Self.waitingOnYou(m)
