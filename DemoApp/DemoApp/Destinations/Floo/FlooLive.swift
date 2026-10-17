@@ -255,6 +255,12 @@ final class FlooLive {
                 message.fenceCards[draft.place.fence] = keys.sorted { Self.item($0) < Self.item($1) }
             }
         }
+        // Mentions checked as their fences closed, before they're stored.
+        for (place, content) in replica.filled where place.message == info.number {
+            if case .mention(let mention) = content, message.fenceMentions[mention.fence] == nil {
+                message.fenceMentions[mention.fence] = Self.mention(mention)
+            }
+        }
         for block in live {
             switch block.kind {
             case .text: words.append(block.text)

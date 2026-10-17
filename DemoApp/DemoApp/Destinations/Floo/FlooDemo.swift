@@ -1212,9 +1212,11 @@ final class FlooDemo {
                         rows.append(FlooRow(id: id, message: message.id, kind: .images(Self.images(block.source))))
                         continue
                     }
-                    defer { fence += 1 }
                     // The fence's name; a size may follow it (`floo.draw medium`).
                     var language = String(info.split(separator: " ").first ?? "")
+                    // Places are counted among the backend's answer fences only (a floo.re in
+                    // the words being written isn't one).
+                    defer { if Self.answerFences.contains(language) { fence += 1 } }
                     if language == "floo.page" {
                         // The backend's page, by its path: shown once it's read, a new row.
                         guard message.number != nil, let path = Self.fenceBody(block.source).first(where: { !$0.isEmpty }) else { continue }
@@ -1311,6 +1313,9 @@ final class FlooDemo {
         }
         waits[message] = (manager, listener)
     }
+
+    /// The backend's answer fences (AnswerFence): what a fence's place counts.
+    static let answerFences: Set<String> = ["floo.card", "floo.draw", "floo.mention", "floo.choice", "floo.page"]
 
     /// All of an agent's markdown goes in its bubble: words, lists, quotes, math, tables and
     /// code; only a card (a fence of floo's own) stands between bubbles.
