@@ -14,6 +14,7 @@ import MarkdownView
 import MessagingUI
 import CardModel
 import CardUI
+import FlooDesign
 
 enum FlooAgent: String, Hashable, Sendable {
     case butler = "管家"
@@ -171,22 +172,32 @@ final class FlooBubbleState {
     /// The rows whose words are all revealed. Kept from the reveal itself, which runs on with
     /// a row off screen: a row that finished there has its bubble whole.
     private(set) var finished: Set<String> = []
-    @ObservationIgnored private var following: [String: (manager: StreamingRevealManager, listener: UUID)] = [:]
+    @ObservationIgnored private var following: [String: (manager: StreamingRevealManager, listener: UUID?)] = [:]
 
-    /// Follows a row's reveal; nil: its words are all there.
-    func follow(_ row: String, reveal manager: StreamingRevealManager?) {
+    /// Follows a row's reveal; nil: its words are all there. The row still being written
+    /// (`open`) isn't finished whatever its reveal says: a reveal that has caught up with the
+    /// words so far, or has none yet, tells it's done.
+    func follow(_ row: String, reveal manager: StreamingRevealManager?, open: Bool = false) {
         if let followed = following[row] {
-            guard followed.manager !== manager else { return }
-            followed.manager.removeRevealCompletionListener(followed.listener)
+            guard followed.manager !== manager || (followed.listener == nil) != open else { return }
+            if let listener = followed.listener { followed.manager.removeRevealCompletionListener(listener) }
             following[row] = nil
         }
         guard let manager else {
             finished.insert(row)
             return
         }
+        if open {
+            finished.remove(row)
+            following[row] = (manager, nil)
+            return
+        }
         let listener = manager.addRevealCompletionListener { [weak self] revealed in
-            guard let self else { return }
-            if revealed { finished.insert(row) } else { finished.remove(row) }
+            guard let self, revealed != finished.contains(row) else { return }
+            // The reveal moved on: the bubble follows with the layout spring.
+            withAnimation(FlooDesignTokens.Motion.layout) {
+                if revealed { finished.insert(row) } else { finished.remove(row) }
+            }
         }
         following[row] = (manager, listener)
     }
@@ -1050,8 +1061,11 @@ final class FlooDemo {
             joinBubbles(&rows)
             for row in rows {
                 guard let bubble = row.bubble, case .block(let block, _) = row.kind else { continue }
-                let reveal = message.streaming ? message.coordinator.ensureManager(for: block.id) : nil
-                bubbleState(bubble.run).follow(row.id, reveal: reveal)
+                // Once the words are all in, a reveal still running them out is followed to its end.
+                let reveal = message.streaming
+                    ? message.coordinator.ensureManager(for: block.id) : message.coordinator.manager(for: block.id)
+                let open = message.streaming && block.id == message.blocks.last?.id
+                bubbleState(bubble.run).follow(row.id, reveal: reveal, open: open)
             }
             // What it asked rides on its words; the work it went on with is under them.
             for card in message.asks {

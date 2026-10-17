@@ -1122,8 +1122,10 @@ private struct FlooBubblePiece<Content: View>: View {
         return whole == .zero ? nil : whole
     }
 
+    /// Told even with no words yet: a row on screen that has none isn't one that finished
+    /// out of sight (the bubble draws those whole, from the row's frame).
     private var shown: FlooBubbleState.Shown? {
-        guard let frame, whole != .zero else { return nil }
+        guard let frame else { return nil }
         return FlooBubbleState.Shown(
             words: revealed.map { CGRect(origin: frame.origin, size: $0) },
             whole: CGRect(origin: frame.origin, size: whole),
@@ -1147,9 +1149,21 @@ private struct FlooBubblePiece<Content: View>: View {
         .padding(.trailing, 48)
         .onChange(of: shown, initial: true) { _, shown in
             guard var shown else { return }
+            let before = state.rows[row]
             // A row comes back into view before its reveal tells again: keep what it told.
-            if shown.words == nil { shown.words = state.rows[row]?.words }
-            state.rows[row] = shown
+            if shown.words == nil { shown.words = before?.words }
+            guard shown != before else { return }
+            // Only the reveal moving on animates the bubble; where the words are laid out is
+            // the list's to move, and the bubble is there at once.
+            // While revealing the bubble follows the revealed words, after that the whole words:
+            // more words streaming in below the reveal don't move it.
+            let laidOut = before.map {
+                $0.whole.origin != shown.whole.origin || $0.room != shown.room
+                    || (state.finished.contains(row) && $0.whole != shown.whole)
+            } ?? true
+            var transaction = Transaction(animation: FlooDesignTokens.Motion.layout)
+            if laidOut { transaction.disablesAnimations = true }
+            withTransaction(transaction) { state.rows[row] = shown }
         }
         .onAppear { listen() }
         .onDisappear {
@@ -1225,10 +1239,6 @@ private struct FlooBubbleBackground: View {
         )
     }
 
-    /// It moves with the layout spring while any of its words are still being revealed.
-    private var motion: Animation? {
-        geometry.items.contains { !state.finished.contains($0.id) } ? FlooDesignTokens.Motion.layout : nil
-    }
 
     var body: some View {
         let bubble = bubble
@@ -1236,9 +1246,10 @@ private struct FlooBubbleBackground: View {
             .fill(Color.flooReceived)
             .frame(width: bubble.rect.width, height: bubble.rect.height)
             .offset(x: bubble.rect.minX, y: bubble.rect.minY)
+            // It shows up around its first words, fading in there; it doesn't fly in from
+            // where it stood before it had any.
+            .transaction(value: bubble.shown) { $0.animation = nil }
             .opacity(bubble.shown ? 1 : 0)
-            .animation(motion, value: bubble.rect)
-            .animation(motion, value: bubble.shown)
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
     }
 }
