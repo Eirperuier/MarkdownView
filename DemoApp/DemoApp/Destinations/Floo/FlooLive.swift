@@ -333,7 +333,8 @@ final class FlooLive {
             end: mention.end.flatMap(date),
             title: mention.title,
             quote: mention.quote,
-            image: mention.image.flatMap(URL.init(string:))
+            image: mention.image.flatMap(URL.init(string:)),
+            url: mention.url.flatMap(URL.init(string:))
         )
     }
 
