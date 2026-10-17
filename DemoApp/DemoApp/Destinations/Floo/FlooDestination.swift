@@ -635,10 +635,37 @@ private struct FlooRowView: View {
 
     @ViewBuilder
     private func markdown(_ block: MarkdownStreamBlock, streaming: Bool) -> some View {
-        let view = MarkdownStreamBlockView(block)
-            .markdownDisplayMathRendersSynchronously()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 5)
+        if let bubble = row.bubble {
+            FlooBubblePiece(bubble: bubble, heading: Self.isHeading(block)) {
+                demo.measured(row.id, in: bubble.run, width: $0)
+            } content: {
+                revealing(
+                    MarkdownStreamBlockView(block)
+                        .markdownDisplayMathRendersSynchronously()
+                        // The bubble spaces its blocks.
+                        .markdownStreamBlockEdgeInsets(false),
+                    block,
+                    streaming: streaming
+                )
+            }
+        } else {
+            revealing(
+                MarkdownStreamBlockView(block)
+                    .markdownDisplayMathRendersSynchronously()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 5),
+                block,
+                streaming: streaming
+            )
+        }
+    }
+
+    private static func isHeading(_ block: MarkdownStreamBlock) -> Bool {
+        if case .heading = block.descriptor.kind { true } else { false }
+    }
+
+    @ViewBuilder
+    private func revealing(_ view: some View, _ block: MarkdownStreamBlock, streaming: Bool) -> some View {
         if streaming, let message = row.message.flatMap(demo.message) {
             view
                 .markdownStreaming(message.coordinator.ensureManager(for: block.id))
@@ -1030,6 +1057,74 @@ private struct FlooReceiptLabel: View {
     }
 }
 
+/// A block of an agent's words in its bubble: the received side of a chat, as a person's
+/// bubble is drawn (radius, padding, room left on the far side), in iMessage's received grey.
+/// A bubble's pieces are as wide as its widest, hugging the words like a single bubble; the
+/// pieces between its ends meet square, overlapping a point so no seam shows.
+private struct FlooBubblePiece<Content: View>: View {
+    let bubble: FlooBubble
+    /// A heading has more room above it than the blocks between, as on a page.
+    var heading = false
+    let measured: (CGFloat) -> Void
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        let radius = 18.0
+        FlooBubbleWidth(width: bubble.width) {
+            content.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { measured($0) }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, bubble.top ? 10 : heading ? 14 : 6)
+        .padding(.bottom, bubble.bottom ? 10 : 6)
+        .background {
+            UnevenRoundedRectangle(
+                topLeadingRadius: bubble.top ? radius : 0,
+                bottomLeadingRadius: bubble.bottom ? radius : 0,
+                bottomTrailingRadius: bubble.bottom ? radius : 0,
+                topTrailingRadius: bubble.top ? radius : 0,
+                style: .continuous
+            )
+            .fill(Color.flooReceived)
+            .padding(.top, bubble.top ? 0 : -1)
+        }
+        .padding(.top, bubble.top ? 4 : 0)
+        .padding(.bottom, bubble.bottom ? 4 : 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.trailing, 48)
+    }
+}
+
+/// A piece's words as wide as the bubble's widest, never wider than there's room for. The
+/// words keep the lines they were laid out in at the room there is: laid out again at their
+/// own width, text can break its lines differently (a closing comma that hung past the edge).
+private struct FlooBubbleWidth: Layout {
+    let width: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let words = subviews.first else { return .zero }
+        let size = words.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: min(proposal.width ?? .infinity, max(width, size.width)), height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: proposal.width, height: nil))
+    }
+}
+
+extension Color {
+    /// iMessage's received grey: the system's secondary fill as it shows on the page, opaque so
+    /// a bubble's pieces in neighbouring rows can overlap.
+    static let flooReceived = Color(uiColor: UIColor { traits in
+        let fill = UIColor.secondarySystemFill.resolvedColor(with: traits)
+        let page = UIColor.systemBackground.resolvedColor(with: traits)
+        var f: (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) = (0, 0, 0, 0)
+        var p: (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) = (0, 0, 0, 0)
+        fill.getRed(&f.r, green: &f.g, blue: &f.b, alpha: &f.a)
+        page.getRed(&p.r, green: &p.g, blue: &p.b, alpha: &p.a)
+        return UIColor(red: p.r + (f.r - p.r) * f.a, green: p.g + (f.g - p.g) * f.a, blue: p.b + (f.b - p.b) * f.a, alpha: 1)
+    })
+}
+
 /// A card in the chat: on the chat's own white, edged with a hairline.
 private struct FlooCardFrame<Content: View>: View {
     let size: FlooDemoCards.Size
@@ -1181,7 +1276,7 @@ extension FlooRow {
             guard !process.tasks.isEmpty else { return 40 + CGFloat(process.steps.count) * 21 }
             let steps = process.tasks.filter { open.contains($0.id) }.reduce(0) { $0 + $1.steps.count }
             return 40 + CGFloat(process.tasks.count) * 44 + CGFloat(steps) * 21
-        case .block(let block, _): return prose(block.source) + 10
+        case .block(let block, _): return prose(block.source) + (bubble == nil ? 10 : 20)
         case .fence(let language, let body, _):
             guard language != "floo.mention" else { return 90 }
             let card = FlooDemo.cardName(language, body.split(separator: "\n").map(String.init))

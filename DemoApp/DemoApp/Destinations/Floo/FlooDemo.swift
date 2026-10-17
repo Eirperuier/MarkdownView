@@ -135,6 +135,21 @@ struct FlooRow: Identifiable, Equatable {
     let id: String
     let message: Int?
     let kind: Kind
+    /// Where the block sits in its message's bubble, when agents' words are in bubbles.
+    var bubble: FlooBubble?
+}
+
+/// A piece of an agent's bubble: the words between two things that stand on their own (a
+/// code block, a table, a card, options) are one bubble, a row a block, the first rounded
+/// at the top and the last at the bottom.
+struct FlooBubble: Equatable {
+    /// The bubble's first row, which names it.
+    let run: String
+    let top: Bool
+    let bottom: Bool
+    /// The widest of its pieces' words as laid out: every piece is as wide, so they make one
+    /// bubble hugging its words.
+    var width: CGFloat = 0
 }
 
 /// One option of a choice or an ask: a few words, and the complete request tapping it sends.
@@ -245,6 +260,9 @@ enum FlooDecision: Equatable {
 @MainActor
 @Observable
 final class FlooDemo {
+    /// Agents' words in bubbles, as people's are; off, they're on the page as a document's.
+    static let agentBubbles = true
+
     // MARK: Entries
 
     @MainActor
@@ -342,6 +360,9 @@ final class FlooDemo {
     @ObservationIgnored private(set) var sessions: [String: CardSession] = [:]
     @ObservationIgnored private var versions: [String: Int] = [:]
     @ObservationIgnored private var jumpTarget: String?
+    /// How wide each piece's words came out, by bubble and row.
+    @ObservationIgnored private var bubbleWidths: [String: [String: CGFloat]] = [:]
+    @ObservationIgnored private var bubblesPending = false
     /// 1 is the pace the script is written at; less is faster.
     @ObservationIgnored var pace = 1.0
 
@@ -372,6 +393,7 @@ final class FlooDemo {
         showsErrands = false
         speaking = nil
         jumpTarget = nil
+        bubbleWidths = [:]
         following = true
         self.title = title
         publish()
@@ -979,15 +1001,65 @@ final class FlooDemo {
                         kind: .fence(language, body.joined(separator: "\n"), version: card.flatMap { versions[$0] } ?? 0)
                     ))
                 } else {
-                    rows.append(FlooRow(id: id, message: message.id, kind: .block(block, streaming: message.streaming)))
+                    var row = FlooRow(id: id, message: message.id, kind: .block(block, streaming: message.streaming))
+                    if Self.agentBubbles, Self.inBubble(block) {
+                        row.bubble = FlooBubble(run: id, top: true, bottom: true)
+                    }
+                    rows.append(row)
                 }
             }
+            joinBubbles(&rows)
             // What it asked rides on its words; the work it went on with is under them.
             for card in message.asks {
                 rows.append(FlooRow(id: "m\(message.id)#ask-\(card.id)", message: message.id, kind: .ask(card)))
             }
             if let work, message.processAfterText { rows.append(work) }
             return rows
+        }
+    }
+
+    /// Words go in the bubble; what has a frame of its own or is wider than a line of text
+    /// (code, a table, a directive's view) stands between its pieces.
+    private static func inBubble(_ block: MarkdownStreamBlock) -> Bool {
+        guard case .markdown = block.kind else { return false }
+        switch block.descriptor.kind {
+        case .codeBlock, .table, .blockDirective: return false
+        default: return true
+        }
+    }
+
+    /// Next rows in bubbles are one bubble: the first's id names it, only its ends are rounded.
+    private func joinBubbles(_ rows: inout [FlooRow]) {
+        var start = 0
+        while start < rows.count {
+            guard rows[start].bubble != nil else {
+                start += 1
+                continue
+            }
+            var end = start
+            while end + 1 < rows.count, rows[end + 1].bubble != nil { end += 1 }
+            let run = rows[start].id
+            let ids = Set(rows[start...end].map(\.id))
+            bubbleWidths[run] = bubbleWidths[run]?.filter { ids.contains($0.key) }
+            let width = bubbleWidths[run]?.values.max() ?? 0
+            for index in start...end {
+                rows[index].bubble = FlooBubble(run: run, top: index == start, bottom: index == end, width: width)
+            }
+            start = end + 1
+        }
+    }
+
+    /// A piece's words laid out at this width: when that makes the bubble wider or narrower,
+    /// its rows take the new width.
+    func measured(_ row: String, in run: String, width: CGFloat) {
+        let before = bubbleWidths[run]?.values.max() ?? 0
+        bubbleWidths[run, default: [:]][row] = width
+        guard bubbleWidths[run]?.values.max() != before, !bubblesPending else { return }
+        // After the layout pass that measured it, once however many pieces changed.
+        bubblesPending = true
+        Task { @MainActor in
+            bubblesPending = false
+            publish()
         }
     }
 
