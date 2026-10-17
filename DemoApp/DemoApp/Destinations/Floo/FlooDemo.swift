@@ -374,6 +374,8 @@ final class FlooDemo {
         /// cards' session keys, or a mention.
         var fenceCards: [Int: [String]] = [:]
         var fenceMentions: [Int: Mention] = [:]
+        /// Fences whose cards couldn't be drawn: they show nothing.
+        var fenceFailed: Set<Int> = []
 
         init(id: Int, agent: FlooAgent, time: String, marks: [FlooMark]) {
             self.id = id
@@ -1254,7 +1256,7 @@ final class FlooDemo {
                     } else if message.number != nil, let mention = message.fenceMentions[fence] {
                         rows.append(FlooRow(id: "\(id)#mention", message: message.id, kind: .mention(mention)))
                         continue
-                    } else if message.number != nil, language != "floo.draw" {
+                    } else if message.number != nil, language != "floo.draw" || message.fenceFailed.contains(fence) {
                         cut = true
                         continue
                     }

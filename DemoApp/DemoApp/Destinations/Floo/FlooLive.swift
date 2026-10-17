@@ -231,7 +231,10 @@ final class FlooLive {
             case .toolResult(let callID, _, _), .workResult(let callID, _, _, _):
                 answered.insert(callID)
             case .card(let card):
-                guard let source = card.source else { continue }
+                guard let source = card.source else {
+                    if card.failure != nil { message.fenceFailed.insert(card.fence) }
+                    continue
+                }
                 let key = "live-\(info.number)-\(card.fence)-\(card.item)"
                 demo.setCard(key, source: source, data: Self.value(card.data))
                 var keys = message.fenceCards[card.fence] ?? []
