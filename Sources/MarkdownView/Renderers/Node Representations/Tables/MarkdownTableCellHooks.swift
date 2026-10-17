@@ -85,6 +85,14 @@ public final class MarkdownTableGrid: Equatable, @unchecked Sendable {
         return MarkdownTableCellPosition(row: row, column: column)
     }
 
+    /// Each row's top and bottom, and how wide the columns reach.
+    func rowsAndWidth() -> (rows: [(minY: CGFloat, maxY: CGFloat)], width: CGFloat) {
+        let places = lock.withLock { self.places }
+        let rows = zip(places.rowOffsets, places.rowHeights).map { (minY: $0, maxY: $0 + $1) }
+        let width = zip(places.columnOffsets, places.columnWidths).map { $0 + $1 }.max() ?? 0
+        return (rows, width)
+    }
+
     func update(columnOffsets: [CGFloat], columnWidths: [CGFloat], rowOffsets: [CGFloat], rowHeights: [CGFloat], spacing: CGFloat) {
         lock.withLock {
             places = Places(columnOffsets: columnOffsets, columnWidths: columnWidths, rowOffsets: rowOffsets, rowHeights: rowHeights, spacing: spacing)

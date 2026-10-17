@@ -676,11 +676,11 @@ private struct FlooRowView: View {
         if case .heading = block.descriptor.kind { true } else { false }
     }
 
-    /// Whether the block is one text whose reveal can say how far it has got: a paragraph, a
-    /// heading or a list item without code in it.
+    /// Whether the block's reveal can say how far it has got: a paragraph, a heading, a list
+    /// item without code in it, a table (down to its last row started).
     private static func reportsReveal(_ block: MarkdownStreamBlock) -> Bool {
         switch block.descriptor.kind {
-        case .paragraph, .heading:
+        case .paragraph, .heading, .table:
             return true
         case .orderedList, .unorderedList:
             return !block.source.contains("```") && !block.source.contains("~~~")
@@ -1094,7 +1094,7 @@ private struct FlooBubblePiece<Content: View>: View {
     var heading = false
     /// Its words are revealed as they stream, and tell how far that has got.
     var reveals = false
-    /// The reveal of a block that can't tell how far it has got (a table, code): it shows
+    /// The reveal of a block that can't tell how far it has got (code, math): it shows
     /// whole once its reveal starts.
     var starts: StreamingRevealManager? = nil
     /// How far the words start in from the bubble's text edge, past what their reveal measures

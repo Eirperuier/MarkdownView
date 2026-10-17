@@ -300,6 +300,7 @@ struct MarkdownTableContent: View {
     @Environment(\.markdownTableCellsSelectable) private var cellsSelectable
     @Environment(\.markdownTableCellHooks) private var cellHooks
     @Environment(\.markdownTableAppearance) private var appearance
+    @Environment(\.markdownRevealedExtent) private var revealedExtent
     /// The cells' hooks (MarkdownTableCellHookBox), the latest the host gave.
     @State private var hookBox = MarkdownTableCellHookBox()
     /// Where the rows and columns are (MarkdownTableGridKey).
@@ -390,6 +391,24 @@ struct MarkdownTableContent: View {
                     .environment(\.markdownTableCellPhasesByRow, phasesByRow)
                     .onReceive(revealState.$snapshot.dropFirst()) { _ in
                         revealSnapshotRevision &+= 1
+                    }
+                    .overlayPreferenceValue(MarkdownTableCellFramesKey.self) { anchors in
+                        if let revealedExtent, let revealManager {
+                            GeometryReader { proxy in
+                                var bottoms: [Int: CGFloat] = [:]
+                                let _ = anchors.forEach { position, anchor in
+                                    bottoms[position.row] = max(bottoms[position.row] ?? 0, proxy[anchor].maxY)
+                                }
+                                MarkdownTableRevealedExtent(
+                                    manager: revealManager,
+                                    rowStarts: infoByRow.map { $0.first?.offset ?? 0 },
+                                    rowBottoms: infoByRow.indices.map { bottoms[$0] ?? 0 },
+                                    width: proxy.size.width,
+                                    report: revealedExtent
+                                )
+                            }
+                            .allowsHitTesting(false)
+                        }
                     }
             }
         }
@@ -519,6 +538,22 @@ struct MarkdownTableContent: View {
         .scrollClipDisabled()
         .scrollBounceBehavior(.basedOnSize)
         .environment(\.markdownTableCellSettleDuration, tableFadeSettleDuration)
+        .background {
+            if let revealedExtent, let revealManager {
+                // The grid is laid out with the table: its size changing is the rows moving.
+                GeometryReader { proxy in
+                    let _ = proxy.size
+                    let places = grid.rowsAndWidth()
+                    MarkdownTableRevealedExtent(
+                        manager: revealManager,
+                        rowStarts: cache.infoByRow.map { $0.first?.offset ?? 0 },
+                        rowBottoms: places.rows.map(\.maxY),
+                        width: places.width,
+                        report: revealedExtent
+                    )
+                }
+            }
+        }
         .background {
             GeometryReader { proxy in
                 Color.clear
@@ -2066,5 +2101,44 @@ extension View {
                 environmentValues.markdownTableRowBackgroundStyle = nil
             }
         }
+    }
+}
+
+/// Tells how much of a revealing table shows (`markdownRevealedExtent`): as wide as the
+/// table, down to the last row whose reveal has started; nil once all of it is revealed.
+private struct MarkdownTableRevealedExtent: View {
+    let manager: StreamingRevealManager
+    /// Where each row starts in the block's text, header first.
+    let rowStarts: [Int]
+    /// Where each row ends, from the table's top.
+    let rowBottoms: [CGFloat]
+    let width: CGFloat
+    let report: @MainActor (CGSize?) -> Void
+
+    @State private var revealed = 0
+    @State private var listener: UUID?
+    @State private var told: CGSize??
+
+    private var extent: CGSize? {
+        guard revealed != Int.max else { return nil }
+        let started = rowStarts.prefix(rowBottoms.count).lastIndex { $0 < revealed }
+        return started.map { CGSize(width: width, height: rowBottoms[$0]) } ?? .zero
+    }
+
+    var body: some View {
+        Color.clear
+            .onChange(of: extent, initial: true) { _, extent in
+                guard told != .some(extent) else { return }
+                told = .some(extent)
+                report(extent)
+            }
+            .onAppear {
+                guard listener == nil else { return }
+                listener = manager.addListener { count in revealed = count }
+            }
+            .onDisappear {
+                if let listener { manager.removeListener(listener) }
+                listener = nil
+            }
     }
 }

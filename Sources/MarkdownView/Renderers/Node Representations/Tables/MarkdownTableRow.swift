@@ -16,6 +16,7 @@ struct MarkdownTableRow: View {
     @Environment(\.markdownTableCellOffsetsByRow) private var cellOffsetsByRow
     @Environment(\.markdownTableCellPhasesByRow) private var cellPhasesByRow
     @Environment(\.markdownTableCellHooks) private var hooks
+    @Environment(\.markdownRevealedExtent) private var revealedExtent
 
     private var tableConfiguration: MarkdownRendererConfiguration.Table {
         configuration.table
@@ -92,8 +93,13 @@ struct MarkdownTableRow: View {
 //                )
 //            )
         
+        // A table telling how far its reveal has got finds its rows by their cells.
+        let told = baseContent
+            .anchorPreference(key: MarkdownTableCellFramesKey.self, value: .bounds) { [rowIndex] in
+                revealedExtent == nil ? [:] : [MarkdownTableCellPosition(row: rowIndex, column: index): $0]
+            }
         if tableConfiguration.scrollable {
-            baseContent
+            told
                 .frame(
                     maxWidth: tableConfiguration.cellMaxWidth,
                     alignment: cell.horizontalAlignment.toAlignment
@@ -104,13 +110,13 @@ struct MarkdownTableRow: View {
             case .trailing:
                 HStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    baseContent
+                    told
                 }
             case .center:
-                baseContent
+                told
             default:
                 HStack(spacing: 0) {
-                    baseContent
+                    told
                     Spacer(minLength: 0)
                 }
             }
