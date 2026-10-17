@@ -118,6 +118,9 @@ struct FlooDestination: View {
                 Text(scenario.name).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
+            if let cards = demo.cardModel {
+                cardModelMenu(cards)
+            }
             Menu {
                 ForEach(FlooScenario.allCases) { item in
                     Button(item.name) {
@@ -136,6 +139,30 @@ struct FlooDestination: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    /// The live stage's card model and reasoning: the next card is drawn with what's picked.
+    private func cardModelMenu(_ cards: FlooCardModel) -> some View {
+        Menu {
+            Section("画卡模型") {
+                Picker("画卡模型", selection: Binding(
+                    get: { cards.model },
+                    set: { demo.chooseCards(FlooCardModel(model: $0, reasoning: cards.reasoning)) }
+                )) {
+                    ForEach(FlooCardModel.models(with: cards.model), id: \.id) { Text($0.name).tag($0.id) }
+                }
+            }
+            Section("推理") {
+                Picker("推理", selection: Binding(
+                    get: { cards.reasoning },
+                    set: { demo.chooseCards(FlooCardModel(model: cards.model, reasoning: $0)) }
+                )) {
+                    ForEach(FlooCardModel.reasonings, id: \.0) { Text($0.1).tag($0.0) }
+                }
+            }
+        } label: {
+            Image(systemName: "slider.horizontal.3").font(.body.weight(.medium))
+        }
     }
 
     // MARK: Bottom

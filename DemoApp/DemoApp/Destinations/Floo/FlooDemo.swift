@@ -418,6 +418,8 @@ final class FlooDemo {
     @ObservationIgnored private var pages: [String: Doc] = [:]
     /// The page open over the conversation.
     var openPage: FlooOpenPage?
+    /// The model the backend's cards are drawn with, as the stage has it (FlooLive).
+    var cardModel: FlooCardModel?
     /// Each choice row's message and fence place, for a choice sent to the backend.
     @ObservationIgnored private var choiceFences: [String: (message: Int, fence: Int)] = [:]
     /// Per message, the block whose reveal the next block waits for (`rows(for:)`).
@@ -464,6 +466,7 @@ final class FlooDemo {
         pages = [:]
         drafted = [:]
         openPage = nil
+        cardModel = nil
         choiceFences = [:]
         approval = nil
         answering = nil
@@ -770,6 +773,11 @@ final class FlooDemo {
     func goLive(_ live: FlooLive) {
         self.live = live
         isLive = true
+    }
+
+    /// The backend's next cards are drawn with this model and reasoning.
+    func chooseCards(_ model: FlooCardModel) {
+        live?.chooseCards(model)
     }
 
     /// Sends what's typed to the backend.

@@ -91,6 +91,7 @@ final class FlooLive {
             return
         }
         self.session = session
+        Task { await loadCardModel() }
         let following = Task { await session.follow() }
         defer { following.cancel() }
         for await replica in await session.changes() {
@@ -126,6 +127,33 @@ final class FlooLive {
                 self.demo.catchUp("没发出去：\(error)")
             }
         }
+    }
+
+    // MARK: Card model
+
+    /// The stage's card model, for the header's menu; an older stage has none, and no menu.
+    private func loadCardModel() async {
+        demo.cardModel = try? await Self.cardModel(URLRequest(url: stage.base.appending(path: "lab/cards")))  // try?: no menu
+    }
+
+    func chooseCards(_ model: FlooCardModel) {
+        var request = URLRequest(url: stage.base.appending(path: "lab/cards"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONEncoder().encode(model)  // try?: two strings always encode
+        Task {
+            do {
+                self.demo.cardModel = try await Self.cardModel(request)
+            } catch {
+                self.demo.catchUp("画卡模型没换成：\(error)")
+            }
+        }
+    }
+
+    private static func cardModel(_ request: URLRequest) async throws -> FlooCardModel {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        return try JSONDecoder().decode(FlooCardModel.self, from: data)
     }
 
     // MARK: Pages
@@ -308,6 +336,24 @@ final class FlooLive {
         full.formatOptions = [.withFullDate]
         return full.date(from: text)
     }
+}
+
+/// The model a stage draws its cards with and its reasoning (floo's `/lab/cards`).
+struct FlooCardModel: Codable, Hashable {
+    var model: String
+    var reasoning: String
+
+    /// The models to choose from, the stage's own among them.
+    static func models(with current: String) -> [(id: String, name: String)] {
+        let known = [
+            ("anthropic/claude-haiku-5.5", "Claude Haiku 5.5"),
+            ("anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5"),
+            ("openai/gpt-6-luna", "GPT-6 luna"),
+        ]
+        return known.contains { $0.0 == current } ? known : known + [(current, current)]
+    }
+
+    static let reasonings = [("none", "不推理"), ("low", "低"), ("medium", "中"), ("high", "高")]
 }
 
 /// Tokens from the stage's token route, fetched again when half an hour old
