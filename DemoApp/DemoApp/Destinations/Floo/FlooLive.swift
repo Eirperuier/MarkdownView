@@ -15,6 +15,7 @@ import Wire
 import TransportKit
 import ConversationKit
 import DeviceSupport
+import DocKit
 
 @MainActor
 final class FlooLive {
@@ -50,6 +51,9 @@ final class FlooLive {
     private let demo: FlooDemo
     private let stage: Stage
     private var session: ConversationSession?
+    private var client: FlooClient?
+    /// The pages asked for, read or being read.
+    private var pages: Set<String> = []
     /// The demo's entries for the backend's messages, by number.
     private var said: [Int64: FlooDemo.Said] = [:]
     private var messages: [Int64: FlooDemo.Message] = [:]
@@ -79,7 +83,9 @@ final class FlooLive {
                 appVersion: "demo",
                 osVersion: ProcessInfo.processInfo.operatingSystemVersionString
             )
-            session = ConversationSession(.main(of: stage.account), remote: base.with(device: device))
+            let client = base.with(device: device)
+            self.client = client
+            session = ConversationSession(.main(of: stage.account), remote: client)
         } catch {
             demo.catchUp("没连上：\(error)")
             return
@@ -118,6 +124,21 @@ final class FlooLive {
                 _ = try await session.send(send)
             } catch {
                 self.demo.catchUp("没发出去：\(error)")
+            }
+        }
+    }
+
+    // MARK: Pages
+
+    /// Reads a page the agent wrote, once: the conversation shows it when it's in.
+    func loadPage(_ path: String) {
+        guard let client, pages.insert(path).inserted else { return }
+        Task {
+            do {
+                let file = try await client.driveFile(path)
+                self.demo.setPage(path, try JSONDecoder().decode(Doc.self, from: file.content))
+            } catch {
+                self.demo.catchUp("页面没读到（\(path)）：\(error)")
             }
         }
     }
@@ -245,14 +266,14 @@ final class FlooLive {
         return formatter
     }()
 
-    private static func time(_ timestamp: Timestamp) -> String {
+    private static func time(_ timestamp: Wire.Timestamp) -> String {
         let date = Date(timeIntervalSince1970: Double(timestamp.millisecondsSince1970) / 1000)
         return clock.string(from: date)
     }
 
     private static func item(_ key: String) -> Int { Int(key.split(separator: "-").last ?? "") ?? 0 }
 
-    private static func value(_ json: JSONValue?) -> CardValue {
+    private static func value(_ json: Wire.JSONValue?) -> CardValue {
         guard let json, let data = try? JSONEncoder().encode(json) else { return .object([:]) }
         return (try? JSONDecoder().decode(CardValue.self, from: data)) ?? .object([:])
     }

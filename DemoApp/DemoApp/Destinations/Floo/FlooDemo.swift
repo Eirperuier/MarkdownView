@@ -14,6 +14,7 @@ import MarkdownView
 import MessagingUI
 import CardModel
 import CardUI
+import DocKit
 import FlooDesign
 
 /// Who wrote a message: the butler, or one of the person's services, by the name it goes by.
@@ -129,6 +130,9 @@ struct FlooRow: Identifiable, Equatable {
         case ask(FlooAskCard)
         /// Where an answer was found, as the backend checked it (FlooLive).
         case mention(Mention)
+        /// A page the agent wrote (```floo.page): its path under /drive/, and its title and
+        /// preview, as Docs' page block shows them.
+        case page(String, DocPage)
     }
 
     let id: String
@@ -136,6 +140,12 @@ struct FlooRow: Identifiable, Equatable {
     let kind: Kind
     /// Where the block sits in its message's bubble, when agents' words are in bubbles.
     var bubble: FlooBubble?
+}
+
+/// A page open over the conversation: its path, and the page as it was read.
+struct FlooOpenPage: Identifiable {
+    let id: String
+    let doc: Doc
 }
 
 /// A block of an agent's words in its bubble: the blocks between two cards are one bubble,
@@ -405,6 +415,10 @@ final class FlooDemo {
     var draft = ""
     /// Card sizes for sessions that aren't the demo's own cards (FlooLive).
     @ObservationIgnored private(set) var cardSizes: [String: FlooDemoCards.Size] = [:]
+    /// The pages read from the backend, by path (FlooLive.loadPage).
+    @ObservationIgnored private var pages: [String: Doc] = [:]
+    /// The page open over the conversation.
+    var openPage: FlooOpenPage?
     /// Each choice row's message and fence place, for a choice sent to the backend.
     @ObservationIgnored private var choiceFences: [String: (message: Int, fence: Int)] = [:]
     /// Per message, the block whose reveal the next block waits for (`rows(for:)`).
@@ -449,6 +463,8 @@ final class FlooDemo {
         isLive = false
         draft = ""
         cardSizes = [:]
+        pages = [:]
+        openPage = nil
         choiceFences = [:]
         approval = nil
         answering = nil
@@ -800,6 +816,18 @@ final class FlooDemo {
         publish()
     }
 
+    /// A page the agent wrote, read: its fence shows it.
+    func setPage(_ path: String, _ doc: Doc) {
+        pages[path] = doc
+        publish()
+    }
+
+    /// Opens a page the conversation shows, over it.
+    func open(page path: String) {
+        guard let doc = pages[path] else { return }
+        openPage = FlooOpenPage(id: path, doc: doc)
+    }
+
     /// Something in the conversation changed that only a new set of rows shows.
     func refresh() {
         publish()
@@ -1134,6 +1162,18 @@ final class FlooDemo {
                     defer { fence += 1 }
                     // The fence's name; a size may follow it (`floo.draw medium`).
                     var language = String(info.split(separator: " ").first ?? "")
+                    if language == "floo.page" {
+                        // The backend's page, by its path: shown once it's read, a new row.
+                        guard message.number != nil, let path = Self.fenceBody(block.source).first(where: { !$0.isEmpty }) else { continue }
+                        if let doc = pages[path] {
+                            let summary = DocPage.summary(of: doc)
+                            rows.append(FlooRow(id: "\(id)#page", message: message.id,
+                                                kind: .page(path, DocPage(doc: doc.id, title: summary.title, preview: summary.preview))))
+                        } else if !message.streaming {
+                            live?.loadPage(path)
+                        }
+                        continue
+                    }
                     if language == "floo.choice" {
                         let options = Self.choiceOptions(block.source).map { FlooChoice(option: $0.option, tappable: $0.tappable) }
                         choiceFences[id] = (message.id, fence)

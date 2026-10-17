@@ -18,13 +18,21 @@ struct DocDestination: View {
 
     static var autoruns: Bool { UserDefaults.standard.bool(forKey: "docAgent") }
 
-    @State private var pages = DocPages(root: DocDemo())
+    @State private var pages: DocPages
+    /// A page shown, not edited, over something else (the floo chat's): its bar closes it.
+    private let shown: Bool
+
+    /// The documents; or a document of its own, shown (a page an agent wrote).
+    init(doc: Doc? = nil) {
+        _pages = State(initialValue: DocPages(root: doc.map { DocDemo(doc: $0) } ?? DocDemo()))
+        shown = doc != nil
+    }
 
     var body: some View {
         // Pages go in and out the system's way: its back button (a long press lists the
         // pages above), its swipe back, the page's title and the way to it in its bar.
         NavigationStack(path: $pages.stack) {
-            DocPageView(page: pages.root, pages: pages)
+            DocPageView(page: pages.root, pages: pages, shown: shown)
                 .navigationDestination(for: DocID.self) { id in
                     if let page = pages.page(id) {
                         DocPageView(page: page, pages: pages)
@@ -61,6 +69,9 @@ struct DocCommands: Commands {
 private struct DocPageView: View {
     let page: DocOpenPage
     let pages: DocPages
+    /// Shown, not edited, with a close in its bar (DocDestination(doc:)).
+    var shown = false
+    @Environment(\.dismiss) private var dismiss
     @State private var scrollPosition = TiledScrollPosition()
     @State private var reader = TiledViewReader<String>()
     /// The app's: links, files and images open with it (DocBlockController.openURL).
@@ -72,18 +83,8 @@ private struct DocPageView: View {
     var body: some View {
         let _ = DocTiming.mark("page view body \(page.title)", once: true)
         VStack(spacing: 0) {
-            bar
-                .frame(maxWidth: .infinity, minHeight: FlooDesignTokens.Control.prominentHeight, alignment: .leading)
-                .padding(.horizontal, FlooDesignTokens.Space.lg)
-                .padding(.vertical, FlooDesignTokens.Space.sm)
-                // The Mac's format panel: under the bar at the window's right, open until
-                // its Aa closes it (Craft's).
-                .flooDesignActionMenu(isPresented: editor.panels.showsFormat, title: String(localized: "Format"),
-                                      configuration: .init(horizontalAlignment: .trailing, anchorGap: 0, dismissesOnOutsideTouch: false),
-                                      onDismiss: { editor.panels.showsFormat = false }) { [editor] _ in
-                    DocFormatMenu(editor: editor).sections
-                }
-            Divider()
+            // A page shown has nothing to edit with.
+            if !shown { pageBar }
             TiledView(items: demo.rows, scrollPosition: $scrollPosition) { row in
                 DocRowCell(item: row, demo: demo, editor: editor)
             }
@@ -164,6 +165,15 @@ private struct DocPageView: View {
             } else {
                 ToolbarItem(placement: .topBarLeading) { DocPageTitle(page: page, pages: pages) }
             }
+            if shown {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if #available(iOS 26, macCatalyst 26, *) {
+                        Button(role: .close) { dismiss() }
+                    } else {
+                        Button(String(localized: "Done")) { dismiss() }
+                    }
+                }
+            }
         }
         .task {
             DocTiming.mark("page task \(page.title)", once: true)
@@ -173,6 +183,7 @@ private struct DocPageView: View {
             guard !page.appeared else { return }
             page.appeared = true
             demo.rowFrame = { [reader] id in reader.frame(forItem: id) }
+            if shown { editor.isEditable = false }
             editor.blocks.attach(reader)
             editor.blocks.openPage = { [pages] block in pages.open(block) }
             editor.collections.openRecord = { [pages] row, block in pages.openRecord(row, in: block) }
@@ -381,6 +392,23 @@ private struct DocPageView: View {
                 demo.runScript()
             }
         }
+    }
+
+    /// Its bar, and the line under it.
+    @ViewBuilder
+    private var pageBar: some View {
+        bar
+            .frame(maxWidth: .infinity, minHeight: FlooDesignTokens.Control.prominentHeight, alignment: .leading)
+            .padding(.horizontal, FlooDesignTokens.Space.lg)
+            .padding(.vertical, FlooDesignTokens.Space.sm)
+            // The Mac's format panel: under the bar at the window's right, open until
+            // its Aa closes it (Craft's).
+            .flooDesignActionMenu(isPresented: editor.panels.showsFormat, title: String(localized: "Format"),
+                                  configuration: .init(horizontalAlignment: .trailing, anchorGap: 0, dismissesOnOutsideTouch: false),
+                                  onDismiss: { editor.panels.showsFormat = false }) { [editor] _ in
+                DocFormatMenu(editor: editor).sections
+            }
+        Divider()
     }
 
     @ViewBuilder

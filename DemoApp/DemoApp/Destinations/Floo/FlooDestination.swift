@@ -11,6 +11,7 @@ import SwiftUI
 import MarkdownView
 import MessagingUI
 import CardUI
+import DocKit
 import FlooDesign
 
 struct FlooDestination: View {
@@ -100,6 +101,10 @@ struct FlooDestination: View {
                 }
         }
         .toolbar(.hidden, for: .navigationBar)
+        // A page the agent wrote, read only: what's on the backend is the agent's to change.
+        .sheet(item: $demo.openPage) { page in
+            DocDestination(doc: page.doc)
+        }
         .task { play() }
     }
 
@@ -562,6 +567,12 @@ private struct FlooRowView: View {
         case .mention(let mention):
             MentionView(mention)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 6)
+        case .page(let path, let page):
+            // Docs' page block; a tap opens the page.
+            DocPageRowView(page: page)
+                .contentShape(Rectangle())
+                .onTapGesture { demo.open(page: path) }
                 .padding(.vertical, 6)
         }
     }
@@ -1472,6 +1483,7 @@ extension FlooRow {
             let card = FlooDemo.cardName(language, body.split(separator: "\n").map(String.init))
             return (card.flatMap { FlooDemoCards.all[$0]?.size } ?? .medium).drawingHeight + 12
         case .mention: return 90
+        case .page: return DocPageMetrics.rowHeight + 12
         case .choice(let choices, _):
             if choices.contains(where: { $0.option.image != nil || $0.option.from != nil }) { return 230 }
             if choices.contains(where: { $0.option.detail != nil }) { return 14 + CGFloat(choices.count) * 56 }
