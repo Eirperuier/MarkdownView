@@ -166,6 +166,7 @@ struct FlooSignInView: View {
             Button(signingUp ? "已有账号？登录" : "没有账号？注册") {
                 model.mode = signingUp ? .signIn : .signUp
             }
+            .buttonStyle(.borderless)
             .font(.subheadline)
             .disabled(model.working)
         }
