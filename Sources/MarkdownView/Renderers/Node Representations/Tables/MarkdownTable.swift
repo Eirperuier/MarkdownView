@@ -1060,6 +1060,9 @@ struct AdaptiveTableLayout: Layout {
         /// The content measured (TableCellHashKey).
         var hash: Int
         var idealWidth: CGFloat
+        /// The width it takes on one line, not capped at the cell's widest: what tells whether
+        /// its height depends on the column's width.
+        var naturalWidth: CGFloat
         /// The column's width its height was measured at.
         var width: CGFloat
         var height: CGFloat
@@ -1122,13 +1125,16 @@ struct AdaptiveTableLayout: Layout {
             ? cache.measured : [:]
 
         var cellIdealWidths = [CGFloat](repeating: 0, count: cellSubviewCount)
+        var cellNaturalWidths = [CGFloat](repeating: 0, count: cellSubviewCount)
         for index in 0..<cellSubviewCount {
             if let old = measured[identities[index]], old.hash == currentHashes[index] {
                 cellIdealWidths[index] = old.idealWidth
+                cellNaturalWidths[index] = old.naturalWidth
                 continue
             }
             MarkdownRenderProbe.increment(\.adaptiveTableLayoutIdealMeasures)
             let ideal = subviews[rowBackgroundCount + index].sizeThatFits(.unspecified)
+            cellNaturalWidths[index] = ideal.width
             cellIdealWidths[index] = Self.snappedWidth(
                 min(ideal.width, cellMaxWidth),
                 buckets: widthBuckets,
@@ -1162,9 +1168,12 @@ struct AdaptiveTableLayout: Layout {
             guard row < rowCount else { continue }
             let width = colWidths[index % columnCount]
             let ideal = cellIdealWidths[index]
+            let natural = cellNaturalWidths[index]
             let height: CGFloat
+            // On one line in both widths only by its uncapped width: one wider than the cell's
+            // widest wraps in every column, to more lines in a narrower one.
             if let old = measured[identities[index]], old.hash == currentHashes[index],
-               old.width == width || ideal < min(old.width, width) - 0.5 {
+               old.width == width || natural < min(old.width, width) - 0.5 {
                 height = old.height
             } else {
                 MarkdownRenderProbe.increment(\.adaptiveTableLayoutConstrainedMeasures)
@@ -1176,6 +1185,7 @@ struct AdaptiveTableLayout: Layout {
             nextMeasured[identities[index]] = MeasuredCell(
                 hash: currentHashes[index],
                 idealWidth: ideal,
+                naturalWidth: natural,
                 width: width,
                 height: height
             )
@@ -1685,7 +1695,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         return MarkdownTableHeaderStyling.dimmingParentheticals(
             attributed,
             font: .caption,
-            color: .secondary
+            color: configuration.painted(.secondary)
         )
     }
 

@@ -22,7 +22,8 @@ extension View {
 private struct MarkdownBlockQuoteDecoration: ViewModifier {
     let isOn: Bool
 
-    @Environment(\.markdownRendererConfiguration.blockQuoteTintColor) private var tint
+    @Environment(\.markdownRendererConfiguration) private var configuration
+    private var tint: Color { configuration.painted(configuration.blockQuoteTintColor) }
 
     func body(content: Content) -> some View {
         content

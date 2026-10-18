@@ -127,6 +127,7 @@ public struct MarkdownSelectableText: View, Equatable {
             guard let manager = streamingManager, let fade = fadeConfig else { return }
             revealCoordinator.rebind(manager: manager, fade: fade, colorScheme: revealColorScheme)
         }
+        .onAppear { revealCoordinator.resume() }
         .onDisappear { revealCoordinator.detach() }
         #endif
         // 渲染时已算出 reveal 单位数,经 preference 回传 —— 驱动方无需再单独 parse 一遍(revealUnitCount)。
@@ -361,6 +362,7 @@ public struct MarkdownSelectableText: View, Equatable {
                 fadeConfig: fadeConfig,
                 bubbleSize: typography.body.font(at: dynamicTypeSize).pointSize,
                 dynamicTypeSize: dynamicTypeSize,
+                colors: configuration.colors,
                 topicPreview: topicPreview
             )
         }

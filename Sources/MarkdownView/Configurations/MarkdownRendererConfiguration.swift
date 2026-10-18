@@ -24,6 +24,9 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     /// 基础正文字色:UITextView 路径(可选中渲染)不吃 SwiftUI `.foregroundStyle` 级联,
     /// 需显式传入(如 ThinkingView 宿主的 secondary)。原版 Text 路径不受影响。
     var baseTextColor: Color? = nil
+    /// The colors everything is drawn in, from what it's drawn on (`markdownColors(_:)`); nil
+    /// for the system's.
+    var colors: MarkdownColors? = nil
 
     var showFullCode: Bool = false
     
@@ -33,6 +36,8 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
     var allowedBlockDirectiveRenderers: Set<String> = []
 
     var autolinkDetectionEnabled: Bool = true
+    /// Whether a web link shows its site's icon before it (`markdownLinkSiteIcons(_:)`).
+    var linkSiteIcons: Bool = false
 
     var highlightedStrings: [String] = []
     var highlightedColor: Color = .white
@@ -62,6 +67,7 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
         hasher.combine(allowedImageRenderers)
         hasher.combine(allowedBlockDirectiveRenderers)
         hasher.combine(autolinkDetectionEnabled)
+        hasher.combine(linkSiteIcons)
         hasher.combine(highlightedStrings)
         // Colors hash as themselves: an asset color's `description` reflects on its bundle, and this
         // runs for every block on every render.
@@ -70,6 +76,7 @@ struct MarkdownRendererConfiguration: Equatable, AllowingModifyThroughKeyPath, S
         hasher.combine(blockQuoteTintColor)
         hasher.combine(preferredColor)
         hasher.combine(baseTextColor)
+        hasher.combine(colors)
         hasher.combine(highlightedColor)
         hasher.combine(highlightedBackgroundColor)
         // 脚注上下文(编号/URL)入指纹:流式期间定义陆续到达 → 编号表变化必须失效缓存重渲染。
@@ -537,5 +544,18 @@ extension View {
                 brightness: brightness
             )
         )
+    }
+}
+
+extension MarkdownRendererConfiguration {
+    /// A color MarkdownView names, in the colors it's drawn in (`MarkdownColors.recolored`).
+    func painted(_ color: Color) -> Color {
+        colors?.recolored(color) ?? color
+    }
+
+    /// What words without a color of their own are drawn in: the base color set, or the
+    /// colors' primary; nil for the text view's own.
+    var textColor: Color? {
+        baseTextColor.map(painted) ?? colors?.primary
     }
 }

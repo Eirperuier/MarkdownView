@@ -22,7 +22,8 @@ extension BlockQuoteStyle where Self == DefaultBlockQuoteStyle {
 fileprivate struct DefaultBlockQuoteView: View {
     var configuration: BlockQuoteStyleConfiguration
     @Environment(\.markdownFontGroup.blockQuote) private var font
-    @Environment(\.markdownRendererConfiguration.blockQuoteTintColor) private var tint
+    @Environment(\.markdownRendererConfiguration) private var rendering
+    private var tint: Color { rendering.painted(rendering.blockQuoteTintColor) }
     @Environment(\.markdownTextOffsetBase) private var offsetBase
     @State private var decorationHeight: CGFloat?
 

@@ -21,7 +21,8 @@ public struct SelectableBlockQuote: View {
     private let innerTree: MarkdownTree?
 
     @Environment(\.markdownFontGroup.blockQuote) private var font
-    @Environment(\.markdownRendererConfiguration.blockQuoteTintColor) private var tint
+    @Environment(\.markdownRendererConfiguration) private var configuration
+    private var tint: Color { configuration.painted(configuration.blockQuoteTintColor) }
     @Environment(\.markdownTextOffsetBase) private var offsetBase
     @State private var decorationHeight: CGFloat?
 
@@ -50,7 +51,7 @@ public struct SelectableBlockQuote: View {
             }
                 // 引用块内部黑白(同魔改覆写:不带 theme 色)。
                 .preferredColor(.primary)
-                .tint(.primary, for: .link)
+                .tint(configuration.painted(.primary), for: .link)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .font(font)
