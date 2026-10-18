@@ -17,7 +17,8 @@ import FlooDesign
 
 struct FlooDestination: View {
     @State private var demo = FlooDemo()
-    @State private var scenario = FlooDestination.launchScenario ?? .slowWork
+    // Opened as it is, it's the real conversation: the floo server, once you're signed in.
+    @State private var scenario = FlooDestination.launchScenario ?? .live
     @State private var playing: Task<Void, Never>?
     @State private var scrolling = false
     @State private var fromBottom: CGFloat = 0
@@ -91,16 +92,22 @@ struct FlooDestination: View {
                     demo.scrollPosition.scrollTo(edge: .bottom, animated: true)
                 }
             }
-            bottom
-                // Something opened over the composer: what was at the bottom stays in sight.
-                // Once the list has taken its new height: before, its bottom is where it was.
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(450))  // try?: cancelled, no matter
-                        guard demo.following else { return }
-                        demo.scrollPosition.scrollTo(edge: .bottom, animated: true)
+            // Signing in to the floo server: the form until you're in, and nothing to type into.
+            .overlay {
+                if let signIn = demo.signIn { FlooSignInView(model: signIn) }
+            }
+            if demo.signIn == nil {
+                bottom
+                    // Something opened over the composer: what was at the bottom stays in sight.
+                    // Once the list has taken its new height: before, its bottom is where it was.
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(450))  // try?: cancelled, no matter
+                            guard demo.following else { return }
+                            demo.scrollPosition.scrollTo(edge: .bottom, animated: true)
+                        }
                     }
-                }
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         // A page the agent wrote, read only: what's on the backend is the agent's to change.
@@ -121,6 +128,19 @@ struct FlooDestination: View {
             Spacer()
             if let cards = demo.cardModel {
                 cardModelMenu(cards)
+            }
+            if let account = demo.signedIn {
+                Menu {
+                    if let email = account.email { Text(email) }
+                    Button("退出登录", role: .destructive) {
+                        Task {
+                            try? await account.auth.signOut()  // try?: the kept session may be gone already
+                            play()
+                        }
+                    }
+                } label: {
+                    Image(systemName: "person.crop.circle").font(.body.weight(.medium))
+                }
             }
             Menu {
                 ForEach(FlooScenario.allCases) { item in

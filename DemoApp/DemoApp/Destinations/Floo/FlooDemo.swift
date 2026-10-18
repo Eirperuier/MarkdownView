@@ -454,6 +454,10 @@ final class FlooDemo {
     var openPage: FlooOpenPage?
     /// The model the backend's cards are drawn with, as the stage has it (FlooLive).
     var cardModel: FlooCardModel?
+    /// The floo server's sign-in, while it's asked for (FlooLive).
+    var signIn: FlooSignIn?
+    /// Who is signed in to the floo server.
+    var signedIn: FlooOnline.Account?
     /// Each choice row's message and fence place, for a choice sent to the backend.
     @ObservationIgnored private var choiceFences: [String: (message: Int, fence: Int)] = [:]
     /// Per message, the block whose reveal the next block waits for (`rows(for:)`).
@@ -500,6 +504,8 @@ final class FlooDemo {
         waits = [:]
         live = nil
         isLive = false
+        signIn = nil
+        signedIn = nil
         draft = ""
         drafted = [:]
         openPage = nil

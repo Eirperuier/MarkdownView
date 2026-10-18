@@ -2,8 +2,9 @@
 //  FlooLive.swift
 //  DemoApp
 //
-//  The floo Chat on a real backend: a lab stage on this Mac (floo's
-//  Scripts/stage/live.sh) signs the demo in as its person, and the main
+//  The floo Chat on a real backend: the floo server, signed in to with an
+//  account of your own (FlooSignIn), or a lab stage on this Mac (floo's
+//  Scripts/stage/live.sh) that signs the demo in as its person. The main
 //  conversation is shown as the scripted scenarios show theirs.
 //
 
@@ -32,24 +33,64 @@ final class FlooLive {
             else { return nil }
             return Stage(base: base, account: account)
         }
-
-        var authority: String { base.host().map { host in base.port.map { "\(host):\($0)" } ?? host } ?? "" }
-        var scheme: String { base.scheme ?? "http" }
     }
 
+    /// Where the conversation is, and who you are there.
+    struct Backend {
+        let base: URL
+        let account: AccountID
+        let tokens: any AccessTokenProvider
+        /// Where this device's key and its ids there are kept.
+        let folder: String
+        /// A lab stage, whose card model can be picked (`/lab/cards`).
+        let lab: Bool
+
+        var authority: String { base.host().map { host in base.port.map { "\(host):\($0)" } ?? host } ?? "" }
+        var scheme: String { base.scheme ?? "https" }
+    }
+
+    /// The stage when launched with one; otherwise the floo server, signing in first when
+    /// there's no session kept from before.
     static func play(_ demo: FlooDemo) async throws {
-        demo.reset(title: "本机后端")
-        guard let stage = Stage.launched else {
-            demo.catchUp("没连上：用 floo 的 Scripts/stage/live.sh 起一个实验台，再带上 -flooStage 和 -flooAccount 打开。")
-            return
+        if let stage = Stage.launched {
+            demo.reset(title: "本机后端")
+            let backend = Backend(base: stage.base, account: stage.account, tokens: StageTokens(stage: stage),
+                                  folder: "floo-live", lab: true)
+            return try await go(demo, backend)
         }
-        let live = FlooLive(demo: demo, stage: stage)
+        demo.reset(title: "floo")
+        let auth = FlooOnline.auth()
+        // try?: a session that can't be read is signed in again.
+        let server = FlooClient(scheme: "https", authority: FlooOnline.server, transport: URLSessionTransport(), tokens: auth)
+        var session = try? await auth.session()
+        var failure: String?
+        // A kept session whose account the server no longer takes: signed in again. try?: not
+        // reached now, it's tried as it is and says so.
+        if session != nil, (try? await FlooSignIn.admitted(server, auth)) == false {
+            session = nil
+            failure = FlooSignIn.refused
+        }
+        if session == nil {
+            let signIn = FlooSignIn(auth: auth, server: server, failure: failure)
+            demo.signIn = signIn
+            session = await signIn.signedIn()
+            demo.signIn = nil
+        }
+        guard let session else { return }
+        demo.signedIn = FlooOnline.Account(email: UserDefaults.standard.string(forKey: FlooOnline.emailKey), auth: auth)
+        let backend = Backend(base: URL(string: "https://\(FlooOnline.server)")!, account: session.account,
+                              tokens: auth, folder: "floo-online", lab: false)
+        try await go(demo, backend)
+    }
+
+    private static func go(_ demo: FlooDemo, _ backend: Backend) async throws {
+        let live = FlooLive(demo: demo, backend: backend)
         demo.goLive(live)
         try await live.run()
     }
 
     private let demo: FlooDemo
-    private let stage: Stage
+    private let backend: Backend
     private var session: ConversationSession?
     private var client: FlooClient?
     /// The demo's entries for the backend's messages, by number.
@@ -61,25 +102,25 @@ final class FlooLive {
     /// The conversation as last shown, to show again once the catalog is in.
     private var last: ConversationReplica?
 
-    private init(demo: FlooDemo, stage: Stage) {
+    private init(demo: FlooDemo, backend: Backend) {
         self.demo = demo
-        self.stage = stage
+        self.backend = backend
     }
 
-    /// Signs in as the stage's person on a device of its own (one with no services: the
-    /// stage's Mac and phone run those), then follows the main conversation.
+    /// Joins as the backend's person on a device of its own (one with no services: on a
+    /// stage, its Mac and phone run those), then follows the main conversation.
     private func run() async throws {
         let base = FlooClient(
-            scheme: stage.scheme,
-            authority: stage.authority,
+            scheme: backend.scheme,
+            authority: backend.authority,
             transport: URLSessionTransport(),
-            tokens: StageTokens(stage: stage)
+            tokens: backend.tokens
         )
         let session: ConversationSession
         do {
-            let folder = URL.applicationSupportDirectory.appending(path: "floo-live", directoryHint: .isDirectory)
+            let folder = URL.applicationSupportDirectory.appending(path: backend.folder, directoryHint: .isDirectory)
             let device = try await DeviceIdentity(store: FileSecrets(folder: folder)).registered(
-                for: stage.account,
+                for: backend.account,
                 with: base,
                 platform: .iPad,
                 appVersion: "demo",
@@ -87,13 +128,13 @@ final class FlooLive {
             )
             let client = base.with(device: device)
             self.client = client
-            session = ConversationSession(.main(of: stage.account), remote: client)
+            session = ConversationSession(.main(of: backend.account), remote: client)
         } catch {
             demo.catchUp("没连上：\(error)")
             return
         }
         self.session = session
-        Task { await loadCardModel() }
+        if backend.lab { Task { await loadCardModel() } }
         Task { await loadCatalog() }
         let following = Task { await session.follow() }
         defer { following.cancel() }
@@ -137,11 +178,11 @@ final class FlooLive {
 
     /// The stage's card model, for the header's menu; an older stage has none, and no menu.
     private func loadCardModel() async {
-        demo.cardModel = try? await Self.cardModel(URLRequest(url: stage.base.appending(path: "lab/cards")))  // try?: no menu
+        demo.cardModel = try? await Self.cardModel(URLRequest(url: backend.base.appending(path: "lab/cards")))  // try?: no menu
     }
 
     func chooseCards(_ model: FlooCardModel) {
-        var request = URLRequest(url: stage.base.appending(path: "lab/cards"))
+        var request = URLRequest(url: backend.base.appending(path: "lab/cards"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONEncoder().encode(model)  // try?: two strings always encode
@@ -179,7 +220,7 @@ final class FlooLive {
         for entry in catalog.services {
             let zh = entry.presentation.localized["zh-Hans"]?.operations ?? [:]
             let icon = entry.presentation.icon.flatMap { path in
-                path.hasPrefix("/") ? stage.base.appending(path: String(path.dropFirst())) : URL(string: path)
+                path.hasPrefix("/") ? backend.base.appending(path: String(path.dropFirst())) : URL(string: path)
             }
             for operation in entry.operations {
                 found["\(entry.id).\(operation.id)"] = Operation(
@@ -621,6 +662,38 @@ struct FlooCardModel: Codable, Hashable {
     }
 
     static let reasonings = [("none", "不推理"), ("low", "低"), ("medium", "中"), ("high", "高")]
+}
+
+/// The floo server on Fly and the sign-in it takes (Supabase Auth's password grant): the
+/// publishable key is the one made for apps to carry.
+enum FlooOnline {
+    static let server = "floo-server.fly.dev"
+    static let supabase = "qfidchtgytvhzzoayouh.supabase.co"
+    static let publishableKey = "sb_publishable_4DziZAUMdWo2a4AwvqBkbg_ivDbaUxY"
+    /// Supabase's own minimum.
+    static let minimumPassword = 6
+    /// The email last signed in with, filled in next time and shown while signed in.
+    static let emailKey = "flooOnlineEmail"
+
+    /// The session kept as a file beside the device's key (a demo signed ad hoc has no
+    /// Keychain of its own).
+    static func auth() -> SupabaseAuth {
+        let folder = URL.applicationSupportDirectory.appending(path: "floo-online", directoryHint: .isDirectory)
+        let store: any SessionStore = (try? FileSecrets(folder: folder)).map { KeychainSessionStore(store: $0) } ?? Unkept()
+        return SupabaseAuth(authority: supabase, publishableKey: publishableKey, transport: URLSessionTransport(), store: store)
+    }
+
+    /// Who is signed in, to show and to sign out.
+    struct Account {
+        let email: String?
+        let auth: SupabaseAuth
+    }
+
+    /// Where the session goes when its folder can't be made: nowhere, signed in until quit.
+    private struct Unkept: SessionStore {
+        func load() async throws -> AuthSession? { nil }
+        func save(_ session: AuthSession?) async throws {}
+    }
 }
 
 /// Tokens from the stage's token route, fetched again when half an hour old

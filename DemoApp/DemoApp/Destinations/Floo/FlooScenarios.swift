@@ -18,7 +18,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
 
     var name: String {
         switch self {
-        case .live: "本机后端：连上实验台，真的对话"
+        case .live: FlooLive.Stage.launched == nil ? "floo：登录后真的对话" : "本机后端：连上实验台，真的对话"
         case .slowWork: "慢活：先答一句，回来接着说"
         case .interjection: "插话：它在写的时候你补一句"
         case .waitingOnYou: "等你：它的问题不会被冲走"
