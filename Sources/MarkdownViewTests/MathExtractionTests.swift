@@ -59,4 +59,19 @@ struct MathExtractionTests {
             .map { String(configuration.plainText[$0]) }
         #expect(extractedMath == configuration.extractedMath)
     }
+
+    @Test func displayMathAfterCodeWithADelimiterIsStillExtracted() {
+        let text = #"""
+            ```swift
+            print("Total: \(total)")
+            ```
+
+            $$
+            \int_0^1 x^2\,dx
+            $$
+            """#
+        let extracted = extractDisplayMathStorage(from: text)
+        #expect(Array(extracted.storage.values) == ["$$\n\\int_0^1 x^2\\,dx\n$$"])
+        #expect(extracted.processed.contains(#"print("Total: \(total)")"#))
+    }
 }

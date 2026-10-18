@@ -579,14 +579,22 @@ public func extractDisplayMathStorage(from text: String) -> (processed: String, 
         return (prepared, [:])
     }
 
-    let fenced = fencedCodeRanges(in: prepared)
-    let parser = MathParser(text: prepared)
+    // Math is looked for between code fences only, as MathFirstMarkdownViewRenderer does:
+    // code's own delimiters (`\(` in a Swift string) would open a formula that swallows the
+    // real ones after it.
+    var outside: [Range<String.Index>] = []
+    var start = prepared.startIndex
+    for code in fencedCodeRanges(in: prepared) {
+        if start < code.lowerBound { outside.append(start..<code.lowerBound) }
+        start = max(start, code.upperBound)
+    }
+    if start < prepared.endIndex { outside.append(start..<prepared.endIndex) }
+    let maths = outside.flatMap { MathParser(text: prepared[$0]).mathRepresentations }
     var storage: [UUID: String] = [:]
     var rawText = prepared
 
-    for math in parser.mathRepresentations.reversed() where !math.kind.inline {
+    for math in maths.reversed() where !math.kind.inline {
         guard isStandaloneDisplayMathRange(math.range, in: prepared) else { continue }
-        if fenced.contains(where: { $0.contains(math.range.lowerBound) }) { continue }
 
         let latex = String(prepared[math.range])
         // Content-derived UUID keeps the AST node's stableContentHash
