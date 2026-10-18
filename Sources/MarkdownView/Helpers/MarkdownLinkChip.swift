@@ -55,6 +55,7 @@ public enum MarkdownLinkChips {
     // MARK: - 图标钩子(app 注入)
 
     /// 同步取 favicon(命中缓存返回已缩放好的 Image,未命中返回 nil)。key 为站点 host。
+    /// 同一组钩子也供网页链接前的站点图标(`markdownLinkSiteIcons`)。
     nonisolated(unsafe) public static var iconImage: (@MainActor (_ host: String) -> SwiftUI.Image?)?
     /// favicon 未命中时的占位图。app 应提供与 favicon **同尺寸**的 template 位图,
     /// 使两个分支对齐方式完全一致、替换瞬间不跳。

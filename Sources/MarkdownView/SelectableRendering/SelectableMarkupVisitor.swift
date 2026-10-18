@@ -134,6 +134,9 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         if let dynamicTypeSize {
             injected = AnyView(injected.environment(\.dynamicTypeSize, dynamicTypeSize))
         }
+        if configuration.colors != nil {
+            injected = AnyView(injected.markdownColors(configuration.colors))
+        }
         return injected
     }
 
@@ -180,7 +183,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
                 spacingBeforeOverride: 0,
                 lineSpacingOverride: 0
             )
-                .mergingAttributes(AttributeContainer().foregroundColor(.secondary))
+                .mergingAttributes(AttributeContainer().foregroundColor(configuration.painted(.secondary)))
             return combined
         }
 
@@ -263,7 +266,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         if configuration.autolinkDetectionEnabled,
            let autolinked = MarkdownAutolinkDetector.attributedString(
                from: plain,
-               linkTintColor: configuration.linkTintColor
+               linkTintColor: configuration.painted(configuration.linkTintColor)
            ) {
             var attr = autolinked
             #if canImport(UIKit)
@@ -271,10 +274,19 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
             #elseif os(macOS)
             attr.appKit.font = bodyFont
             #endif
-            let n = attr.characters.count
-            appendMap(storageCount: n, plainSpan: n)
-            revealCursor += n
-            return TextContent(.attributedString(attr))
+            // Each web address after its site's icon, when links show them.
+            var content = TextContent([])
+            var previous: URL?
+            for run in attr.runs {
+                if let url = run.link, url != previous, let icon = siteIconPiece(for: url) { content += icon }
+                previous = run.link
+                let piece = AttributedString(attr[run.range])
+                let n = piece.characters.count
+                appendMap(storageCount: n, plainSpan: n)
+                revealCursor += n
+                content += TextContent(.attributedString(piece))
+            }
+            return content
         }
         let attr = markRevealOffsets(baseAttributed(plain), start: revealCursor)
         let n = attr.characters.count
@@ -403,7 +415,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         case .reference(let id):
             guard let ref = footnotes.references[id] else { return plainTextPiece(sourceText) }
             display = AttributedString(MarkdownFootnoteSyntax.superscriptDigits(ref.number))
-            var attrs = AttributeContainer().foregroundColor(configuration.linkTintColor)
+            var attrs = AttributeContainer().foregroundColor(configuration.painted(configuration.linkTintColor))
             setFont(&attrs, bodyFont)
             display.mergeAttributes(attrs)
             if let url = ref.referenceURL { display.link = url }
@@ -411,7 +423,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         case .definition(let id):
             guard let ref = footnotes.references[id] else { return plainTextPiece(sourceText) }
             display = AttributedString("\(ref.number).")
-            var attrs = AttributeContainer().foregroundColor(configuration.linkTintColor)
+            var attrs = AttributeContainer().foregroundColor(configuration.painted(configuration.linkTintColor))
             setFont(&attrs, mediumWeightFont(ofSize: bodyFont.pointSize))
             display.mergeAttributes(attrs)
             if let url = ref.definitionURL { display.link = url }
@@ -419,7 +431,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         case .inlineNote(let index):
             let note = index < footnotes.inlineNotes.count ? footnotes.inlineNotes[index] : nil
             display = AttributedString(MarkdownFootnoteSyntax.superscriptDigits(note?.number ?? 0))
-            var attrs = AttributeContainer().foregroundColor(configuration.linkTintColor)
+            var attrs = AttributeContainer().foregroundColor(configuration.painted(configuration.linkTintColor))
             setFont(&attrs, bodyFont)
             display.mergeAttributes(attrs)
             if let url = note?.url { display.link = url }
@@ -524,7 +536,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
             attributed.appKit.font = style.font(at: dynamicTypeSize, monospaced: true)
             #endif
         }
-        let tint = configuration.inlineCodeTintColor
+        let tint = configuration.painted(configuration.inlineCodeTintColor)
         attributed.foregroundColor = tint
         attributed.backgroundColor = tint.opacity(0.1)
         let content = TextContent(.attributedString(markRevealOffsets(attributed, start: revealCursor)))
@@ -575,7 +587,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
                 run.backgroundColor == nil ? run.range : nil
             }
             for range in plainRanges {
-                attr[range].foregroundColor = configuration.preferredColor
+                attr[range].foregroundColor = configuration.painted(configuration.preferredColor)
             }
             // At the typography's bold weight, not the bold trait's semibold.
             for run in attr.runs {
@@ -590,7 +602,17 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     }
 
     mutating func visitStrikethrough(_ strikethrough: Strikethrough) -> TextContent {
-        mergeInlinePresentationIntent(.strikethrough, children: Array(strikethrough.children))
+        // The text view draws no presentation intent: the line is its own attribute.
+        let content = mergeInlinePresentationIntent(.strikethrough, children: Array(strikethrough.children))
+        return TextContent(content.fragments.map { fragment in
+            guard case .attributedString(var attr) = fragment else { return fragment }
+            #if canImport(UIKit)
+            attr.uiKit.strikethroughStyle = .single
+            #elseif os(macOS)
+            attr.appKit.strikethroughStyle = .single
+            #endif
+            return .attributedString(attr)
+        })
     }
 
     mutating func visitLink(_ link: Markdown.Link) -> TextContent {
@@ -603,16 +625,69 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         // 链接:魔改链接色 + 下划线 + `.link`(可点击)。textView.linkTextAttributes 已置空字典,
         // 样式由这里的前景色/下划线决定,不会被 tintColor 覆写;点击经 onRichTextOpenLink 路由
         // 到 SwiftUI OpenURLAction(与原版 Text 路径同语义)。
-        var attributes = AttributeContainer().foregroundColor(configuration.linkTintColor)
+        var attributes = AttributeContainer().foregroundColor(configuration.painted(configuration.linkTintColor))
         attributes.underlineStyle = .single
+        var content = TextContent([])
         if let destination = link.destination, let url = URL(string: destination) {
             attributes.link = url
+            if let icon = siteIconPiece(for: url) { content += icon }
         }
-        return TextContent(
+        content += TextContent(
             .attributedString(
                 descendInto(link).attributedStringValue().mergingAttributes(attributes)
             )
         )
+        return content
+    }
+
+    /// A web link's site icon (`markdownLinkSiteIcons`): a hosted view (1 storage character,
+    /// no plain units, anchored where the link starts, revealed with it) with its own even
+    /// room on both sides, then a word joiner gluing it to the link's text, so a line never
+    /// ends on the icon alone. Nil for links that aren't web pages', or when icons are off.
+    private mutating func siteIconPiece(for url: URL) -> TextContent? {
+        guard configuration.linkSiteIcons, let host = MarkdownSiteIcons.host(of: url) else { return nil }
+        let plainStart = plainCursor
+        appendMap(storageCount: 1, plainSpan: 0)
+        revealCursor += 1
+        let id = attachmentCounter
+        attachmentCounter += 1
+        let mgrKey = streamingManager.map { String(UInt(bitPattern: ObjectIdentifier($0).hashValue)) } ?? "nil"
+        let key = "siteicon\u{1}\(url.absoluteString)\u{1}\(plainStart)\u{1}\(id)\u{1}\(mgrKey)\u{1}\(configuration.stableFingerprint)"
+        var content: TextContent
+        if let cache = blockViewCache, let hit = cache.hitContent(key) {
+            content = hit
+        } else {
+            let view = injectRevealEnvironment(
+                SelectableSiteIcon(
+                    host: host,
+                    size: bodyFont.pointSize,
+                    lineBox: bodyFont.ascender - bodyFont.descender,
+                    color: configuration.painted(configuration.linkTintColor),
+                    url: url
+                )
+                .environment(\.markdownTextOffsetBase, plainStart)
+            )
+            content = TextContent {
+                // Decoration: copying leaves it out.
+                InlineView(
+                    id: SelectableInlineViewID(index: id),
+                    replacement: AttributedString(),
+                    sizing: .fittingLineFragment
+                ) {
+                    view
+                }
+            }
+            blockViewCache?.storeContent(key, content)
+        }
+        var glue = AttributedString("\u{2060}")
+        var attributes = AttributeContainer()
+        setFont(&attributes, bodyFont)
+        glue.mergeAttributes(attributes)
+        glue = markRevealOffsets(glue, start: revealCursor)
+        appendMap(storageCount: 1, plainSpan: 0)
+        revealCursor += 1
+        content += TextContent(.attributedString(glue))
+        return content
     }
 
     /// builder(App 注入)返回的 AttributedString 拆两类 run 重组进可选文本流:
@@ -624,7 +699,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
     private mutating func customInlineLinkContent(_ link: Markdown.Link) -> TextContent? {
         guard MarkdownInlineLinkRenderers.shared.builder != nil,
               let destination = link.destination else { return nil }
-        let tint = configuration.linkTintColor
+        let tint = configuration.painted(configuration.linkTintColor)
         let plainLabel = link.plainText
         // visitor 由 @MainActor 的 render 驱动(builder 本身 @MainActor)。
         let built = MainActor.assumeIsolated {
@@ -942,8 +1017,8 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         #endif
         // 基础正文字色(ThinkingView 等宿主的 secondary):不落 run 时 UITextView 恒画
         // label 黑。先于高亮处理:高亮区间的反色前景在 applied(to:) 里覆盖。
-        if let baseTextColor = configuration.baseTextColor {
-            attributed.foregroundColor = baseTextColor
+        if let textColor = configuration.textColor {
+            attributed.foregroundColor = textColor
         }
         // 笔迹注记:剥定界符 + PenMarkAttribute 进 storage(reveal 计数两侧同链已对齐),
         // 笔迹由 SelectablePenMarkOverlay 绘制。
@@ -1112,12 +1187,12 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
             let mathUnits = plain.distance(from: match.range.lowerBound, to: match.range.upperBound)
             appendMap(storageCount: 1, plainSpan: mathUnits)
             revealCursor += 1
-            // 缓存公式 attachment(键 = id + latex + 锚点 + manager 身份):流式时正在增长的块每次 append 都重
+            // 缓存公式 attachment(键 = id + latex + 锚点 + manager 身份 + config 指纹,配色变了要重建):流式时正在增长的块每次 append 都重
             // visit,命中缓存复用同一 attachment 实例(===)→ reuse 前缀不断、updateContent 跳过重测。
             // manager 身份必须入键:attachment rootView 烤死了 reveal 环境,manager 被修剪重建后旧缓存会
             // 绑死死实例 → gate 永久失效。
             let mgrKey = streamingManager.map { String(UInt(bitPattern: ObjectIdentifier($0).hashValue)) } ?? "nil"
-            let mathKey = "imath\u{1}\(id)\u{1}\(latex)\u{1}\(mathPlainStart)\u{1}\(mgrKey)"
+            let mathKey = "imath\u{1}\(id)\u{1}\(latex)\u{1}\(mathPlainStart)\u{1}\(mgrKey)\u{1}\(configuration.stableFingerprint)"
             let mathContent: TextContent
             if let cache = blockViewCache, let hit = cache.hitContent(mathKey) {
                 mathContent = hit
@@ -1168,7 +1243,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         attachmentCounter += 1
 
         let mgrKey = streamingManager.map { String(UInt(bitPattern: ObjectIdentifier($0).hashValue)) } ?? "nil"
-        let cacheKey = "chip\u{1}\(group.label)\u{1}\(group.urls.joined(separator: "\u{2}"))\u{1}\(plainStart)\u{1}\(id)\u{1}\(mgrKey)"
+        let cacheKey = "chip\u{1}\(group.label)\u{1}\(group.urls.joined(separator: "\u{2}"))\u{1}\(plainStart)\u{1}\(id)\u{1}\(mgrKey)\u{1}\(configuration.stableFingerprint)"
         if let cache = blockViewCache, let hit = cache.hitContent(cacheKey) {
             return hit
         }
@@ -1375,7 +1450,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
             attachmentCounter += 1
             let anchor = plainCursor  // marker 随内容首字符揭示
             let mgrKey = streamingManager.map { String(UInt(bitPattern: ObjectIdentifier($0).hashValue)) } ?? "nil"
-            let key = "checkbox\u{1}\(checked)\u{1}\(anchor)\u{1}\(id)\u{1}\(mgrKey)"
+            let key = "checkbox\u{1}\(checked)\u{1}\(anchor)\u{1}\(id)\u{1}\(mgrKey)\u{1}\(configuration.stableFingerprint)"
             if let cache = blockViewCache, let hit = cache.hitContent(key) { return (hit, size) }
             let view = injectRevealEnvironment(
                 SelectableTaskCheckbox(checked: checked, size: size)
@@ -1409,7 +1484,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
                 attachmentCounter += 1
                 let anchor = plainCursor
                 let mgrKey = streamingManager.map { String(UInt(bitPattern: ObjectIdentifier($0).hashValue)) } ?? "nil"
-                let key = "listsym\u{1}\(name)\u{1}\(anchor)\u{1}\(id)\u{1}\(mgrKey)"
+                let key = "listsym\u{1}\(name)\u{1}\(anchor)\u{1}\(id)\u{1}\(mgrKey)\u{1}\(configuration.stableFingerprint)"
                 if let cache = blockViewCache, let hit = cache.hitContent(key) { return (hit, diameter) }
                 let view = injectRevealEnvironment(
                     SelectableListSymbolMarker(systemName: name, diameter: diameter)
@@ -1448,7 +1523,7 @@ struct SelectableMarkupVisitor: @MainActor MarkupVisitor {
         }
         let markerFont = monospaced ? monospacedFont(ofSize: bodyFont.pointSize) : bodyFont
         let width = (markerText as NSString).size(withAttributes: [.font: markerFont]).width
-        var attrs = AttributeContainer().foregroundColor(.secondary)
+        var attrs = AttributeContainer().foregroundColor(configuration.painted(.secondary))
         setFont(&attrs, markerFont)
         // 数字/bullet 是真文本,随内容一起被 coordinator 按 textStorage 偏移逐字淡入(不需 RevealOffsetAttribute,
         // 该属性无消费者,见 markRevealOffsets 说明)。revealOffset 参数保留以对齐语义。
@@ -1495,6 +1570,7 @@ extension MarkdownSelectableText {
         fadeConfig: MarkdownFadeRevealConfig?,
         bubbleSize: CGFloat,
         dynamicTypeSize: DynamicTypeSize?,
+        colors: MarkdownColors? = nil,
         topicPreview: (@MainActor (String) -> AnyView?)? = nil
     ) -> (content: TextContent, revealTotal: Int, storageToPlain: [Int]) {
         var fragments = result.content.fragments
@@ -1529,6 +1605,7 @@ extension MarkdownSelectableText {
             )
             if let openURL { view = AnyView(view.environment(\.openURL, openURL)) }
             if let dynamicTypeSize { view = AnyView(view.environment(\.dynamicTypeSize, dynamicTypeSize)) }
+            if colors != nil { view = AnyView(view.markdownColors(colors)) }
             let bubble = TextContent {
                 // 话题气泡是导航示能不是内容:不参与复制(replacement 空串)。
                 InlineView(
@@ -1817,7 +1894,7 @@ private struct SelectableListSymbolMarker: View {
                 .font(.system(size: diameter * 0.52, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: diameter, height: diameter)
-                .background(Circle().fill(configuration.preferredColor))
+                .background(Circle().fill(configuration.painted(configuration.preferredColor)))
                 .opacity(visible ? 1 : 0)
                 .animation(motion.reveal(), value: visible)
         }
@@ -1852,6 +1929,60 @@ private struct SelectableInlineLinkSymbol: View {
                 }
                 .opacity(visible ? 1 : 0)
                 .animation(motion.reveal(), value: visible)
+        }
+    }
+}
+
+/// A web link's site icon (hosted InlineView rootView): the app's image through the link
+/// chips' hooks, redrawn when one comes (`iconRevision`), a globe in the link's color until
+/// then or where there is none. Revealed whole as the link starts (StreamingRevealGate),
+/// and opens the link, as its text does.
+@available(iOS 17.0, macOS 14.0, *)
+@available(watchOS, unavailable)
+@available(tvOS, unavailable)
+@available(visionOS, unavailable)
+private struct SelectableSiteIcon: View {
+    let host: String
+    let size: CGFloat
+    /// The body font's ascender to descender: the attachment is set in it as the text's
+    /// glyphs are, so the icon centred in it sits on the text's middle, not below it.
+    let lineBox: CGFloat
+    let color: Color
+    let url: URL
+    @Environment(\.openURL) private var openURL
+    @Environment(\.markdownMotion) private var motion
+
+    var body: some View {
+        let _ = MarkdownLinkChips.iconRevision.value
+        StreamingRevealGate { _, visible in
+            icon
+                .frame(width: side, height: side)
+                .frame(height: max(lineBox, side))
+                // The same room on both sides, whatever is beside it (CJK sets no space).
+                .padding(.horizontal, (size * 0.2).rounded())
+                .contentShape(Rectangle())
+                .onTapGesture { openURL(url) }
+                .opacity(visible ? 1 : 0)
+                .animation(motion.reveal(), value: visible)
+        }
+    }
+
+    /// A square a little taller than the text's capitals, as the SwiftUI path's.
+    private var side: CGFloat { (size * 1.07).rounded() }
+
+    @ViewBuilder
+    private var icon: some View {
+        if let image = MarkdownLinkChips.iconImage?(host) {
+            image
+                .resizable()
+                .scaledToFit()
+        } else {
+            let _ = MarkdownLinkChips.prefetchIcon?(host)
+            Image(systemName: "globe")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(color)
+                .padding(side / 16)
         }
     }
 }

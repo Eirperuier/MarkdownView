@@ -36,6 +36,7 @@ public extension AttributedString {
         runs.contains {
             $0[MarkdownInlineSymbolAttribute.self] != nil
                 || $0[MarkdownLinkChipIconAttribute.self] != nil
+                || $0[MarkdownSiteIconAttribute.self] != nil
         }
     }
 
@@ -59,7 +60,7 @@ func markdownTextWithInlineSymbols(_ attributed: AttributedString) -> Text {
     guard attributed.hasInlineSymbol || attributed.hasPenMark else { return Text(attributed) }
     // 在调用方 body 的执行作用域内读修订号建立观察:favicon 异步载完 bump 后,
     // 持有这段文本的视图(_MarkdownText 等)body 重跑、Text 重建换上真图。
-    if attributed.hasLinkChipIcon {
+    if attributed.hasLinkChipIcon || attributed.hasSiteIcon {
         _ = MarkdownLinkChips.iconRevision.value
     }
     var result = Text(verbatim: "")
@@ -74,6 +75,26 @@ func markdownTextWithInlineSymbols(_ attributed: AttributedString) -> Text {
                 symbolText = symbolText.foregroundColor(color)
             }
             result = result + symbolText
+        } else if let host = run[MarkdownSiteIconAttribute.self] {
+            // A web link's site icon: the app's, or a globe in the link's color while it's
+            // asked for or where there is none. Its room on both sides is drawn into the image:
+            // a space beside an image in Text doesn't keep its width.
+            let image = MarkdownLinkChips.iconImage?(host)
+            if image == nil { MarkdownLinkChips.prefetchIcon?(host) }
+            let color = run.foregroundColor ?? .accentColor
+            let side: CGFloat = 16
+            let room: CGFloat = 3
+            let framed = Image(size: CGSize(width: side + room * 2, height: side)) { context in
+                let bounds = CGRect(x: room, y: 0, width: side, height: side)
+                if let image {
+                    context.draw(image, in: bounds)
+                } else {
+                    var globe = context.resolve(Image(systemName: "globe"))
+                    globe.shading = .color(color)
+                    context.draw(globe, in: bounds.insetBy(dx: 1, dy: 1))
+                }
+            }
+            result = result + Text("\(framed)").baselineOffset(-3)
         } else if let host = run[MarkdownLinkChipIconAttribute.self] {
             // 链接 chip 的 favicon:缓存命中直接嵌图;未命中先 globe 占位并预取,
             // 载完 app bump iconRevision → 观察方重建 Text 换上真图。

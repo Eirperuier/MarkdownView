@@ -48,7 +48,7 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
         nodeViews.append(MarkdownNodeView(MarkdownLinkChips.chipRun(
           label: group.label,
           urls: group.urls,
-          tint: configuration.linkTintColor
+          tint: configuration.painted(configuration.linkTintColor)
         )))
         index = group.nextIndex
         continue
@@ -65,8 +65,8 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
     let autolinked: AttributedString? = configuration.autolinkDetectionEnabled
         ? MarkdownAutolinkDetector.attributedString(
             from: plain,
-            linkTintColor: configuration.linkTintColor
-        )
+            linkTintColor: configuration.painted(configuration.linkTintColor)
+        ).map { configuration.linkSiteIcons ? $0.withSiteIcons() : $0 }
         : nil
 
     if configuration.math.shouldRender {
@@ -121,8 +121,9 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
 
   func visitInlineCode(_ inlineCode: InlineCode) -> MarkdownNodeView {
     var attributedString = AttributedString(stringLiteral: inlineCode.code)
-    attributedString.foregroundColor = configuration.inlineCodeTintColor
-    attributedString.backgroundColor = configuration.inlineCodeTintColor.opacity(0.1)
+    let tint = configuration.painted(configuration.inlineCodeTintColor)
+    attributedString.foregroundColor = tint
+    attributedString.backgroundColor = tint.opacity(0.1)
     return MarkdownNodeView(attributedString)
   }
 
@@ -292,7 +293,7 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
         nodeViews.append(MarkdownNodeView(text.mergingAttributes(
           AttributeContainer()
             .inlinePresentationIntent(intent.union(.stronglyEmphasized))
-            .foregroundColor(configuration.preferredColor)
+            .foregroundColor(configuration.painted(configuration.preferredColor))
         )))
       } else {
         // View-type children (e.g., links) - apply bold modifier
@@ -359,7 +360,7 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
     // URL(string:) guard: the builder takes the raw destination string, so
     // filenames URL(string:) can't parse (spaces, some CJK forms) still render.
     if let builder = MarkdownInlineLinkRenderers.shared.builder,
-       let attributed = builder(destination, link.plainText, configuration.linkTintColor) {
+       let attributed = builder(destination, link.plainText, configuration.painted(configuration.linkTintColor)) {
       return MarkdownNodeView(attributed)
     }
 
@@ -370,12 +371,12 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
       var linked = text
       linked.link = url
       linked.underlineStyle = .single
-      linked.foregroundColor = configuration.linkTintColor
-      return MarkdownNodeView(linked)
+      linked.foregroundColor = configuration.painted(configuration.linkTintColor)
+      return MarkdownNodeView(configuration.linkSiteIcons ? linked.withSiteIcons() : linked)
     } else {
       return MarkdownNodeView {
         WebViewPopoverView(url: url, view: nodeView)
-          .foregroundStyle(configuration.linkTintColor)
+          .foregroundStyle(configuration.painted(configuration.linkTintColor))
       }
     }
   }
