@@ -220,6 +220,12 @@ public final class StreamingRevealCoordinator<BlockID: Hashable> {
 
     public func finishQuickly() {
         revealDetachedManagers()
+        // The last block waits at its end while more may come (advanceFrontier): with nothing
+        // left to reveal, it's done now.
+        if remainingRevealCount == 0 {
+            revealAll()
+            return
+        }
         // 结束时若还有大量未 reveal 的内容(典型:一大段表格还没扫到),继续按
         // finishing 的高 velocity 去「快速动画」会在几个 tick 内把 fade 扫过上百个
         // 表格 cell,造成大量掉帧。这种情况直接整体 snap(revealAll,无动画),
@@ -283,7 +289,9 @@ public final class StreamingRevealCoordinator<BlockID: Hashable> {
                 continue
             }
             if current >= entry.length {
-                entry.manager.finishReveal(contentLength: entry.length)
+                if index != orderedEntries.indices.last || finishing {
+                    entry.manager.finishReveal(contentLength: entry.length)
+                }
                 continue
             }
 
@@ -329,7 +337,13 @@ public final class StreamingRevealCoordinator<BlockID: Hashable> {
             entry.manager.setAdaptiveFadeDurationScale(
                 adaptiveFadeDurationScale(for: smoothedVelocity)
             )
-            if next >= entry.length {
+            if next >= entry.length, frontierIndex == orderedEntries.count - 1, !finishing {
+                // The last block, revealed as far as it has come: it waits at its end for more
+                // (the words still streaming) instead of finishing, so what comes next goes on
+                // from there. It finishes once a block follows it or the stream ends
+                // (finishQuickly).
+                entry.manager.revealedCount = entry.length
+            } else if next >= entry.length {
                 entry.manager.finishReveal(contentLength: entry.length)
                 frontierIndex += 1
             } else {

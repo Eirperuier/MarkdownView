@@ -151,6 +151,13 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
         )
     }
 
+    /// Takes the text view back after `detach`, when the view appears again without a new text
+    /// view (SwiftUI can disappear and reappear a view mid-animation, keeping its text view).
+    func resume() {
+        guard listenerID == nil, let textView, let manager, let fade else { return }
+        attach(textView, manager: manager, fade: fade, colorScheme: colorScheme, storageToPlain: characterMap)
+    }
+
     func detach() {
         stop()
         if let tlm = textView?.textLayoutManager, tlm.delegate === self {
