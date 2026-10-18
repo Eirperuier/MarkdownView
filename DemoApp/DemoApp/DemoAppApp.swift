@@ -20,6 +20,7 @@ struct DemoAppApp: App {
         MarkdownHighlightSyntax.isEnabled = true
         MarkdownHighlightSyntax.backgroundColor = MarkdownColorToken.highlight("yellow")
         MarkdownPenMarkSyntax.isEnabled = true
+        FlooSiteIcons.install()
     }
 
     var body: some Scene {

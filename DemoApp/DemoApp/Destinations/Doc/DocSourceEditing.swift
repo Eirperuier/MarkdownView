@@ -24,6 +24,7 @@
 //  the caret moves elsewhere.
 //
 
+import CardRuntime
 import SwiftUI
 import UIKit
 import DocKit
@@ -298,6 +299,15 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     var language: String?
     /// The text's font and line attributes (the field's).
     var baseAttributes: [NSAttributedString.Key: Any] = [:]
+    /// The scheme its code is coloured for: the SwiftUI environment's (Markdown drawn in
+    /// its own colours sets one its text views' traits don't have). Optional, as `ink`: made
+    /// by UITextView's factory, the view never runs its properties' initial values.
+    var scheme: ColorScheme?
+    /// Its text's colour where no token colours it (nil: the page's).
+    var ink: UIColor?
+    /// What the Markdown it's in is drawn on, when it has colours of its own: the
+    /// highlighting is made to read on it (ReadableCode).
+    var ground: UIColor?
     /// A code block's lines (DocCodeBox): set, the lines don't wrap, the text scrolls
     /// sideways, and the caret's line is lit behind the text while it's edited.
     var code: DocCodeMetrics? {
@@ -431,15 +441,26 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     func highlightNow() {
         highlightTask?.cancel()
         guard let language else { return }
-        let scheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
-        guard let runs = Self.highlighter.foregroundColorsNow(code: text ?? "", language: language, colorScheme: scheme) else { return }
+        guard let runs = Self.highlighter.foregroundColorsNow(code: text ?? "", language: language, colorScheme: scheme ?? .light) else { return }
         apply(runs)
     }
 
+    /// Colours the text again for new colours (the scheme's, the text's own): at once when
+    /// the highlight for them is at hand, else plain until it is.
+    func recolor() {
+        if let language, let runs = Self.highlighter.foregroundColorsNow(code: text ?? "", language: language, colorScheme: scheme ?? .light) {
+            apply(runs)
+        } else {
+            apply([])
+            scheduleHighlight()
+        }
+    }
+
     private func apply(_ runs: [(NSRange, UIColor)]) {
+        let runs = ground.map { ReadableCode.recolored(runs, scheme: scheme ?? .light, on: SRGBColor($0)) } ?? runs
         let storage = textStorage
         storage.beginEditing()
-        storage.addAttribute(.foregroundColor, value: FlooDesignTokens.UIKitColor.primary, range: NSRange(location: 0, length: storage.length))
+        storage.addAttribute(.foregroundColor, value: ink ?? FlooDesignTokens.UIKitColor.primary, range: NSRange(location: 0, length: storage.length))
         for (range, color) in runs where NSMaxRange(range) <= storage.length {
             storage.addAttribute(.foregroundColor, value: color, range: range)
         }
@@ -450,7 +471,7 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
         highlightTask?.cancel()
         guard let language else { return }
         let code = text ?? ""
-        let scheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+        let scheme = self.scheme ?? .light
         highlightTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled,
@@ -588,8 +609,10 @@ struct DocSourceField: UIViewRepresentable {
     /// A code block's lines (DocCodeBox), the insets theirs.
     var code: DocCodeMetrics?
 
-    private var attributes: [NSAttributedString.Key: Any] {
-        var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: FlooDesignTokens.UIKitColor.primary]
+    /// In the colours of the Markdown it's in, if it has its own.
+    private func attributes(_ colors: MarkdownColors?) -> [NSAttributedString.Key: Any] {
+        let ink = colors.map { UIColor($0.primary) } ?? FlooDesignTokens.UIKitColor.primary
+        var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink]
         if let code {
             let style = NSMutableParagraphStyle()
             // Every line the pitch from the next: TextKit adds the spacing after a
@@ -635,6 +658,14 @@ struct DocSourceField: UIViewRepresentable {
         view.textContainerInset = textInsets
         view.code = code
         if code != nil { view.runsLinesOn() }
+        let attributes = attributes(context.environment.markdownColors)
+        let ink = attributes[.foregroundColor] as? UIColor
+        let ground = context.environment.markdownColors?.background.map { UIColor($0) }
+        let recolors = view.scheme != context.environment.colorScheme || !(view.ink?.isEqual(ink) ?? false)
+            || view.ground.map { !$0.isEqual(ground) } ?? (ground != nil)
+        view.scheme = context.environment.colorScheme
+        view.ink = ink
+        view.ground = ground
         // Typed text takes the colour of the token it's typed into until the next
         // highlight, not plain.
         var typing = attributes
@@ -647,6 +678,8 @@ struct DocSourceField: UIViewRepresentable {
             view.show(text)
         } else if languageChanged {
             view.highlightNow()
+        } else if recolors {
+            view.recolor()
         }
         if let block, let controller { controller.register(view, for: block) }
     }
@@ -765,6 +798,7 @@ final class DocCodeBackdrop: UIView {
 struct DocCodeGutter: View {
     let lines: Int
     let code: DocCodeMetrics
+    @Environment(\.markdownColors) private var colors
 
     var body: some View {
         let corner = DocCodeMetrics.radius - DocCodeMetrics.border
@@ -772,7 +806,7 @@ struct DocCodeGutter: View {
             ForEach(1...max(1, lines), id: \.self) { number in
                 Text(verbatim: "\(number)")
                     .font(Font(code.font))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                    .foregroundStyle(colors?.tertiary ?? FlooDesignTokens.ColorRole.Content.tertiary)
                     .frame(height: code.pitch)
             }
         }
@@ -780,7 +814,7 @@ struct DocCodeGutter: View {
         .padding(.trailing, code.numberTrailing)
         .frame(width: code.gutterWidth(lines: lines), alignment: .trailing)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(Color.primary.opacity(DocCodeMetrics.gutterOpacity),
+        .background((colors?.primary ?? .primary).opacity(DocCodeMetrics.gutterOpacity),
                     in: UnevenRoundedRectangle(topLeadingRadius: corner, bottomLeadingRadius: corner, style: .continuous))
         .accessibilityHidden(true)
     }
@@ -795,21 +829,24 @@ struct DocCodeBox: View {
     let language: String?
     var controller: DocSourceController?
     var isEditing = false
+    /// In Markdown drawn in its own colours (a chat bubble's), the box is in them.
+    @Environment(\.markdownColors) private var colors
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: DocCodeMetrics.radius, style: .continuous)
         let code = DocCodeMetrics(font: docCodeFont)
+        let ink = colors?.primary ?? .primary
         HStack(spacing: 0) {
             DocCodeGutter(lines: text.reduce(1) { $1 == "\n" ? $0 + 1 : $0 } + DocCodeMetrics.extraLines, code: code)
             Rectangle()
-                .fill(Color.primary.opacity(DocCodeMetrics.lineOpacity))
+                .fill(ink.opacity(DocCodeMetrics.lineOpacity))
                 .frame(width: DocCodeMetrics.separator)
             DocSourceField(block: block, text: text, controller: controller, font: docCodeFont, language: language, code: code)
         }
         .padding(DocCodeMetrics.border)
-        .background(shape.fill(Color.primary.opacity(DocCodeMetrics.fillOpacity)))
+        .background(shape.fill(ink.opacity(DocCodeMetrics.fillOpacity)))
         .overlay {
-            shape.strokeBorder(Color.primary.opacity(DocCodeMetrics.lineOpacity), lineWidth: DocCodeMetrics.border)
+            shape.strokeBorder(ink.opacity(DocCodeMetrics.lineOpacity), lineWidth: DocCodeMetrics.border)
                 .allowsHitTesting(false)
         }
         .overlay {
@@ -839,7 +876,9 @@ struct DocCodeRowView: View {
 /// The code blocks MarkdownView draws in the document (the agent writing them): Craft's box.
 struct DocCodeBlockStyle: CodeBlockStyle {
     func makeBody(configuration: Configuration) -> some View {
-        DocCodeBox(text: configuration.code, language: configuration.language)
+        // The fence's code ends in the newline before its closing fence: not a line of its own.
+        let code = configuration.code.hasSuffix("\n") ? String(configuration.code.dropLast()) : configuration.code
+        DocCodeBox(text: code, language: configuration.language)
     }
 }
 

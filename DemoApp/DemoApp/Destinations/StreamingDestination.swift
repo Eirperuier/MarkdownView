@@ -98,6 +98,7 @@ struct StreamingDestination: View {
                         definitionURL: { URL(string: "demo-footnote://def/\($0)") },
                         inlineURL: { URL(string: "demo-footnote://inline/\($0)") }
                     ))
+                    .markdownLinkSiteIcons()
                     .environment(\.markdownSelectableTextHooks, selection.hooks(for: id))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .blockSelectionItem(id, in: layout)
@@ -158,6 +159,7 @@ struct StreamingDestination: View {
 
     - Blocks keep their ids while the text grows, so nothing re-renders from scratch.
     - A half-written [link](https://example.com) never flashes its raw source.
+    - Links show their site's icon, [GitHub](https://github.com) and https://www.apple.com alike, revealed with them.
     - Inline math like $e^{i\pi} + 1 = 0$ and footnotes[^1] ride along.
 
     $$
