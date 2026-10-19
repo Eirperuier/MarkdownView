@@ -14,6 +14,7 @@ import CardModel
 import CardUI
 import DocKit
 import FlooDesign
+import ChatBackgrounds
 
 struct FlooDestination: View {
     @State private var demo = FlooDemo()
@@ -28,6 +29,8 @@ struct FlooDestination: View {
     /// The message being written and how far down the list it starts, until its start has
     /// reached the top.
     @State private var head: (id: String, y: CGFloat)?
+    /// The chat's background, by its names (ChatBackground's "Aurora" "Green").
+    @AppStorage("flooChatBackground") private var backgroundName = "Aurora/Green"
 
     static var launchScenario: FlooScenario? {
         // Opened on a stage (`-flooStage`), it's the live conversation.
@@ -109,6 +112,9 @@ struct FlooDestination: View {
                     }
             }
         }
+        // Dark throughout over the background: white words on material bubbles.
+        .chatBackground(background)
+        .environment(\.colorScheme, .dark)
         .toolbar(.hidden, for: .navigationBar)
         // A page the agent wrote, read only: what's on the backend is the agent's to change.
         .sheet(item: $demo.openPage) { page in
@@ -129,6 +135,7 @@ struct FlooDestination: View {
             if let cards = demo.cardModel {
                 cardModelMenu(cards)
             }
+            backgroundMenu
             if let account = demo.signedIn {
                 Menu {
                     if let email = account.email { Text(email) }
@@ -160,6 +167,23 @@ struct FlooDestination: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var background: ChatBackground {
+        let names = backgroundName.split(separator: "/").map(String.init)
+        return names.first.flatMap { ChatBackground(name: $0, variant: names.dropFirst().first) } ?? .aurora(.green)
+    }
+
+    private var backgroundMenu: some View {
+        Menu {
+            Picker("背景", selection: $backgroundName) {
+                ForEach(ChatBackground.allCases, id: \.self) { item in
+                    Text("\(item.name) · \(item.variantName)").tag("\(item.name)/\(item.variantName)")
+                }
+            }
+        } label: {
+            Image(systemName: "photo").font(.body.weight(.medium))
+        }
     }
 
     /// The live stage's card model and reasoning: the next card is drawn with what's picked.
@@ -701,7 +725,8 @@ private struct FlooRowView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .background(Color.accentColor.opacity(0.35), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     if let receipt {
                         FlooReceiptLabel(receipt: receipt)
                     }
@@ -714,7 +739,7 @@ private struct FlooRowView: View {
                     Text(text)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, 48)
@@ -1543,7 +1568,7 @@ private struct FlooBubbleBackground: View {
     var body: some View {
         let bubble = bubble
         RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
-            .fill(Color.flooReceived)
+            .fill(.ultraThinMaterial)
             .modifier(FlooBubbleFrame(rect: bubble.rect, revealed: bubble.revealed, settled: bubble.revealed))
             // Where it is follows its rows frame by frame as the list moves and loads them (and
             // the words across as they're revealed): an animation of its own would trail
