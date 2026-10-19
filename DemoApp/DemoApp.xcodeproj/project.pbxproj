@@ -16,6 +16,7 @@
 		F100C0DE2E00000000000037 /* TransportKit in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000033 /* TransportKit */; };
 		F100C0DE2E00000000000038 /* ConversationKit in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000034 /* ConversationKit */; };
 		F100C0DE2E00000000000039 /* DeviceSupport in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000035 /* DeviceSupport */; };
+		F100C0DE2E00000000000061 /* LocalStore in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000062 /* LocalStore */; };
 		F100C0DE2E00000000000011 /* DocKit in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000012 /* DocKit */; };
 		F100C0DE2E00000000000021 /* FlooDesign in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000022 /* FlooDesign */; };
 		F100C0DE2E00000000000041 /* ChatBackgrounds in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000042 /* ChatBackgrounds */; };
@@ -48,6 +49,7 @@
 				F100C0DE2E00000000000037 /* TransportKit in Frameworks */,
 				F100C0DE2E00000000000038 /* ConversationKit in Frameworks */,
 				F100C0DE2E00000000000039 /* DeviceSupport in Frameworks */,
+				F100C0DE2E00000000000061 /* LocalStore in Frameworks */,
 				F100C0DE2E00000000000011 /* DocKit in Frameworks */,
 				F100C0DE2E00000000000021 /* FlooDesign in Frameworks */,
 				F100C0DE2E00000000000041 /* ChatBackgrounds in Frameworks */,
@@ -104,6 +106,7 @@
 				F100C0DE2E00000000000032 /* Wire */,
 				F100C0DE2E00000000000033 /* TransportKit */,
 				F100C0DE2E00000000000034 /* ConversationKit */,
+				F100C0DE2E00000000000062 /* LocalStore */,
 				F100C0DE2E00000000000035 /* DeviceSupport */,
 				F100C0DE2E00000000000022 /* FlooDesign */,
 				F100C0DE2E00000000000042 /* ChatBackgrounds */,
@@ -503,6 +506,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F100C0DE2E00000000000031 /* XCLocalSwiftPackageReference "ApplePlatform" */;
 			productName = DeviceSupport;
+		};
+		F100C0DE2E00000000000062 /* LocalStore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F100C0DE2E00000000000031 /* XCLocalSwiftPackageReference "ApplePlatform" */;
+			productName = LocalStore;
 		};
 		F100C0DE2E00000000000042 /* ChatBackgrounds */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -29,8 +29,8 @@ extension FlooContactsDemo {
             show("没读到服务目录")
             return
         }
-        let entries = directory.services.filter { !$0.hidden && !$0.hosts.isEmpty }
-        if services.isEmpty { services = entries.map { Self.service($0) } }
+        let entries = directory.filter { !$0.hidden && !$0.hosts.isEmpty }
+        if services.isEmpty { services = entries.map { opened[$0.id.rawValue] ?? Self.service($0) } }
         // try?: each part not read now stays as it was, read again on the next load
         if let conversations = try? await client.dialogs() {
             dialogs = Dictionary(conversations.compactMap { dialog in
@@ -38,7 +38,7 @@ extension FlooContactsDemo {
             }) { first, _ in first }
             refollow()
         }
-        services = entries.map { Self.service($0) }
+        services = entries.map { opened[$0.id.rawValue] ?? Self.service($0) }
 
         // Where your services stand: your devices once, then the services you have a page at a
         // time; nothing comes when nothing changed since the last read. A service you don't
@@ -84,13 +84,20 @@ extension FlooContactsDemo {
         }
     }
 
-    /// A service's page opened: where it can come from, read now when it isn't one of yours.
+    /// A service's page opened: all it says of itself (its detail, read once and kept), and
+    /// where it can come from, read now when it isn't one of yours.
     func look(_ service: FlooService) async {
-        guard let client = live?.server, let id = try? ServiceID(service.id),  // try?: not a name
-              standings[id] == nil, let entry = await live?.directory()?.services.first(where: { $0.id == id }),
-              let read = try? await client.standing(of: id) else { return }  // try?: read again next time it opens
-        deviceStandings = read.devices
-        if let standing = read.services.first { standings[id] = standing }
+        guard let live, let id = try? ServiceID(service.id),  // try?: not a name
+              let entry = await live.directory()?.first(where: { $0.id == id }) else { return }
+        if let detail = await live.detail(id) {
+            let shown = Self.service(detail)
+            opened[service.id] = shown
+            if let at = services.firstIndex(where: { $0.id == service.id }) { services[at] = shown }
+        }
+        if standings[id] == nil, let client = live.server, let read = try? await client.standing(of: id) {  // try?: read again next time it opens
+            deviceStandings = read.devices
+            if let standing = read.services.first { standings[id] = standing }
+        }
         found[service.id] = sources(entry, standings[id])
     }
 
@@ -285,10 +292,26 @@ extension FlooContactsDemo {
         said.firstMatch(of: /\d+(\.\d+)*/).map { String($0.output.0) }
     }
 
-    /// A service as the pages show it: the catalog's words, the operations with their
-    /// effects and the hooks from the exported catalog where it has it.
-    private static func service(_ entry: ServiceDirectory.Entry) -> FlooService {
-        let given = entry.presentation
+    /// A service as the list shows it, from the catalog's index: its names and short words;
+    /// what it does once its page is opened (its detail), or from the exported catalog.
+    private static func service(_ entry: ServiceSummary) -> FlooService {
+        let presentation = FlooService.Presentation(
+            name: entry.name,
+            shortDescription: entry.shortDescription,
+            localized: entry.localized.mapValues { FlooService.Text(name: $0.name, shortDescription: $0.shortDescription) },
+            icon: entry.icon,
+            color: entry.color,
+            category: entry.category
+        )
+        let exported = FlooService.named(entry.id.rawValue)
+        return FlooService(id: entry.id.rawValue, presentation: presentation, operations: exported?.operations ?? [],
+                           hooks: exported?.hooks ?? [])
+    }
+
+    /// A service as its page shows it, from its detail: all its words, what it does with each
+    /// operation's effect, what it tells of.
+    private static func service(_ detail: ServiceDetail) -> FlooService {
+        let given = detail.presentation
         let presentation = FlooService.Presentation(
             name: given.name,
             shortDescription: given.shortDescription,
@@ -306,18 +329,20 @@ extension FlooContactsDemo {
             color: given.color,
             category: given.category
         )
-        let exported = FlooService.named(entry.id.rawValue)
-        let operations = exported?.operations
-            ?? entry.operations.filter { !$0.hidden }.map { FlooService.Operation(title: $0.title, effect: "unknown") }
-        return FlooService(id: entry.id.rawValue, presentation: presentation, operations: operations, hooks: exported?.hooks ?? [])
+        let zh = given.localized["zh-Hans"]?.operations ?? [:]
+        let operations = detail.operations.filter { !$0.hidden }.map {
+            FlooService.Operation(title: zh[$0.id.rawValue]?.title ?? $0.title, effect: $0.effect?.rawValue ?? "unknown")
+        }
+        return FlooService(id: detail.id.rawValue, presentation: presentation, operations: operations,
+                           hooks: detail.hooks.map { FlooService.Hook(summary: $0.summary) })
     }
 
     /// Where it can come from, from its standing: a cloud account when the cloud hosts it,
     /// and each device's providers with what they need.
-    private func sources(_ entry: ServiceDirectory.Entry, _ standing: ServiceStanding?) -> FlooServiceSources {
+    private func sources(_ entry: ServiceSummary, _ standing: ServiceStanding?) -> FlooServiceSources {
         var sources = FlooServiceSources()
         if entry.hosts.contains(.cloud) {
-            sources.account = entry.presentation.developer ?? entry.presentation.name
+            sources.account = opened[entry.id.rawValue]?.presentation.developer ?? entry.name
         }
         let platforms = Dictionary(deviceStandings.map { ($0.device, $0.platform) }) { first, _ in first }
         var byDevice: [String: String] = [:]

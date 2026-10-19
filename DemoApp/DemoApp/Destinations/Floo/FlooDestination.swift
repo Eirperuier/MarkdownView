@@ -48,6 +48,10 @@ struct FlooDestination: View {
             TiledView(items: demo.rows, scrollPosition: $demo.scrollPosition) { row in
                 FlooRowCell(item: row, demo: demo)
             }
+            // Older messages a page at a time as you reach the top (the device's store first).
+            .prependLoader(demo.hasOlder ? .loader(perform: { [demo] in await demo.loadOlder() }) {
+                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 12)
+            } : nil)
             .heightEstimate { row, width in
                 row.estimatedHeight(width: width)
             }

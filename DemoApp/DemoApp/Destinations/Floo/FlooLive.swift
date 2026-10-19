@@ -16,6 +16,7 @@ import Wire
 import TransportKit
 import ConversationKit
 import DeviceSupport
+import LocalStore
 import DocKit
 import ServiceKit
 
@@ -116,6 +117,11 @@ final class FlooLive {
     private let demo: FlooDemo
     private let backend: Backend
     private var session: ConversationSession?
+    /// Where the conversations are kept on this device (encrypted, LocalStore): opened from
+    /// here with no network, the server only bringing what's new; in memory if it won't open.
+    private var store: LocalStore?
+    /// The oldest message shown: one older than it, loaded on scrolling up, goes before all.
+    private var lowestShown: Int64?
     private var client: FlooClient?
     /// The demo's entries for the backend's messages, by number.
     private var said: [Int64: FlooDemo.Said] = [:]
@@ -123,10 +129,14 @@ final class FlooLive {
     private var outgoing: [MessageID: FlooDemo.Said] = [:]
     private var messages: [Int64: FlooDemo.Message] = [:]
     private var agents: [String: FlooAgent] = [:]
-    /// How each service operation is shown, from the server's catalog: what tool calls show.
-    private var operations: [String: Operation] = [:]
-    /// The server's services, once loaded.
-    private var catalog: ServiceDirectory?
+    /// The catalog's index of services, kept across launches with its revision: read again
+    /// only to see whether it changed.
+    private var index: ServiceIndexPage?
+    /// Services' details as they were needed (a call to one shown, its page opened), kept
+    /// across launches by their revisions: what a tool call's operation shows.
+    private var details: [ServiceID: ServiceDetail] = [:]
+    /// Details being read, so one is asked for once.
+    private var reading: Set<ServiceID> = []
     /// The conversation as last shown, to show again once the catalog is in.
     private var last: ConversationReplica?
     /// The conversation shown, and the following of it, ended to go to another.
@@ -179,8 +189,15 @@ final class FlooLive {
             demo.catchUp("没连上：\(error)")
             return
         }
+        do {
+            let folder = URL.demoSupport.appending(path: backend.folder, directoryHint: .isDirectory)
+            let key = try DatabaseKeys(store: FileSecrets(folder: folder)).key(for: backend.account)
+            store = try LocalStore(path: folder.appending(path: "conversations.sqlite").path, key: key)
+        } catch {
+            demo.catchUp("本地库没打开，这次只在内存里：\(error)")
+        }
         if backend.lab { Task { await loadCardModel() } }
-        Task { await loadCatalog() }
+        Task { await loadIndex() }
         let listing = Task { await keepListing() }
         defer { listing.cancel() }
         current = .main(of: backend.account)
@@ -196,8 +213,9 @@ final class FlooLive {
     /// Follows a conversation until you go to another one.
     private func follow(_ id: ConversationID) async {
         guard let client else { return }
-        let session = ConversationSession(id, remote: client)
+        let session = ConversationSession(id, remote: client, storage: store?.conversations ?? MemoryConversationStorage())
         self.session = session
+        lowestShown = nil
         said = [:]
         outgoing = [:]
         messages = [:]
@@ -209,10 +227,10 @@ final class FlooLive {
         showPlaces()
         let following = Task { await session.follow() }
         let watching = Task { @MainActor in
-            for await replica in await session.changes() {
+            for await update in await session.updates() {
                 guard !Task.isCancelled else { return }
-                last = replica
-                show(replica)
+                last = update.replica
+                show(update)
             }
         }
         self.watching = watching
@@ -400,26 +418,50 @@ final class FlooLive {
         let icon: URL?
     }
 
-    /// The server's catalog: each operation's title (in Chinese where it has one), symbol,
-    /// whether it's shown, and its service's icon.
-    private func loadCatalog() async {
-        guard let client, let catalog = try? await client.catalog() else { return }  // try?: calls show by name
-        self.catalog = catalog
-        var found: [String: Operation] = [:]
-        for entry in catalog.services {
-            let zh = entry.presentation.localized["zh-Hans"]?.operations ?? [:]
-            let icon = icon(entry)
-            for operation in entry.operations {
-                found["\(entry.id).\(operation.id)"] = Operation(
-                    title: zh[operation.id.rawValue]?.title ?? operation.title,
-                    symbol: operation.symbol,
-                    hidden: operation.hidden,
-                    icon: icon
-                )
-            }
+    /// The catalog's index: the kept one, then the server's if it changed since (pages read
+    /// only then).
+    private func loadIndex() async {
+        if index == nil { index = kept.read(ServiceIndexPage.self, "catalog-index") }
+        guard let client else { return }
+        // try?: not read now, the kept one stands and it's read again next time
+        if let read = try? await client.wholeServiceIndex(revision: index?.revision) {
+            index = read
+            kept.write(read, "catalog-index")
         }
-        operations = found
-        if let last { show(last) }
+    }
+
+    /// Where what was read of this backend is kept across launches (the demo's files; the
+    /// app keeps it in its local store).
+    private var kept: Kept { Kept(folder: URL.demoSupport.appending(path: "\(backend.folder)/kept", directoryHint: .isDirectory)) }
+
+    /// A service's detail: the kept one while the index says it's current, else the server's.
+    func detail(_ service: ServiceID) async -> ServiceDetail? {
+        if details[service] == nil { details[service] = kept.read(ServiceDetail.self, "catalog-\(service)") }
+        let current = index?.services.first { $0.id == service }?.detail
+        if let held = details[service], held.revision == current { return held }
+        guard let client, reading.insert(service).inserted else { return details[service] }
+        defer { reading.remove(service) }
+        // try?: not read now, the kept one (or none) stands
+        if let read = try? await client.serviceDetail(service, revision: details[service]?.revision) {
+            details[service] = read
+            kept.write(read, "catalog-\(service)")
+        }
+        return details[service]
+    }
+
+    /// How a call's operation is shown: from its service's detail, read the first time one
+    /// of its calls is shown (shown again then).
+    private func operation(_ tool: ToolID) -> Operation? {
+        guard let detail = details[tool.service] else {
+            Task {
+                guard await detail(tool.service) != nil, let last else { return }
+                show(last)
+            }
+            return nil
+        }
+        guard let found = detail.operations.first(where: { $0.id.rawValue == tool.name.rawValue }) else { return nil }
+        let zh = detail.presentation.localized["zh-Hans"]?.operations?[found.id.rawValue]?.title
+        return Operation(title: zh ?? found.title, symbol: found.symbol, hidden: found.hidden, icon: icon(detail.presentation.icon))
     }
 
     // MARK: Services
@@ -432,10 +474,10 @@ final class FlooLive {
     /// This app's own device there.
     var ownDevice: DeviceID? { client?.device?.id }
 
-    /// The server's catalog, loaded first if it isn't.
-    func directory() async -> ServiceDirectory? {
-        if catalog == nil { await loadCatalog() }
-        return catalog
+    /// The catalog's services, the index loaded first if it isn't.
+    func directory() async -> [ServiceSummary]? {
+        if index == nil { await loadIndex() }
+        return index?.services
     }
 
     /// Goes to `service`'s conversation, once listed.
@@ -447,15 +489,15 @@ final class FlooLive {
     /// The services you can connect, through the cloud or on a Mac, and whether each is.
     func services() async throws -> [FlooLiveService] {
         guard let client else { return [] }
-        if catalog == nil { await loadCatalog() }
+        if index == nil { await loadIndex() }
         let connections = Dictionary(try await client.connections().map { ($0.service, $0) }) { first, _ in first }
-        return (catalog?.services ?? []).filter { !$0.hidden && ($0.hosts.contains(.cloud) || $0.hosts.contains(.mac)) }.map { entry in
-            let zh = entry.presentation.localized["zh-Hans"]
+        return (index?.services ?? []).filter { !$0.hidden && ($0.hosts.contains(.cloud) || $0.hosts.contains(.mac)) }.map { entry in
+            let zh = entry.text(in: "zh-Hans")
             return FlooLiveService(
                 id: entry.id.rawValue,
-                name: zh?.name ?? entry.presentation.name,
-                summary: zh?.shortDescription ?? entry.presentation.shortDescription ?? "",
-                icon: icon(entry),
+                name: zh.name ?? entry.name,
+                summary: zh.shortDescription ?? entry.shortDescription ?? "",
+                icon: icon(entry.icon),
                 connected: connections[entry.id]?.connected ?? false,
                 reachable: connections[entry.id]?.reachable ?? false,
                 mac: !entry.hosts.contains(.cloud)
@@ -488,8 +530,8 @@ final class FlooLive {
         throw FlooConnectError(reason: "等登录等太久了")
     }
 
-    private func icon(_ entry: ServiceDirectory.Entry) -> URL? {
-        entry.presentation.icon.flatMap { path in
+    private func icon(_ path: String?) -> URL? {
+        path.flatMap { path in
             path.hasPrefix("/") ? backend.base.appending(path: String(path.dropFirst())) : URL(string: path)
         }
     }
@@ -564,8 +606,67 @@ final class FlooLive {
         showOutbox(replica)
         showAsks(replica)
         showTopics(replica)
-        // An agent with a run going is writing, between its model's calls too (its message
-        // stops streaming while a tool runs, and the next one starts after).
+        showPresence(replica)
+        lowestShown = replica.messages.first?.number
+        demo.setHasOlder(replica.hasOlder)
+        demo.refresh()
+    }
+
+    /// What changed, and only that: the messages it touched (each with the run's parts it's
+    /// shown with), older ones loaded on scrolling up before everything shown; the whole
+    /// window again only when it was loaded anew, something was taken back or receipts moved.
+    private func show(_ update: ConversationUpdate) {
+        let replica = update.replica, changes = update.changes
+        demo.setHasOlder(replica.hasOlder)
+        if changes.all || !changes.removed.isEmpty || changes.parts.contains(.members) { return show(replica) }
+        let older = changes.messages.filter { $0 < lowestShown ?? .max }
+        if let lowest = older.min() {
+            demo.prepending { for group in groups(older, replica) { showGroup(group, replica) } }
+            lowestShown = lowest
+        }
+        let rest = changes.messages.subtracting(older)
+        for group in groups(rest, replica) { showGroup(group, replica) }
+        if changes.parts.contains(.outbox) { showOutbox(replica) }
+        if changes.parts.contains(.asks) || !changes.messages.isEmpty { showAsks(replica) }
+        if !changes.messages.isEmpty { showTopics(replica) }
+        if changes.parts.contains(.active) || !rest.isEmpty { showPresence(replica) }
+        demo.refresh()
+    }
+
+    /// The shown units holding `numbers`: a person's message, or an agent's run's parts shown
+    /// as one (show(replica)'s rule).
+    private func groups(_ numbers: Set<Int64>, _ replica: ConversationReplica) -> [[MessageInfo]] {
+        let list = replica.messages
+        func joins(_ a: MessageInfo, _ b: MessageInfo) -> Bool {
+            a.author.actor.agent != nil && b.author.actor.agent != nil && b.run != nil && b.run == a.run && !Self.speaks(a, replica)
+        }
+        var seen = Set<Int64>()
+        var groups: [[MessageInfo]] = []
+        for number in numbers.sorted() where !seen.contains(number) {
+            guard let at = replica.position(of: number) else { continue }
+            var start = at, end = at
+            while start > 0, joins(list[start - 1], list[start]) { start -= 1 }
+            while end + 1 < list.count, joins(list[end], list[end + 1]) { end += 1 }
+            let group = Array(list[start...end])
+            groups.append(group)
+            seen.formUnion(group.map(\.number))
+        }
+        return groups
+    }
+
+    private func showGroup(_ group: [MessageInfo], _ replica: ConversationReplica) {
+        guard let first = group.first else { return }
+        if first.author.actor == .person {
+            let agentsRead = replica.members.filter { $0.key.actor.agent != nil }.map(\.value)
+            showPerson(first, blocks: replica.blocks(of: first.number), agentsRead: agentsRead)
+        } else {
+            showAgent(group, replica: replica)
+        }
+    }
+
+    /// An agent with a run going is writing, between its model's calls too (its message
+    /// stops streaming while a tool runs, and the next one starts after).
+    private func showPresence(_ replica: ConversationReplica) {
         var writing = Set(replica.active.compactMap(\.agent.actor.agent))
         for info in replica.messages where info.state == .streaming {
             if let id = info.author.actor.agent { writing.insert(id) }
@@ -573,7 +674,12 @@ final class FlooLive {
         for id in Set(replica.messages.compactMap(\.author.actor.agent)).union(writing) {
             demo.setPresence(agent(id), writing.contains(id) ? "正在写…" : nil)
         }
-        demo.refresh()
+    }
+
+    /// Scrolled to the top: the page before, from this device's store, or the server's
+    /// history where it has a hole.
+    func loadOlder() async {
+        _ = try? await session?.loadOlder()  // try?: the loader shows again on the next pull to the top
     }
 
     // MARK: Outbox
@@ -915,7 +1021,7 @@ final class FlooLive {
     }
 
     private func present(_ call: Work.Call, progress: CallProgress?) -> FlooCall? {
-        let operation = call.operation.flatMap { operations[$0.description] }
+        let operation = call.operation.flatMap { self.operation($0) }
         if operation?.hidden == true { return nil }
         let title = operation?.title ?? call.name
         let own: FlooCall.Icon =
@@ -1131,5 +1237,21 @@ private actor StageTokens: AccessTokenProvider {
 
     private struct Issued: Decodable {
         var token: String
+    }
+}
+
+/// Values kept as files under a folder, by name: what was read once, read from here next launch.
+struct Kept {
+    let folder: URL
+
+    func read<T: Decodable>(_ type: T.Type, _ name: String) -> T? {
+        // try?: none kept, or one from an older shape: read from the server again
+        (try? Data(contentsOf: folder.appending(path: "\(name).json"))).flatMap { try? JSONDecoder().decode(type, from: $0) }
+    }
+
+    func write<T: Encodable>(_ value: T, _ name: String) {
+        // try?: not kept, it's read from the server again next launch
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(value).write(to: folder.appending(path: "\(name).json"), options: .atomic)
     }
 }

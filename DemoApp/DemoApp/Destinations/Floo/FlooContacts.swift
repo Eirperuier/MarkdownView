@@ -273,6 +273,8 @@ final class FlooContactsDemo {
     /// What was read last (live): the connections, each service's standing, the feed, the
     /// watches in each service's conversation.
     @ObservationIgnored var standings: [ServiceID: ServiceStanding] = [:]
+    /// Services whose pages were opened, from their details (live).
+    @ObservationIgnored var opened: [String: FlooService] = [:]
     @ObservationIgnored var deviceStandings: [DeviceStanding] = []
     /// The standings' revision as last read: read again, they come only if changed.
     @ObservationIgnored var standingsRevision: String?

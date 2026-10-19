@@ -1406,7 +1406,33 @@ final class FlooDemo {
         publish()
     }
 
+    /// The backend's conversation has messages older than those shown (FlooLive).
+    private(set) var hasOlder = false
+    @ObservationIgnored private var holding = false
+
+    func setHasOlder(_ older: Bool) {
+        if hasOlder != older { hasOlder = older }
+    }
+
+    /// What `body` adds (`begin`, `say`) goes before everything shown: older messages,
+    /// loaded on scrolling up.
+    func prepending(_ body: () -> Void) {
+        let shown = entries
+        entries = []
+        holding = true
+        body()
+        holding = false
+        entries += shown
+        publish()
+    }
+
+    /// Scrolled to the top of the conversation: the page before it.
+    func loadOlder() async {
+        await live?.loadOlder()
+    }
+
     private func publish() {
+        guard !holding else { return }
         // An agent's messages one after another are under one signature.
         var last: FlooAgent?
         rows = entries.flatMap { entry -> [FlooRow] in
