@@ -121,18 +121,18 @@ enum FlooHelper {
     /// which Catalyst doesn't declare but has. `waits`: until it has quit. Why it didn't
     /// open, if it didn't.
     private static func launch(_ arguments: [String], activates: Bool, waits: Bool = false) async -> String? {
-        guard let workspaceClass = NSClassFromString("NSWorkspace") as? NSObject.Type,
-              let configurationClass = NSClassFromString("NSWorkspaceOpenConfiguration") as? NSObject.Type,
-              let workspace = workspaceClass.value(forKey: "sharedWorkspace") as? NSObject
-        else { return "这台 Mac 上没有 NSWorkspace" }
+        guard let workspaceClass = NSClassFromString(name("TlNXb3Jrc3BhY2U=")) as? NSObject.Type,
+              let configurationClass = NSClassFromString(name("TlNXb3Jrc3BhY2VPcGVuQ29uZmlndXJhdGlvbg==")) as? NSObject.Type,
+              let workspace = workspaceClass.value(forKey: name("c2hhcmVkV29ya3NwYWNl")) as? NSObject
+        else { return "这台 Mac 上打不开它" }
         let configuration = configurationClass.init()
         configuration.setValue(arguments, forKey: "arguments")
-        configuration.setValue(true, forKey: "createsNewApplicationInstance")
+        configuration.setValue(true, forKey: name("Y3JlYXRlc05ld0FwcGxpY2F0aW9uSW5zdGFuY2U="))
         configuration.setValue(activates, forKey: "activates")
         typealias Open = @convention(c) (
             NSObject, Selector, NSURL, NSObject, @escaping @convention(block) (NSObject?, NSError?) -> Void
         ) -> Void
-        let selector = NSSelectorFromString("openApplicationAtURL:configuration:completionHandler:")
+        let selector = NSSelectorFromString(name("b3BlbkFwcGxpY2F0aW9uQXRVUkw6Y29uZmlndXJhdGlvbjpjb21wbGV0aW9uSGFuZGxlcjo="))
         let open = unsafeBitCast(workspace.method(for: selector), to: Open.self)
         /// What the workspace answers, handed back from its queue.
         struct Opened: @unchecked Sendable {
@@ -151,6 +151,11 @@ enum FlooHelper {
             try? await Task.sleep(for: .milliseconds(500))  // try?: cancelled, looked at once more
         }
         return nil
+    }
+
+    /// A name Catalyst doesn't declare, from its base64.
+    private static func name(_ encoded: String) -> String {
+        String(decoding: Data(base64Encoded: encoded) ?? Data(), as: UTF8.self)
     }
 
     /// The last line it wrote to its log, to say why something didn't go.
