@@ -259,7 +259,8 @@ extension FlooContactsDemo {
         let providing = Set(self.standings.values.flatMap(\.hosts).filter { $0.provider != nil }.compactMap { $0.host.device?.description })
         let result = standings.compactMap { device -> FlooDevice? in
             let id = device.device.description
-            guard id != own, device.online || providing.contains(id) || id == thisDevice else { return nil }
+            // The demo's own device is left out, unless it's this Mac's (one device with Floo Helper).
+            guard id != own || id == thisDevice, device.online || providing.contains(id) || id == thisDevice else { return nil }
             let (kind, symbol): (FlooDevice.Kind, String) = switch device.platform {
             case .mac: (.mac, "laptopcomputer")
             case .iPhone: (.iPhone, "iphone")
@@ -271,13 +272,17 @@ extension FlooContactsDemo {
                 name: device.name,
                 kind: kind,
                 symbol: symbol,
-                // This Mac's own, until each device reports what it is.
-                product: id == thisDevice ? AppleDevice.current : nil,
+                product: device.model.map { AppleDevice($0, color: device.color, osVersion: Self.version(device.osVersion)) },
                 online: device.online,
                 lastSeen: device.online ? nil : device.lastSeen.map { Self.ago($0.date) }
             )
         }
         return result.sorted { ($0.id == thisDevice ? 0 : 1) < ($1.id == thisDevice ? 0 : 1) }
+    }
+
+    /// The version number in what a device says of its system ("iOS 26.1", "27.0").
+    private static func version(_ said: String) -> String? {
+        said.firstMatch(of: /\d+(\.\d+)*/).map { String($0.output.0) }
     }
 
     /// A service as the pages show it: the catalog's words, the operations with their

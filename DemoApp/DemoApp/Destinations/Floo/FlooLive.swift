@@ -155,13 +155,25 @@ final class FlooLive {
         )
         do {
             let folder = URL.demoSupport.appending(path: backend.folder, directoryHint: .isDirectory)
-            let device = try await DeviceIdentity(store: FileSecrets(folder: folder)).registered(
-                for: backend.account,
-                with: base,
-                platform: .iPad,
-                appVersion: "demo",
-                osVersion: ProcessInfo.processInfo.operatingSystemVersionString
-            )
+            let device: DeviceCredentials
+            #if targetEnvironment(macCatalyst)
+            // On the Mac it's one device with Floo Helper, this Mac: its key, kept in the Helper's
+            // home, signs for both, and it's named and described as the Mac it is.
+            let identity: DeviceIdentity? = backend.lab ? nil : DeviceIdentity(store: try FileSecrets(folder: FlooHelper.secrets))
+            #else
+            let identity: DeviceIdentity? = nil
+            #endif
+            if let identity {
+                device = try await identity.registered(for: backend.account, with: base, appVersion: Self.helperVersion)
+            } else {
+                device = try await DeviceIdentity(store: FileSecrets(folder: folder)).registered(
+                    for: backend.account,
+                    with: base,
+                    platform: .iPad,
+                    appVersion: "demo",
+                    osVersion: ProcessInfo.processInfo.operatingSystemVersionString
+                )
+            }
             self.client = base.with(device: device)
         } catch {
             demo.catchUp("没连上：\(error)")
@@ -176,6 +188,10 @@ final class FlooLive {
             await follow(current)
         }
     }
+
+    /// The version the Mac device goes by: Floo Helper's (floo's `HelperApp.version`), said
+    /// alike by both, or each would say its own back on its next connect.
+    private static let helperVersion = "helper-1"
 
     /// Follows a conversation until you go to another one.
     private func follow(_ id: ConversationID) async {
