@@ -838,6 +838,7 @@ struct FlooProviderSettingsPage: View {
     /// One key set or removed; the others stay (`ProviderSettingsChange`'s `set` / `remove`).
     private func change(_ key: String, _ value: FlooJSON?) {
         demo.settings[service.id, default: [:]][device.id, default: [:]][key] = value
+        if demo.live != nil { demo.write(service, on: device, key, value) }
     }
 }
 

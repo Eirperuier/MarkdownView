@@ -126,7 +126,7 @@ struct FlooDestination: View {
             if let live = demo.live { FlooNewGroupView(live: live) }
         }
         .sheet(isPresented: $demo.showsServices) {
-            if let live = demo.live { FlooServicesView(live: live) }
+            if let live = demo.live { FlooContactsDestination(live: live) }
         }
         .alert("开话题", isPresented: Binding(get: { demo.naming != nil }, set: { if !$0 { demo.naming = nil } })) {
             TextField("话题名", text: $topicTitle)

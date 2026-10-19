@@ -7,7 +7,8 @@
 //  contact: how it is connected on each of your devices, what it is doing for you, its
 //  settings and what it has sent. The words, operations and hooks are the real catalog's
 //  (FlooCatalog.json, exported by DemoApp/Scripts/floo-catalog.py); devices, accounts and what
-//  each service is doing are scripted.
+//  each service is doing are scripted — or, signed in, all the floo server's
+//  (FlooContactsLive.swift).
 //  `-flooContacts YES` opens it; `-flooContactsPath "service:gmail"` opens a page,
 //  `"chat:health"` a conversation.
 //
@@ -16,6 +17,9 @@ import SwiftUI
 import CardModel
 import CardUI
 import FlooDesign
+import Wire
+import TransportKit
+import ServiceKit
 
 // MARK: - The catalog
 
@@ -140,8 +144,14 @@ struct FlooDevice: Identifiable, Hashable {
 struct FlooServiceSources {
     var account: String?
     var devices: [FlooDevice.Kind: String] = [:]
+    /// From the devices' reports, by device: what it still needs there ("" for nothing);
+    /// none for a device with no provider of it. Nil when scripted, by kind instead.
+    var byDevice: [String: String]?
 
-    func provides(on device: FlooDevice) -> Bool { devices[device.kind] != nil }
+    func provides(on device: FlooDevice) -> Bool { byDevice.map { $0[device.id] != nil } ?? (devices[device.kind] != nil) }
+
+    /// What it needs on `device`; "" for nothing more.
+    func need(on device: FlooDevice) -> String? { byDevice.map { $0[device.id] } ?? devices[device.kind] }
 
     static let of: [String: FlooServiceSources] = [
         "gmail": FlooServiceSources(account: "Google"),
@@ -238,6 +248,27 @@ enum FlooContactsRoute: Hashable {
 
 @MainActor @Observable
 final class FlooContactsDemo {
+    /// The floo server it shows, signed in; nil for the script.
+    @ObservationIgnored let live: FlooLive?
+    /// Back to the chat, when its pages are a sheet over it.
+    @ObservationIgnored var leave: (() -> Void)?
+    var services = FlooService.all
+    /// Where each service can come from, from its standing (live).
+    var found: [String: FlooServiceSources] = [:]
+    /// The device the pages are on: on the Mac, Floo Helper's.
+    var thisDevice = FlooDevice.this
+    /// Devices asked to set a service up, by service, until they provide it (live).
+    var asked: [String: Set<String>] = [:]
+    /// Each service's conversation (live).
+    @ObservationIgnored var dialogs: [String: Dialog] = [:]
+    /// Whose file each settings page writes, by service and device (live).
+    @ObservationIgnored var settingsProviders: [String: [String: ProviderID]] = [:]
+    /// What was read last (live): the connections, each service's standing, the feed, the
+    /// watches in each service's conversation.
+    @ObservationIgnored var connections: [ConnectionInfo] = []
+    @ObservationIgnored var standings: [ServiceID: ServiceStanding] = [:]
+    @ObservationIgnored var pushes: [FeedItem] = []
+    @ObservationIgnored var watches: [String: [WatchInfo]] = [:]
     var following: [String: FlooFollowing] = FlooContactsDemo.start
     var devices = FlooDevice.all
     var ending: FlooSignInEnding = .signedIn
@@ -308,7 +339,31 @@ final class FlooContactsDemo {
         ],
     ]
 
+    init(live: FlooLive? = nil) {
+        self.live = live
+        guard live != nil else { return }
+        services = []
+        following = [:]
+        settings = [:]
+        devices = []
+        #if targetEnvironment(macCatalyst)
+        if let account = live?.onlineAccount, let helper = FlooHelper.device(of: account) { thisDevice = helper }
+        #else
+        thisDevice = live?.ownDevice?.description ?? FlooDevice.this
+        #endif
+    }
+
+    func sources(_ service: FlooService) -> FlooServiceSources {
+        live == nil ? service.sources : found[service.id] ?? FlooServiceSources()
+    }
+
+    func service(_ id: String) -> FlooService? { services.first { $0.id == id } ?? FlooService.named(id) }
+
     func reset() {
+        if live != nil {
+            Task { await load() }
+            return
+        }
         following = Self.start
         settings = Self.startSettings
         devices = FlooDevice.all
@@ -335,6 +390,10 @@ final class FlooContactsDemo {
 
     /// Puts "open this service's settings" in the device's mailbox; it reports once set up.
     func setUp(_ service: FlooService, on device: FlooDevice) {
+        if live != nil {
+            Task { await setUpLive(service, on: device) }
+            return
+        }
         following[service.id, default: FlooFollowing()].asked.insert(device.id)
         show("已在\(device.name)上打开「\(service.name)」的设置")
         Task {
@@ -344,6 +403,12 @@ final class FlooContactsDemo {
                 following[service.id]?.devices.insert(device.id)
             }
         }
+    }
+
+    /// Its conversation: in the chat, signed in; else the script's.
+    func openChat(_ service: FlooService) {
+        if live != nil { return message(service) }
+        path.append(.chat(service.id))
     }
 
     func show(_ text: String) {
@@ -368,9 +433,15 @@ final class FlooContactsDemo {
 // MARK: - Finding services
 
 struct FlooContactsDestination: View {
-    @State private var demo = FlooContactsDemo()
+    @State private var demo: FlooContactsDemo
+    @Environment(\.dismiss) private var dismiss
 
     static var launches: Bool { UserDefaults.standard.bool(forKey: "flooContacts") }
+
+    /// `live`: the floo server's services, in a sheet over its chat; none, the script's.
+    init(live: FlooLive? = nil) {
+        _demo = State(initialValue: FlooContactsDemo(live: live))
+    }
 
     var body: some View {
         NavigationStack(path: $demo.path) {
@@ -378,25 +449,30 @@ struct FlooContactsDestination: View {
                 .navigationDestination(for: FlooContactsRoute.self) { route in
                     switch route {
                     case .service(let id):
-                        let service = FlooService.named(id)!
+                        let service = demo.service(id)!
                         if demo.following[id] != nil {
                             FlooContactPage(demo: demo, service: service)
                         } else {
                             FlooServicePage(demo: demo, service: service)
                         }
-                    case .chat(let id): FlooServiceChat(demo: demo, service: FlooService.named(id)!)
-                    case .operations(let id): FlooOperationsPage(service: FlooService.named(id)!)
-                    case .hooks(let id): FlooHooksPage(service: FlooService.named(id)!)
-                    case .moments(let id): FlooMomentsPage(demo: demo, service: FlooService.named(id)!)
-                    case .post(let id, let index): FlooPostPage(demo: demo, service: FlooService.named(id)!, index: index)
+                    case .chat(let id): FlooServiceChat(demo: demo, service: demo.service(id)!)
+                    case .operations(let id): FlooOperationsPage(service: demo.service(id)!)
+                    case .hooks(let id): FlooHooksPage(service: demo.service(id)!)
+                    case .moments(let id): FlooMomentsPage(demo: demo, service: demo.service(id)!)
+                    case .post(let id, let index): FlooPostPage(demo: demo, service: demo.service(id)!, index: index)
                     case .settings(let id, let device):
                         if let format = FlooSettingsFormat.all[id], let device = demo.device(device) {
                             FlooProviderSettingsPage(
-                                demo: demo, service: FlooService.named(id)!, device: device, format: format
+                                demo: demo, service: demo.service(id)!, device: device, format: format
                             )
                         }
                     }
                 }
+        }
+        .task {
+            guard demo.live != nil else { return }
+            demo.leave = { dismiss() }
+            await demo.follow()
         }
         .sheet(item: $demo.asking) { service in
             FlooFollowSheet(demo: demo, service: service)
@@ -431,11 +507,11 @@ private struct FlooServiceList: View {
     }
 
     var body: some View {
-        let followed = FlooService.all.filter { demo.following[$0.id] != nil }
-        let onDevices = FlooService.all.filter { service in
-            demo.following[service.id] == nil && demo.devices.contains { $0.online && service.sources.provides(on: $0) }
+        let followed = demo.services.filter { demo.following[$0.id] != nil }
+        let onDevices = demo.services.filter { service in
+            demo.following[service.id] == nil && demo.devices.contains { $0.online && demo.sources(service).provides(on: $0) }
         }
-        let rest = FlooService.all.filter { !followed.contains($0) && !onDevices.contains($0) }
+        let rest = demo.services.filter { !followed.contains($0) && !onDevices.contains($0) }
         List {
             section("已关注", matching(followed))
             section("你的设备上就能用", matching(onDevices))
@@ -444,6 +520,11 @@ private struct FlooServiceList: View {
         .navigationTitle("服务")
         .searchable(text: $search, prompt: "搜索服务")
         .toolbar {
+            if demo.live != nil {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { demo.leave?() }
+                }
+            } else {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Picker("登录结果", selection: Bindable(demo).ending) {
@@ -466,6 +547,10 @@ private struct FlooServiceList: View {
                     Image(systemName: "ellipsis.circle")
                 }
             }
+            }
+        }
+        .overlay {
+            if demo.live != nil && demo.services.isEmpty { ProgressView() }
         }
     }
 
@@ -562,7 +647,7 @@ private struct FlooServicePage: View {
             }
 
             Section("关注需要") {
-                if let account = service.sources.account {
+                if let account = demo.sources(service).account {
                     Label("登录你的 \(account) 账号", systemImage: "person.crop.circle")
                 }
                 ForEach(deviceNeeds, id: \.self) { need in
@@ -570,7 +655,7 @@ private struct FlooServicePage: View {
                 }
             }
 
-            FlooInfoSection(service: service)
+            FlooInfoSection(service: service, sources: demo.sources(service))
         }
         .scrollContentBackground(.hidden)
         .background { FlooBackdrop(tint: tint) }
@@ -581,7 +666,7 @@ private struct FlooServicePage: View {
 
     /// From devices' reports: which online devices could provide it now.
     private var onYourDevices: String? {
-        let here = demo.devices.filter { $0.online && service.sources.provides(on: $0) }.map(\.name)
+        let here = demo.devices.filter { $0.online && demo.sources(service).provides(on: $0) }.map(\.name)
         return here.isEmpty ? nil : "在\(here.joined(separator: "、")) 上能用"
     }
 
@@ -590,11 +675,11 @@ private struct FlooServicePage: View {
         var byNeed: [String: [String]] = [:]
         var order: [String] = []
         for (kind, name) in kinds {
-            guard let need = service.sources.devices[kind] else { continue }
+            guard let need = demo.sources(service).devices[kind] else { continue }
             if byNeed[need] == nil { order.append(need) }
             byNeed[need, default: []].append(name)
         }
-        let prefix = service.sources.account == nil ? "" : "或"
+        let prefix = demo.sources(service).account == nil ? "" : "或"
         return order.map { "\(prefix)在 \(byNeed[$0]!.joined(separator: " 或 ")) 上\($0)" }
     }
 }
@@ -602,6 +687,7 @@ private struct FlooServicePage: View {
 /// Who makes it and its links, then a fixed line on where its data goes.
 private struct FlooInfoSection: View {
     let service: FlooService
+    let sources: FlooServiceSources
 
     var body: some View {
         Section {
@@ -630,7 +716,7 @@ private struct FlooInfoSection: View {
     }
 
     private var dataPath: String {
-        switch (service.sources.account, service.sources.devices.isEmpty) {
+        switch (sources.account, sources.devices.isEmpty) {
         case (let account?, true):
             "经 Composio 连接你的 \(account) 账号，登录凭证存在 Composio。floo 只在你让它做事、或它在替你看着时读取。不再关注就断开连接。"
         case (let account?, false):
@@ -690,11 +776,11 @@ private struct FlooFollowSheet: View {
     @State private var notYet: String?
 
     private var here: FlooDevice? {
-        demo.device(FlooDevice.this).flatMap { service.sources.provides(on: $0) ? $0 : nil }
+        demo.device(demo.thisDevice).flatMap { demo.sources(service).provides(on: $0) ? $0 : nil }
     }
 
     private var elsewhere: [FlooDevice] {
-        demo.devices.filter { $0.online && $0.id != FlooDevice.this && service.sources.provides(on: $0) }
+        demo.devices.filter { $0.online && $0.id != demo.thisDevice && demo.sources(service).provides(on: $0) }
     }
 
     var body: some View {
@@ -703,11 +789,20 @@ private struct FlooFollowSheet: View {
             Text("关注 \(service.name)").font(.title3.weight(.bold))
             if let notYet { Text(notYet).font(.footnote).foregroundStyle(.orange) }
             VStack(spacing: 10) {
-                if let account = service.sources.account {
-                    way("用 \(account) 登录", "person.crop.circle", prominent: true) { signingIn = true }
+                if let account = demo.sources(service).account {
+                    way("用 \(account) 登录", "person.crop.circle", prominent: true) {
+                        guard demo.live != nil else { return signingIn = true }
+                        dismiss()
+                        Task { await demo.signIn(service) }
+                    }
                 }
-                if let here, let need = service.sources.devices[here.kind] {
-                    way("在这台 iPhone 上\(need)", "iphone", prominent: service.sources.account == nil) { allowing = true }
+                if let here, let need = demo.sources(service).need(on: here) {
+                    way(need.isEmpty ? "在\(here.name)上启用" : "在\(here.name)上\(need)", here.symbol,
+                        prominent: demo.sources(service).account == nil) {
+                        guard demo.live != nil else { return allowing = true }
+                        dismiss()
+                        Task { await demo.allowHere(service) }
+                    }
                 }
                 ForEach(elsewhere) { device in
                     way("在\(device.name)上设置", device.symbol, prominent: false) {
@@ -717,14 +812,14 @@ private struct FlooFollowSheet: View {
                 }
             }
             .padding(.horizontal, 24)
-            if service.sources.account == nil && here == nil && elsewhere.isEmpty {
+            if demo.sources(service).account == nil && here == nil && elsewhere.isEmpty {
                 Text("需要一台在线的 Mac。").font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             Button("先不了") { dismiss() }.font(.subheadline).padding(.bottom, 12)
         }
         .sheet(isPresented: $signingIn) {
-            if let account = service.sources.account {
+            if let account = demo.sources(service).account {
                 FlooSignInSheet(provider: account, service: service, ending: demo.ending) { result in
                     switch result {
                     case .signedIn(let name): dismiss(); demo.followed(service, account: name)
@@ -734,9 +829,9 @@ private struct FlooFollowSheet: View {
                 }
             }
         }
-        .alert("“floo”想\(here.flatMap { service.sources.devices[$0.kind] } ?? "")", isPresented: $allowing) {
+        .alert("“floo”想\(here.flatMap { demo.sources(service).devices[$0.kind] } ?? "")", isPresented: $allowing) {
             Button("不允许", role: .cancel) { notYet = "没有允许，还没关注上。" }
-            Button("允许") { dismiss(); demo.followed(service, device: FlooDevice.this) }
+            Button("允许") { dismiss(); demo.followed(service, device: demo.thisDevice) }
         }
     }
 

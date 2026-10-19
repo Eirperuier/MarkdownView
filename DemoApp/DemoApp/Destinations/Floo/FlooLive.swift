@@ -411,6 +411,23 @@ final class FlooLive {
     /// The account signed in, on the floo server; nil on a stage, whose Mac is its own.
     var onlineAccount: AccountID? { backend.lab ? nil : backend.account }
 
+    /// The server, for the services pages (FlooContactsLive.swift).
+    var server: FlooClient? { client }
+    /// This app's own device there.
+    var ownDevice: DeviceID? { client?.device?.id }
+
+    /// The server's catalog, loaded first if it isn't.
+    func directory() async -> ServiceDirectory? {
+        if catalog == nil { await loadCatalog() }
+        return catalog
+    }
+
+    /// Goes to `service`'s conversation, once listed.
+    func openService(_ service: ServiceID) {
+        guard let dialog = dialogs.first(where: { $0.conversation.kind == .service(service) }) else { return }
+        open(place(dialog))
+    }
+
     /// The services you can connect, through the cloud or on a Mac, and whether each is.
     func services() async throws -> [FlooLiveService] {
         guard let client else { return [] }
@@ -435,16 +452,9 @@ final class FlooLive {
         ((try? await services()) ?? []).filter(\.connected)  // try?: none to pick
     }
 
-    /// Connects a service a Mac runs: nothing to sign in to, it's yours at once.
-    func connectHere(_ service: FlooLiveService) async throws {
-        guard let client, let id = try? ServiceID(service.id) else { return }  // try?: not a name, none to connect
-        let version = try await client.connections().first { $0.service == id }?.version ?? 0
-        _ = try await client.change(ConnectionChange(connected: true, version: version), of: id)
-    }
-
     /// Connects a service: you sign in to it in the browser, and it's yours once that's done.
-    func connect(_ service: FlooLiveService) async throws {
-        guard let client, let id = try? ServiceID(service.id) else { return }  // try?: not a name, none to connect
+    func connect(_ id: ServiceID) async throws {
+        guard let client else { return }
         let link = try await client.connect(id)
         if let url = URL(string: link.url) { await UIApplication.shared.open(url) }
         // Asked again until it's done, for as long as signing in reasonably takes.

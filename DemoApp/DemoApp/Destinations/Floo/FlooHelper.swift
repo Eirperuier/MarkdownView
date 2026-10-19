@@ -36,8 +36,7 @@ enum FlooHelper {
     static func state(for account: AccountID) async -> State {
         guard await self.account() == account else { return .signedOut }
         if serving { return .ready }
-        let started = await run("/usr/bin/open", ["-n", "-g", "-a", app.path])
-        guard started.status == 0 else { return .stopped(started.errors) }
+        if let failure = await launch([], activates: false) { return .stopped(failure) }
         // Up once it holds its home: it reads its settings and session first.
         for _ in 0..<20 {
             if serving { return .ready }
@@ -49,6 +48,13 @@ enum FlooHelper {
     /// Where the session is kept, the demo's and the Helper's both: signed in in the demo,
     /// it's signed in.
     static let secrets = home.appending(path: "secrets", directoryHint: .isDirectory)
+
+    /// Its device on `account`: its id, kept in its home when it registered.
+    static func device(of account: AccountID) -> String? {
+        // try?: not registered yet
+        (try? String(contentsOf: secrets.appending(path: "device-id.\(account)"), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// The account the session is for.
     static func account() async -> AccountID? {
@@ -103,10 +109,48 @@ enum FlooHelper {
     }
 
     /// Has it ask for what `services` need of this Mac — system prompts, or System Settings
-    /// with it to drag in — and returns when that's done. Through Launch Services, so the
-    /// grants are the Helper's.
+    /// with it to drag in — and returns when that's done. A new instance of its own, brought
+    /// to the front: a system prompt asked from the background is refused without showing.
     static func allow(_ services: [String]) async {
-        _ = await run("/usr/bin/open", ["-n", "-W", "-a", app.path, "--args", "--allow"] + services)
+        _ = await launch(["--allow"] + services, activates: true, waits: true)
+    }
+
+    /// Opens a new instance of it with `arguments` through Launch Services, from this app:
+    /// the active one, whose click it is, so the system lets it come to the front (one opened
+    /// by `open` started from here doesn't: that process isn't active). AppKit's workspace,
+    /// which Catalyst doesn't declare but has. `waits`: until it has quit. Why it didn't
+    /// open, if it didn't.
+    private static func launch(_ arguments: [String], activates: Bool, waits: Bool = false) async -> String? {
+        guard let workspaceClass = NSClassFromString("NSWorkspace") as? NSObject.Type,
+              let configurationClass = NSClassFromString("NSWorkspaceOpenConfiguration") as? NSObject.Type,
+              let workspace = workspaceClass.value(forKey: "sharedWorkspace") as? NSObject
+        else { return "这台 Mac 上没有 NSWorkspace" }
+        let configuration = configurationClass.init()
+        configuration.setValue(arguments, forKey: "arguments")
+        configuration.setValue(true, forKey: "createsNewApplicationInstance")
+        configuration.setValue(activates, forKey: "activates")
+        typealias Open = @convention(c) (
+            NSObject, Selector, NSURL, NSObject, @escaping @convention(block) (NSObject?, NSError?) -> Void
+        ) -> Void
+        let selector = NSSelectorFromString("openApplicationAtURL:configuration:completionHandler:")
+        let open = unsafeBitCast(workspace.method(for: selector), to: Open.self)
+        /// What the workspace answers, handed back from its queue.
+        struct Opened: @unchecked Sendable {
+            let app: NSObject?
+            let error: String?
+        }
+        let opened: Opened = await withCheckedContinuation { done in
+            open(workspace, selector, app as NSURL, configuration) { running, error in
+                done.resume(returning: Opened(app: running, error: error?.localizedDescription))
+            }
+        }
+        if let error = opened.error { return error }
+        guard waits, let running = opened.app else { return nil }
+        // NSRunningApplication says when it has quit.
+        while (running.value(forKey: "terminated") as? Bool) == false {
+            try? await Task.sleep(for: .milliseconds(500))  // try?: cancelled, looked at once more
+        }
+        return nil
     }
 
     /// The last line it wrote to its log, to say why something didn't go.

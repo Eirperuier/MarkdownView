@@ -76,7 +76,11 @@ struct FlooContactPage: View {
         .sheet(isPresented: $showsAbout) { FlooAboutSheet(service: service) }
         .confirmationDialog("不再关注 \(service.name)？", isPresented: $confirmsUnfollow, titleVisibility: .visible) {
             Button("不再关注", role: .destructive) {
-                demo.following[service.id] = nil
+                if demo.live != nil {
+                    Task { await demo.disconnect(service) }
+                } else {
+                    demo.following[service.id] = nil
+                }
                 demo.path.removeAll()
             }
         } message: {
@@ -102,19 +106,27 @@ struct FlooContactPage: View {
     private var actions: some View {
         HStack(spacing: 10) {
             FlooActionButton(symbol: "message.fill", title: "消息", tint: tint) {
-                demo.path.append(.chat(service.id))
+                demo.openChat(service)
             }
             FlooActionButton(
                 symbol: following.quiet ? "bell.slash.fill" : "bell.fill",
                 title: following.quiet ? "静音已开启" : "静音", tint: tint, on: following.quiet
             ) {
-                demo.following[service.id]?.quiet.toggle()
+                if demo.live != nil {
+                    Task { await demo.change(service, quiet: !following.quiet) }
+                } else {
+                    demo.following[service.id]?.quiet.toggle()
+                }
             }
             FlooActionButton(
                 symbol: following.pinned ? "pin.fill" : "pin", title: following.pinned ? "已置顶" : "置顶",
                 tint: tint, on: following.pinned
             ) {
-                demo.following[service.id]?.pinned.toggle()
+                if demo.live != nil {
+                    Task { await demo.change(service, pinned: !following.pinned) }
+                } else {
+                    demo.following[service.id]?.pinned.toggle()
+                }
             }
         }
     }
@@ -170,10 +182,10 @@ struct FlooContactPage: View {
     /// providing it, and those online now.
     private var bubbles: [Bubble] {
         var result: [Bubble] = []
-        if let provider = service.sources.account, let account = following.account {
+        if let provider = demo.sources(service).account, let account = following.account {
             result.append(.account(provider, account))
         }
-        guard !service.sources.devices.isEmpty else { return result }
+        guard !demo.sources(service).devices.isEmpty else { return result }
         for device in demo.devices
         where following.devices.contains(device.id) || following.asked.contains(device.id) || device.online {
             result.append(.device(device))
@@ -184,12 +196,12 @@ struct FlooContactPage: View {
     /// Like AirDrop's row of nearby devices: each with how it stands with this service.
     private var devicesRow: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(service.sources.devices.isEmpty ? "连接" : "设备").font(.body.weight(.semibold))
+            Text(demo.sources(service).devices.isEmpty ? "连接" : "设备").font(.body.weight(.semibold))
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(bubbles) { bubble in bubbleView(bubble) }
-                    if service.sources.account != nil && following.account == nil {
-                        bubbleButton(symbol: "person.crop.circle.badge.plus", name: "\(service.sources.account!) 账号",
+                    if demo.sources(service).account != nil && following.account == nil {
+                        bubbleButton(symbol: "person.crop.circle.badge.plus", name: "\(demo.sources(service).account!) 账号",
                                      state: ("去登录", Color.accentColor), dimmed: false) {
                             demo.follow(service)
                         }
@@ -197,7 +209,7 @@ struct FlooContactPage: View {
                 }
                 .padding(.horizontal, 2)
             }
-            if !service.sources.devices.isEmpty {
+            if !demo.sources(service).devices.isEmpty {
                 Text(
                     FlooSettingsFormat.all[service.id] == nil
                         ? "轻点在线设备以在该设备上设置“\(service.name)”。"
@@ -219,13 +231,17 @@ struct FlooContactPage: View {
                 state: following.expired ? ("重新登录", .orange) : ("\(provider) · 已连接", .green), dimmed: false
             ) {
                 guard following.expired else { return }
+                if demo.live != nil {
+                    Task { await demo.signIn(service) }
+                    return
+                }
                 demo.following[service.id]?.expired = false
                 demo.show("已重新登录 \(provider)")
             }
         case .device(let device):
             let provides = following.devices.contains(device.id)
             let asked = following.asked.contains(device.id)
-            let can = service.sources.provides(on: device)
+            let can = demo.sources(service).provides(on: device)
             let state: (String, Color) =
                 asked ? ("待设置", .orange)
                 : provides ? (device.online ? (service.id == "github" ? "gh 已登录" : "已启用") : "\(device.lastSeen ?? "")在线", device.online ? .green : .gray)
@@ -236,7 +252,7 @@ struct FlooContactPage: View {
                     return
                 }
                 guard can, !provides, !asked, device.online else { return }
-                if device.id == FlooDevice.this {
+                if demo.live == nil && device.id == demo.thisDevice {
                     demo.following[service.id]?.devices.insert(device.id)
                 } else {
                     demo.setUp(service, on: device)
@@ -274,7 +290,7 @@ struct FlooContactPage: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("进行中的任务").font(.body.weight(.semibold))
             ForEach(following.doing, id: \.self) { item in
-                Button { demo.path.append(.chat(service.id)) } label: {
+                Button { demo.openChat(service) } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "checklist").font(.title3).foregroundStyle(tint)
                             .frame(width: 40, height: 40)
@@ -597,7 +613,7 @@ struct FlooPostPage: View {
                             Spacer()
                             Button {
                                 demo.drafts[service.id] = nil
-                                demo.path.append(.chat(service.id))
+                                demo.openChat(service)
                             } label: {
                                 Label("在对话中回复", systemImage: "bubble.left")
                                     .font(.caption.weight(.medium))
