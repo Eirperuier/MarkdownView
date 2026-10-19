@@ -1146,6 +1146,9 @@ private struct FlooAskView: View {
     let demo: FlooDemo
     /// Toggled options of a choose(multiple:) item, before "好了" sends them.
     @State private var picked: [Int: Set<Int>] = [:]
+    /// A fill item's fields as you've typed them, before "好了" sends them; the agent's guesses
+    /// until you do.
+    @State private var filled: [Int: [String]] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1262,25 +1265,35 @@ private struct FlooAskView: View {
             }
             .controlSize(.small)
         case .fill(let fields):
+            let values = filled[index] ?? fields.map(\.guess)
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(fields, id: \.label) { field in
+                ForEach(Array(fields.enumerated()), id: \.offset) { place, field in
                     HStack(spacing: 8) {
                         Label(field.label, systemImage: Self.fieldIcon(field.kind))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .frame(width: 110, alignment: .leading)
-                        Text(field.guess)
-                            .font(.footnote.weight(.medium))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(card.agent.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        TextField(field.label, text: Binding(
+                            get: { values[place] },
+                            set: { value in
+                                var typed = filled[index] ?? fields.map(\.guess)
+                                typed[place] = value
+                                filled[index] = typed
+                            }
+                        ))
+                        .font(.footnote.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(card.agent.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                 }
             }
-            Button("就这样") { demo.answerAsk(card.id, item: index, .fill) }
-                .buttonStyle(.bordered)
+            Button("好了") { demo.answerAsk(card.id, item: index, .filled(values)) }
+                .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
+                .tint(card.agent.tint)
                 .controlSize(.small)
+                .disabled(values.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty })
         }
     }
 

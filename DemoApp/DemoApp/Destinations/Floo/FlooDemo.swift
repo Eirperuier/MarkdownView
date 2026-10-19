@@ -291,12 +291,17 @@ enum FlooAnswerPick {
     case confirm(Bool)
     /// Its guesses are right as they are.
     case fill
+    /// Its fields as you filled them in, in order.
+    case filled([String])
 }
 
 /// An item you're answering in your own words, over the composer while you write.
 struct FlooAnsweringItem: Equatable {
     let agent: FlooAgent
     let question: String
+    /// The ask and item it is, when it's the backend's: what you send answers it (FlooLive).
+    var ask: String? = nil
+    var item = 0
 }
 
 /// Something an agent wants to do on one of your devices, as that device will do it: the
@@ -839,7 +844,20 @@ final class FlooDemo {
         guard let live, !text.isEmpty else { return }
         draft = ""
         following = true
+        // Answering an ask's item in your own words: what you send is its answer.
+        if let answering, let ask = answering.ask {
+            self.answering = nil
+            live.answer(ask: ask, item: answering.item, text: text)
+            return
+        }
         live.send(text)
+    }
+
+    /// The backend's asks on a message, as they are now (FlooLive).
+    func setAsks(_ message: Message, _ asks: [FlooAskCard]) {
+        guard message.asks != asks else { return }
+        message.asks = asks
+        publish()
     }
 
     /// An agent's message as the backend has it now: all its words so far, still coming in or not.
@@ -1031,6 +1049,10 @@ final class FlooDemo {
               message.asks[ci].items.indices.contains(index), message.asks[ci].items[index].answer == nil
         else { return }
         let item = message.asks[ci].items[index]
+        if let live {
+            answerLive(live, message.asks[ci], item, at: index, pick)
+            return
+        }
         let value: String
         switch (pick, item.form) {
         case (.option(let i), .choose(let options, _, _)) where options.indices.contains(i):
@@ -1043,6 +1065,8 @@ final class FlooDemo {
             value = yes ? y : n
         case (.fill, .fill(let fields)):
             value = fields.map(\.guess).joined(separator: "，")
+        case (.filled(let values), .fill):
+            value = values.joined(separator: "，")
         case (.own, .choose(_, _, let own)):
             guard let own else { return }
             answering = FlooAnsweringItem(agent: message.asks[ci].agent, question: item.question)
@@ -1058,6 +1082,34 @@ final class FlooDemo {
             return
         }
         finishAnswer(id, item: index, value)
+    }
+
+    /// An answer to the backend's ask: sent as your message answering its item, and the card
+    /// changes as the backend has it once it comes back; in your own words, typed in the
+    /// composer first.
+    private func answerLive(_ live: FlooLive, _ card: FlooAskCard, _ item: FlooAskItem, at index: Int, _ pick: FlooAnswerPick) {
+        switch (pick, item.form) {
+        case (.option(let i), .choose(let options, _, _)) where options.indices.contains(i):
+            live.answer(ask: card.id, item: index, text: options[i].send ?? options[i].label, picked: [i])
+        case (.options(let picked), .choose(let options, _, _)):
+            let picked = picked.sorted().filter(options.indices.contains)
+            guard !picked.isEmpty else { return }
+            let text = picked.map { options[$0].send ?? options[$0].label }.joined(separator: "、")
+            live.answer(ask: card.id, item: index, text: text, picked: picked)
+        case (.confirm(let yes), .confirm(_, let y, let n)):
+            live.answer(ask: card.id, item: index, text: yes ? y : n, confirmed: yes)
+        case (.filled(let values), .fill(let fields)):
+            let text = zip(fields, values).map { "\($0.label)：\($1)" }.joined(separator: "\n")
+            live.answer(ask: card.id, item: index, text: text, filled: values)
+        case (.fill, .fill(let fields)):
+            let text = fields.map { "\($0.label)：\($0.guess)" }.joined(separator: "\n")
+            live.answer(ask: card.id, item: index, text: text, filled: fields.map(\.guess))
+        case (.own, .choose):
+            answering = FlooAnsweringItem(agent: card.agent, question: item.question, ask: card.id, item: index)
+        default:
+            return
+        }
+        following = true
     }
 
     private func finishAnswer(_ id: String, item index: Int, _ value: String) {

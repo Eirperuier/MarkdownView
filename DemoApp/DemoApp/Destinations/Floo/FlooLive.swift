@@ -174,6 +174,24 @@ final class FlooLive {
         }
     }
 
+    /// Your answer to an item of an agent's ask: a message of yours answering it, with what you
+    /// picked, whether you went ahead, or what you filled in.
+    func answer(ask: String, item: Int, text: String, picked: [Int]? = nil, confirmed: Bool? = nil, filled: [String]? = nil) {
+        guard let session, let id = AskID(ask) else { return }
+        let send = MessageSend(
+            id: .generate(),
+            text: text,
+            answering: AskAnswer(ask: id, item: item, picked: picked, confirmed: confirmed, filled: filled)
+        )
+        Task {
+            do {
+                _ = try await session.send(send)
+            } catch {
+                self.demo.catchUp("没发出去：\(error)")
+            }
+        }
+    }
+
     // MARK: Card model
 
     /// The stage's card model, for the header's menu; an older stage has none, and no menu.
@@ -280,6 +298,7 @@ final class FlooLive {
             }
         }
         showAgent(parts, replica: replica)
+        showAsks(replica)
         // An agent with a run going is writing, between its model's calls too (its message
         // stops streaming while a tool runs, and the next one starts after).
         var writing = Set(replica.active.compactMap(\.agent.actor.agent))
@@ -290,6 +309,68 @@ final class FlooLive {
             demo.setPresence(agent(id), writing.contains(id) ? "正在写…" : nil)
         }
         demo.refresh()
+    }
+
+    // MARK: Asks
+
+    /// The agents' asks, each on the message that asked it: its card there and, while it's
+    /// open, over where you type.
+    private func showAsks(_ replica: ConversationReplica) {
+        // Every message shown, so one whose asks are gone has none.
+        var cards: [ObjectIdentifier: (message: FlooDemo.Message, cards: [FlooAskCard])] = [:]
+        for message in messages.values { cards[ObjectIdentifier(message)] = (message, []) }
+        for ask in replica.asks.values.sorted(by: { $0.pts < $1.pts }) {
+            guard let number = ask.message, let message = messages[number], let id = ask.agent.actor.agent else { continue }
+            cards[ObjectIdentifier(message), default: (message, [])].cards.append(card(ask, agent(id), replica))
+        }
+        for (message, asks) in cards.values { demo.setAsks(message, asks) }
+    }
+
+    private func card(_ ask: AskInfo, _ agent: FlooAgent, _ replica: ConversationReplica) -> FlooAskCard {
+        let state: FlooAskCard.State =
+            switch ask.status {
+            case .open: .open
+            case .answered: .answered
+            case .withdrawn: .withdrawn
+            case .expired: .expired
+            }
+        let items = ask.items.map { item in
+            // Answered: what the answering message says.
+            let answer = item.answer.map { number in
+                replica.blocks(of: number).compactMap { if case .text(let text) = $0.content { text } else { nil } }
+                    .joined(separator: " ")
+            }
+            return FlooAskItem(title: item.title, question: item.question, form: Self.form(item.form), answer: answer)
+        }
+        return FlooAskCard(id: ask.id.description, agent: agent, items: items, state: state)
+    }
+
+    private static func form(_ form: AskForm) -> FlooAskItem.Form {
+        switch form {
+        case .choose(let options, let multiple, let own):
+            .choose(
+                options: options.map { FlooOption(label: $0.label, send: $0.send, detail: $0.detail, image: $0.image) },
+                multiple: multiple,
+                own: own ? "" : nil
+            )
+        case .confirm(let effect):
+            .confirm(effect: effect, yes: "好", no: "先不要")
+        case .fill(let fields):
+            .fill(fields: fields.map { FlooAskItem.Field(label: $0.label, kind: Self.kind($0.kind), guess: $0.guess ?? "") })
+        case .unknown:
+            .fill(fields: [])
+        }
+    }
+
+    private static func kind(_ kind: AskField.Kind) -> FlooAskItem.Field.Kind {
+        switch kind {
+        case .text: .text
+        case .number: .number
+        case .date: .date
+        case .time: .time
+        case .place: .place
+        case .person: .person
+        }
     }
 
     /// Whether a message has words, stored or coming.
@@ -325,6 +406,7 @@ final class FlooLive {
         for block in blocks {
             switch block.content {
             case .quote(let words): quote = words
+            case .answering(_, _, let title, _) where quote == nil: quote = "回答「\(title)」"
             case .choosing(_, _, _, let label) where text.isEmpty: text = label
             default: break
             }
