@@ -109,16 +109,8 @@ struct FlooDestination: View {
                 if let signIn = demo.signIn { FlooSignInView(model: signIn) }
             }
             if demo.signIn == nil {
+                // Something opening over the composer shortens the list, which keeps its bottom.
                 bottom
-                    // Something opened over the composer: what was at the bottom stays in sight.
-                    // Once the list has taken its new height: before, its bottom is where it was.
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
-                        Task {
-                            try? await Task.sleep(for: .milliseconds(450))  // try?: cancelled, no matter
-                            guard demo.following else { return }
-                            demo.scrollPosition.scrollTo(edge: .bottom, animated: true)
-                        }
-                    }
             }
         }
         // Over a picked background, dark throughout: white words on material bubbles, and cards
