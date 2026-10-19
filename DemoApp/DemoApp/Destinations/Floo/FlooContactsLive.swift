@@ -55,7 +55,10 @@ extension FlooContactsDemo {
         }
 
         if let feed = try? await client.feed(limit: 100) {  // try?: as above
-            pushes = feed
+            let kinds = Dictionary(feed.conversations.map { ($0.id, $0.kind) }) { first, _ in first }
+            pushes = Dictionary(grouping: feed.items.compactMap { item -> (ServiceID, FeedItem)? in
+                if case .service(let service) = kinds[item.conversation] { (service, item) } else { nil }
+            }, by: \.0).mapValues { $0.map(\.1) }
             refollow()
         }
         for (id, dialog) in dialogs where following[id] != nil {
@@ -113,7 +116,7 @@ extension FlooContactsDemo {
             // The devices it's connected on and works on now.
             entry.devices = Set(standing.hosts.filter { $0.connected && Self.provides($0) }.compactMap { $0.host.device?.description })
             entry.asked = (asked[id] ?? []).subtracting(entry.devices)
-            entry.pushes = pushes.filter { $0.conversation.kind == .service(standing.service) }.compactMap(Self.push)
+            entry.pushes = (pushes[standing.service] ?? []).compactMap(Self.push)
             entry.doing = (watches[id] ?? []).map(Self.doing)
             if let dialog = dialogs[id] {
                 entry.quiet = dialog.settings?.notifications.mutedUntil.map { $0 > .now } ?? false

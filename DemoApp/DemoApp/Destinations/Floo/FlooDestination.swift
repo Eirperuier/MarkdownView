@@ -45,7 +45,7 @@ struct FlooDestination: View {
         VStack(spacing: 0) {
             header
             Divider()
-            TiledView(items: demo.rows, scrollPosition: $demo.scrollPosition) { row in
+            TiledView(list: demo.list, scrollPosition: $demo.scrollPosition) { row in
                 FlooRowCell(item: row, demo: demo)
             }
             // Older messages a page at a time as you reach the top (the device's store first).
@@ -92,7 +92,7 @@ struct FlooDestination: View {
             // Following the newest, until a message too long for the screen has its start at
             // the top: from there you read it at your pace, and it goes on writing below.
             // The newest is at the end: something opened or closed above it isn't followed.
-            .onChange(of: demo.rows.last) {
+            .onChange(of: demo.lastRow) {
                 guard demo.following else { return }
                 if let head, contentEnd - head.y > visibleHeight - 60 {
                     self.head = nil

@@ -128,6 +128,12 @@ final class FlooLive {
     /// What you sent from here, shown at once, by its message's id until the backend has it.
     private var outgoing: [MessageID: FlooDemo.Said] = [:]
     private var messages: [Int64: FlooDemo.Message] = [:]
+    /// The topics and comments hung on the shown conversation's messages, by number, as the
+    /// conversation list has them.
+    private var hung: [Int64: [FlooPlace]] = [:]
+    /// The agents with messages here, and each message being written's agent: who's writing.
+    private var speakers: Set<AgentID> = []
+    private var writing: [Int64: AgentID] = [:]
     private var agents: [String: FlooAgent] = [:]
     /// The catalog's index of services, kept across launches with its revision: read again
     /// only to see whether it changed.
@@ -337,7 +343,7 @@ final class FlooLive {
 
     /// The topics and comments hung on the shown conversation's messages, under them.
     private func showTopics(_ replica: ConversationReplica) {
-        var hung: [Int64: [FlooPlace]] = [:]
+        hung = [:]
         for dialog in dialogs {
             guard case .topic(let from, _) = dialog.conversation.kind, from.conversation == replica.id else { continue }
             hung[from.number, default: []].append(place(dialog))
@@ -571,6 +577,12 @@ final class FlooLive {
     // MARK: Showing
 
     private func show(_ replica: ConversationReplica) {
+        demo.batch { showAll(replica) }
+    }
+
+    private func showAll(_ replica: ConversationReplica) {
+        speakers = []
+        writing = [:]
         for (participant, member) in replica.members where participant.actor == .person {
             if let name = member.name { names[participant.account] = name }
         }
@@ -609,7 +621,6 @@ final class FlooLive {
         showPresence(replica)
         lowestShown = replica.messages.first?.number
         demo.setHasOlder(replica.hasOlder)
-        demo.refresh()
     }
 
     /// What changed, and only that: the messages it touched (each with the run's parts it's
@@ -619,6 +630,10 @@ final class FlooLive {
         let replica = update.replica, changes = update.changes
         demo.setHasOlder(replica.hasOlder)
         if changes.all || !changes.removed.isEmpty || changes.parts.contains(.members) { return show(replica) }
+        demo.batch { showChanges(changes, replica) }
+    }
+
+    private func showChanges(_ changes: ReplicaChanges, _ replica: ConversationReplica) {
         let older = changes.messages.filter { $0 < lowestShown ?? .max }
         if let lowest = older.min() {
             demo.prepending { for group in groups(older, replica) { showGroup(group, replica) } }
@@ -627,10 +642,9 @@ final class FlooLive {
         let rest = changes.messages.subtracting(older)
         for group in groups(rest, replica) { showGroup(group, replica) }
         if changes.parts.contains(.outbox) { showOutbox(replica) }
-        if changes.parts.contains(.asks) || !changes.messages.isEmpty { showAsks(replica) }
-        if !changes.messages.isEmpty { showTopics(replica) }
+        // A message's own asks and topics are shown with it (showAgent).
+        if changes.parts.contains(.asks) { showAsks(replica) }
         if changes.parts.contains(.active) || !rest.isEmpty { showPresence(replica) }
-        demo.refresh()
     }
 
     /// The shown units holding `numbers`: a person's message, or an agent's run's parts shown
@@ -667,11 +681,8 @@ final class FlooLive {
     /// An agent with a run going is writing, between its model's calls too (its message
     /// stops streaming while a tool runs, and the next one starts after).
     private func showPresence(_ replica: ConversationReplica) {
-        var writing = Set(replica.active.compactMap(\.agent.actor.agent))
-        for info in replica.messages where info.state == .streaming {
-            if let id = info.author.actor.agent { writing.insert(id) }
-        }
-        for id in Set(replica.messages.compactMap(\.author.actor.agent)).union(writing) {
+        let writing = Set(replica.active.compactMap(\.agent.actor.agent)).union(self.writing.values)
+        for id in speakers.union(writing) {
             demo.setPresence(agent(id), writing.contains(id) ? "正在写…" : nil)
         }
     }
@@ -916,6 +927,17 @@ final class FlooLive {
 
         demo.setSteps(message, steps(work, progress: replica.progress), thinking: work.thinking)
         demo.setText(message, words.filter { !$0.isEmpty }.joined(separator: "\n\n"), streaming: streaming)
+        // What was asked on it and the topics hung on it.
+        let numbers = Set(parts.map(\.number))
+        let asks = replica.asks.values.filter { $0.message.map(numbers.contains) == true }.sorted { $0.pts < $1.pts }
+        demo.setAsks(message, asks.compactMap { ask in ask.agent.actor.agent.map { card(ask, agent($0), replica) } })
+        demo.setTopics(message, parts.flatMap { hung[$0.number] ?? [] })
+        speakers.insert(id)
+        for info in parts {
+            if info.state == .streaming { writing[info.number] = id } else { writing[info.number] = nil }
+        }
+        // Its fences' cards, mentions and pages, which only its rows show.
+        demo.touch(message)
     }
 
     // MARK: Work

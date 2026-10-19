@@ -454,7 +454,11 @@ final class FlooDemo {
         case message(Message)
     }
 
-    private(set) var rows: [FlooRow] = []
+    /// The rows shown, kept as the changes made to them: a change re-makes the rows of the
+    /// message (or line) it's in, nothing else, and the list applies just that.
+    @ObservationIgnored let list = TiledList<FlooRow>()
+    /// The last row: following the newest follows it.
+    private(set) var lastRow: FlooRow?
     var scrollPosition = TiledScrollPosition(autoScrollsToBottomOnAppend: true, scrollsToBottomOnReplace: true)
     private(set) var title = ""
     /// Who is doing what right now, in the order they started.
@@ -473,7 +477,22 @@ final class FlooDemo {
     /// The list keeps to the newest while you're there; scrolled up, it stays where you are.
     var following = true
 
-    @ObservationIgnored private var entries: [Entry] = []
+    /// What's in the conversation, in order, each by its key (its message's or said's id).
+    @ObservationIgnored private var entries: [(key: Int, entry: Entry)] = []
+    /// Where each entry is in `entries`, by its key.
+    @ObservationIgnored private var order = TiledPositions<Int>()
+    /// Each entry's rows in the list, by its key; none while it shows nothing.
+    @ObservationIgnored private var shownRows: [Int: [FlooRow]] = [:]
+    @ObservationIgnored private var messageByID: [Int: Message] = [:]
+    /// The message each ask is on, and the messages each card shows in.
+    @ObservationIgnored private var askMessages: [String: Int] = [:]
+    @ObservationIgnored private var cardMessages: [String: Set<Int>] = [:]
+    /// The messages at work, by agent, oldest first (a scripted agent's presence).
+    @ObservationIgnored private var working: [FlooAgent: [Int]] = [:]
+    /// While a batch of changes is made (`batch`), the messages changed, shown once at its end.
+    @ObservationIgnored private var batching = 0
+    @ObservationIgnored private var changed: Set<Int> = []
+    @ObservationIgnored private var changedAnimated = false
     /// The backend this conversation is with, when it's the live one (FlooLive).
     @ObservationIgnored var live: FlooLive?
     private(set) var isLive = false
@@ -546,6 +565,15 @@ final class FlooDemo {
         approval = nil
         answering = nil
         entries = []
+        order = TiledPositions()
+        shownRows = [:]
+        messageByID = [:]
+        askMessages = [:]
+        cardMessages = [:]
+        working = [:]
+        changed = []
+        changedAnimated = false
+        errands = []
         sessions = [:]
         versions = [:]
         presence = []
@@ -560,7 +588,8 @@ final class FlooDemo {
         bubbleStates = [:]
         following = true
         self.title = title
-        publish()
+        list.reset([])
+        lastRow = nil
     }
 
     func wait(_ milliseconds: Int) async throws {
@@ -568,18 +597,15 @@ final class FlooDemo {
     }
 
     func time(_ text: String) {
-        entries.append(.time(text))
-        publish()
+        add(.time(text), key: takeID())
     }
 
     func unread(_ text: String) {
-        entries.append(.unread(text))
-        publish()
+        add(.unread(text), key: takeID())
     }
 
     func catchUp(_ text: String) {
-        entries.append(.catchUp(text))
-        publish()
+        add(.catchUp(text), key: takeID())
     }
 
     /// Saying something yourself brings you back to the latest, wherever you'd scrolled to.
@@ -593,8 +619,7 @@ final class FlooDemo {
             quote: quote
         )
         if speaker == .me { following = true }
-        entries.append(.said(said))
-        publish()
+        add(.said(said), key: said.id)
         return said
     }
 
@@ -619,8 +644,7 @@ final class FlooDemo {
     func land(_ said: Said) {
         queued.removeAll { $0 === said }
         said.receipt = .read
-        entries.append(.said(said))
-        publish()
+        add(.said(said), key: said.id)
     }
 
     private func typeOut(_ text: String) async throws {
@@ -642,43 +666,44 @@ final class FlooDemo {
 
     func mark(_ said: Said, _ receipt: FlooReceipt) {
         said.receipt = receipt
-        publish()
+        show(said.id)
     }
 
     /// An agent's message, empty until it works or speaks.
     func begin(_ agent: FlooAgent, at time: String, marks: [FlooMark] = []) -> Message {
         let message = Message(id: takeID(), agent: agent, time: time, marks: marks)
-        entries.append(.message(message))
-        publish()
+        messageByID[message.id] = message
+        add(.message(message), key: message.id)
         return message
     }
 
     /// A message taken back (its run passed having said nothing): it goes.
     func remove(_ message: Message) {
-        entries.removeAll { entry in
-            if case .message(let shown) = entry { shown === message } else { false }
-        }
-        publish()
+        guard let index = order[message.id] else { return }
+        take(at: index)
+        messageByID[message.id] = nil
+        for card in message.asks where askMessages[card.id] == message.id { askMessages[card.id] = nil }
+        note(message, gone: true)
     }
 
     func step(_ message: Message, _ step: String, source: String? = nil) {
         if message.process == nil { message.process = FlooProcess(steps: []) }
         message.process?.steps.append(step)
         if let source { message.process?.read.append(source) }
-        workChanged(message.agent)
+        workChanged(message)
     }
 
     func finishWork(_ message: Message, _ summary: String) {
         message.process?.running = false
         message.process?.summary = summary
-        workChanged(message.agent)
+        workChanged(message)
     }
 
     /// The agent takes something on, by name: it's in hand until its work is finished, however
     /// much else comes up meanwhile.
     func takeOn(_ message: Message, _ title: String) {
         message.process = FlooProcess(steps: [], title: title)
-        workChanged(message.agent)
+        workChanged(message)
     }
 
     /// A task joins the work; one that starts now goes before those still waiting on others.
@@ -706,7 +731,7 @@ final class FlooDemo {
             process.tasks.append(task)
         }
         message.process = process
-        workChanged(message.agent)
+        workChanged(message)
     }
 
     /// A task moves on: what it's at now, and the source it's reading, if any. It's what the
@@ -740,7 +765,7 @@ final class FlooDemo {
         change(&message.process!.tasks[index])
         nextTouch += 1
         message.process!.tasks[index].touched = nextTouch
-        workChanged(message.agent)
+        workChanged(message)
     }
 
     // MARK: In hand
@@ -762,28 +787,19 @@ final class FlooDemo {
 
     /// Over the composer, what an agent is doing is one line however much it has in hand: the
     /// one thing it's at, or how many.
-    private func workChanged(_ agent: FlooAgent) {
-        publish()
-        refreshPresence(agent)
+    private func workChanged(_ message: Message) {
+        show(message.id)
+        refreshPresence(message.agent)
     }
 
     private func refreshPresence(_ agent: FlooAgent) {
         // The backend's agents are at work while their runs go (FlooLive).
         guard !isLive else { return }
-        let working = entries.compactMap { entry -> FlooProcess? in
-            // Waiting on you it isn't at anything: what it waits for is over the composer.
-            if case .message(let message) = entry, message.agent == agent, let process = message.process, process.running,
-                !process.waitsForYou
-            {
-                process
-            } else {
-                nil
-            }
-        }
-        switch working.count {
+        let at = working[agent] ?? []
+        switch at.count {
         case 0: setPresence(agent, nil)
-        case 1: setPresence(agent, "\(working[0].doing ?? "在弄")…")
-        default: setPresence(agent, "手上 \(working.count) 件事")
+        case 1: setPresence(agent, "\(messageByID[at[0]]?.process?.doing ?? "在弄")…")
+        default: setPresence(agent, "手上 \(at.count) 件事")
         }
         if errands.count < 2 { showsErrands = false }
     }
@@ -820,13 +836,9 @@ final class FlooDemo {
     /// A message takes its place when it first says something: work before that happens where
     /// the agent is, but what it says lands after everything said meanwhile, where you're reading.
     private func takePlace(_ message: Message) {
-        guard message.text.isEmpty,
-              let index = entries.firstIndex(where: { if case .message(let m) = $0 { m === message } else { false } }),
-              index != entries.count - 1
-        else { return }
-        let entry = entries.remove(at: index)
-        entries.append(entry)
-        publish()
+        guard message.text.isEmpty, let index = order[message.id], index != entries.count - 1 else { return }
+        take(at: index)
+        add(.message(message), key: message.id)
     }
 
     /// Draws the card a ```floo.draw asked for, in its place, as the drawing model streams it.
@@ -837,7 +849,7 @@ final class FlooDemo {
         let session = CardSession(data: Self.value(spec.data))
         sessions[card] = session
         versions[card, default: 0] += 1
-        publish()
+        showCard(card)
         let source = Array(spec.source)
         var index = 0
         while index < source.count {
@@ -906,8 +918,7 @@ final class FlooDemo {
     /// A topic on a message of this conversation: titled, it's listed with the conversations;
     /// without, it's a comment under the message.
     func openTopic(on message: Int, title: String?) {
-        let found = entries.lazy.compactMap { if case .message(let shown) = $0, shown.id == message { shown } else { nil } }.first
-        guard let number = found?.number else { return }
+        guard let number = messageByID[message]?.number else { return }
         live?.openTopic(on: number, title: title)
     }
 
@@ -915,7 +926,7 @@ final class FlooDemo {
     func setTopics(_ message: Message, _ topics: [FlooPlace]) {
         guard message.topics != topics else { return }
         message.topics = topics
-        publish()
+        show(message.id)
     }
 
     /// The backend's next cards are drawn with this model and reasoning.
@@ -942,7 +953,7 @@ final class FlooDemo {
     func setAsks(_ message: Message, _ asks: [FlooAskCard]) {
         guard message.asks != asks else { return }
         message.asks = asks
-        publish()
+        show(message.id)
     }
 
     /// An agent's message as the backend has it now: all its words so far, still coming in or not.
@@ -982,7 +993,7 @@ final class FlooDemo {
                     self.show(message, FlooWorkStatus(message.work))
                 }
             }
-            workChanged(message.agent)
+            workChanged(message)
             return
         }
         message.settling?.cancel()
@@ -998,14 +1009,15 @@ final class FlooDemo {
     private func show(_ message: Message, _ status: FlooWorkStatus) {
         let was = message.status
         message.status = status
-        let shown = rows.contains {
-            if $0.message == message.id, case .work(.status) = $0.kind { true } else { false }
+        let shown = (shownRows[message.id] ?? []).contains {
+            if case .work(.status) = $0.kind { true } else { false }
         }
         guard shown, !was.shows(as: status) else {
-            workChanged(message.agent)
+            workChanged(message)
             return
         }
-        withAnimation(FlooDesignTokens.Motion.layout) { workChanged(message.agent) }
+        show(message.id, animated: true)
+        refreshPresence(message.agent)
     }
 
     /// A tap on a bubble: how the work went, or back to where it is.
@@ -1013,7 +1025,7 @@ final class FlooDemo {
         guard let message = message(id), !message.work.isEmpty else { return }
         message.detailed.toggle()
         // The bubble opens in place, the rows after it moving with it.
-        withAnimation(FlooDesignTokens.Motion.layout) { publish() }
+        show(id, animated: true)
     }
 
     /// A tap on a stretch of thinking that's done: its words, or folded again.
@@ -1021,7 +1033,7 @@ final class FlooDemo {
         guard let message = message(id) else { return }
         if message.openThoughts.remove(step) == nil { message.openThoughts.insert(step) }
         // The thought opens in its line, what's after it moving down with it.
-        withAnimation(FlooDesignTokens.Motion.layout) { publish() }
+        show(id, animated: true)
     }
 
     func thought(_ id: Int, _ step: String) -> FlooThought? {
@@ -1032,7 +1044,7 @@ final class FlooDemo {
     func setWork(_ message: Message, _ process: FlooProcess?) {
         guard message.process != process else { return }
         message.process = process
-        workChanged(message.agent)
+        workChanged(message)
     }
 
     /// What each backend card's session was given of its source while it was drawn, and on
@@ -1080,7 +1092,7 @@ final class FlooDemo {
         session.finish()
         sessions[key] = session
         versions[key, default: 0] += 1
-        publish()
+        showCard(key)
     }
 
     /// Opens a page the conversation shows, over it, read as it is now.
@@ -1091,9 +1103,27 @@ final class FlooDemo {
         }
     }
 
-    /// Something in the conversation changed that only a new set of rows shows.
-    func refresh() {
-        publish()
+    /// Changes `body` makes are shown once it's done, each message changed once (FlooLive:
+    /// all an update brings).
+    func batch(_ body: () -> Void) {
+        batching += 1
+        body()
+        batching -= 1
+        guard batching == 0, !changed.isEmpty else { return }
+        let keys = changed.compactMap { key in order[key].map { (key, $0) } }.sorted { $0.1 < $1.1 }.map(\.0)
+        let animated = changedAnimated
+        changed = []
+        changedAnimated = false
+        if animated {
+            withAnimation(FlooDesignTokens.Motion.layout) { for key in keys { remake(key) } }
+        } else {
+            for key in keys { remake(key) }
+        }
+    }
+
+    /// A message changed in ways only its rows show (its fences' cards, mentions, pages).
+    func touch(_ message: Message) {
+        show(message.id)
     }
 
     func setPresence(_ agent: FlooAgent, _ doing: String?) {
@@ -1107,7 +1137,7 @@ final class FlooDemo {
     /// Answers come in as your messages, each quoting its item.
     func ask(_ message: Message, _ card: FlooAskCard) {
         message.asks.append(card)
-        publish()
+        show(message.id)
     }
 
     /// Waits for one item of an ask; the script answers for you after `autoAfter`
@@ -1215,14 +1245,11 @@ final class FlooDemo {
             askWaits.removeValue(forKey: "\(id)#\(index)")?
                 .resume(returning: Said(id: -1, speaker: .me, text: "", receipt: nil))
         }
-        publish()
+        show(message.id)
     }
 
     private func askMessage(_ id: String) -> Message? {
-        for entry in entries {
-            if case .message(let message) = entry, message.asks.contains(where: { $0.id == id }) { return message }
-        }
-        return nil
+        askMessages[id].flatMap { messageByID[$0] }
     }
 
     /// Tapping a floo.choice option sends its `send` as your message and marks it 选了;
@@ -1231,11 +1258,12 @@ final class FlooDemo {
         if let live, let place = choiceFences[row], let number = message(place.message)?.number {
             // The backend has your message after: it comes back with the conversation.
             chosen[row] = index
-            publish()
+            show(place.message)
             live.choose(message: number, fence: place.fence, item: index, option: option)
             return
         }
         chosen[row] = index
+        if let place = choiceFences[row] { show(place.message) }
         let said = say(.me, option.send ?? option.label, receipt: .read)
         choiceSaid[row] = (option, said)
         choiceWaits.removeValue(forKey: row)?.resume(returning: (option, said))
@@ -1309,7 +1337,7 @@ final class FlooDemo {
     ) async throws -> FlooDecision {
         self.approval = approval
         message.process?.waitsForYou = true
-        workChanged(message.agent)
+        workChanged(message)
         let auto = Task { [weak self] in
             try await self?.wait(autoAfter)
             self?.decide(deciding)
@@ -1317,7 +1345,7 @@ final class FlooDemo {
         let decided = await withCheckedContinuation { decision = $0 }
         auto.cancel()
         message.process?.waitsForYou = false
-        workChanged(message.agent)
+        workChanged(message)
         try Task.checkCancellation()
         return decided
     }
@@ -1331,7 +1359,7 @@ final class FlooDemo {
 
     /// Opens the conversation where it was last read rather than at its end.
     func openAtUnread() {
-        guard let id = rows.first(where: { if case .unread = $0.kind { true } else { false } })?.id else { return }
+        guard let id = list.items.last(where: { if case .unread = $0.kind { true } else { false } })?.id else { return }
         following = false
         scrollPosition.scrollTo(id: id, anchor: .top, animated: false)
     }
@@ -1384,7 +1412,7 @@ final class FlooDemo {
 
     func toggle(_ row: String) {
         if expanded.contains(row) { expanded.remove(row) } else { expanded.insert(row) }
-        publish()
+        if let message = Self.message(ofRow: row) { show(message) }
     }
 
     // MARK: Rows
@@ -1403,7 +1431,7 @@ final class FlooDemo {
             generation: message.generation
         )
         if whole { message.coordinator.revealAll() }
-        publish()
+        show(message.id)
     }
 
     /// The backend's conversation has messages older than those shown (FlooLive).
@@ -1415,15 +1443,33 @@ final class FlooDemo {
     }
 
     /// What `body` adds (`begin`, `say`) goes before everything shown: older messages,
-    /// loaded on scrolling up.
+    /// loaded on scrolling up. Their rows go in at the top together.
     func prepending(_ body: () -> Void) {
         let shown = entries
         entries = []
         holding = true
         body()
         holding = false
-        entries += shown
-        publish()
+        let page = entries
+        entries = page + shown
+        order.moved(0..<page.count, by: page.count, count: entries.count) { entries[$0].key }
+        var rows: [FlooRow] = []
+        var last: FlooAgent?
+        for (key, entry) in page {
+            var continuing = false
+            if case .message(let message) = entry { continuing = last == message.agent }
+            let made = self.rows(for: entry, key: key, continuing: continuing)
+            if case .message(let message) = entry { note(message) }
+            changed.remove(key)
+            guard !made.isEmpty else { continue }
+            shownRows[key] = made
+            if case .message(let message) = entry { last = message.agent } else { last = nil }
+            rows += made
+        }
+        list.prepend(rows)
+        // The first message shown before may go under the page's last signature now.
+        if let next = shownEntry(from: page.count, by: 1) { show(entries[next].key) }
+        showLast()
     }
 
     /// Scrolled to the top of the conversation: the page before it.
@@ -1431,42 +1477,135 @@ final class FlooDemo {
         await live?.loadOlder()
     }
 
-    private func publish() {
-        guard !holding else { return }
-        // An agent's messages one after another are under one signature.
-        var last: FlooAgent?
-        rows = entries.flatMap { entry -> [FlooRow] in
-            guard case .message(let message) = entry else {
-                let made = rows(for: entry)
-                if !made.isEmpty { last = nil }
-                return made
-            }
-            let made = rows(for: entry, continuing: last == message.agent)
-            if !made.isEmpty { last = message.agent }
-            return made
+    /// An entry at the end of the conversation.
+    private func add(_ entry: Entry, key: Int) {
+        entries.append((key, entry))
+        order.moved((entries.count - 1)..<entries.count, by: 1, count: entries.count) { entries[$0].key }
+        show(key)
+    }
+
+    /// The entry at `index` leaves the conversation, its rows with it.
+    private func take(at index: Int) {
+        let key = entries[index].key
+        let rows = shownRows.removeValue(forKey: key) ?? []
+        changed.remove(key)
+        entries.remove(at: index)
+        order.forget(key)
+        order.moved(index..<index, by: -1, count: entries.count) { entries[$0].key }
+        guard !rows.isEmpty else { return }
+        list.remove(rows.map(\.id))
+        // The message after it may need its signature now, or not.
+        if let next = shownEntry(from: index, by: 1) { show(entries[next].key) }
+        showLast()
+    }
+
+    /// An entry's rows made again, and put in the list in place of what it showed: the work
+    /// follows the entry, not the conversation. In a batch, once at its end. `animated`: with
+    /// the layout spring.
+    private func show(_ key: Int, animated: Bool = false) {
+        guard !holding, order[key] != nil else { return }
+        if batching > 0 {
+            changed.insert(key)
+            if animated { changedAnimated = true }
+        } else if animated {
+            withAnimation(FlooDesignTokens.Motion.layout) { remake(key) }
+        } else {
+            remake(key)
         }
-        errands = entries.compactMap { entry in
-            guard case .message(let message) = entry, let process = message.process, process.running,
-                  let title = process.title
-            else { return nil }
-            return Errand(id: message.id, agent: message.agent, title: title, doing: process.doing ?? "在弄", since: message.time)
+    }
+
+    private func remake(_ key: Int) {
+        guard let index = order[key] else { return }
+        let entry = entries[index].entry
+        let before = shownEntry(from: index - 1, by: -1)
+        var continuing = false
+        if case .message(let message) = entry, let before, case .message(let previous) = entries[before].entry {
+            continuing = previous.agent == message.agent
         }
-        openAsks = entries.flatMap { entry -> [(message: Int, card: FlooAskCard)] in
-            guard case .message(let message) = entry else { return [] }
-            return message.asks.filter { $0.state == .open }.map { (message: message.id, card: $0) }
+        let made = rows(for: entry, key: key, continuing: continuing)
+        if case .message(let message) = entry { note(message) }
+        let old = shownRows[key] ?? []
+        guard made != old else { return }
+        shownRows[key] = made.isEmpty ? nil : made
+        list.replace(old, with: made, after: before.flatMap { shownRows[entries[$0].key]?.last?.id })
+        // Coming or going, it may put the message after it under its signature or out of it.
+        if old.isEmpty != made.isEmpty, let next = shownEntry(from: index + 1, by: 1),
+           case .message = entries[next].entry {
+            show(entries[next].key)
         }
-        if openAsks.count < 2 { showsAsks = false }
+        showLast()
+    }
+
+    /// The messages showing a card, again: what's drawn of it changed.
+    private func showCard(_ card: String) {
+        for message in cardMessages[card] ?? [] { show(message) }
+    }
+
+    /// The nearest entry from `index` on (`step` 1) or back (-1) that shows something.
+    private func shownEntry(from index: Int, by step: Int) -> Int? {
+        var at = index
+        while entries.indices.contains(at) {
+            if shownRows[entries[at].key] != nil { return at }
+            at += step
+        }
+        return nil
+    }
+
+    private func showLast() {
+        let last = list.items.last
+        if lastRow != last { lastRow = last }
+    }
+
+    /// What depends on a message besides its rows, as it is now: what it has in hand, its open
+    /// asks, the cards it shows, its work for its agent's presence. Gone: none of it.
+    private func note(_ message: Message, gone: Bool = false) {
+        let id = message.id
+        var errand: Errand?
+        if !gone, let process = message.process, process.running, let title = process.title {
+            errand = Errand(id: id, agent: message.agent, title: title, doing: process.doing ?? "在弄", since: message.time)
+        }
+        if errands.first(where: { $0.id == id }) != errand {
+            var all = errands.filter { $0.id != id }
+            if let errand { all.insert(errand, at: place(id, among: all.map(\.id))) }
+            errands = all
+        }
+        let open = gone ? [] : message.asks.filter { $0.state == .open }
+        if openAsks.filter({ $0.message == id }).map(\.card) != open {
+            var all = openAsks.filter { $0.message != id }
+            all.insert(contentsOf: open.map { (message: id, card: $0) }, at: place(id, among: all.map(\.message)))
+            openAsks = all
+            if openAsks.count < 2 { showsAsks = false }
+        }
+        if !gone { for card in message.asks { askMessages[card.id] = id } }
+        let atWork = !gone && message.process.map { $0.running && !$0.waitsForYou } == true
+        var ids = working[message.agent] ?? []
+        if atWork != ids.contains(id) {
+            if atWork { ids.insert(id, at: place(id, among: ids)) } else { ids.removeAll { $0 == id } }
+            working[message.agent] = ids
+        }
+    }
+
+    /// Where an entry goes among others in the conversation's order.
+    private func place(_ key: Int, among keys: [Int]) -> Int {
+        let at = order[key] ?? .max
+        return keys.firstIndex { (order[$0] ?? .max) > at } ?? keys.count
+    }
+
+    /// The message a row is of: `m<id>#…`.
+    private static func message(ofRow row: String) -> Int? {
+        guard row.hasPrefix("m"), let end = row.firstIndex(of: "#") else { return nil }
+        return Int(row[row.index(after: row.startIndex)..<end])
     }
 
     /// `continuing`: the message follows another of its agent's, whose signature it's under.
-    private func rows(for entry: Entry, continuing: Bool = false) -> [FlooRow] {
+    private func rows(for entry: Entry, key: Int, continuing: Bool = false) -> [FlooRow] {
         switch entry {
         case .time(let text):
-            return [FlooRow(id: "time:\(text)", message: nil, kind: .time(text))]
+            return [FlooRow(id: "time:\(key)", message: nil, kind: .time(text))]
         case .unread(let text):
-            return [FlooRow(id: "unread", message: nil, kind: .unread(text))]
+            return [FlooRow(id: "unread:\(key)", message: nil, kind: .unread(text))]
         case .catchUp(let text):
-            return [FlooRow(id: "catchUp", message: nil, kind: .catchUp(text))]
+            return [FlooRow(id: "catchUp:\(key)", message: nil, kind: .catchUp(text))]
         case .said(let said):
             return [FlooRow(id: row(of: said), message: nil, kind: .said(said.speaker, said.text, said.receipt, quote: said.quote))]
         case .message(let message):
@@ -1590,8 +1729,9 @@ final class FlooDemo {
                     if message.number != nil {
                         let layout = Self.cardLayout(info)
                         let cards = (language == "floo.card" ? body.map { [$0] } : [body]).map { lines in
-                            FlooCard(language: language, lines: lines,
-                                     version: Self.cardName(language, lines).flatMap { versions[$0] } ?? 0, layout: layout)
+                            let name = Self.cardName(language, lines)
+                            if let name { cardMessages[name, default: []].insert(message.id) }
+                            return FlooCard(language: language, lines: lines, version: name.flatMap { versions[$0] } ?? 0, layout: layout)
                         }
                         // After the card before with nothing between: one row with it, a new row
                         // as it grows (what's put into a row in place doesn't show).
@@ -1608,6 +1748,7 @@ final class FlooDemo {
                         }
                     }
                     let card = Self.cardName(language, body)
+                    if let card { cardMessages[card, default: []].insert(message.id) }
                     rows.append(FlooRow(
                         id: row,
                         message: message.id,
@@ -1668,7 +1809,7 @@ final class FlooDemo {
                 self.starts[message.id] = nil
                 // The status gives way to the words in the bubble, which goes from the one to
                 // the other.
-                Task { @MainActor in withAnimation(FlooDesignTokens.Motion.layout) { self.publish() } }
+                Task { @MainActor in self.show(message.id, animated: true) }
             }
             starts[message.id] = (manager, listener)
         }
@@ -1686,7 +1827,7 @@ final class FlooDemo {
         let listener = manager.addRevealCompletionListener { [weak self] revealed in
             guard revealed else { return }
             // Not inside the reveal's own call to its listeners.
-            Task { @MainActor in self?.publish() }
+            Task { @MainActor in self?.show(message) }
         }
         waits[message] = (manager, listener)
     }
@@ -1738,10 +1879,7 @@ final class FlooDemo {
     }
 
     func message(_ id: Int) -> Message? {
-        for entry in entries {
-            if case .message(let message) = entry, message.id == id { return message }
-        }
-        return nil
+        messageByID[id]
     }
 
     /// The lines between a fence's first line and its end.

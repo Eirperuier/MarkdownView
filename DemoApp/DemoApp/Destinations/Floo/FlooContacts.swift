@@ -278,7 +278,8 @@ final class FlooContactsDemo {
     @ObservationIgnored var deviceStandings: [DeviceStanding] = []
     /// The standings' revision as last read: read again, they come only if changed.
     @ObservationIgnored var standingsRevision: String?
-    @ObservationIgnored var pushes: [FeedItem] = []
+    /// The feed's latest pushes, by the service whose conversation they're in.
+    @ObservationIgnored var pushes: [ServiceID: [FeedItem]] = [:]
     @ObservationIgnored var watches: [String: [WatchInfo]] = [:]
     var following: [String: FlooFollowing] = FlooContactsDemo.start
     var devices = FlooDevice.all
