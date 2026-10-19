@@ -44,7 +44,7 @@ final class FlooPrograms {
 final class FlooOpenProgram: Identifiable {
     let summary: ProgramSummary
     let server: FlooClient
-    let session = CardSession()
+    let session = CardSession(runtime: FlooOpenProgram.runtime)
     @ObservationIgnored private(set) var store: CloudStore!
     private(set) var mini: MiniProgram?
     private(set) var problem: String?
@@ -53,6 +53,9 @@ final class FlooOpenProgram: Identifiable {
     @ObservationIgnored private var following: [Task<Void, Never>] = []
 
     nonisolated var id: ProgramID { summary.id }
+
+    /// A page's runtime: its lists make each row as it's drawn, and screens, sheets and tabs what they show when shown.
+    static let runtime = CardRuntime(formatting: .foundation, lazy: true)
 
     init(summary: ProgramSummary, server: FlooClient) {
         self.summary = summary
@@ -273,6 +276,7 @@ struct FlooProgramScreen: View {
                     .environment(\.miniProgram, program.mini)
                     .environment(\.cardHost, program.host)
                     .environment(\.cardShowsPage, true)
+                    .environment(\.cardRuntime, FlooOpenProgram.runtime)
                     .environment(\.horizontalSizeClass, .compact)
             }
         }
