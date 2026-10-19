@@ -416,7 +416,7 @@ final class FlooLive {
         guard let client else { return [] }
         if catalog == nil { await loadCatalog() }
         let connections = Dictionary(try await client.connections().map { ($0.service, $0) }) { first, _ in first }
-        return (catalog?.services ?? []).filter { $0.hosts.contains(.cloud) || $0.hosts.contains(.mac) }.map { entry in
+        return (catalog?.services ?? []).filter { !$0.hidden && ($0.hosts.contains(.cloud) || $0.hosts.contains(.mac)) }.map { entry in
             let zh = entry.presentation.localized["zh-Hans"]
             return FlooLiveService(
                 id: entry.id.rawValue,
