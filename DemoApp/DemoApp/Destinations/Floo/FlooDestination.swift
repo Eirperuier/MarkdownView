@@ -234,6 +234,10 @@ struct FlooDestination: View {
                 }
             }
             .pickerStyle(.inline)
+            // The list comes a page at a time; the next one is added here.
+            if demo.hasMorePlaces {
+                Button("显示更多", systemImage: "ellipsis") { demo.morePlaces() }
+            }
             Divider()
             Button("新建群聊…", systemImage: "person.2") { demo.startsGroup = true }
             Button("连接服务…", systemImage: "link") { demo.showsServices = true }
