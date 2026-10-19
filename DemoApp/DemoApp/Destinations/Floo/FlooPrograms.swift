@@ -251,7 +251,20 @@ struct FlooProgramScreen: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Group {
+        // A bar of its own above the program, whose toolbar has both corners.
+        VStack(spacing: 0) {
+            HStack {
+                Button("关闭", systemImage: "xmark") {
+                    program.close()
+                    dismiss()
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             if let problem = program.problem, program.mini == nil {
                 ScrollView { Text(problem).font(.system(.footnote, design: .monospaced)).padding() }
             } else {
@@ -261,16 +274,6 @@ struct FlooProgramScreen: View {
                     .environment(\.cardHost, program.host)
                     .environment(\.cardShowsPage, true)
             }
-        }
-        .overlay(alignment: .topTrailing) {
-            Button("关闭", systemImage: "xmark") {
-                program.close()
-                dismiss()
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.circle)
-            .padding(12)
         }
     }
 }
