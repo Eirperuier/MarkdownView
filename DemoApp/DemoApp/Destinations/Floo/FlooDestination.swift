@@ -33,6 +33,8 @@ struct FlooDestination: View {
     @AppStorage("flooChatBackground") private var backgroundName = "plain"
     /// A topic's name as you type it.
     @State private var topicTitle = ""
+    /// The person's mini programs, open over the conversation.
+    @State private var showsPrograms = false
     @Environment(\.colorScheme) private var colorScheme
 
     static var launchScenario: FlooScenario? {
@@ -132,6 +134,9 @@ struct FlooDestination: View {
         .sheet(isPresented: $demo.showsServices) {
             if let live = demo.live { FlooContactsDestination(live: live) }
         }
+        .sheet(isPresented: $showsPrograms) {
+            if let server = demo.live?.server { FlooProgramsView(programs: FlooPrograms(server: server)) }
+        }
         .alert("开话题", isPresented: Binding(get: { demo.naming != nil }, set: { if !$0 { demo.naming = nil } })) {
             TextField("话题名", text: $topicTitle)
             Button("开") {
@@ -174,6 +179,15 @@ struct FlooDestination: View {
             Spacer()
             if demo.isLive, demo.signedIn != nil || !demo.places.isEmpty {
                 placesMenu
+            }
+            if demo.isLive, demo.live?.server != nil {
+                Button {
+                    showsPrograms = true
+                } label: {
+                    Image(systemName: "square.grid.2x2").font(.body.weight(.medium))
+                }
+                .buttonStyle(.borderless)
+                .help("小程序")
             }
             if let cards = demo.cardModel {
                 cardModelMenu(cards)
