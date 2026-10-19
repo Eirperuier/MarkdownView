@@ -147,20 +147,25 @@ final class FlooLive {
     /// The conversation shown, and the following of it, ended to go to another.
     private var current: ConversationID?
     private var watching: Task<Void, Never>?
-    /// The conversation list as this device has it (floo docs/messaging.md §3.2): each row's
-    /// newest copy, by id; paged down from the top, and kept up a row at a time by the
-    /// account's stream of changes.
+    /// The account's conversation list (floo docs/messaging.md §3.2), kept in the store and
+    /// followed by the account's one stream; the services pages follow it through here too.
+    private var list: DialogList?
+    /// The rows this device has had, each's newest copy, by id: paged down from the top (from
+    /// the store first), and kept up a row at a time by the stream.
     private var dialogs: [ConversationID: Dialog] = [:]
     /// The rows shown, in the list's order: those paged down to (`listEnd`).
-    private var listed: [ListKey] = []
+    private var listed: [DialogPlace] = []
     /// Rows the stream brought below where the list is paged to: shown once paging gets there.
     private var below: Set<ConversationID> = []
-    /// The list's seq caught up to; nil until the stream says where the list is.
-    private var listSeq: Int64?
-    /// The last row paged in, where the next page starts; and whether the list ends there.
+    /// Where the last page ended, where the next starts; and whether the list ends there.
     private var listEnd: Dialog?
     private var listDone = false
     private var paging = false
+    /// Bumped as the list is made anew: a page asked for before is dropped.
+    private var listGeneration = 0
+    /// The services pages following their conversations' rows (`serviceRows`).
+    private var serviceFollowers: [Int: AsyncStream<ServiceRow>.Continuation] = [:]
+    private var nextServiceFollower = 0
     /// The conversation the list shows as the one you're in.
     private var listedCurrent: ConversationID?
     /// The topics and comments on the shown conversation's messages: by message, and the
@@ -297,53 +302,59 @@ final class FlooLive {
         }
     }
 
-    /// The list, kept up by the account's stream (floo docs/messaging.md §3.2): its first page
-    /// once the stream says where the list is, then each row as it changes, applied to that
-    /// row alone; paged again from the top only when the list was made anew. The stream
-    /// resumes from the last row it brought by itself; anything that ends it is retried.
+    /// The list, local first (floo docs/messaging.md §3.2): the first page kept on this device
+    /// shows at once, with no network; the account's stream resumes from the kept seq, and each
+    /// row that changed since, and as it changes, is kept and applied to that row alone. With
+    /// nothing kept, the first page comes once the stream says where the list is; it's paged
+    /// again from the top only when the server's list is another one. One stream for the
+    /// account (`DialogList`): the services pages take their rows from here.
     private func keepListing() async {
         guard let client else { return }
-        while !Task.isCancelled {
-            do {
-                for try await event in client.dialogChanges(after: listSeq) {
-                    switch event {
-                    case .head(let seq):
-                        guard listSeq.map({ seq < $0 }) ?? true else { continue }
-                        resetList()
-                        listSeq = seq
-                        await loadMorePlaces()
-                    case .changed(let change):
-                        listSeq = change.seq
-                        take(change.dialog, of: change.conversation, seq: change.seq)
-                    }
-                }
-            } catch {
-                // Refused (it reconnects by itself after transport failures): tried again after a pause.
+        let list = DialogList(remote: client, storage: store?.conversations ?? MemoryConversationStorage(),
+                              pageSize: Self.listPage)
+        self.list = list
+        let changes = await list.changes()
+        let following = Task { await list.follow() }
+        defer { following.cancel() }
+        Task { await loadMorePlaces() }
+        for await change in changes {
+            switch change {
+            case .reset:
+                resetList()
+                Task { await loadMorePlaces() }
+            case .row(let change):
+                take(change.dialog, of: change.conversation, seq: change.seq)
             }
-            guard (try? await Task.sleep(for: .seconds(5))) != nil else { return }  // try?: cancelled, done
         }
     }
 
     /// A page of the list.
     private static let listPage = 50
 
-    /// The next page of the list below the rows paged so far (the first, when none are);
-    /// rows the stream brought below them show as paging reaches them.
+    /// The next page of the list below the rows paged so far (the first, when none are): the
+    /// kept rows, then the server's past them; rows the stream brought below them show as
+    /// paging reaches them.
     func loadMorePlaces() async {
-        guard let client, !listDone, !paging else { return }
+        guard let list, !listDone, !paging else { return }
         paging = true
-        defer { paging = false }
+        let generation = listGeneration
         // try?: not paged now, asked again with the next `morePlaces`
-        guard let page = try? await client.dialogs(after: listEnd?.cursor, limit: Self.listPage) else { return }
-        listEnd = page.last ?? listEnd
-        listDone = page.count < Self.listPage
-        for dialog in page { take(dialog, of: dialog.conversation.id, seq: dialog.seq) }
+        let page = try? await list.page(after: listEnd)
+        // Made anew meanwhile: paged again from the top.
+        guard generation == listGeneration else { return }
+        paging = false
+        guard let page else { return }
+        listEnd = page.end ?? listEnd
+        listDone = !page.more
+        for dialog in page.rows { take(dialog, of: dialog.conversation.id, seq: dialog.seq) }
         for id in below { reposition(id, was: dialogs[id]) }
         demo.setHasMorePlaces(!listDone)
     }
 
     /// The list made anew: nothing held, paged from the top again.
     private func resetList() {
+        listGeneration += 1
+        paging = false
         dialogs = [:]
         listed = []
         below = []
@@ -362,31 +373,9 @@ final class FlooLive {
         dialogs[id] = dialog
         reposition(id, was: old)
         hang(id)
-    }
-
-    /// Where a row goes in the list shown: the main conversation first, then the pinned ones
-    /// (most recently pinned first), then by activity, newest first; ties by id, as the server.
-    private struct ListKey: Comparable {
-        let main: Bool
-        let pinned: Int64
-        let active: Int64
-        let id: String
-
-        static func < (a: ListKey, b: ListKey) -> Bool {
-            if a.main != b.main { return a.main }
-            if a.pinned != b.pinned { return a.pinned > b.pinned }
-            if a.active != b.active { return a.active > b.active }
-            return a.id > b.id
+        if !serviceFollowers.isEmpty, case .service(let service)? = (dialog ?? old)?.conversation.kind {
+            for follower in serviceFollowers.values { follower.yield(ServiceRow(service: service, dialog: dialog)) }
         }
-    }
-
-    private func key(_ dialog: Dialog) -> ListKey {
-        ListKey(
-            main: dialog.conversation.kind == .main,
-            pinned: dialog.settings?.pinnedAt?.millisecondsSince1970 ?? -1,
-            active: (dialog.activeAt ?? dialog.conversation.createdAt).millisecondsSince1970,
-            id: dialog.conversation.id.description
-        )
     }
 
     /// Whether the list shows the row: not agents' own conversations; a topic when it's listed
@@ -399,12 +388,13 @@ final class FlooLive {
         }
     }
 
-    /// The row moved from where `old` had it to where it goes now, in the rows shown: found
-    /// and placed by binary search, the one row changed in the demo's list.
+    /// The row moved from where `old` had it to where it goes now, in the rows shown (in the
+    /// list's order, `DialogPlace`): found and placed by binary search, the one row changed
+    /// in the demo's list.
     private func reposition(_ id: ConversationID, was old: Dialog?) {
         var from: Int?
         if let old {
-            let at = insertion(key(old))
+            let at = insertion(DialogPlace(old))
             if at < listed.count, listed[at].id == id.description {
                 from = at
                 listed.remove(at: at)
@@ -413,8 +403,8 @@ final class FlooLive {
         var to: Int?
         below.remove(id)
         if let dialog = dialogs[id], shows(dialog) {
-            let here = key(dialog)
-            if here.main || listDone || listEnd.map({ !(key($0) < here) }) == true {
+            let here = DialogPlace(dialog)
+            if here.main || listDone || listEnd.map({ here <= DialogPlace($0) }) == true {
                 let at = insertion(here)
                 listed.insert(here, at: at)
                 to = at
@@ -427,7 +417,7 @@ final class FlooLive {
     }
 
     /// Where `key` is or would go among the rows shown.
-    private func insertion(_ key: ListKey) -> Int {
+    private func insertion(_ key: DialogPlace) -> Int {
         var low = 0, high = listed.count
         while low < high {
             let middle = (low + high) / 2
@@ -660,6 +650,33 @@ final class FlooLive {
     func directory() async -> [ServiceSummary]? {
         if index == nil { await loadIndex() }
         return index?.services
+    }
+
+    /// A service's conversation as the list has it, or as it left it (nil).
+    struct ServiceRow: Sendable {
+        let service: ServiceID
+        let dialog: Dialog?
+    }
+
+    /// The services' conversations the list has now, by service.
+    func serviceDialogs() -> [ServiceID: Dialog] {
+        var found: [ServiceID: Dialog] = [:]
+        for dialog in dialogs.values {
+            if case .service(let service) = dialog.conversation.kind, found[service] == nil { found[service] = dialog }
+        }
+        return found
+    }
+
+    /// The services' conversations' rows as they change from now on, whatever brings them (a
+    /// page, the account's stream, a topic read): the services pages follow these rather than
+    /// listing conversations themselves, so the account has one stream.
+    func serviceRows() -> AsyncStream<ServiceRow> {
+        let (stream, continuation) = AsyncStream.makeStream(of: ServiceRow.self)
+        let id = nextServiceFollower
+        nextServiceFollower += 1
+        serviceFollowers[id] = continuation
+        continuation.onTermination = { _ in Task { @MainActor [weak self] in self?.serviceFollowers[id] = nil } }
+        return stream
     }
 
     /// Goes to `service`'s conversation, once listed.

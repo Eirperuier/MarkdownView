@@ -20,9 +20,9 @@ import TransportKit
 import ServiceKit
 
 extension FlooContactsDemo {
-    /// Reads it all again from the server, showing each part as it comes: the services and
-    /// which are followed first, then where each can come from, a few at a time, then what
-    /// each is doing and has sent, then the settings files.
+    /// Reads it all again, showing each part as it comes: the services and which are followed
+    /// first (their conversations as the chat's list has them), then where each can come from,
+    /// a few at a time, then what each is doing and has sent, then the settings files.
     func load() async {
         guard let live, let client = live.server else { return }
         guard let directory = await live.directory() else {
@@ -31,30 +31,15 @@ extension FlooContactsDemo {
         }
         let entries = directory.filter { !$0.hidden && !$0.hosts.isEmpty }
         if services.isEmpty { services = entries.map { opened[$0.id.rawValue] ?? Self.service($0) } }
-        // try?: each part not read now stays as it was, read again on the next load
-        if let conversations = try? await client.dialogs() {
-            dialogs = Dictionary(conversations.compactMap { dialog in
-                if case .service(let id) = dialog.conversation.kind { (id.rawValue, dialog) } else { nil }
-            }) { first, _ in first }
-            refollow()
-        }
+        // The services' conversations as the chat's list has them; changes come by `follow`.
+        dialogs = Dictionary(uniqueKeysWithValues: live.serviceDialogs().map { ($0.key.rawValue, $0.value) })
+        refollow()
         services = entries.map { opened[$0.id.rawValue] ?? Self.service($0) }
 
-        // Where your services stand: your devices once, then the services you have a page at a
-        // time; nothing comes when nothing changed since the last read. A service you don't
-        // have is looked at when its page opens (`look`).
-        if let read = await readStandings(client) {
-            standingsRevision = read.revision
-            deviceStandings = read.devices
-            standings = Dictionary(read.services.map { ($0.service, $0) }) { first, _ in first }
-            devices = devices(from: read.devices)
-            for entry in entries {
-                found[entry.id.rawValue] = sources(entry, standings[entry.id])
-            }
-            refollow()
-        }
+        await readStandings(client, entries)
 
-        if let feed = try? await client.feed(limit: 100) {  // try?: as above
+        // try?: each part not read now stays as it was, read again on the next load
+        if let feed = try? await client.feed(limit: 100) {
             let kinds = Dictionary(feed.conversations.map { ($0.id, $0.kind) }) { first, _ in first }
             pushes = Dictionary(grouping: feed.items.compactMap { item -> (ServiceID, FeedItem)? in
                 if case .service(let service) = kinds[item.conversation] { (service, item) } else { nil }
@@ -70,9 +55,24 @@ extension FlooContactsDemo {
         await loadSettings()
     }
 
+    /// Where your services stand: your devices once, then the services you have a page at a
+    /// time; nothing comes when nothing changed since the last read. A service you don't
+    /// have is looked at when its page opens (`look`).
+    private func readStandings(_ client: FlooClient, _ entries: [ServiceSummary]) async {
+        guard let read = await standingsRead(client) else { return }
+        standingsRevision = read.revision
+        deviceStandings = read.devices
+        standings = Dictionary(read.services.map { ($0.service, $0) }) { first, _ in first }
+        devices = devices(from: read.devices)
+        for entry in entries {
+            found[entry.id.rawValue] = sources(entry, standings[entry.id])
+        }
+        refollow()
+    }
+
     /// The standings since `standingsRevision`, all their pages; nil when nothing changed or
     /// they weren't read.
-    private func readStandings(_ client: FlooClient) async -> ServiceStandings? {
+    private func standingsRead(_ client: FlooClient) async -> ServiceStandings? {
         do {
             guard var read = try await client.standings(revision: standingsRevision) else { return nil }
             var page = read
@@ -128,12 +128,60 @@ extension FlooContactsDemo {
         asked = asked.mapValues { $0.subtracting(following.values.flatMap(\.devices)) }.filter { !$0.value.isEmpty }
     }
 
-    /// While the pages are open: read again now and then, as devices come and go; sooner
-    /// while a device was asked to set something up.
+    /// While the pages are open: all read once, then the services' conversations as they
+    /// change, from the chat's list and the account's one stream it follows (FlooLive), not
+    /// listed again; a message in one (a push, a watch its agent set) reads the newest of the
+    /// feed and its watches. Only while a device was asked to set something up are the
+    /// standings asked again (no stream says when it's done), an answer only once they changed.
     func follow() async {
+        guard let live else { return }
+        let rows = live.serviceRows()
+        await load()
+        let waiting = Task { await waitForAsked() }
+        defer { waiting.cancel() }
+        for await row in rows {
+            await take(row)
+        }
+    }
+
+    /// A service's conversation as it is now: muted, pinned; with a message since, what it
+    /// pushed and what its agent watches.
+    private func take(_ row: FlooLive.ServiceRow) async {
+        let id = row.service.rawValue
+        let old = dialogs[id]
+        dialogs[id] = row.dialog
+        refollow()
+        guard let client = live?.server, let old, let dialog = row.dialog, dialog.activeAt != old.activeAt else { return }
+        // try?: each part not read now stays as it was, read again on the next change or load
+        if let feed = try? await client.feed(limit: Self.newestPushes) {
+            let kinds = Dictionary(feed.conversations.map { ($0.id, $0.kind) }) { first, _ in first }
+            var fresh: [ServiceID: [FeedItem]] = [:]
+            for item in feed.items {
+                if case .service(let service) = kinds[item.conversation] { fresh[service, default: []].append(item) }
+            }
+            for (service, items) in fresh {
+                let ids = Set(items.map(\.message.id))
+                pushes[service] = items + (pushes[service] ?? []).filter { !ids.contains($0.message.id) }
+            }
+        }
+        if following[id] != nil, let found = try? await client.watches(in: dialog.conversation.id) {
+            watches[id] = found.filter { $0.agent == .agent(.service(row.service), of: dialog.conversation.owner) }
+        }
+        refollow()
+    }
+
+    /// The feed's newest pushes, read as a service's conversation moves.
+    private static let newestPushes = 20
+
+    /// While a device was asked to set a service up: where your services stand, asked every
+    /// few seconds until it provides it (`refollow` ends the asking).
+    private func waitForAsked() async {
         while !Task.isCancelled {
-            await load()
-            guard (try? await Task.sleep(for: .seconds(asked.isEmpty ? 15 : 4))) != nil else { return }  // try?: cancelled, done
+            guard (try? await Task.sleep(for: .seconds(4))) != nil else { return }  // try?: cancelled, done
+            guard !asked.isEmpty, let live, let client = live.server, let directory = await live.directory() else { continue }
+            let following = Set(self.following.keys)
+            await readStandings(client, directory.filter { !$0.hidden && !$0.hosts.isEmpty })
+            if Set(self.following.keys) != following { await loadSettings() }
         }
     }
 
@@ -206,11 +254,11 @@ extension FlooContactsDemo {
             notifications: quiet.map { NotifySettings(mutedUntil: $0 ? NotifySettings.forever : nil) }
         )
         do {
+            // The row comes back changed by the account's stream (`follow`).
             _ = try await client.change(change, of: dialog.conversation.id)
         } catch {
             show("没改成：\(error)")
         }
-        await load()
     }
 
     /// Goes to its conversation in the chat.
