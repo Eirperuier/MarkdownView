@@ -595,6 +595,8 @@ private struct FlooRowView: View {
             .padding(.bottom, 4)
         case .said(let speaker, let text, let receipt, let quote):
             said(speaker, text, receipt, quote)
+                // Didn't go: a tap sends it again.
+                .onTapGesture { if receipt == .failed { demo.retry(row.id) } }
         case .signature(let agent, let time, let marks):
             signature(agent, time, marks)
         case .process(let process, let expanded, let open):
@@ -1318,12 +1320,14 @@ private struct FlooReceiptLabel: View {
             Text(receipt.label)
         }
         .font(.caption2)
-        .foregroundStyle(receipt == .unseen ? Color.orange : Color.secondary)
+        .foregroundStyle(receipt == .failed ? Color.red : receipt == .unseen ? Color.orange : Color.secondary)
         .contentTransition(.opacity)
     }
 
     private var icon: String {
         switch receipt {
+        case .sending: "clock"
+        case .failed: "exclamationmark.circle.fill"
         case .delivered: "checkmark"
         case .unseen: "clock"
         case .read: "eye"

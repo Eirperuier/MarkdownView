@@ -36,9 +36,13 @@ enum FlooSpeaker: Hashable, Sendable {
 /// answered.
 enum FlooReceipt: Hashable, Sendable {
     case delivered, unseen, read, answered
+    /// Shown as you send it, before the backend has it (FlooLive); and one that didn't go.
+    case sending, failed
 
     var label: String {
         switch self {
+        case .sending: "发送中"
+        case .failed: "未发送，点按重发"
         case .delivered: "已送达"
         case .unseen: "还没看到"
         case .read: "已读"
@@ -480,6 +484,9 @@ final class FlooDemo {
     @ObservationIgnored private var decision: CheckedContinuation<FlooDecision, Never>?
     /// The list of open asks, open over the composer.
     var showsAsks = false
+    /// Sending again what didn't go, by its row (FlooLive).
+    @ObservationIgnored var retries: [String: () -> Void] = [:]
+
     /// What you're answering in your own words: over the composer while you write.
     private(set) var answering: FlooAnsweringItem?
     @ObservationIgnored private(set) var sessions: [String: CardSession] = [:]
@@ -603,6 +610,14 @@ final class FlooDemo {
         }
         try await wait(300)
         composer = ""
+    }
+
+    /// The row a thing you said shows in.
+    func row(of said: Said) -> String { "s\(said.id)" }
+
+    /// Sends again what didn't go.
+    func retry(_ row: String) {
+        retries[row]?()
     }
 
     func mark(_ said: Said, _ receipt: FlooReceipt) {
@@ -1355,7 +1370,7 @@ final class FlooDemo {
         case .catchUp(let text):
             return [FlooRow(id: "catchUp", message: nil, kind: .catchUp(text))]
         case .said(let said):
-            return [FlooRow(id: "s\(said.id)", message: nil, kind: .said(said.speaker, said.text, said.receipt, quote: said.quote))]
+            return [FlooRow(id: row(of: said), message: nil, kind: .said(said.speaker, said.text, said.receipt, quote: said.quote))]
         case .message(let message):
             // A message is there once it has something: its first step of work or words, or
             // (the backend's) once it's being written.

@@ -95,6 +95,8 @@ final class FlooLive {
     private var client: FlooClient?
     /// The demo's entries for the backend's messages, by number.
     private var said: [Int64: FlooDemo.Said] = [:]
+    /// What you sent from here, shown at once, by its message's id until the backend has it.
+    private var outgoing: [MessageID: FlooDemo.Said] = [:]
     private var messages: [Int64: FlooDemo.Message] = [:]
     private var agents: [String: FlooAgent] = [:]
     /// How each service operation is shown, from the server's catalog: what tool calls show.
@@ -149,13 +151,8 @@ final class FlooLive {
 
     func send(_ text: String) {
         guard let session else { return }
-        Task {
-            do {
-                _ = try await session.send(MessageSend(id: .generate(), text: text))
-            } catch {
-                self.demo.catchUp("没发出去：\(error)")
-            }
-        }
+        // try?: one that doesn't go shows so in the conversation, to send again.
+        Task { _ = try? await session.send(MessageSend(id: .generate(), text: text)) }
     }
 
     func choose(message: Int64, fence: Int, item: Int, option: FlooOption) {
@@ -165,13 +162,7 @@ final class FlooLive {
             text: option.send ?? option.label,
             choosing: ChoiceRef(message: message, fence: fence, item: item)
         )
-        Task {
-            do {
-                _ = try await session.send(send)
-            } catch {
-                self.demo.catchUp("没发出去：\(error)")
-            }
-        }
+        Task { _ = try? await session.send(send) }  // try?: as `send`
     }
 
     /// Your answer to an item of an agent's ask: a message of yours answering it, with what you
@@ -183,13 +174,7 @@ final class FlooLive {
             text: text,
             answering: AskAnswer(ask: id, item: item, picked: picked, confirmed: confirmed, filled: filled)
         )
-        Task {
-            do {
-                _ = try await session.send(send)
-            } catch {
-                self.demo.catchUp("没发出去：\(error)")
-            }
-        }
+        Task { _ = try? await session.send(send) }  // try?: as `send`
     }
 
     // MARK: Card model
@@ -298,6 +283,7 @@ final class FlooLive {
             }
         }
         showAgent(parts, replica: replica)
+        showOutbox(replica)
         showAsks(replica)
         // An agent with a run going is writing, between its model's calls too (its message
         // stops streaming while a tool runs, and the next one starts after).
@@ -309,6 +295,30 @@ final class FlooLive {
             demo.setPresence(agent(id), writing.contains(id) ? "正在写…" : nil)
         }
         demo.refresh()
+    }
+
+    // MARK: Outbox
+
+    /// What you sent from here that the backend doesn't have yet: shown as you send it, as a
+    /// messenger does, marked until it's there; one that didn't go is sent again with a tap.
+    private func showOutbox(_ replica: ConversationReplica) {
+        for item in replica.outbox {
+            let receipt: FlooReceipt = item.state == .failed ? .failed : .sending
+            if let shown = outgoing[item.message.id] {
+                if shown.receipt != receipt { demo.mark(shown, receipt) }
+                continue
+            }
+            let quote = item.message.answering.flatMap { answer in
+                replica.asks[answer.ask].flatMap { $0.items.indices.contains(answer.item) ? "回答「\($0.items[answer.item].title)」" : nil }
+            }
+            let shown = demo.say(.me, item.message.text, receipt: receipt, quote: quote)
+            outgoing[item.message.id] = shown
+            let id = item.message.id
+            demo.retries[demo.row(of: shown)] = { [weak self] in
+                guard let session = self?.session else { return }
+                Task { _ = try? await session.resend(id) }  // try?: as `send`
+            }
+        }
     }
 
     // MARK: Asks
@@ -397,6 +407,11 @@ final class FlooLive {
         let receipt: FlooReceipt =
             agentsRead.contains { $0.answeredMax >= info.number } ? .answered
             : agentsRead.contains { $0.readMax >= info.number } ? .read : .delivered
+        // Sent from here: the backend's message is the one already shown.
+        if said[info.number] == nil, let mine = outgoing.removeValue(forKey: info.id) {
+            said[info.number] = mine
+            demo.retries[demo.row(of: mine)] = nil
+        }
         if let said = said[info.number] {
             if said.receipt != receipt { demo.mark(said, receipt) }
             return
