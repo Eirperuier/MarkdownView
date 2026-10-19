@@ -181,6 +181,9 @@ struct FlooDestination: View {
                     Button("退出登录", role: .destructive) {
                         Task {
                             try? await account.auth.signOut()  // try?: the kept session may be gone already
+                            #if targetEnvironment(macCatalyst)
+                            await FlooHelper.stop()
+                            #endif
                             play()
                         }
                     }

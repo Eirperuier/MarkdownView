@@ -1059,10 +1059,14 @@ enum FlooOnline {
     /// The email last signed in with, filled in next time and shown while signed in.
     static let emailKey = "flooOnlineEmail"
 
-    /// The session kept as a file beside the device's key (a demo signed ad hoc has no
-    /// Keychain of its own).
+    /// The session kept as a file (a demo signed ad hoc has no Keychain of its own): beside
+    /// the device's key, or on the Mac in Floo Helper's home, which it shares.
     static func auth() -> SupabaseAuth {
+        #if targetEnvironment(macCatalyst)
+        let folder = FlooHelper.secrets
+        #else
         let folder = URL.demoSupport.appending(path: "floo-online", directoryHint: .isDirectory)
+        #endif
         let store: any SessionStore = (try? FileSecrets(folder: folder)).map { KeychainSessionStore(store: $0) } ?? Unkept()
         return SupabaseAuth(authority: supabase, publishableKey: publishableKey, transport: URLSessionTransport(), store: store)
     }

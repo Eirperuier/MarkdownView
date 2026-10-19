@@ -4,8 +4,9 @@
 //
 //  Floo Helper, carried in the Mac app (embed-helper.sh): this Mac's node, which holds the
 //  Mac's system grants and runs its services — mail, messages, calendar and the rest (floo's
-//  docs/mac-services.md §11). The demo signs it in as you, starts it, and has it ask for
-//  what a service of this Mac needs; everything goes through the Helper's own commands.
+//  docs/mac-services.md §11). It's signed in with the demo's own session, kept in its home
+//  for both; the demo starts it, stops it when you sign out, and has it ask for what a
+//  service of this Mac needs, through its own commands.
 //
 
 #if targetEnvironment(macCatalyst)
@@ -51,9 +52,12 @@ enum FlooHelper {
         return serving ? .ready : .stopped(lastLog() ?? "没启动")
     }
 
-    /// The account its kept session is for.
+    /// Where the session is kept, the demo's and the Helper's both: signed in in the demo,
+    /// it's signed in.
+    static let secrets = home.appending(path: "secrets", directoryHint: .isDirectory)
+
+    /// The account the session is for.
     static func account() async -> AccountID? {
-        let secrets = home.appending(path: "secrets", directoryHint: .isDirectory)
         guard FileManager.default.fileExists(atPath: secrets.path), let store = try? FileSecrets(folder: secrets) else { return nil }
         return try? await KeychainSessionStore(store: store).load()?.account  // try?: one it can't read is none
     }
@@ -68,30 +72,40 @@ enum FlooHelper {
         return false
     }
 
-    /// Signs it in as `email`, in place of whoever it was signed in as: the one serving is
-    /// stopped first, and it's started again on the new session.
-    static func signIn(email: String, password: String) async throws {
-        guard let app else { return }
+    /// You signed in as `account`: it's started again on that session, told where the
+    /// server and sign-in are when it doesn't know yet.
+    static func signedIn(as account: AccountID) async {
+        keepSettings()
+        await stop()
+        _ = await state(for: account)
+    }
+
+    /// You signed out: this Mac's node goes too.
+    static func stop() async {
         _ = await run("/usr/bin/pkill", ["-x", "Floo Helper"])
         for _ in 0..<20 where serving {
-            try await Task.sleep(for: .milliseconds(250))
+            try? await Task.sleep(for: .milliseconds(250))  // try?: cancelled, gone on regardless
         }
-        let ref = FlooOnline.supabase.components(separatedBy: ".").first ?? ""
-        var environment = ProcessInfo.processInfo.environment
-        environment["FLOO_API"] = "https://\(FlooOnline.server)"
-        environment["SUPABASE_PROJECT_REF"] = ref
-        environment["SUPABASE_PUBLISHABLE_KEY"] = FlooOnline.publishableKey
-        // Not through Launch Services: signing in asks nothing of the system's grants.
-        let signed = await run(
-            app.appending(path: "Contents/MacOS/Floo Helper").path,
-            ["--sign-in", email],
-            environment: environment,
-            input: password + "\n"
-        )
-        guard signed.status == 0 else {
-            throw FlooConnectError(reason: lastLog() ?? "Floo Helper 没登录上")
-        }
-        if let account = await account() { _ = await state(for: account) }
+    }
+
+    /// The server and sign-in it starts with, in its settings.json (docs/mac-services.md
+    /// §11), where they aren't there already.
+    private static func keepSettings() {
+        let file = home.appending(path: "settings.json")
+        // try?: none kept yet, or none readable, written afresh
+        var kept = ((try? Data(contentsOf: file)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] }) ?? [:]
+        let given = [
+            "FLOO_API": "https://\(FlooOnline.server)",
+            "SUPABASE_PROJECT_REF": FlooOnline.supabase.components(separatedBy: ".").first ?? "",
+            "SUPABASE_PUBLISHABLE_KEY": FlooOnline.publishableKey,
+        ]
+        guard given.contains(where: { kept[$0.key] != $0.value }) else { return }
+        kept.merge(given) { _, new in new }
+        guard let data = try? JSONSerialization.data(withJSONObject: kept, options: [.prettyPrinted, .sortedKeys]) else { return }
+        try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        // try?: not written, it says so in its log when it starts
+        try? data.write(to: file, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 
     /// Has it ask for what `services` need of this Mac — system prompts, or System Settings
@@ -111,22 +125,16 @@ enum FlooHelper {
         }
     }
 
-    /// Runs `path` with `arguments`, `input` on its standard input, off the main actor:
-    /// its exit status and what it wrote to standard error.
-    private static func run(
-        _ path: String,
-        _ arguments: [String],
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        input: String = ""
-    ) async -> (status: Int32, errors: String) {
+    /// Runs `path` with `arguments`, off the main actor: its exit status and what it wrote
+    /// to standard error.
+    private static func run(_ path: String, _ arguments: [String]) async -> (status: Int32, errors: String) {
         await Task.detached {
-            var into: [Int32] = [-1, -1]
             var out: [Int32] = [-1, -1]
-            guard pipe(&into) == 0, pipe(&out) == 0 else { return (-1, "没法启动 \(path)") }
+            guard pipe(&out) == 0 else { return (-1, "没法启动 \(path)") }
             var actions: posix_spawn_file_actions_t?
             posix_spawn_file_actions_init(&actions)
             defer { posix_spawn_file_actions_destroy(&actions) }
-            posix_spawn_file_actions_adddup2(&actions, into[0], 0)
+            posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
             posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0)
             posix_spawn_file_actions_adddup2(&actions, out[1], 2)
             var attributes: posix_spawnattr_t?
@@ -135,19 +143,15 @@ enum FlooHelper {
             // Nothing else of ours goes with it.
             posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
             let argv = ([path] + arguments).map { strdup($0) } + [nil]
-            let envp = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
+            let envp = ProcessInfo.processInfo.environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
             defer { (argv + envp).forEach { free($0) } }
             var pid: pid_t = 0
             let spawned = posix_spawn(&pid, path, &actions, &attributes, argv, envp)
-            close(into[0])
             close(out[1])
             guard spawned == 0 else {
-                close(into[1])
                 close(out[0])
                 return (-1, "没法启动 \(path)")
             }
-            _ = input.utf8CString.withUnsafeBufferPointer { write(into[1], $0.baseAddress, $0.count - 1) }
-            close(into[1])
             var errors = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)
             while true {

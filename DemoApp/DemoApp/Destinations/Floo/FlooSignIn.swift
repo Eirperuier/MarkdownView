@@ -81,9 +81,9 @@ final class FlooSignIn {
                 }
                 UserDefaults.standard.set(email, forKey: FlooOnline.emailKey)
                 #if targetEnvironment(macCatalyst)
-                // This Mac's node comes in with you: Floo Helper signed in as you too. try?: if
-                // it doesn't, the services sheet asks for the password again.
-                Task { try? await FlooHelper.signIn(email: email, password: password) }
+                // This Mac's node comes in with you, on the session it shares.
+                let account = session.account
+                Task { await FlooHelper.signedIn(as: account) }
                 #endif
                 finish(session)
             } catch {

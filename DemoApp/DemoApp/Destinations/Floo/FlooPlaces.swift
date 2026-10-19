@@ -142,8 +142,6 @@ struct FlooServicesView: View {
     #if targetEnvironment(macCatalyst)
     /// Floo Helper, for this Mac's services; nil until looked at.
     @State private var helper: FlooHelper.State?
-    @State private var password = ""
-    @State private var signingIn = false
     #endif
 
     var body: some View {
@@ -222,24 +220,8 @@ struct FlooServicesView: View {
         case .missing:
             Text("这个版本没有带 Floo Helper，用不了这台 Mac 上的服务。").foregroundStyle(.secondary)
         case .signedOut:
-            VStack(alignment: .leading, spacing: 10) {
-                Text("这台 Mac 上的服务由 Floo Helper 来用，它需要用你的账号登录。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                HStack {
-                    SecureField("密码", text: $password)
-                        .textContentType(.password)
-                        .onSubmit(signInHelper)
-                    if signingIn {
-                        ProgressView()
-                    } else {
-                        Button("登录", action: signInHelper)
-                            .buttonStyle(.bordered)
-                            .disabled(password.isEmpty)
-                    }
-                }
-            }
-            .padding(.vertical, 2)
+            // It shares your session: only when that was signed out from elsewhere.
+            Text("Floo Helper 没有登录。请退出登录后重新登录。").foregroundStyle(.secondary)
         case .stopped(let reason):
             HStack {
                 Text("Floo Helper 没有启动：\(reason)").font(.footnote).foregroundStyle(.red)
@@ -261,23 +243,6 @@ struct FlooServicesView: View {
         guard let account = live.onlineAccount else { return }
         helper = nil
         helper = await FlooHelper.state(for: account)
-    }
-
-    private func signInHelper() {
-        guard !password.isEmpty, let email = UserDefaults.standard.string(forKey: FlooOnline.emailKey) else { return }
-        let password = password
-        signingIn = true
-        failure = nil
-        Task {
-            defer { signingIn = false }
-            do {
-                try await FlooHelper.signIn(email: email, password: password)
-                self.password = ""
-                await lookAtHelper()
-            } catch {
-                failure = "Floo Helper 没登录上：\(error)"
-            }
-        }
     }
 
     /// Floo Helper asks for what it needs here (nothing, if it has it already); then it's
