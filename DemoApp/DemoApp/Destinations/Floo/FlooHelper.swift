@@ -16,18 +16,13 @@ import TransportKit
 import Wire
 
 enum FlooHelper {
-    /// Where it is in the app; nil when the app was built without it.
-    static var app: URL? {
-        let app = Bundle.main.bundleURL.appending(path: "Contents/Library/LoginItems/Floo Helper.app", directoryHint: .isDirectory)
-        return FileManager.default.fileExists(atPath: app.path) ? app : nil
-    }
+    /// Where it is in the app (embed-helper.sh puts it there).
+    static let app = Bundle.main.bundleURL.appending(path: "Contents/Library/LoginItems/Floo Helper.app", directoryHint: .isDirectory)
 
     /// Its home, as it has it: ~/.floo/node.
     static let home = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".floo/node", directoryHint: .isDirectory)
 
     enum State: Equatable {
-        /// The app was built without it.
-        case missing
         /// Not signed in, or as another account.
         case signedOut
         /// Signed in as you, and serving.
@@ -39,7 +34,6 @@ enum FlooHelper {
     /// Where it stands for `account`, started first when it's signed in as it and isn't
     /// serving.
     static func state(for account: AccountID) async -> State {
-        guard let app else { return .missing }
         guard await self.account() == account else { return .signedOut }
         if serving { return .ready }
         let started = await run("/usr/bin/open", ["-n", "-g", "-a", app.path])
@@ -112,7 +106,6 @@ enum FlooHelper {
     /// with it to drag in — and returns when that's done. Through Launch Services, so the
     /// grants are the Helper's.
     static func allow(_ services: [String]) async {
-        guard let app else { return }
         _ = await run("/usr/bin/open", ["-n", "-W", "-a", app.path, "--args", "--allow"] + services)
     }
 

@@ -217,8 +217,6 @@ struct FlooServicesView: View {
         switch helper {
         case nil:
             ProgressView()
-        case .missing:
-            Text("这个版本没有带 Floo Helper，用不了这台 Mac 上的服务。").foregroundStyle(.secondary)
         case .signedOut:
             // It shares your session: only when that was signed out from elsewhere.
             Text("Floo Helper 没有登录。请退出登录后重新登录。").foregroundStyle(.secondary)
