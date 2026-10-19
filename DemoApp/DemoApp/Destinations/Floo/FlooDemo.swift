@@ -897,6 +897,26 @@ final class FlooDemo {
         self.origin = origin
     }
 
+    /// One of the backend's conversations changed in the list (FlooLive): out of row `from`
+    /// if it was shown there, into row `to` (counted once it's out) if it's shown now.
+    func movePlace(from: Int?, to: Int?, _ place: FlooPlace) {
+        if let from { places.remove(at: from) }
+        if let to { places.insert(place, at: to) }
+        if self.place?.id == place.id { self.place = place }
+    }
+
+    /// Whether the list goes on below the places shown: `morePlaces()` brings its next page.
+    private(set) var hasMorePlaces = false
+
+    func setHasMorePlaces(_ more: Bool) {
+        hasMorePlaces = more
+    }
+
+    func morePlaces() {
+        guard let live else { return }
+        Task { await live.loadMorePlaces() }
+    }
+
     /// Another of the backend's conversations in place of this one: what's shown goes, the
     /// backend and who's signed in stay.
     func enter(_ place: FlooPlace) {

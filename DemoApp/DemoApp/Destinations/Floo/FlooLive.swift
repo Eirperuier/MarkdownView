@@ -128,8 +128,7 @@ final class FlooLive {
     /// What you sent from here, shown at once, by its message's id until the backend has it.
     private var outgoing: [MessageID: FlooDemo.Said] = [:]
     private var messages: [Int64: FlooDemo.Message] = [:]
-    /// The topics and comments hung on the shown conversation's messages, by number, as the
-    /// conversation list has them.
+    /// The topics and comments hung on the shown conversation's messages, by number.
     private var hung: [Int64: [FlooPlace]] = [:]
     /// The agents with messages here, and each message being written's agent: who's writing.
     private var speakers: Set<AgentID> = []
@@ -148,8 +147,28 @@ final class FlooLive {
     /// The conversation shown, and the following of it, ended to go to another.
     private var current: ConversationID?
     private var watching: Task<Void, Never>?
-    /// The backend's conversations, as last listed.
-    private var dialogs: [Dialog] = []
+    /// The conversation list as this device has it (floo docs/messaging.md §3.2): each row's
+    /// newest copy, by id; paged down from the top, and kept up a row at a time by the
+    /// account's stream of changes.
+    private var dialogs: [ConversationID: Dialog] = [:]
+    /// The rows shown, in the list's order: those paged down to (`listEnd`).
+    private var listed: [ListKey] = []
+    /// Rows the stream brought below where the list is paged to: shown once paging gets there.
+    private var below: Set<ConversationID> = []
+    /// The list's seq caught up to; nil until the stream says where the list is.
+    private var listSeq: Int64?
+    /// The last row paged in, where the next page starts; and whether the list ends there.
+    private var listEnd: Dialog?
+    private var listDone = false
+    private var paging = false
+    /// The conversation the list shows as the one you're in.
+    private var listedCurrent: ConversationID?
+    /// The topics and comments on the shown conversation's messages: by message, and the
+    /// message each hangs on; older ones are read below `topicsBelow` as older messages show.
+    private var hangs: [ConversationID: Int64] = [:]
+    private var topicsBelow: Int64?
+    /// The backend's messages each shown agent message is made of, for the topics on it.
+    private var parts: [ObjectIdentifier: [Int64]] = [:]
     /// People's names in the conversation shown, by account.
     private var names: [AccountID: String] = [:]
     private var entered = false
@@ -227,10 +246,16 @@ final class FlooLive {
         messages = [:]
         last = nil
         names = [:]
+        hung = [:]
+        hangs = [:]
+        parts = [:]
+        topicsBelow = nil
         // The first is shown as the page began it; another takes its place.
         if entered { demo.enter(place(id)) }
         entered = true
         showPlaces()
+        let topics = Task { await loadTopics(of: id) }
+        defer { topics.cancel() }
         let following = Task { await session.follow() }
         let watching = Task { @MainActor in
             for await update in await session.updates() {
@@ -265,40 +290,161 @@ final class FlooLive {
         Task {
             do {
                 let info = try await client.open(topic)
-                await list()
-                open(place(info.id))
+                open(place(info))
             } catch {
                 demo.catchUp("话题没开成：\(error)")
             }
         }
     }
 
-    /// The conversations, listed again now and then: one opened elsewhere (a topic the
-    /// butler opened, a group you were added to) comes in by itself.
+    /// The list, kept up by the account's stream (floo docs/messaging.md §3.2): its first page
+    /// once the stream says where the list is, then each row as it changes, applied to that
+    /// row alone; paged again from the top only when the list was made anew. The stream
+    /// resumes from the last row it brought by itself; anything that ends it is retried.
     private func keepListing() async {
+        guard let client else { return }
         while !Task.isCancelled {
-            await list()
-            guard (try? await Task.sleep(for: .seconds(8))) != nil else { return }  // try?: cancelled, done
+            do {
+                for try await event in client.dialogChanges(after: listSeq) {
+                    switch event {
+                    case .head(let seq):
+                        guard listSeq.map({ seq < $0 }) ?? true else { continue }
+                        resetList()
+                        listSeq = seq
+                        await loadMorePlaces()
+                    case .changed(let change):
+                        listSeq = change.seq
+                        take(change.dialog, of: change.conversation, seq: change.seq)
+                    }
+                }
+            } catch {
+                // Refused (it reconnects by itself after transport failures): tried again after a pause.
+            }
+            guard (try? await Task.sleep(for: .seconds(5))) != nil else { return }  // try?: cancelled, done
         }
     }
 
-    func list() async {
-        guard let client, let listed = try? await client.dialogs() else { return }  // try?: listed next time
-        dialogs = listed
-        showPlaces()
-        if let last { showTopics(last) }
+    /// A page of the list.
+    private static let listPage = 50
+
+    /// The next page of the list below the rows paged so far (the first, when none are);
+    /// rows the stream brought below them show as paging reaches them.
+    func loadMorePlaces() async {
+        guard let client, !listDone, !paging else { return }
+        paging = true
+        defer { paging = false }
+        // try?: not paged now, asked again with the next `morePlaces`
+        guard let page = try? await client.dialogs(after: listEnd?.cursor, limit: Self.listPage) else { return }
+        listEnd = page.last ?? listEnd
+        listDone = page.count < Self.listPage
+        for dialog in page { take(dialog, of: dialog.conversation.id, seq: dialog.seq) }
+        for id in below { reposition(id, was: dialogs[id]) }
+        demo.setHasMorePlaces(!listDone)
+    }
+
+    /// The list made anew: nothing held, paged from the top again.
+    private func resetList() {
+        dialogs = [:]
+        listed = []
+        below = []
+        listEnd = nil
+        listDone = false
+        demo.setPlaces([], current: current.map(place), origin: nil)
+    }
+
+    /// A row as it is now, at `seq` (nil: gone from the list) — unless the copy held is newer.
+    private func take(_ dialog: Dialog?, of id: ConversationID, seq: Int64?) {
+        let old = dialogs[id]
+        if let had = old?.seq, let seq, seq < had {
+            hang(id)
+            return
+        }
+        dialogs[id] = dialog
+        reposition(id, was: old)
+        hang(id)
+    }
+
+    /// Where a row goes in the list shown: the main conversation first, then the pinned ones
+    /// (most recently pinned first), then by activity, newest first; ties by id, as the server.
+    private struct ListKey: Comparable {
+        let main: Bool
+        let pinned: Int64
+        let active: Int64
+        let id: String
+
+        static func < (a: ListKey, b: ListKey) -> Bool {
+            if a.main != b.main { return a.main }
+            if a.pinned != b.pinned { return a.pinned > b.pinned }
+            if a.active != b.active { return a.active > b.active }
+            return a.id > b.id
+        }
+    }
+
+    private func key(_ dialog: Dialog) -> ListKey {
+        ListKey(
+            main: dialog.conversation.kind == .main,
+            pinned: dialog.settings?.pinnedAt?.millisecondsSince1970 ?? -1,
+            active: (dialog.activeAt ?? dialog.conversation.createdAt).millisecondsSince1970,
+            id: dialog.conversation.id.description
+        )
+    }
+
+    /// Whether the list shows the row: not agents' own conversations; a topic when it's listed
+    /// or it's the one you're in; the rest unless archived.
+    private func shows(_ dialog: Dialog) -> Bool {
+        switch dialog.conversation.kind {
+        case .agents, .helper: false
+        case .topic(_, let listed): listed || dialog.conversation.id == current
+        default: !dialog.conversation.archived
+        }
+    }
+
+    /// The row moved from where `old` had it to where it goes now, in the rows shown: found
+    /// and placed by binary search, the one row changed in the demo's list.
+    private func reposition(_ id: ConversationID, was old: Dialog?) {
+        var from: Int?
+        if let old {
+            let at = insertion(key(old))
+            if at < listed.count, listed[at].id == id.description {
+                from = at
+                listed.remove(at: at)
+            }
+        }
+        var to: Int?
+        below.remove(id)
+        if let dialog = dialogs[id], shows(dialog) {
+            let here = key(dialog)
+            if here.main || listDone || listEnd.map({ !(key($0) < here) }) == true {
+                let at = insertion(here)
+                listed.insert(here, at: at)
+                to = at
+            } else {
+                below.insert(id)
+            }
+        }
+        guard from != nil || to != nil else { return }
+        demo.movePlace(from: from, to: to, place(id))
+    }
+
+    /// Where `key` is or would go among the rows shown.
+    private func insertion(_ key: ListKey) -> Int {
+        var low = 0, high = listed.count
+        while low < high {
+            let middle = (low + high) / 2
+            if listed[middle] < key { low = middle + 1 } else { high = middle }
+        }
+        return low
     }
 
     /// A conversation as the list shows it.
     private func place(_ id: ConversationID) -> FlooPlace {
-        guard let dialog = dialogs.first(where: { $0.conversation.id == id }) else {
+        guard let dialog = dialogs[id] else {
             return FlooPlace(id: id.description, title: id == .main(of: backend.account) ? "floo" : "对话", kind: .group)
         }
-        return place(dialog)
+        return place(dialog.conversation, unread: dialog.unread)
     }
 
-    private func place(_ dialog: Dialog) -> FlooPlace {
-        let info = dialog.conversation
+    private func place(_ info: ConversationInfo, unread: Int = 0) -> FlooPlace {
         let kind: FlooPlace.Kind
         let title: String
         switch info.kind {
@@ -318,42 +464,72 @@ final class FlooLive {
             kind = .service
             title = info.title ?? ""
         }
-        return FlooPlace(id: info.id.description, title: title, kind: kind, unread: dialog.unread)
+        return FlooPlace(id: info.id.description, title: title, kind: kind, unread: unread)
     }
 
-    /// The list: the main conversation, then groups, listed topics and services, newest first;
-    /// where a topic shown hangs, to go back to.
+    /// The one you're in, and where a topic you're in hangs, to go back to; an unlisted topic
+    /// shows in the list while you're in it.
     private func showPlaces() {
-        let shown = dialogs.filter { dialog in
-            switch dialog.conversation.kind {
-            case .agents, .helper: false
-            case .topic(_, let listed): listed || dialog.conversation.id == current
-            default: !dialog.conversation.archived
-            }
-        }
-        let main = shown.filter { if case .main = $0.conversation.kind { true } else { false } }
-        let others = shown.filter { if case .main = $0.conversation.kind { false } else { true } }
-            .sorted { $0.conversation.createdAt > $1.conversation.createdAt }
+        let left = listedCurrent
+        listedCurrent = current
+        for id in Set([left, current].compactMap { $0 }) { reposition(id, was: dialogs[id]) }
         var origin: FlooPlace?
-        if let current, case .topic(let from, _)? = dialogs.first(where: { $0.conversation.id == current })?.conversation.kind {
+        if let current, case .topic(let from, _)? = dialogs[current]?.conversation.kind {
             origin = place(from.conversation)
         }
-        demo.setPlaces((main + others).map(place), current: current.map(place), origin: origin)
+        demo.setPlaces(demo.places, current: current.map(place), origin: origin)
     }
 
-    /// The topics and comments hung on the shown conversation's messages, under them.
-    private func showTopics(_ replica: ConversationReplica) {
-        hung = [:]
-        for dialog in dialogs {
-            guard case .topic(let from, _) = dialog.conversation.kind, from.conversation == replica.id else { continue }
-            hung[from.number, default: []].append(place(dialog))
+    // MARK: Topics
+
+    /// The topics and comments on the shown conversation's messages, read as it opens: the
+    /// newest page of them; older ones as older messages show (`moreTopics`).
+    private func loadTopics(of id: ConversationID) async {
+        guard let client, let page = try? await client.topics(on: id, limit: Self.topicPage) else { return }  // try?: read again when it opens again
+        guard id == current else { return }
+        for dialog in page { take(dialog, of: dialog.conversation.id, seq: dialog.seq) }
+        topicsBelow = page.count < Self.topicPage ? nil : Self.origin(of: page.last)
+    }
+
+    /// Older messages showing: the topics on them, if some may not be read yet.
+    private func moreTopics() {
+        guard let client, let current, let below = topicsBelow, let lowest = lowestShown, lowest < below else { return }
+        topicsBelow = nil
+        Task {
+            guard let page = try? await client.topics(on: current, before: below, limit: Self.topicPage) else { return }  // try?: as loadTopics
+            guard current == self.current else { return }
+            for dialog in page { take(dialog, of: dialog.conversation.id, seq: dialog.seq) }
+            topicsBelow = page.count < Self.topicPage ? nil : Self.origin(of: page.last)
+            moreTopics()
         }
-        var shown: [ObjectIdentifier: (message: FlooDemo.Message, topics: [FlooPlace])] = [:]
-        for message in messages.values { shown[ObjectIdentifier(message)] = (message, []) }
-        for (number, message) in messages {
-            shown[ObjectIdentifier(message)]?.topics += hung[number] ?? []
+    }
+
+    private static let topicPage = 100
+
+    private static func origin(of dialog: Dialog?) -> Int64? {
+        if case .topic(let origin, _)? = dialog?.conversation.kind { origin.number } else { nil }
+    }
+
+    /// The row hung where it is now: under its message if it's a topic on the shown
+    /// conversation, and off the message it was under.
+    private func hang(_ id: ConversationID) {
+        let was = hangs[id]
+        var now: Int64?
+        if let dialog = dialogs[id], case .topic(let origin, _) = dialog.conversation.kind, origin.conversation == current {
+            now = origin.number
         }
-        for (message, topics) in shown.values { demo.setTopics(message, topics) }
+        guard was != nil || now != nil else { return }
+        if let was { hung[was]?.removeAll { $0.id == id.description } }
+        hangs[id] = now
+        if let now { hung[now, default: []].append(place(id)) }
+        for number in Set([was, now].compactMap { $0 }) { showTopics(on: number) }
+    }
+
+    /// The topics on the shown message holding `number`: those hung on any of its parts.
+    private func showTopics(on number: Int64) {
+        guard let message = messages[number] else { return }
+        let numbers = parts[ObjectIdentifier(message)] ?? [number]
+        demo.setTopics(message, numbers.flatMap { hung[$0] ?? [] })
     }
 
     // MARK: Sending
@@ -488,8 +664,8 @@ final class FlooLive {
 
     /// Goes to `service`'s conversation, once listed.
     func openService(_ service: ServiceID) {
-        guard let dialog = dialogs.first(where: { $0.conversation.kind == .service(service) }) else { return }
-        open(place(dialog))
+        guard let dialog = dialogs.values.first(where: { $0.conversation.kind == .service(service) }) else { return }
+        open(place(dialog.conversation))
     }
 
     /// The services you can connect, through the cloud or on a Mac, and whether each is.
@@ -557,8 +733,7 @@ final class FlooLive {
         let group = GroupOpen(id: .generate(), title: title, people: people,
                               services: services.compactMap { try? ServiceID($0) })  // try?: from the catalog, names
         let info = try await client.open(group)
-        await list()
-        open(place(info.id))
+        open(place(info))
     }
 
     // MARK: Pages
@@ -617,9 +792,9 @@ final class FlooLive {
         showAgent(parts, replica: replica)
         showOutbox(replica)
         showAsks(replica)
-        showTopics(replica)
         showPresence(replica)
         lowestShown = replica.messages.first?.number
+        moreTopics()
         demo.setHasOlder(replica.hasOlder)
     }
 
@@ -638,6 +813,7 @@ final class FlooLive {
         if let lowest = older.min() {
             demo.prepending { for group in groups(older, replica) { showGroup(group, replica) } }
             lowestShown = lowest
+            moreTopics()
         }
         let rest = changes.messages.subtracting(older)
         for group in groups(rest, replica) { showGroup(group, replica) }
@@ -837,6 +1013,7 @@ final class FlooLive {
         let message = parts.lazy.compactMap { self.messages[$0.number] }.first
             ?? demo.begin(agent(id, of: first.author.account), at: Self.time(first.createdAt))
         for info in parts { messages[info.number] = message }
+        self.parts[ObjectIdentifier(message)] = parts.map(\.number)
         // Its fences are its words', the last part's: what a choice answers.
         message.number = last.number
         let streaming = parts.contains { $0.state == .streaming }
