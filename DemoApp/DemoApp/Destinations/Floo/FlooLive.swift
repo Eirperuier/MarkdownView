@@ -954,9 +954,22 @@ final class FlooLive {
 
     private static func item(_ key: String) -> Int { Int(key.split(separator: "-").last ?? "") ?? 0 }
 
+    /// A card's data as cards take it: the same values, kind for kind.
     private static func value(_ json: Wire.JSONValue?) -> CardValue {
-        guard let json, let data = try? JSONEncoder().encode(json) else { return .object([:]) }
-        return (try? JSONDecoder().decode(CardValue.self, from: data)) ?? .object([:])
+        guard let json else { return .object([:]) }
+        return card(json)
+    }
+
+    private static func card(_ json: Wire.JSONValue) -> CardValue {
+        switch json {
+        case .null: .null
+        case .bool(let bool): .bool(bool)
+        case .int(let number): .number(Double(number))
+        case .double(let number): .number(number)
+        case .string(let string): .string(string)
+        case .array(let items): .array(items.map(card))
+        case .object(let fields): .object(fields.mapValues(card))
+        }
     }
 
     /// A page an answer points to, as Docs' page block shows it.

@@ -1041,9 +1041,10 @@ final class FlooDemo {
 
     /// A backend card as it's being drawn: its session takes the source as it comes, and
     /// starts over when the drawing does (a retry).
-    func draftCard(_ key: String, source: String, attempt: Int, data: CardValue) {
+    /// `data`: read only when the card is new here.
+    func draftCard(_ key: String, source: String, attempt: Int, data: @autoclosure () -> CardValue) {
         let session = sessions[key] ?? {
-            let session = CardSession(data: data)
+            let session = CardSession(data: data())
             sessions[key] = session
             versions[key, default: 0] += 1
             return session
@@ -1061,7 +1062,8 @@ final class FlooDemo {
 
     /// A card the backend sent, whole: compiled here from its source, shown in its fence's place.
     /// One drawn here as it was written takes what's left of it and is finished.
-    func setCard(_ key: String, source: String?, data: CardValue) {
+    /// `data`: read only when the card is new here.
+    func setCard(_ key: String, source: String?, data: @autoclosure () -> CardValue) {
         if let session = sessions[key], let given = drafted.removeValue(forKey: key) {
             if let source, source.hasPrefix(given.source) {
                 session.append(source.dropFirst(given.source.count))
@@ -1073,7 +1075,7 @@ final class FlooDemo {
             return
         }
         guard sessions[key] == nil else { return }
-        let session = CardSession(data: data)
+        let session = CardSession(data: data())
         if let source { session.append(source) }
         session.finish()
         sessions[key] = session
