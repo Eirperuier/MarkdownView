@@ -29,8 +29,8 @@ struct FlooDestination: View {
     /// The message being written and how far down the list it starts, until its start has
     /// reached the top.
     @State private var head: (id: String, y: CGFloat)?
-    /// The chat's background, by its names (ChatBackground's "Aurora" "Green").
-    @AppStorage("flooChatBackground") private var backgroundName = "Aurora/Green"
+    /// The chat's background, by its names (ChatBackground's "Aurora" "Green"); "plain": the page's own.
+    @AppStorage("flooChatBackground") private var backgroundName = "plain"
 
     static var launchScenario: FlooScenario? {
         // Opened on a stage (`-flooStage`), it's the live conversation.
@@ -115,7 +115,7 @@ struct FlooDestination: View {
         // Dark throughout over the background: white words on material bubbles, and cards
         // that ask for no background of their own on the same.
         .cardPanelStyle(.ultraThinMaterial)
-        .chatBackground(background)
+        .background { FlooChatBackground(background: background) }
         .environment(\.colorScheme, .dark)
         .toolbar(.hidden, for: .navigationBar)
         // A page the agent wrote, read only: what's on the backend is the agent's to change.
@@ -171,14 +171,16 @@ struct FlooDestination: View {
         .padding(.vertical, 10)
     }
 
-    private var background: ChatBackground {
+    /// Nil: plain.
+    private var background: ChatBackground? {
         let names = backgroundName.split(separator: "/").map(String.init)
-        return names.first.flatMap { ChatBackground(name: $0, variant: names.dropFirst().first) } ?? .aurora(.green)
+        return names.first.flatMap { ChatBackground(name: $0, variant: names.dropFirst().first) }
     }
 
     private var backgroundMenu: some View {
         Menu {
             Picker("背景", selection: $backgroundName) {
+                Text("普通").tag("plain")
                 ForEach(ChatBackground.allCases, id: \.self) { item in
                     Text("\(item.name) · \(item.variantName)").tag("\(item.name)/\(item.variantName)")
                 }
@@ -1506,6 +1508,19 @@ private struct FlooBubblePiece<Content: View>: View {
         guard let starts, listener == nil else { return }
         listener = starts.addListener { count in
             if count > 0, !started { started = true }
+        }
+    }
+}
+
+/// The chat's background: one of ChatBackgrounds', or the page's plain one.
+private struct FlooChatBackground: View {
+    let background: ChatBackground?
+
+    var body: some View {
+        if let background {
+            ChatBackgroundSurface(background).ignoresSafeArea()
+        } else {
+            Color(uiColor: .systemBackground).ignoresSafeArea()
         }
     }
 }
