@@ -112,7 +112,9 @@ struct FlooDestination: View {
                     }
             }
         }
-        // Dark throughout over the background: white words on material bubbles.
+        // Dark throughout over the background: white words on material bubbles, and cards
+        // that ask for no background of their own on the same.
+        .cardPanelStyle(.ultraThinMaterial)
         .chatBackground(background)
         .environment(\.colorScheme, .dark)
         .toolbar(.hidden, for: .navigationBar)
