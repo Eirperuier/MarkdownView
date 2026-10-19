@@ -9,6 +9,7 @@
 //  drew in your conversation, its commitments and watches, its providers on your devices.
 //
 
+import AppleDeviceImages
 import SwiftUI
 import CardModel
 import CardUI
@@ -73,6 +74,8 @@ struct FlooContactPage: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
         .task { tint = await service.backdrop() }
+        // Where it can come from, when it isn't one of yours yet.
+        .task { if demo.live != nil { await demo.look(service) } }
         .sheet(isPresented: $showsAbout) { FlooAboutSheet(service: service) }
         .confirmationDialog("不再关注 \(service.name)？", isPresented: $confirmsUnfollow, titleVisibility: .visible) {
             Button("不再关注", role: .destructive) {
@@ -246,7 +249,7 @@ struct FlooContactPage: View {
                 asked ? ("待设置", .orange)
                 : provides ? (device.online ? (service.id == "github" ? "gh 已登录" : "已启用") : "\(device.lastSeen ?? "")在线", device.online ? .green : .gray)
                 : can ? ("设置", Color.accentColor) : ("不支持", .gray)
-            bubbleButton(symbol: device.symbol, name: device.name, state: state, dimmed: !can && !provides) {
+            bubbleButton(symbol: device.symbol, product: device.product, name: device.name, state: state, dimmed: !can && !provides) {
                 if provides, FlooSettingsFormat.all[service.id] != nil {
                     demo.path.append(.settings(service.id, device.id))
                     return
@@ -258,23 +261,41 @@ struct FlooContactPage: View {
                     demo.setUp(service, on: device)
                 }
             }
+            // Connected there: it can be let go of there alone, the others it's on going on.
+            .contextMenu {
+                if provides, demo.live != nil {
+                    Button("在\(device.name)上断开", role: .destructive) {
+                        Task { await demo.disconnect(service, on: device) }
+                    }
+                }
+            }
         }
     }
 
+    /// A source on the page: an account, or a device by its picture (as Settings shows your
+    /// devices) where it says what it is, its symbol until then; how it stands in its dot.
     private func bubbleButton(
-        symbol: String, name: String, state: (String, Color), dimmed: Bool, _ action: @escaping () -> Void
+        symbol: String, product: AppleDevice? = nil, name: String, state: (String, Color), dimmed: Bool,
+        _ action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
-                Image(systemName: symbol)
-                    .font(.system(size: 24))
-                    .foregroundStyle(dimmed ? Color.secondary : tint)
-                    .frame(width: 58, height: 58)
-                    .background(tint.opacity(dimmed ? 0.05 : 0.14), in: Circle())
-                    .overlay(alignment: .bottomTrailing) {
-                        Circle().fill(state.1).frame(width: 13, height: 13)
-                            .overlay(Circle().stroke(Color(uiColor: .secondarySystemGroupedBackground), lineWidth: 2.5))
+                Group {
+                    if let product {
+                        AppleDeviceImage(product, size: .small) { image in
+                            image.resizable().scaledToFit().saturation(dimmed ? 0 : 1)
+                        } placeholder: {
+                            symbolBadge(symbol, dimmed: dimmed)
+                        }
+                    } else {
+                        symbolBadge(symbol, dimmed: dimmed)
                     }
+                }
+                .frame(width: 58, height: 58)
+                .overlay(alignment: .bottomTrailing) {
+                    Circle().fill(state.1).frame(width: 13, height: 13)
+                        .overlay(Circle().stroke(Color(uiColor: .secondarySystemGroupedBackground), lineWidth: 2.5))
+                }
                 Text(name).font(.caption).foregroundStyle(.primary).lineLimit(1)
                 Text(state.0).font(.caption2).foregroundStyle(state.1 == .gray ? .secondary : state.1).lineLimit(1)
             }
@@ -282,6 +303,14 @@ struct FlooContactPage: View {
             .opacity(dimmed ? 0.6 : 1)
         }
         .buttonStyle(.plain)
+    }
+
+    private func symbolBadge(_ symbol: String, dimmed: Bool) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 24))
+            .foregroundStyle(dimmed ? Color.secondary : tint)
+            .frame(width: 58, height: 58)
+            .background(tint.opacity(dimmed ? 0.05 : 0.14), in: Circle())
     }
 
     // MARK: Doing, shared, closing

@@ -465,8 +465,7 @@ final class FlooLive {
             case .pending: continue
             case .failed: throw FlooConnectError(reason: state.reason ?? "没连上")
             case .connected:
-                let version = try await client.connections().first { $0.service == id }?.version ?? 0
-                _ = try await client.change(ConnectionChange(connected: true, version: version), of: id)
+                // Signed in, it's connected in the cloud.
                 return
             }
         }

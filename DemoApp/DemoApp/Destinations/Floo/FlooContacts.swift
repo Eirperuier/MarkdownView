@@ -13,6 +13,7 @@
 //  `"chat:health"` a conversation.
 //
 
+import AppleDeviceImages
 import SwiftUI
 import CardModel
 import CardUI
@@ -126,16 +127,22 @@ struct FlooDevice: Identifiable, Hashable {
     let name: String
     let kind: Kind
     let symbol: String
+    /// What it is, for its picture (AppleDeviceImages): its model, color and system, as it reports
+    /// them; nil when it doesn't, and its symbol shows.
+    var product: AppleDevice?
     var online = true
     /// When it was last seen, if it isn't online.
     var lastSeen: String?
 
     static let this = "iphone"
     static let all = [
-        FlooDevice(id: "iphone", name: "这台 iPhone", kind: .iPhone, symbol: "iphone"),
-        FlooDevice(id: "mac", name: "林晓的 MacBook Pro", kind: .mac, symbol: "laptopcomputer"),
-        FlooDevice(id: "ipad", name: "iPad", kind: .iPad, symbol: "ipad"),
-        FlooDevice(id: "imac", name: "家里的 iMac", kind: .mac, symbol: "desktopcomputer", online: false, lastSeen: "2 天前"),
+        FlooDevice(id: "iphone", name: "这台 iPhone", kind: .iPhone, symbol: "iphone",
+                   product: AppleDevice("iPhone18,1", color: "3b3b3c-47ade5", osVersion: "27.0")),
+        FlooDevice(id: "mac", name: "林晓的 MacBook Pro", kind: .mac, symbol: "laptopcomputer",
+                   product: AppleDevice("Mac16,1", osVersion: "27.0")),
+        FlooDevice(id: "ipad", name: "iPad", kind: .iPad, symbol: "ipad", product: AppleDevice("iPad16,3", osVersion: "27.0")),
+        FlooDevice(id: "imac", name: "家里的 iMac", kind: .mac, symbol: "desktopcomputer",
+                   product: AppleDevice("iMac21,1", osVersion: "26.0"), online: false, lastSeen: "2 天前"),
     ]
 }
 
@@ -265,8 +272,10 @@ final class FlooContactsDemo {
     @ObservationIgnored var settingsProviders: [String: [String: ProviderID]] = [:]
     /// What was read last (live): the connections, each service's standing, the feed, the
     /// watches in each service's conversation.
-    @ObservationIgnored var connections: [ConnectionInfo] = []
     @ObservationIgnored var standings: [ServiceID: ServiceStanding] = [:]
+    @ObservationIgnored var deviceStandings: [DeviceStanding] = []
+    /// The standings' revision as last read: read again, they come only if changed.
+    @ObservationIgnored var standingsRevision: String?
     @ObservationIgnored var pushes: [FeedItem] = []
     @ObservationIgnored var watches: [String: [WatchInfo]] = [:]
     var following: [String: FlooFollowing] = FlooContactsDemo.start

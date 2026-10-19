@@ -4,8 +4,8 @@
 //
 //  The services pages on the floo server instead of the script: the same pages (FlooContacts,
 //  FlooContactPage, FlooSettings), each part read from what the server keeps (floo
-//  docs/app.md 3.2) — the catalog, each service's standing (its cloud accounts, and every
-//  device of yours with the providers it reports and their requirements), the connections,
+//  docs/app.md 3.2) — the catalog, your devices and each service's standing (the hosts that
+//  provide it, the cloud and your devices, their requirements, and where it's connected),
 //  the watches in its conversation, the feed, the conversation's settings, the providers'
 //  settings files — and each action done there: signing in in the browser, Floo Helper
 //  asking for what this Mac needs, another device asked to set it up, connecting and
@@ -13,6 +13,7 @@
 //
 
 import Foundation
+import AppleDeviceImages
 import SwiftUI
 import Wire
 import TransportKit
@@ -31,13 +32,7 @@ extension FlooContactsDemo {
         let entries = directory.services.filter { !$0.hidden && !$0.hosts.isEmpty }
         if services.isEmpty { services = entries.map { Self.service($0) } }
         // try?: each part not read now stays as it was, read again on the next load
-        async let connected = try? client.connections()
-        async let listed = try? client.dialogs()
-        if let connections = await connected {
-            self.connections = connections
-            refollow()
-        }
-        if let conversations = await listed {
+        if let conversations = try? await client.dialogs() {
             dialogs = Dictionary(conversations.compactMap { dialog in
                 if case .service(let id) = dialog.conversation.kind { (id.rawValue, dialog) } else { nil }
             }) { first, _ in first }
@@ -45,26 +40,17 @@ extension FlooContactsDemo {
         }
         services = entries.map { Self.service($0) }
 
-        // A few at a time: each holds one of the server's database connections, and its pool
-        // is small (a burst of twenty filled it and stalled every call, 2026-10-19). Followed
-        // ones first.
-        let order = entries.sorted { (following[$0.id.rawValue] != nil ? 0 : 1) < (following[$1.id.rawValue] != nil ? 0 : 1) }
-        for start in stride(from: 0, to: order.count, by: Self.atOnce) {
-            let batch = order[start..<min(start + Self.atOnce, order.count)]
-            let read = await withTaskGroup(of: (ServiceID, ServiceStanding?).self) { group in
-                for entry in batch {
-                    group.addTask { (entry.id, try? await client.standing(of: entry.id)) }  // try?: as above
-                }
-                var read: [ServiceID: ServiceStanding] = [:]
-                for await (id, standing) in group { if let standing { read[id] = standing } }
-                return read
+        // Where your services stand: your devices once, then the services you have a page at a
+        // time; nothing comes when nothing changed since the last read. A service you don't
+        // have is looked at when its page opens (`look`).
+        if let read = await readStandings(client) {
+            standingsRevision = read.revision
+            deviceStandings = read.devices
+            standings = Dictionary(read.services.map { ($0.service, $0) }) { first, _ in first }
+            devices = devices(from: read.devices)
+            for entry in entries {
+                found[entry.id.rawValue] = sources(entry, standings[entry.id])
             }
-            for entry in batch {
-                guard let standing = read[entry.id] else { continue }
-                standings[entry.id] = standing
-                found[entry.id.rawValue] = Self.sources(entry, standing)
-            }
-            devices = devices(from: Array(standings.values))
             refollow()
         }
 
@@ -81,18 +67,46 @@ extension FlooContactsDemo {
         await loadSettings()
     }
 
+    /// The standings since `standingsRevision`, all their pages; nil when nothing changed or
+    /// they weren't read.
+    private func readStandings(_ client: FlooClient) async -> ServiceStandings? {
+        do {
+            guard var read = try await client.standings(revision: standingsRevision) else { return nil }
+            var page = read
+            while page.more, let last = page.services.last?.service {
+                guard let next = try await client.standings(after: last) else { break }
+                read.services += next.services
+                page = next
+            }
+            return read
+        } catch {
+            return nil
+        }
+    }
+
+    /// A service's page opened: where it can come from, read now when it isn't one of yours.
+    func look(_ service: FlooService) async {
+        guard let client = live?.server, let id = try? ServiceID(service.id),  // try?: not a name
+              standings[id] == nil, let entry = await live?.directory()?.services.first(where: { $0.id == id }),
+              let read = try? await client.standing(of: id) else { return }  // try?: read again next time it opens
+        deviceStandings = read.devices
+        if let standing = read.services.first { standings[id] = standing }
+        found[service.id] = sources(entry, standings[id])
+    }
+
     /// What's followed and how it stands, from what was read so far.
     private func refollow() {
         var following: [String: FlooFollowing] = [:]
-        for connection in connections where connection.connected {
-            let id = connection.service.rawValue
-            let standing = standings[connection.service]
+        for standing in standings.values where standing.connected {
+            let id = standing.service.rawValue
+            let cloud = standing.hosts.filter { $0.host == .cloud && $0.connected }
             var entry = FlooFollowing()
-            entry.account = standing?.cloud.compactMap(\.account).first
-            entry.expired = standing?.cloud.contains { $0.requirements.contains { $0.state == .expired } } ?? false
-            entry.devices = Set((standing?.devices ?? []).filter { Self.provides($0.providers) }.map(\.device.description))
+            entry.account = cloud.compactMap(\.account).first
+            entry.expired = cloud.contains { $0.requirements.contains { $0.state == .expired } }
+            // The devices it's connected on and works on now.
+            entry.devices = Set(standing.hosts.filter { $0.connected && Self.provides($0) }.compactMap { $0.host.device?.description })
             entry.asked = (asked[id] ?? []).subtracting(entry.devices)
-            entry.pushes = pushes.filter { $0.conversation.kind == .service(connection.service) }.compactMap(Self.push)
+            entry.pushes = pushes.filter { $0.conversation.kind == .service(standing.service) }.compactMap(Self.push)
             entry.doing = (watches[id] ?? []).map(Self.doing)
             if let dialog = dialogs[id] {
                 entry.quiet = dialog.settings?.notifications.mutedUntil.map { $0 > .now } ?? false
@@ -109,12 +123,9 @@ extension FlooContactsDemo {
     func follow() async {
         while !Task.isCancelled {
             await load()
-            guard (try? await Task.sleep(for: .seconds(asked.isEmpty ? 45 : 10))) != nil else { return }  // try?: cancelled, done
+            guard (try? await Task.sleep(for: .seconds(asked.isEmpty ? 15 : 4))) != nil else { return }  // try?: cancelled, done
         }
     }
-
-    /// Calls to the server at once.
-    private static let atOnce = 3
 
     // MARK: Doing
 
@@ -129,17 +140,17 @@ extension FlooContactsDemo {
         }
     }
 
-    /// Has it set up on this device: Floo Helper asks for what this Mac needs, then it's
-    /// connected.
+    /// Has it set up on this device: Floo Helper asks for what this Mac needs, and connects it
+    /// here once it can work.
     func allowHere(_ service: FlooService) async {
         #if targetEnvironment(macCatalyst)
         await FlooHelper.allow([service.id])
         #endif
-        await connect(service)
+        await load()
     }
 
-    /// Asks `device`, online, to open its settings for it (`SetupRequest`); it's connected
-    /// now, and that device provides it once it reports it set up.
+    /// Asks `device`, online, to open its settings for it (`SetupRequest`); that device
+    /// connects it there once it's set up.
     func setUpLive(_ service: FlooService, on device: FlooDevice) async {
         guard let client = live?.server, let id = try? ServiceID(service.id),  // try?: not a name
               let target = DeviceID(device.id) else { return }
@@ -148,30 +159,29 @@ extension FlooContactsDemo {
             _ = try await client.askToSetUp(id, on: target)
             asked[service.id, default: []].insert(device.id)
             show("已在\(device.name)上打开「\(service.name)」的设置")
-            await connect(service)
+            await load()
         } catch {
             show("没能在\(device.name)上打开：\(error)")
         }
     }
 
-    /// Connected, its conversation opened: what its agent takes on starts here.
-    func connect(_ service: FlooService) async {
-        guard let client = live?.server, let id = try? ServiceID(service.id) else { return }  // try?: not a name
+    /// No longer on `device`: the others it's connected on go on; its conversation stays.
+    func disconnect(_ service: FlooService, on device: FlooDevice) async {
+        guard let client = live?.server, let id = try? ServiceID(service.id),  // try?: not a name
+              let target = DeviceID(device.id) else { return }
         do {
-            let version = try await client.connections().first { $0.service == id }?.version ?? 0
-            _ = try await client.change(ConnectionChange(connected: true, version: version), of: id)
+            _ = try await client.disconnect(id, on: .device(target))
         } catch {
-            show("没连上：\(error)")
+            show("没断开：\(error)")
         }
         await load()
     }
 
-    /// No longer followed: what it took on ends; its conversation and pushes stay.
+    /// No longer followed, anywhere: what it took on ends; its conversation and pushes stay.
     func disconnect(_ service: FlooService) async {
         guard let client = live?.server, let id = try? ServiceID(service.id) else { return }  // try?: not a name
         do {
-            let version = try await client.connections().first { $0.service == id }?.version ?? 0
-            _ = try await client.change(ConnectionChange(connected: false, version: version), of: id)
+            _ = try await client.disconnect(id)
         } catch {
             show("没断开：\(error)")
         }
@@ -241,44 +251,31 @@ extension FlooContactsDemo {
 
     // MARK: From the server's words
 
-    /// Your devices, from the standings: this one first (on the Mac, Floo Helper's), then
-    /// the others that provide anything or are online now; the demo's own device, which
-    /// provides nothing, left out.
-    private func devices(from standings: [ServiceStanding]) -> [FlooDevice] {
+    /// Your devices, from the standings, each by its name: this one first (on the Mac, Floo
+    /// Helper's), then the others that are online now or provide anything; the demo's own
+    /// device, which provides nothing, left out.
+    private func devices(from standings: [DeviceStanding]) -> [FlooDevice] {
         let own = live?.ownDevice?.description
-        var seen: [String: DeviceStanding] = [:]
-        var order: [String] = []
-        var providing: Set<String> = []
-        for standing in standings {
-            for device in standing.devices {
-                let id = device.device.description
-                if seen[id] == nil { order.append(id) }
-                seen[id] = device
-                if !device.providers.isEmpty { providing.insert(id) }
+        let providing = Set(self.standings.values.flatMap(\.hosts).filter { $0.provider != nil }.compactMap { $0.host.device?.description })
+        let result = standings.compactMap { device -> FlooDevice? in
+            let id = device.device.description
+            guard id != own, device.online || providing.contains(id) || id == thisDevice else { return nil }
+            let (kind, symbol): (FlooDevice.Kind, String) = switch device.platform {
+            case .mac: (.mac, "laptopcomputer")
+            case .iPhone: (.iPhone, "iphone")
+            case .iPad: (.iPad, "ipad")
+            case .watch: (.iPhone, "applewatch")
             }
-        }
-        var counts: [DevicePlatform: Int] = [:]
-        var result: [FlooDevice] = []
-        for id in order where id != own {
-            guard let device = seen[id], device.online || providing.contains(id) else { continue }
-            // Numbered among the others of its kind; this one is "这台".
-            if id != thisDevice { counts[device.platform, default: 0] += 1 }
-            let number = counts[device.platform] ?? 0
-            let (kind, name, symbol): (FlooDevice.Kind, String, String) = switch device.platform {
-            case .mac: (.mac, "Mac", "laptopcomputer")
-            case .iPhone: (.iPhone, "iPhone", "iphone")
-            case .iPad: (.iPad, "iPad", "ipad")
-            case .watch: (.iPhone, "Apple Watch", "applewatch")
-            }
-            let this = id == thisDevice
-            result.append(FlooDevice(
+            return FlooDevice(
                 id: id,
-                name: this ? "这台 \(name)" : number > 1 ? "\(name) \(number)" : name,
+                name: device.name,
                 kind: kind,
                 symbol: symbol,
+                // This Mac's own, until each device reports what it is.
+                product: id == thisDevice ? AppleDevice.current : nil,
                 online: device.online,
                 lastSeen: device.online ? nil : device.lastSeen.map { Self.ago($0.date) }
-            ))
+            )
         }
         return result.sorted { ($0.id == thisDevice ? 0 : 1) < ($1.id == thisDevice ? 0 : 1) }
     }
@@ -312,31 +309,33 @@ extension FlooContactsDemo {
 
     /// Where it can come from, from its standing: a cloud account when the cloud hosts it,
     /// and each device's providers with what they need.
-    private static func sources(_ entry: ServiceDirectory.Entry, _ standing: ServiceStanding?) -> FlooServiceSources {
+    private func sources(_ entry: ServiceDirectory.Entry, _ standing: ServiceStanding?) -> FlooServiceSources {
         var sources = FlooServiceSources()
         if entry.hosts.contains(.cloud) {
             sources.account = entry.presentation.developer ?? entry.presentation.name
         }
+        let platforms = Dictionary(deviceStandings.map { ($0.device, $0.platform) }) { first, _ in first }
         var byDevice: [String: String] = [:]
-        for device in standing?.devices ?? [] where !device.providers.isEmpty {
-            let kind: FlooDevice.Kind = switch device.platform {
+        for host in standing?.hosts ?? [] where host.provider != nil {
+            guard let device = host.host.device, let platform = platforms[device] else { continue }
+            let kind: FlooDevice.Kind = switch platform {
             case .mac: .mac
             case .iPad: .iPad
             default: .iPhone
             }
-            let required = device.providers.flatMap(\.requirements).filter { !$0.optional }
+            let required = host.requirements.filter { !$0.optional }
             if sources.devices[kind] == nil {
-                sources.devices[kind] = needs(required.map(\.requirement)) ?? "启用"
+                sources.devices[kind] = Self.needs(required.map(\.requirement)) ?? "启用"
             }
-            byDevice[device.device.description] = needs(required.filter { $0.state != .met }.map(\.requirement)) ?? ""
+            byDevice[device.description] = Self.needs(required.filter { $0.state != .met }.map(\.requirement)) ?? ""
         }
         sources.byDevice = byDevice
         return sources
     }
 
-    /// All required requirements met by one of its providers there.
-    private static func provides(_ providers: [ProviderReport]) -> Bool {
-        providers.contains { $0.requirements.allSatisfy { $0.optional || $0.state == .met } }
+    /// All its required requirements met there.
+    private static func provides(_ host: HostStanding) -> Bool {
+        host.provider != nil && host.requirements.allSatisfy { $0.optional || $0.state == .met }
     }
 
     /// What a person does to meet `requirements`, as one phrase; nil for none.
