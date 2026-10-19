@@ -192,7 +192,8 @@ final class FlooOpenProgram: Identifiable {
     }
 }
 
-/// Fetches a mini program's photos (`media:<hash>`) through the server's short links.
+/// Fetches a mini program's photos (`media:<hash>`) through the server's short links, and
+/// uploads those it picks.
 struct FlooProgramHost: CardHost {
     let server: FlooClient
 
@@ -210,6 +211,12 @@ struct FlooProgramHost: CardHost {
         if let bytes = link.content { return bytes }
         guard let address = link.url.flatMap(URL.init(string:)) else { return nil }
         return try? await URLSession.shared.data(from: address).0  // nil: the placeholder stays
+    }
+
+    /// A picked photo, uploaded: the program's Media for it.
+    func upload(_ data: Data, type: String) async throws -> CardValue {
+        let media = try await server.upload(data, type: type)
+        return try JSONDecoder().decode(CardValue.self, from: JSONEncoder().encode(media))
     }
 }
 
