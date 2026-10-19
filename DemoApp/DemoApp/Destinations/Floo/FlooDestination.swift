@@ -906,7 +906,7 @@ private struct FlooRowView: View {
             HStack(alignment: .top, spacing: CardSize.gutter()) {
                 ForEach(lines, id: \.self) { name in
                     if let session = demo.card(name) {
-                        CardFrame(layout: layout) { CardView(tree: session.tree) }
+                        CardFrame(layout: layout, widens: true) { CardView(tree: session.tree) }
                             .overlay { FlooCardEdge(size: layout.size) }
                     }
                 }
@@ -928,7 +928,7 @@ private struct FlooRowView: View {
                 session: name.flatMap { demo.sessions[$0] }
             )
         } else if let session = name.flatMap({ demo.card($0) }) {
-            CardFrame(layout: card.layout) { CardView(tree: session.tree) }
+            CardFrame(layout: card.layout, widens: true) { CardView(tree: session.tree) }
                 .overlay { FlooCardEdge(size: card.layout.size) }
         }
     }
@@ -938,11 +938,37 @@ private struct FlooRowView: View {
     }
 }
 
+/// A conversation's card content: its size's width at least, wider when it can't fit in
+/// that (it says it needs more when offered it), as far as the room it's given; as
+/// CardFrame's `widens` does for the backend's cards.
+private struct FlooAtLeast: Layout {
+    let width: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = fitted(subviews, room: proposal.width)
+        let height = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: proposal.height)).height }.max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for view in subviews {
+            view.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+        }
+    }
+
+    private func fitted(_ subviews: Subviews, room: CGFloat?) -> CGFloat {
+        let needed = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).width }.max() ?? width
+        guard needed.isFinite else { return width }
+        return max(width, min(needed, room ?? .infinity))
+    }
+}
+
 /// Cards one after another, side by side as the width allows, as a page lays them out
 /// (DocMediaLayout.place): slots a glance wide with the gutter between, a glance taking one
 /// and every other size two (a summary is two glances and the gutter). A card that doesn't
 /// fit on the line starts the next, the gutter below; a line is as tall as its tallest card.
-/// The cards keep their own size.
+/// The cards keep their own size, or are wider when their content is (CardFrame's
+/// `widens`), taking the slots their width covers.
 struct FlooCardRun: Layout {
     /// The slots each card takes.
     let spans: [Int]
@@ -969,8 +995,11 @@ struct FlooCardRun: Layout {
         var frames: [CGRect] = []
         var (used, y, line) = (0, CGFloat(0), CGFloat(0))
         for (subview, span) in zip(subviews, spans) {
+            // Offered the line: a card wider than its size is at most that.
+            let size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            // (Less a hair: a card its size's width is exactly its slots.)
+            let span = max(span, Int(((size.width + Self.gutter) / Self.slot - 0.01).rounded(.up)))
             if used > 0, used + span > slots { (used, y, line) = (0, y + line + Self.gutter, 0) }
-            let size = subview.sizeThatFits(.unspecified)
             frames.append(CGRect(origin: CGPoint(x: CGFloat(used) * Self.slot, y: y), size: size))
             (used, line) = (used + span, max(line, size.height))
         }
@@ -1625,7 +1654,7 @@ private struct FlooCardFrame<Content: View>: View {
         let padding = size.padding
         let radius = size == .small ? 18.0 : 20.0
         CardPanel(padding: padding, cornerRadius: radius) {
-            content.frame(width: width - 2 * padding, alignment: .topLeading)
+            FlooAtLeast(width: width - 2 * padding) { content }
         }
         .overlay {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -1717,7 +1746,7 @@ private struct FlooLiveCard: View {
 
     var body: some View {
         let drawing = !(session?.tree.roots.isEmpty ?? true)
-        CardFrame(layout: layout) {
+        CardFrame(layout: layout, widens: true) {
             // One card view for as long as it's drawn: its own entrances bring in what the
             // source adds, and a retry's reset takes its views out at once. Swapped for the
             // request each time the tree was empty for a moment (as a line is half-written),
