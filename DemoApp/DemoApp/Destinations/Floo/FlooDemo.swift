@@ -32,6 +32,22 @@ enum FlooSpeaker: Hashable, Sendable {
     case person(String)
 }
 
+/// A conversation of the backend's you can go to (FlooLive): the main one, a group, a topic
+/// (listed, or a comment under its message), or one with a service.
+struct FlooPlace: Identifiable, Hashable, Sendable {
+    enum Kind: Hashable, Sendable {
+        case main
+        case group
+        case topic(listed: Bool)
+        case service
+    }
+
+    let id: String
+    let title: String
+    let kind: Kind
+    var unread = 0
+}
+
 /// Where a person's message is, as the agents have it: kept, read into an agent's context,
 /// answered.
 enum FlooReceipt: Hashable, Sendable {
@@ -140,6 +156,8 @@ struct FlooRow: Identifiable, Equatable {
         case choice([FlooChoice], chosen: Int?)
         /// An ask card on a message: in the conversation where it was asked.
         case ask(FlooAskCard)
+        /// The topics and comments hung on a message, to go to.
+        case topics([FlooPlace])
         /// Where an answer was found, as the backend checked it (FlooLive).
         case mention(Mention)
         /// A page the agent wrote (```floo.page): its path under /drive/, and its title and
@@ -389,6 +407,8 @@ final class FlooDemo {
         var processAfterText = false
         /// What it asked without stopping: cards on this message, after its words.
         var asks: [FlooAskCard] = []
+        /// The topics and comments hung on it (FlooLive), under it.
+        var topics: [FlooPlace] = []
         var splitter = MarkdownBlockSplitter(customFence: { language, source in
             guard language.hasPrefix("floo.") else { return nil }
             // In the list from its first whole line: what the card will show, or what it points
@@ -846,6 +866,56 @@ final class FlooDemo {
     func goLive(_ live: FlooLive) {
         self.live = live
         isLive = true
+    }
+
+    /// The backend's conversations you can go to, and the one shown (FlooLive).
+    private(set) var places: [FlooPlace] = []
+    private(set) var place: FlooPlace?
+    /// Where a topic shown hangs: the conversation to go back to.
+    private(set) var origin: FlooPlace?
+    /// The message a topic is being named for, before it's opened on it.
+    var naming: Int?
+    /// Starting a group, connecting services: their sheets.
+    var startsGroup = false
+    var showsServices = false
+
+    func setPlaces(_ places: [FlooPlace], current: FlooPlace?, origin: FlooPlace?) {
+        self.places = places
+        place = current
+        self.origin = origin
+    }
+
+    /// Another of the backend's conversations in place of this one: what's shown goes, the
+    /// backend and who's signed in stay.
+    func enter(_ place: FlooPlace) {
+        let live = live, signedIn = signedIn, cardModel = cardModel, places = places
+        reset(title: place.title)
+        self.live = live
+        isLive = live != nil
+        self.signedIn = signedIn
+        self.cardModel = cardModel
+        self.places = places
+        self.place = place
+    }
+
+    func go(to place: FlooPlace) {
+        guard place.id != self.place?.id else { return }
+        live?.open(place)
+    }
+
+    /// A topic on a message of this conversation: titled, it's listed with the conversations;
+    /// without, it's a comment under the message.
+    func openTopic(on message: Int, title: String?) {
+        let found = entries.lazy.compactMap { if case .message(let shown) = $0, shown.id == message { shown } else { nil } }.first
+        guard let number = found?.number else { return }
+        live?.openTopic(on: number, title: title)
+    }
+
+    /// The topics and comments hung on a message, under it.
+    func setTopics(_ message: Message, _ topics: [FlooPlace]) {
+        guard message.topics != topics else { return }
+        message.topics = topics
+        publish()
     }
 
     /// The backend's next cards are drawn with this model and reasoning.
@@ -1539,6 +1609,9 @@ final class FlooDemo {
             guard waiting == nil else { return rows }
             for card in message.asks {
                 rows.append(FlooRow(id: "m\(message.id)#ask-\(card.id)", message: message.id, kind: .ask(card)))
+            }
+            if !message.topics.isEmpty {
+                rows.append(FlooRow(id: "m\(message.id)#topics", message: message.id, kind: .topics(message.topics)))
             }
             if let work, message.processAfterText { rows.append(work) }
             return rows

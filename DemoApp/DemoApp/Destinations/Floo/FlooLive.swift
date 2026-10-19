@@ -17,6 +17,21 @@ import TransportKit
 import ConversationKit
 import DeviceSupport
 import DocKit
+import ServiceKit
+
+/// A service you can connect through the cloud (FlooLive.services).
+struct FlooCloudService: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let summary: String
+    let icon: URL?
+    var connected: Bool
+}
+
+struct FlooConnectError: Error, CustomStringConvertible {
+    let reason: String
+    var description: String { reason }
+}
 
 @MainActor
 final class FlooLive {
@@ -101,8 +116,18 @@ final class FlooLive {
     private var agents: [String: FlooAgent] = [:]
     /// How each service operation is shown, from the server's catalog: what tool calls show.
     private var operations: [String: Operation] = [:]
+    /// The server's services, once loaded.
+    private var catalog: ServiceDirectory?
     /// The conversation as last shown, to show again once the catalog is in.
     private var last: ConversationReplica?
+    /// The conversation shown, and the following of it, ended to go to another.
+    private var current: ConversationID?
+    private var watching: Task<Void, Never>?
+    /// The backend's conversations, as last listed.
+    private var dialogs: [Dialog] = []
+    /// People's names in the conversation shown, by account.
+    private var names: [AccountID: String] = [:]
+    private var entered = false
 
     private init(demo: FlooDemo, backend: Backend) {
         self.demo = demo
@@ -110,7 +135,8 @@ final class FlooLive {
     }
 
     /// Joins as the backend's person on a device of its own (one with no services: on a
-    /// stage, its Mac and phone run those), then follows the main conversation.
+    /// stage, its Mac and phone run those), then follows the main conversation, or the one
+    /// you go to.
     private func run() async throws {
         let base = FlooClient(
             scheme: backend.scheme,
@@ -118,7 +144,6 @@ final class FlooLive {
             transport: URLSessionTransport(),
             tokens: backend.tokens
         )
-        let session: ConversationSession
         do {
             let folder = URL.applicationSupportDirectory.appending(path: backend.folder, directoryHint: .isDirectory)
             let device = try await DeviceIdentity(store: FileSecrets(folder: folder)).registered(
@@ -128,23 +153,158 @@ final class FlooLive {
                 appVersion: "demo",
                 osVersion: ProcessInfo.processInfo.operatingSystemVersionString
             )
-            let client = base.with(device: device)
-            self.client = client
-            session = ConversationSession(.main(of: backend.account), remote: client)
+            self.client = base.with(device: device)
         } catch {
             demo.catchUp("没连上：\(error)")
             return
         }
-        self.session = session
         if backend.lab { Task { await loadCardModel() } }
         Task { await loadCatalog() }
-        let following = Task { await session.follow() }
-        defer { following.cancel() }
-        for await replica in await session.changes() {
-            try Task.checkCancellation()
-            last = replica
-            show(replica)
+        let listing = Task { await keepListing() }
+        defer { listing.cancel() }
+        current = .main(of: backend.account)
+        while let current, !Task.isCancelled {
+            await follow(current)
         }
+    }
+
+    /// Follows a conversation until you go to another one.
+    private func follow(_ id: ConversationID) async {
+        guard let client else { return }
+        let session = ConversationSession(id, remote: client)
+        self.session = session
+        said = [:]
+        outgoing = [:]
+        messages = [:]
+        last = nil
+        names = [:]
+        // The first is shown as the page began it; another takes its place.
+        if entered { demo.enter(place(id)) }
+        entered = true
+        showPlaces()
+        let following = Task { await session.follow() }
+        let watching = Task { @MainActor in
+            for await replica in await session.changes() {
+                guard !Task.isCancelled else { return }
+                last = replica
+                show(replica)
+            }
+        }
+        self.watching = watching
+        await withTaskCancellationHandler {
+            await watching.value
+        } onCancel: {
+            watching.cancel()
+        }
+        following.cancel()
+    }
+
+    // MARK: Places
+
+    /// Goes to another of the backend's conversations.
+    func open(_ place: FlooPlace) {
+        guard let id = ConversationID(place.id), id != current else { return }
+        current = id
+        watching?.cancel()
+    }
+
+    /// A topic on a message of the conversation shown, gone to once it's open.
+    func openTopic(on number: Int64, title: String?) {
+        guard let client, let current else { return }
+        let topic = TopicOpen(id: .generate(), origin: MessageRef(conversation: current, number: number),
+                              title: title, listed: title != nil)
+        Task {
+            do {
+                let info = try await client.open(topic)
+                await list()
+                open(place(info.id))
+            } catch {
+                demo.catchUp("话题没开成：\(error)")
+            }
+        }
+    }
+
+    /// The conversations, listed again now and then: one opened elsewhere (a topic the
+    /// butler opened, a group you were added to) comes in by itself.
+    private func keepListing() async {
+        while !Task.isCancelled {
+            await list()
+            guard (try? await Task.sleep(for: .seconds(8))) != nil else { return }  // try?: cancelled, done
+        }
+    }
+
+    func list() async {
+        guard let client, let listed = try? await client.dialogs() else { return }  // try?: listed next time
+        dialogs = listed
+        showPlaces()
+        if let last { showTopics(last) }
+    }
+
+    /// A conversation as the list shows it.
+    private func place(_ id: ConversationID) -> FlooPlace {
+        guard let dialog = dialogs.first(where: { $0.conversation.id == id }) else {
+            return FlooPlace(id: id.description, title: id == .main(of: backend.account) ? "floo" : "对话", kind: .group)
+        }
+        return place(dialog)
+    }
+
+    private func place(_ dialog: Dialog) -> FlooPlace {
+        let info = dialog.conversation
+        let kind: FlooPlace.Kind
+        let title: String
+        switch info.kind {
+        case .main:
+            kind = .main
+            title = "floo"
+        case .group:
+            kind = .group
+            title = info.title ?? "群聊"
+        case .topic(_, let listed):
+            kind = .topic(listed: listed)
+            title = info.title ?? "评论"
+        case .service(let service):
+            kind = .service
+            title = info.title ?? agent(.service(service)).name
+        case .agents, .helper:
+            kind = .service
+            title = info.title ?? ""
+        }
+        return FlooPlace(id: info.id.description, title: title, kind: kind, unread: dialog.unread)
+    }
+
+    /// The list: the main conversation, then groups, listed topics and services, newest first;
+    /// where a topic shown hangs, to go back to.
+    private func showPlaces() {
+        let shown = dialogs.filter { dialog in
+            switch dialog.conversation.kind {
+            case .agents, .helper: false
+            case .topic(_, let listed): listed || dialog.conversation.id == current
+            default: !dialog.conversation.archived
+            }
+        }
+        let main = shown.filter { if case .main = $0.conversation.kind { true } else { false } }
+        let others = shown.filter { if case .main = $0.conversation.kind { false } else { true } }
+            .sorted { $0.conversation.createdAt > $1.conversation.createdAt }
+        var origin: FlooPlace?
+        if let current, case .topic(let from, _)? = dialogs.first(where: { $0.conversation.id == current })?.conversation.kind {
+            origin = place(from.conversation)
+        }
+        demo.setPlaces((main + others).map(place), current: current.map(place), origin: origin)
+    }
+
+    /// The topics and comments hung on the shown conversation's messages, under them.
+    private func showTopics(_ replica: ConversationReplica) {
+        var hung: [Int64: [FlooPlace]] = [:]
+        for dialog in dialogs {
+            guard case .topic(let from, _) = dialog.conversation.kind, from.conversation == replica.id else { continue }
+            hung[from.number, default: []].append(place(dialog))
+        }
+        var shown: [ObjectIdentifier: (message: FlooDemo.Message, topics: [FlooPlace])] = [:]
+        for message in messages.values { shown[ObjectIdentifier(message)] = (message, []) }
+        for (number, message) in messages {
+            shown[ObjectIdentifier(message)]?.topics += hung[number] ?? []
+        }
+        for (message, topics) in shown.values { demo.setTopics(message, topics) }
     }
 
     // MARK: Sending
@@ -219,12 +379,11 @@ final class FlooLive {
     /// whether it's shown, and its service's icon.
     private func loadCatalog() async {
         guard let client, let catalog = try? await client.catalog() else { return }  // try?: calls show by name
+        self.catalog = catalog
         var found: [String: Operation] = [:]
         for entry in catalog.services {
             let zh = entry.presentation.localized["zh-Hans"]?.operations ?? [:]
-            let icon = entry.presentation.icon.flatMap { path in
-                path.hasPrefix("/") ? backend.base.appending(path: String(path.dropFirst())) : URL(string: path)
-            }
+            let icon = icon(entry)
             for operation in entry.operations {
                 found["\(entry.id).\(operation.id)"] = Operation(
                     title: zh[operation.id.rawValue]?.title ?? operation.title,
@@ -236,6 +395,76 @@ final class FlooLive {
         }
         operations = found
         if let last { show(last) }
+    }
+
+    // MARK: Services
+
+    /// The services you can connect through the cloud, and whether each is.
+    func services() async throws -> [FlooCloudService] {
+        guard let client else { return [] }
+        if catalog == nil { await loadCatalog() }
+        let connected = Set(try await client.connections().filter(\.connected).map(\.service))
+        return (catalog?.services ?? []).filter { $0.hosts.contains(.cloud) }.map { entry in
+            let zh = entry.presentation.localized["zh-Hans"]
+            return FlooCloudService(
+                id: entry.id.rawValue,
+                name: zh?.name ?? entry.presentation.name,
+                summary: zh?.shortDescription ?? entry.presentation.shortDescription ?? "",
+                icon: icon(entry),
+                connected: connected.contains(entry.id)
+            )
+        }
+    }
+
+    /// The services you have, for a group to bring in.
+    func connectedServices() async -> [FlooCloudService] {
+        ((try? await services()) ?? []).filter(\.connected)  // try?: none to pick
+    }
+
+    /// Connects a service: you sign in to it in the browser, and it's yours once that's done.
+    func connect(_ service: FlooCloudService) async throws {
+        guard let client, let id = try? ServiceID(service.id) else { return }  // try?: not a name, none to connect
+        let link = try await client.connect(id)
+        if let url = URL(string: link.url) { await UIApplication.shared.open(url) }
+        // Asked again until it's done, for as long as signing in reasonably takes.
+        for _ in 0..<150 {
+            try await Task.sleep(for: .seconds(2))
+            let state = try await client.signIn(link.link)
+            switch state.state {
+            case .pending: continue
+            case .failed: throw FlooConnectError(reason: state.reason ?? "没连上")
+            case .connected:
+                let version = try await client.connections().first { $0.service == id }?.version ?? 0
+                _ = try await client.change(ConnectionChange(connected: true, version: version), of: id)
+                return
+            }
+        }
+        throw FlooConnectError(reason: "等登录等太久了")
+    }
+
+    private func icon(_ entry: ServiceDirectory.Entry) -> URL? {
+        entry.presentation.icon.flatMap { path in
+            path.hasPrefix("/") ? backend.base.appending(path: String(path.dropFirst())) : URL(string: path)
+        }
+    }
+
+    // MARK: Groups
+
+    /// Someone to bring into a group, by their email; nil if there's no such account.
+    func person(email: String) async throws -> PersonFound? {
+        guard let client else { return nil }
+        return try await client.person(email: email)
+    }
+
+    /// A group of yours with your butler, these people (each with theirs) and services, gone
+    /// to once it's open.
+    func openGroup(title: String, people: [AccountID], services: [String]) async throws {
+        guard let client else { return }
+        let group = GroupOpen(id: .generate(), title: title, people: people,
+                              services: services.compactMap { try? ServiceID($0) })  // try?: from the catalog, names
+        let info = try await client.open(group)
+        await list()
+        open(place(info.id))
     }
 
     // MARK: Pages
@@ -254,6 +483,9 @@ final class FlooLive {
     // MARK: Showing
 
     private func show(_ replica: ConversationReplica) {
+        for (participant, member) in replica.members where participant.actor == .person {
+            if let name = member.name { names[participant.account] = name }
+        }
         let agentsRead = replica.members.filter { $0.key.actor.agent != nil }.map(\.value)
         // Taken back (its run passed having said nothing): it goes.
         let present = Set(replica.messages.map(\.number))
@@ -285,6 +517,7 @@ final class FlooLive {
         showAgent(parts, replica: replica)
         showOutbox(replica)
         showAsks(replica)
+        showTopics(replica)
         // An agent with a run going is writing, between its model's calls too (its message
         // stops streaming while a tool runs, and the next one starts after).
         var writing = Set(replica.active.compactMap(\.agent.actor.agent))
@@ -412,8 +645,10 @@ final class FlooLive {
             said[info.number] = mine
             demo.retries[demo.row(of: mine)] = nil
         }
+        // Someone else's, in a group: by name, with no receipt of yours.
+        let mine = info.author.account == backend.account
         if let said = said[info.number] {
-            if said.receipt != receipt { demo.mark(said, receipt) }
+            if mine, said.receipt != receipt { demo.mark(said, receipt) }
             return
         }
         var text = blocks.compactMap { if case .text(let text) = $0.content { text } else { nil } }.joined(separator: "\n\n")
@@ -427,7 +662,9 @@ final class FlooLive {
             }
         }
         guard !text.isEmpty else { return }
-        said[info.number] = demo.say(.me, text, receipt: receipt, quote: quote)
+        said[info.number] = mine
+            ? demo.say(.me, text, receipt: receipt, quote: quote)
+            : demo.say(.person(names[info.author.account] ?? "成员"), text, quote: quote)
     }
 
     /// An agent's message, from the backend's messages it's made of: one, or a run's work
@@ -435,7 +672,7 @@ final class FlooLive {
     private func showAgent(_ parts: [MessageInfo], replica: ConversationReplica) {
         guard let first = parts.first, let last = parts.last, case .agent(let id) = first.author.actor else { return }
         let message = parts.lazy.compactMap { self.messages[$0.number] }.first
-            ?? demo.begin(agent(id), at: Self.time(first.createdAt))
+            ?? demo.begin(agent(id, of: first.author.account), at: Self.time(first.createdAt))
         for info in parts { messages[info.number] = message }
         // Its fences are its words', the last part's: what a choice answers.
         message.number = last.number
@@ -679,6 +916,13 @@ final class FlooLive {
     private static let palette: [Color] = [.orange, .teal, .purple, .mint, .brown]
 
     /// The demo's agent for one of the backend's: the butler, or a service by what it's for.
+    /// Someone else's agent, in a group: theirs by name.
+    private func agent(_ id: AgentID, of owner: AccountID) -> FlooAgent {
+        let own = agent(id)
+        guard owner != backend.account else { return own }
+        return FlooAgent(name: "\(names[owner] ?? "别人")的\(own.name)", tint: .teal)
+    }
+
     private func agent(_ id: AgentID) -> FlooAgent {
         guard case .service(let service) = id else { return .butler }
         let name = service.rawValue

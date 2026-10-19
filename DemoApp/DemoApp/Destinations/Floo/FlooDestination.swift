@@ -31,6 +31,8 @@ struct FlooDestination: View {
     @State private var head: (id: String, y: CGFloat)?
     /// The chat's background, by its names (ChatBackground's "Aurora" "Green"); "plain": the page's own.
     @AppStorage("flooChatBackground") private var backgroundName = "plain"
+    /// A topic's name as you type it.
+    @State private var topicTitle = ""
     @Environment(\.colorScheme) private var colorScheme
 
     static var launchScenario: FlooScenario? {
@@ -120,6 +122,25 @@ struct FlooDestination: View {
         .environment(\.colorScheme, background == nil ? colorScheme : .dark)
         .environment(\.flooOnBackground, background != nil)
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $demo.startsGroup) {
+            if let live = demo.live { FlooNewGroupView(live: live) }
+        }
+        .sheet(isPresented: $demo.showsServices) {
+            if let live = demo.live { FlooServicesView(live: live) }
+        }
+        .alert("开话题", isPresented: Binding(get: { demo.naming != nil }, set: { if !$0 { demo.naming = nil } })) {
+            TextField("话题名", text: $topicTitle)
+            Button("开") {
+                if let message = demo.naming {
+                    let title = topicTitle.trimmingCharacters(in: .whitespaces)
+                    demo.openTopic(on: message, title: title.isEmpty ? "话题" : title)
+                }
+                topicTitle = ""
+            }
+            Button("取消", role: .cancel) { topicTitle = "" }
+        } message: {
+            Text("话题会进对话列表，管家在里面接着这条消息聊。")
+        }
         // A page the agent wrote, read only: what's on the backend is the agent's to change.
         .sheet(item: $demo.openPage) { page in
             DocDestination(doc: page.doc)
@@ -131,11 +152,25 @@ struct FlooDestination: View {
 
     private var header: some View {
         HStack(spacing: 12) {
+            // In a topic: back to where it hangs.
+            if demo.isLive, let origin = demo.origin {
+                Button {
+                    demo.go(to: origin)
+                } label: {
+                    Image(systemName: "chevron.left").font(.body.weight(.semibold))
+                }
+                .buttonStyle(.borderless)
+                .help("回到\(origin.title)")
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(demo.title).font(.headline)
-                Text(scenario.name).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(demo.isLive && demo.origin != nil ? "话题 · 在\(demo.origin?.title ?? "")" : scenario.name)
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
+            if demo.isLive, demo.signedIn != nil || !demo.places.isEmpty {
+                placesMenu
+            }
             if let cards = demo.cardModel {
                 cardModelMenu(cards)
             }
@@ -171,6 +206,36 @@ struct FlooDestination: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    /// The backend's conversations to go to, and starting a group or connecting a service.
+    private var placesMenu: some View {
+        Menu {
+            Picker("对话", selection: Binding(
+                get: { demo.place?.id ?? "" },
+                set: { id in if let place = demo.places.first(where: { $0.id == id }) { demo.go(to: place) } }
+            )) {
+                ForEach(demo.places) { place in
+                    Label(place.unread > 0 ? "\(place.title)（\(place.unread)）" : place.title, systemImage: Self.symbol(place))
+                        .tag(place.id)
+                }
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Button("新建群聊…", systemImage: "person.2") { demo.startsGroup = true }
+            Button("连接服务…", systemImage: "link") { demo.showsServices = true }
+        } label: {
+            Image(systemName: "bubble.left.and.bubble.right").font(.body.weight(.medium))
+        }
+    }
+
+    private static func symbol(_ place: FlooPlace) -> String {
+        switch place.kind {
+        case .main: "house"
+        case .group: "person.2"
+        case .topic: "bubble.left.and.text.bubble.right"
+        case .service: "app"
+        }
     }
 
     /// Nil: plain.
@@ -576,6 +641,7 @@ private struct FlooRowView: View {
 
     var body: some View {
         content
+            .contextMenu { topicMenu }
             .frame(maxWidth: 720)
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
@@ -591,6 +657,20 @@ private struct FlooRowView: View {
                 default: break
                 }
             }
+    }
+
+    /// On an agent's message of the backend's: a comment under it, or a topic of its own.
+    @ViewBuilder
+    private var topicMenu: some View {
+        if demo.isLive, let message = row.message {
+            switch row.kind {
+            case .block, .signature, .cards, .fence, .work:
+                Button("评论", systemImage: "text.bubble") { demo.openTopic(on: message, title: nil) }
+                Button("开话题…", systemImage: "bubble.left.and.text.bubble.right") { demo.naming = message }
+            default:
+                EmptyView()
+            }
+        }
     }
 
     @ViewBuilder
@@ -693,6 +773,9 @@ private struct FlooRowView: View {
         case .ask(let card):
             FlooAskView(card: card, demo: demo)
                 .padding(.vertical, 6)
+        case .topics(let topics):
+            FlooTopicLinks(topics: topics, demo: demo)
+                .padding(.vertical, 4)
         case .mention(let mention):
             MentionView(mention)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1520,6 +1603,35 @@ extension EnvironmentValues {
     @Entry var flooOnBackground = false
 }
 
+/// The topics and comments hung on a message, one line each, to go to.
+private struct FlooTopicLinks: View {
+    let topics: [FlooPlace]
+    let demo: FlooDemo
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(topics) { topic in
+                Button {
+                    demo.go(to: topic)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: topic.kind == .topic(listed: true) ? "bubble.left.and.text.bubble.right" : "text.bubble")
+                        Text(topic.kind == .topic(listed: true) ? "话题：\(topic.title)" : "评论")
+                        if topic.unread > 0 {
+                            Text("\(topic.unread) 条新消息").foregroundStyle(.secondary)
+                        }
+                        Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                    .font(.footnote.weight(.medium))
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 4)
+    }
+}
+
 /// The chat's background: one of ChatBackgrounds', or the page's plain one.
 private struct FlooChatBackground: View {
     let background: ChatBackground?
@@ -1916,6 +2028,8 @@ extension FlooRow {
             if choices.contains(where: { $0.option.image != nil || $0.option.from != nil }) { return 230 }
             if choices.contains(where: { $0.option.detail != nil }) { return 14 + CGFloat(choices.count) * 56 }
             return 56
+        case .topics(let topics):
+            return 8 + CGFloat(topics.count) * 30
         case .ask(let card):
             return 60 + CGFloat(card.items.reduce(0) { sum, item in
                 if item.answer != nil { return sum + 24 }
