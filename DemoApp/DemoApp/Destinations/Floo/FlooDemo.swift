@@ -372,7 +372,8 @@ final class FlooDemo {
     @MainActor
     final class Said {
         let id: Int
-        let speaker: FlooSpeaker
+        /// Who said it, as they're called now (``rename(_:as:)``).
+        fileprivate(set) var speaker: FlooSpeaker
         let text: String
         var receipt: FlooReceipt?
         /// The part of an answer it replies to, picked out of it.
@@ -390,7 +391,8 @@ final class FlooDemo {
     @MainActor
     final class Message {
         let id: Int
-        let agent: FlooAgent
+        /// Whose it is, as they're called now (``rename(_:as:)``).
+        fileprivate(set) var agent: FlooAgent
         let time: String
         var marks: [FlooMark]
         var process: FlooProcess?
@@ -667,6 +669,22 @@ final class FlooDemo {
     func mark(_ said: Said, _ receipt: FlooReceipt) {
         said.receipt = receipt
         show(said.id)
+    }
+
+    /// Someone shown goes by another name (FlooLive: names are kept by person, apart from
+    /// what they said): what they said shows it.
+    func rename(_ said: Said, as speaker: FlooSpeaker) {
+        guard said.speaker != speaker else { return }
+        said.speaker = speaker
+        show(said.id)
+    }
+
+    /// An agent's message whose agent goes by another name (someone else's, named after
+    /// them): it shows it.
+    func rename(_ message: Message, as agent: FlooAgent) {
+        guard message.agent != agent else { return }
+        message.agent = agent
+        show(message.id)
     }
 
     /// An agent's message, empty until it works or speaks.

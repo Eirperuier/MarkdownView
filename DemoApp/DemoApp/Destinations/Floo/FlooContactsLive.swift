@@ -30,6 +30,11 @@ extension FlooContactsDemo {
             return
         }
         let entries = directory.filter { !$0.hidden && !$0.hosts.isEmpty }
+        // A page opened before shows its detail as the catalog has it now, read again only
+        // when the index says it changed: the catalog is where a service's names are.
+        for entry in entries where opened[entry.id.rawValue] != nil {
+            if let detail = await live.detail(entry.id) { opened[entry.id.rawValue] = Self.service(detail) }
+        }
         if services.isEmpty { services = entries.map { opened[$0.id.rawValue] ?? Self.service($0) } }
         // The services' conversations as the chat's list has them; changes come by `follow`.
         dialogs = Dictionary(uniqueKeysWithValues: live.serviceDialogs().map { ($0.key.rawValue, $0.value) })

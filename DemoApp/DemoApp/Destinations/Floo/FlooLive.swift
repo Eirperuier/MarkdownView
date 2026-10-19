@@ -174,8 +174,17 @@ final class FlooLive {
     private var topicsBelow: Int64?
     /// The backend's messages each shown agent message is made of, for the topics on it.
     private var parts: [ObjectIdentifier: [Int64]] = [:]
-    /// People's names in the conversation shown, by account.
+    /// People's names (floo docs/messaging.md §3.10): rows and messages name people by
+    /// account, and the account's one copy of each name is kept on this device, asked for
+    /// together as people show and kept up by the list's stream (`DialogList`).
+    private var people: PeopleNames?
+    /// The conversation list's and the names' store: the device's, or memory.
+    private var listStorage: any ConversationStorage = MemoryConversationStorage()
+    /// The names had so far, by account, and what's shown of each person to name again when
+    /// theirs changes: what they said, and their agents' messages ("林的天气").
     private var names: [AccountID: String] = [:]
+    private var saidBy: [AccountID: [FlooDemo.Said]] = [:]
+    private var agentsOf: [AccountID: [(message: FlooDemo.Message, agent: AgentID)]] = [:]
     private var entered = false
 
     private init(demo: FlooDemo, backend: Backend) {
@@ -226,6 +235,12 @@ final class FlooLive {
         } catch {
             demo.catchUp("本地库没打开，这次只在内存里：\(error)")
         }
+        if let store { listStorage = store.conversations }
+        if let client {
+            let people = PeopleNames(remote: client, storage: listStorage)
+            self.people = people
+            Task { await followNames(people) }
+        }
         if backend.lab { Task { await loadCardModel() } }
         Task { await loadIndex() }
         let listing = Task { await keepListing() }
@@ -250,7 +265,8 @@ final class FlooLive {
         outgoing = [:]
         messages = [:]
         last = nil
-        names = [:]
+        saidBy = [:]
+        agentsOf = [:]
         hung = [:]
         hangs = [:]
         parts = [:]
@@ -310,8 +326,7 @@ final class FlooLive {
     /// account (`DialogList`): the services pages take their rows from here.
     private func keepListing() async {
         guard let client else { return }
-        let list = DialogList(remote: client, storage: store?.conversations ?? MemoryConversationStorage(),
-                              pageSize: Self.listPage)
+        let list = DialogList(remote: client, storage: listStorage, names: people, pageSize: Self.listPage)
         self.list = list
         let changes = await list.changes()
         let following = Task { await list.follow() }
@@ -775,9 +790,7 @@ final class FlooLive {
     private func showAll(_ replica: ConversationReplica) {
         speakers = []
         writing = [:]
-        for (participant, member) in replica.members where participant.actor == .person {
-            if let name = member.name { names[participant.account] = name }
-        }
+        name(Set(replica.members.keys.map(\.account)))
         let agentsRead = replica.members.filter { $0.key.actor.agent != nil }.map(\.value)
         // Taken back (its run passed having said nothing): it goes.
         let present = Set(replica.messages.map(\.number))
@@ -1018,17 +1031,25 @@ final class FlooLive {
             }
         }
         guard !text.isEmpty else { return }
-        said[info.number] = mine
-            ? demo.say(.me, text, receipt: receipt, quote: quote)
-            : demo.say(.person(names[info.author.account] ?? "成员"), text, quote: quote)
+        if mine {
+            said[info.number] = demo.say(.me, text, receipt: receipt, quote: quote)
+        } else {
+            let theirs = demo.say(.person(names[info.author.account] ?? "成员"), text, quote: quote)
+            said[info.number] = theirs
+            saidBy[info.author.account, default: []].append(theirs)
+        }
     }
 
     /// An agent's message, from the backend's messages it's made of: one, or a run's work
     /// overtaken and its words after.
     private func showAgent(_ parts: [MessageInfo], replica: ConversationReplica) {
         guard let first = parts.first, let last = parts.last, case .agent(let id) = first.author.actor else { return }
-        let message = parts.lazy.compactMap { self.messages[$0.number] }.first
-            ?? demo.begin(agent(id, of: first.author.account), at: Self.time(first.createdAt))
+        let owner = first.author.account
+        let message = parts.lazy.compactMap { self.messages[$0.number] }.first ?? {
+            let message = demo.begin(agent(id, of: owner), at: Self.time(first.createdAt))
+            if owner != backend.account { agentsOf[owner, default: []].append((message, id)) }
+            return message
+        }()
         for info in parts { messages[info.number] = message }
         self.parts[ObjectIdentifier(message)] = parts.map(\.number)
         // Its fences are its words', the last part's: what a choice answers.
@@ -1277,6 +1298,42 @@ final class FlooLive {
 
     private static func date(_ timestamp: Wire.Timestamp?) -> Date? {
         timestamp.map { Date(timeIntervalSince1970: Double($0.millisecondsSince1970) / 1000) }
+    }
+
+    // MARK: Names
+
+    /// Names the people of `accounts` not named yet: the kept names at once, the rest asked
+    /// for together; each then shows where they're shown.
+    private func name(_ accounts: Set<AccountID>) {
+        let unnamed = accounts.filter { names[$0] == nil }
+        guard let people, !unnamed.isEmpty else { return }
+        Task {
+            showNames(Array(await people.people(unnamed).values))
+        }
+    }
+
+    /// The names' changes, as the list's stream brings them: each shows where it's shown.
+    private func followNames(_ people: PeopleNames) async {
+        for await change in await people.changes() {
+            switch change {
+            case .people(let changed): showNames(changed)
+            case .reset:
+                // Started anew: those shown are named again.
+                let shown = Set(names.keys)
+                names = [:]
+                name(shown)
+            }
+        }
+    }
+
+    /// People as they're called now, in what's shown of them.
+    private func showNames(_ people: [PersonInfo]) {
+        for person in people {
+            guard let name = person.name, names[person.account] != name else { continue }
+            names[person.account] = name
+            for said in saidBy[person.account] ?? [] { demo.rename(said, as: .person(name)) }
+            for (message, id) in agentsOf[person.account] ?? [] { demo.rename(message, as: agent(id, of: person.account)) }
+        }
     }
 
     // MARK: Mapping
