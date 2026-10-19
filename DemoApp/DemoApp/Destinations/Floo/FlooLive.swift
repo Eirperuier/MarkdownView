@@ -965,15 +965,24 @@ final class FlooLive {
     }
 
     private static func mention(_ mention: AnswerMention) -> Mention {
-        Mention(
+        let conversation = mention.conversation.flatMap { place in
+            Mention.Conversation.Kind(rawValue: place.kind).map { Mention.Conversation(id: place.id.description, kind: $0) }
+        }
+        let doc = mention.doc.map { Mention.Doc(path: $0.path, page: $0.page, block: $0.block, preview: $0.preview) }
+        // A topic, group or page says what it is where it says nothing of where it's from.
+        let source = !mention.source.isEmpty ? mention.source
+            : conversation?.kind == .topic ? "话题" : conversation?.kind == .group ? "群聊" : doc != nil ? "文档" : ""
+        return Mention(
             kind: Mention.Kind(rawValue: mention.kind) ?? .note,
-            source: mention.source,
+            source: source,
             date: mention.date.flatMap(date),
             end: mention.end.flatMap(date),
             title: mention.title,
             quote: mention.quote,
             image: mention.image.flatMap(URL.init(string:)),
-            url: mention.url.flatMap(URL.init(string:))
+            url: mention.url.flatMap(URL.init(string:)),
+            conversation: conversation,
+            doc: doc
         )
     }
 

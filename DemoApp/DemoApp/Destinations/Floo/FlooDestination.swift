@@ -777,9 +777,27 @@ private struct FlooRowView: View {
             FlooTopicLinks(topics: topics, demo: demo)
                 .padding(.vertical, 4)
         case .mention(let mention):
-            MentionView(mention)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 6)
+            if let doc = mention.doc {
+                // A page the agent wrote: Docs' page block, as a page shows; a tap opens it.
+                DocPageRowView(page: DocPage(doc: DocID(doc.page) ?? DocID(rawValue: UUID()), title: mention.title ?? "",
+                                             preview: doc.preview))
+                    .contentShape(Rectangle())
+                    .onTapGesture { demo.open(page: doc.path) }
+                    .padding(.vertical, 6)
+            } else if let place = mention.conversation {
+                // A topic or a group: a tap goes there.
+                MentionView(mention)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        demo.go(to: FlooPlace(id: place.id, title: mention.title ?? "", kind: place.kind == .group ? .group : .topic(listed: true)))
+                    }
+                    .padding(.vertical, 6)
+            } else {
+                MentionView(mention)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+            }
         case .images(let images):
             FlooImagesView(images: images)
                 .padding(.vertical, 6)
