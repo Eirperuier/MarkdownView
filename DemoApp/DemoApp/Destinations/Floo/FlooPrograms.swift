@@ -273,7 +273,10 @@ struct FlooProgramScreen: View {
                     .environment(\.miniProgram, program.mini)
                     .environment(\.cardHost, program.host)
                     .environment(\.cardShowsPage, true)
+                    .environment(\.horizontalSizeClass, .compact)
             }
         }
+        // A phone's screen: programs are laid out for one.
+        .frame(width: 430, height: 880)
     }
 }
