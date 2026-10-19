@@ -1552,7 +1552,11 @@ final class FlooDemo {
                         rows.append(FlooRow(id: "\(id)#mention", message: message.id, kind: .mention(mention)))
                         continue
                     } else if message.number != nil, language != "floo.draw" || message.fenceFailed.contains(fence) {
-                        cut = true
+                        // What is still to come ends the bubble before it; once the words are all
+                        // in, a mention not found or a card not drawn never comes, and the words go
+                        // on in the same bubble.
+                        let never = !message.streaming && (language == "floo.mention" || message.fenceFailed.contains(fence))
+                        if !never { cut = true }
                         continue
                     }
                     if message.number != nil {
