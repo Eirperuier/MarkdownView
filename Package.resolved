@@ -6,7 +6,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/techx-academy/floo-LaTeXSwiftUI.git",
       "state" : {
-        "revision" : "7f85a202db84142f13ce461796e30b1a7ffc9466"
+        "revision" : "6245f306b9aced861a66d4b2e7441cb285ae7d18"
       }
     },
     {
@@ -22,7 +22,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/techx-academy/floo-SwiftDraw.git",
       "state" : {
-        "revision" : "e5487948edafe317108cb414f162dc57550a12f2"
+        "revision" : "bf2f0af78ad9fdee9f577bf1cf5db6586a136430"
       }
     },
     {

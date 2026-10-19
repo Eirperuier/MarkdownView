@@ -20,7 +20,7 @@ let package = Package(
         .package(url: "https://github.com/raspu/Highlightr.git", from: "2.2.1"),
         // Forks carrying the changes the selectable path and math rendering need;
         // see each fork's history on top of its upstream tag.
-        .package(url: "https://github.com/techx-academy/floo-LaTeXSwiftUI.git", revision: "7f85a202db84142f13ce461796e30b1a7ffc9466"),
+        .package(url: "https://github.com/techx-academy/floo-LaTeXSwiftUI.git", revision: "6245f306b9aced861a66d4b2e7441cb285ae7d18"),
         .package(url: "https://github.com/techx-academy/floo-RichText.git", revision: "7ba6a5435100ae04a14f16049caeca4232661c01"),
     ],
     targets: [
