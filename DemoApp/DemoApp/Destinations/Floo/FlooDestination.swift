@@ -31,6 +31,7 @@ struct FlooDestination: View {
     @State private var head: (id: String, y: CGFloat)?
     /// The chat's background, by its names (ChatBackground's "Aurora" "Green"); "plain": the page's own.
     @AppStorage("flooChatBackground") private var backgroundName = "plain"
+    @Environment(\.colorScheme) private var colorScheme
 
     static var launchScenario: FlooScenario? {
         // Opened on a stage (`-flooStage`), it's the live conversation.
@@ -112,11 +113,12 @@ struct FlooDestination: View {
                     }
             }
         }
-        // Dark throughout over the background: white words on material bubbles, and cards
-        // that ask for no background of their own on the same.
-        .cardPanelStyle(.ultraThinMaterial)
+        // Over a picked background, dark throughout: white words on material bubbles, and cards
+        // that ask for no background of their own on the same. Plain, as the system shows.
+        .cardPanelStyle(background == nil ? AnyShapeStyle(.background) : AnyShapeStyle(.ultraThinMaterial))
         .background { FlooChatBackground(background: background) }
-        .environment(\.colorScheme, .dark)
+        .environment(\.colorScheme, background == nil ? colorScheme : .dark)
+        .environment(\.flooOnBackground, background != nil)
         .toolbar(.hidden, for: .navigationBar)
         // A page the agent wrote, read only: what's on the backend is the agent's to change.
         .sheet(item: $demo.openPage) { page in
@@ -570,6 +572,7 @@ private struct FlooRowView: View {
     let row: FlooRow
     let demo: FlooDemo
     @Environment(\.updateSelfSizing) private var updateSelfSizing
+    @Environment(\.flooOnBackground) private var onBackground
 
     var body: some View {
         content
@@ -729,8 +732,8 @@ private struct FlooRowView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Color.accentColor.opacity(0.35), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .background(Color.accentColor.opacity(onBackground ? 0.35 : 0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .background(onBackground ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     if let receipt {
                         FlooReceiptLabel(receipt: receipt)
                     }
@@ -743,7 +746,7 @@ private struct FlooRowView: View {
                     Text(text)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .background(onBackground ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color(uiColor: .secondarySystemFill)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, 48)
@@ -1512,6 +1515,11 @@ private struct FlooBubblePiece<Content: View>: View {
     }
 }
 
+extension EnvironmentValues {
+    /// Whether the chat is over a picked background: its bubbles are material then.
+    @Entry var flooOnBackground = false
+}
+
 /// The chat's background: one of ChatBackgrounds', or the page's plain one.
 private struct FlooChatBackground: View {
     let background: ChatBackground?
@@ -1529,6 +1537,7 @@ private struct FlooChatBackground: View {
 /// as wide as the widest revealed line. While the words stream it grows with the layout spring;
 /// words already there have it whole.
 private struct FlooBubbleBackground: View {
+    @Environment(\.flooOnBackground) private var onBackground
     let state: FlooBubbleState
     let geometry: TiledItemBackgroundGeometry<String>
 
@@ -1585,7 +1594,7 @@ private struct FlooBubbleBackground: View {
     var body: some View {
         let bubble = bubble
         RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
-            .fill(.ultraThinMaterial)
+            .fill(onBackground ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.flooReceived))
             .modifier(FlooBubbleFrame(rect: bubble.rect, revealed: bubble.revealed, settled: bubble.revealed))
             // Where it is follows its rows frame by frame as the list moves and loads them (and
             // the words across as they're revealed): an animation of its own would trail
