@@ -54,7 +54,7 @@ final class DocStore {
     }
 
     private static var folder: URL? {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("Docs", isDirectory: true)
+        URL.demoSupport.appendingPathComponent("Docs", isDirectory: true)
     }
 
     // MARK: Reading

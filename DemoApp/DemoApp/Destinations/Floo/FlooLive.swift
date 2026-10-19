@@ -19,13 +19,17 @@ import DeviceSupport
 import DocKit
 import ServiceKit
 
-/// A service you can connect through the cloud (FlooLive.services).
-struct FlooCloudService: Identifiable, Hashable {
+/// A service you can connect (FlooLive.services): through the cloud, or one this Mac runs.
+struct FlooLiveService: Identifiable, Hashable {
     let id: String
     let name: String
     let summary: String
     let icon: URL?
     var connected: Bool
+    /// Whether a node of yours can do its work now.
+    var reachable: Bool
+    /// Run by a Mac (Floo Helper, FlooHelper.swift), not the cloud.
+    let mac: Bool
 }
 
 struct FlooConnectError: Error, CustomStringConvertible {
@@ -93,6 +97,11 @@ final class FlooLive {
         }
         guard let session else { return }
         demo.signedIn = FlooOnline.Account(email: UserDefaults.standard.string(forKey: FlooOnline.emailKey), auth: auth)
+        #if targetEnvironment(macCatalyst)
+        // This Mac's node, started when it's signed in as you and isn't running.
+        let account = session.account
+        Task { _ = await FlooHelper.state(for: account) }
+        #endif
         let backend = Backend(base: URL(string: "https://\(FlooOnline.server)")!, account: session.account,
                               tokens: auth, folder: "floo-online", lab: false)
         try await go(demo, backend)
@@ -145,7 +154,7 @@ final class FlooLive {
             tokens: backend.tokens
         )
         do {
-            let folder = URL.applicationSupportDirectory.appending(path: backend.folder, directoryHint: .isDirectory)
+            let folder = URL.demoSupport.appending(path: backend.folder, directoryHint: .isDirectory)
             let device = try await DeviceIdentity(store: FileSecrets(folder: folder)).registered(
                 for: backend.account,
                 with: base,
@@ -399,30 +408,42 @@ final class FlooLive {
 
     // MARK: Services
 
-    /// The services you can connect through the cloud, and whether each is.
-    func services() async throws -> [FlooCloudService] {
+    /// The account signed in, on the floo server; nil on a stage, whose Mac is its own.
+    var onlineAccount: AccountID? { backend.lab ? nil : backend.account }
+
+    /// The services you can connect, through the cloud or on a Mac, and whether each is.
+    func services() async throws -> [FlooLiveService] {
         guard let client else { return [] }
         if catalog == nil { await loadCatalog() }
-        let connected = Set(try await client.connections().filter(\.connected).map(\.service))
-        return (catalog?.services ?? []).filter { $0.hosts.contains(.cloud) }.map { entry in
+        let connections = Dictionary(try await client.connections().map { ($0.service, $0) }) { first, _ in first }
+        return (catalog?.services ?? []).filter { $0.hosts.contains(.cloud) || $0.hosts.contains(.mac) }.map { entry in
             let zh = entry.presentation.localized["zh-Hans"]
-            return FlooCloudService(
+            return FlooLiveService(
                 id: entry.id.rawValue,
                 name: zh?.name ?? entry.presentation.name,
                 summary: zh?.shortDescription ?? entry.presentation.shortDescription ?? "",
                 icon: icon(entry),
-                connected: connected.contains(entry.id)
+                connected: connections[entry.id]?.connected ?? false,
+                reachable: connections[entry.id]?.reachable ?? false,
+                mac: !entry.hosts.contains(.cloud)
             )
         }
     }
 
     /// The services you have, for a group to bring in.
-    func connectedServices() async -> [FlooCloudService] {
+    func connectedServices() async -> [FlooLiveService] {
         ((try? await services()) ?? []).filter(\.connected)  // try?: none to pick
     }
 
+    /// Connects a service a Mac runs: nothing to sign in to, it's yours at once.
+    func connectHere(_ service: FlooLiveService) async throws {
+        guard let client, let id = try? ServiceID(service.id) else { return }  // try?: not a name, none to connect
+        let version = try await client.connections().first { $0.service == id }?.version ?? 0
+        _ = try await client.change(ConnectionChange(connected: true, version: version), of: id)
+    }
+
     /// Connects a service: you sign in to it in the browser, and it's yours once that's done.
-    func connect(_ service: FlooCloudService) async throws {
+    func connect(_ service: FlooLiveService) async throws {
         guard let client, let id = try? ServiceID(service.id) else { return }  // try?: not a name, none to connect
         let link = try await client.connect(id)
         if let url = URL(string: link.url) { await UIApplication.shared.open(url) }
@@ -1041,7 +1062,7 @@ enum FlooOnline {
     /// The session kept as a file beside the device's key (a demo signed ad hoc has no
     /// Keychain of its own).
     static func auth() -> SupabaseAuth {
-        let folder = URL.applicationSupportDirectory.appending(path: "floo-online", directoryHint: .isDirectory)
+        let folder = URL.demoSupport.appending(path: "floo-online", directoryHint: .isDirectory)
         let store: any SessionStore = (try? FileSecrets(folder: folder)).map { KeychainSessionStore(store: $0) } ?? Unkept()
         return SupabaseAuth(authority: supabase, publishableKey: publishableKey, transport: URLSessionTransport(), store: store)
     }

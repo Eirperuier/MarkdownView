@@ -120,8 +120,7 @@ enum DocBlobs {
         if defaults.bool(forKey: "docEditTest") || defaults.string(forKey: "docFile") != nil {
             return FileManager.default.temporaryDirectory.appendingPathComponent("DocBlobs-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
         }
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        return support.appendingPathComponent("Blobs", isDirectory: true)
+        return URL.demoSupport.appendingPathComponent("Blobs", isDirectory: true)
     }
 
     /// The content as a file named as the person knows it (`name`, its type's extension
