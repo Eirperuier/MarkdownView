@@ -321,7 +321,9 @@ struct FlooWorkLine: Identifiable, Equatable {
                     kind: .thinking(going: step.going, seconds: step.seconds, open: opened)
                 ))
                 if step.going, !blocks.isEmpty {
-                    lines.append(FlooWorkLine(id: "\(step.id)/tail", message: message, step: step.id, kind: .thoughtTail(blocks)))
+                    lines.append(FlooWorkLine(
+                        id: "\(step.id)/tail", message: message, step: step.id, kind: .thoughtTail(FlooThoughtTail.shown(blocks))
+                    ))
                 } else if opened {
                     lines += blocks.map {
                         FlooWorkLine(id: "\(step.id)/\($0.id)", message: message, step: step.id, kind: .thoughtBlock($0))
@@ -505,11 +507,27 @@ private struct FlooWorkLineView: View {
 }
 
 /// A thought being written: its last five lines, the earlier ones fading out above.
-private struct FlooThoughtTail: View {
+struct FlooThoughtTail: View {
     let blocks: [MarkdownStreamBlock]
     let thought: FlooThought?
 
     static let tallest: CGFloat = 90
+
+    /// Of a thought's blocks, the last ones that can show in it: laid out at all, the rest would
+    /// be laid out again on every word that comes, the longer the thought the slower, to be cut
+    /// off above. Counted generously — lines as long as a wide bubble's, twice its height — so
+    /// what's left out never reaches it. Their reveal goes on without them (its coordinator's).
+    static func shown(_ blocks: [MarkdownStreamBlock]) -> [MarkdownStreamBlock] {
+        var height: CGFloat = 0
+        var first = blocks.endIndex
+        while first > blocks.startIndex, height < tallest * 2 {
+            first -= 1
+            let lines = blocks[first].source.split(separator: "\n", omittingEmptySubsequences: false)
+                .reduce(0) { $0 + max(1, ($1.count + 59) / 60) }
+            height += CGFloat(lines) * 15 + 6
+        }
+        return Array(blocks[first...])
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
