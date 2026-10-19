@@ -92,7 +92,10 @@ struct FlooService: Decodable, Identifiable, Hashable {
 
     var sources: FlooServiceSources { FlooServiceSources.of[id] ?? FlooServiceSources() }
 
-    static func == (a: Self, b: Self) -> Bool { a.id == b.id }
+    /// The same service as it is shown: a rename or a new icon in the catalog draws again.
+    static func == (a: Self, b: Self) -> Bool {
+        a.id == b.id && a.presentation == b.presentation && a.operations == b.operations && a.hooks == b.hooks
+    }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     static let all: [FlooService] = {
