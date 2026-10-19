@@ -261,8 +261,9 @@ extension FlooContactsDemo {
         var result: [FlooDevice] = []
         for id in order where id != own {
             guard let device = seen[id], device.online || providing.contains(id) else { continue }
-            counts[device.platform, default: 0] += 1
-            let number = counts[device.platform]!
+            // Numbered among the others of its kind; this one is "这台".
+            if id != thisDevice { counts[device.platform, default: 0] += 1 }
+            let number = counts[device.platform] ?? 0
             let (kind, name, symbol): (FlooDevice.Kind, String, String) = switch device.platform {
             case .mac: (.mac, "Mac", "laptopcomputer")
             case .iPhone: (.iPhone, "iPhone", "iphone")
