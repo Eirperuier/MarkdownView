@@ -277,12 +277,14 @@ struct FlooProgramsView: View {
 
 /// An open mini program, as it draws itself. In a Mac's inspector column the screens it
 /// opens are the column's, each with its items in the column's part of the toolbar, where
-/// its tabs' first screens put theirs too.
+/// its tabs' first screens put theirs too; its sheets, alerts and dialogs come up over the
+/// column alone.
 struct FlooProgramScreen: View {
     let program: FlooOpenProgram
     /// Back to the list, where it's in the list's place; pushed, the navigation's own goes back.
     var close: (() -> Void)?
     @Environment(\.flooInspectorNavigation) private var column
+    @Environment(\.flooInspectorPresenter) private var presenter
     @State private var bar = CardHostedBar()
 
     var body: some View {
@@ -298,6 +300,7 @@ struct FlooProgramScreen: View {
                     .environment(\.cardRuntime, FlooOpenProgram.runtime)
                     .environment(\.horizontalSizeClass, .compact)
                     .environment(\.cardScreens, column.map { CardScreens(push: $0.push, bar: bar) })
+                    .environment(\.cardPresenter, presenter.map(Self.presenter))
                     .cardHostedBar(bar)
                     .id(program.version)
             } else if let problem = program.problem {
@@ -312,6 +315,30 @@ struct FlooProgramScreen: View {
                     Button("小程序", systemImage: "chevron.left") { close() }
                 }
             }
+        }
+    }
+
+    /// The column's presentations, as the page asks for them.
+    private static func presenter(_ column: FlooInspectorPresenter) -> CardPresenter {
+        CardPresenter { presentation, dismissed in
+            let shown = column.present(Self.presentation(presentation), dismissed)
+            return CardPresented(
+                close: shown.close,
+                resize: { detents in shown.resize(detents.map { $0 == .medium ? .medium : .large }) },
+                push: shown.push
+            )
+        }
+    }
+
+    private static func presentation(_ presentation: CardPresentation) -> FlooInspectorPresentation {
+        func button(_ button: CardAlertButton?) -> FlooAlertButton? { button.map { $0 == .ok ? .ok : .cancel } }
+        switch presentation {
+        case .sheet(let content):
+            return .sheet(content, detents: [.large])
+        case .alert(let title, let message, let actions, let adding):
+            return .alert(title: title, message: message, actions: actions, adding: button(adding))
+        case .dialog(let title, let message, let actions, let adding):
+            return .dialog(title: title, message: message, actions: actions, adding: button(adding))
         }
     }
 }
