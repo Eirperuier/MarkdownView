@@ -232,7 +232,7 @@ final class FlooLive {
             let folder = URL.demoSupport.appending(path: backend.folder, directoryHint: .isDirectory)
             let key = try DatabaseKeys(store: FileSecrets(folder: folder)).key(for: backend.account)
             // One file per account, as its key is: the lab starts a new person each time.
-            store = try LocalStore(path: folder.appending(path: "conversations.\(backend.account).sqlite").path, key: key)
+            store = try LocalStore(path: folder.appending(path: "conversations.\(backend.account).sqlite").path, key: key, account: backend.account)
         } catch {
             demo.catchUp("本地库没打开，这次只在内存里：\(error)")
         }
