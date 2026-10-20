@@ -240,11 +240,12 @@ extension FlooContactsDemo {
         await load()
     }
 
-    /// No longer followed, anywhere: what it took on ends; its conversation and pushes stay.
+    /// No longer followed, anywhere: removed, so what it took on ends; its conversation and
+    /// pushes stay.
     func disconnect(_ service: FlooService) async {
         guard let client = live?.server, let id = try? ServiceID(service.id) else { return }  // try?: not a name
         do {
-            _ = try await client.disconnect(id)
+            try await client.remove(id)
         } catch {
             show("没断开：\(error)")
         }
