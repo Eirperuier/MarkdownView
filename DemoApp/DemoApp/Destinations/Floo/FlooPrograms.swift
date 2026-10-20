@@ -236,7 +236,7 @@ struct FlooProgramsView: View {
         }
     }
 
-    /// No bar of its own: the conversation's bar opens and closes the inspector.
+    /// The conversation's bar opens and closes the inspector; its own part of the toolbar reloads the list.
     private var list: some View {
         List {
             Section("小程序") {
@@ -256,6 +256,11 @@ struct FlooProgramsView: View {
                 ContentUnavailableView("还没有小程序", systemImage: "square.grid.2x2")
             }
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("刷新", systemImage: "arrow.clockwise") { Task { await programs.load() } }
+            }
+        }
         .task { await programs.load() }
         .refreshable { await programs.load() }
     }
@@ -268,17 +273,7 @@ struct FlooProgramScreen: View {
     var close: () -> Void
 
     var body: some View {
-        // A bar of its own above the program, whose toolbar has both corners.
-        VStack(spacing: 0) {
-            HStack {
-                Button("关闭", systemImage: "xmark") { close() }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+        Group {
             if let problem = program.problem, program.mini == nil {
                 ScrollView { Text(problem).font(.system(.footnote, design: .monospaced)).padding() }
             } else {
@@ -289,6 +284,12 @@ struct FlooProgramScreen: View {
                     .environment(\.cardShowsPage, true)
                     .environment(\.cardRuntime, FlooOpenProgram.runtime)
                     .environment(\.horizontalSizeClass, .compact)
+            }
+        }
+        // In the inspector's part of the window's toolbar.
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button("小程序", systemImage: "chevron.left") { close() }
             }
         }
     }

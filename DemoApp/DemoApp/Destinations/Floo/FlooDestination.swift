@@ -33,8 +33,8 @@ struct FlooDestination: View {
     @AppStorage("flooChatBackground") private var backgroundName = "plain"
     /// A topic's name as you type it.
     @State private var topicTitle = ""
-    /// The person's mini programs, open over the conversation.
-    @State private var showsPrograms = false
+    /// The window's inspector, where the person's mini programs open.
+    @Environment(WindowInspector.self) private var inspector
     @Environment(\.colorScheme) private var colorScheme
 
     static var launchScenario: FlooScenario? {
@@ -126,13 +126,12 @@ struct FlooDestination: View {
         .sheet(isPresented: $demo.showsServices) {
             if let live = demo.live { FlooContactsDestination(live: live) }
         }
-        // Beside the conversation, as the Mac app's inspector: the window grows for it
-        // rather than the conversation's rows getting narrower.
-        .flooInspector(isPresented: $showsPrograms, width: 400, keeping: 720 + 2 * 16) {
-            if let server = demo.live?.server {
-                FlooProgramsView(programs: FlooPrograms(server: server))
-            }
+        // Beside the conversation, as the Mac app's inspector: what the rows can spare of
+        // their width before they get narrower, measured while it's away.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            if !inspector.isPresented { inspector.spare = width - (720 + 2 * 16) }
         }
+        .onDisappear { inspector.close("floo") }
         .alert("开话题", isPresented: Binding(get: { demo.naming != nil }, set: { if !$0 { demo.naming = nil } })) {
             TextField("话题名", text: $topicTitle)
             Button("开") {
@@ -168,7 +167,11 @@ struct FlooDestination: View {
                 placesMenu
             }
             if demo.isLive, demo.live?.server != nil {
-                Button("小程序", systemImage: "square.grid.2x2") { showsPrograms.toggle() }
+                Button("小程序", systemImage: "square.grid.2x2") {
+                    if let server = demo.live?.server {
+                        inspector.toggle("floo", width: 400) { FlooProgramsView(programs: FlooPrograms(server: server)) }
+                    }
+                }
             }
         }
         if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .primaryAction) }
