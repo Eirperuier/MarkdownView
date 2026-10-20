@@ -241,6 +241,8 @@ final class FlooLive {
             let people = PeopleNames(remote: client, storage: listStorage)
             self.people = people
             Task { await followNames(people) }
+            // The lab's people have their own zone; here it's this device's.
+            if !backend.lab { Task { await followTimeZone(client) } }
         }
         if backend.lab { Task { await loadCardModel() } }
         Task { await loadIndex() }
@@ -1311,6 +1313,17 @@ final class FlooLive {
         Task {
             showNames(Array(await people.people(unnamed).values))
         }
+    }
+
+    /// The person's time zone, as this device has it, and again whenever it changes: the
+    /// agents tell the time where they are by it.
+    private func followTimeZone(_ client: FlooClient) async {
+        var changes = NotificationCenter.default.notifications(named: .NSSystemTimeZoneDidChange).makeAsyncIterator()
+        repeat {
+            do { try await client.setTimeZone(TimeZone.autoupdatingCurrent.identifier) } catch {
+                demo.catchUp("时区没告诉服务器：\(error)")
+            }
+        } while await changes.next() != nil
     }
 
     /// The names' changes, as the list's stream brings them: each shows where it's shown.
