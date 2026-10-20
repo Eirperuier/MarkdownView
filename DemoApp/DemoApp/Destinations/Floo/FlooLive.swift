@@ -237,12 +237,15 @@ final class FlooLive {
             demo.catchUp("本地库没打开，这次只在内存里：\(error)")
         }
         if let store { listStorage = store.conversations }
+        // Followed while this account is live, and no longer once it isn't.
+        var following: [Task<Void, Never>] = []
+        defer { for task in following { task.cancel() } }
         if let client {
             let people = PeopleNames(remote: client, storage: listStorage)
             self.people = people
-            Task { await followNames(people) }
+            following.append(Task { await followNames(people) })
             // The lab's people have their own zone; here it's this device's.
-            if !backend.lab { Task { await followTimeZone(client) } }
+            if !backend.lab { following.append(Task { await followTimeZone(client) }) }
         }
         if backend.lab { Task { await loadCardModel() } }
         Task { await loadIndex() }

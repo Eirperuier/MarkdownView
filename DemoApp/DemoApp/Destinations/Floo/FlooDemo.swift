@@ -566,6 +566,11 @@ final class FlooDemo {
         choiceFences = [:]
         approval = nil
         answering = nil
+        // The conversations listed were the last account's.
+        places = []
+        place = nil
+        origin = nil
+        hasMorePlaces = false
         entries = []
         order = TiledPositions()
         shownRows = [:]
