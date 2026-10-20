@@ -37,6 +37,9 @@ struct FlooDestination: View {
     @Environment(WindowInspector.self) private var inspector
     @Environment(\.colorScheme) private var colorScheme
 
+    /// The widest a row gets, its margins with it.
+    static let rowsWidth: CGFloat = 720 + 2 * 16
+
     static var launchScenario: FlooScenario? {
         // Opened on a stage (`-flooStage`), it's the live conversation.
         if FlooLive.Stage.launched != nil, UserDefaults.standard.string(forKey: "flooScenario") == nil { return .live }
@@ -111,6 +114,9 @@ struct FlooDestination: View {
                 bottom
             }
         }
+        // The rows' width at most: the list keeps it as the conversation gets narrower or wider
+        // (an inspector coming in), moving along rather than laying its rows out again.
+        .tiledMaxContentWidth(Self.rowsWidth)
         // Over a picked background, dark throughout: white words on material bubbles, and cards
         // that ask for no background of their own on the same. Plain, as the system shows.
         .cardPanelStyle(background == nil ? AnyShapeStyle(.background) : AnyShapeStyle(.ultraThinMaterial))
@@ -129,7 +135,7 @@ struct FlooDestination: View {
         // Beside the conversation, as the Mac app's inspector: what the rows can spare of
         // their width before they get narrower, measured while it's away.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-            if !inspector.isPresented { inspector.spare = width - (720 + 2 * 16) }
+            if !inspector.isPresented { inspector.spare = width - Self.rowsWidth }
         }
         .onDisappear { inspector.close("floo") }
         .alert("开话题", isPresented: Binding(get: { demo.naming != nil }, set: { if !$0 { demo.naming = nil } })) {
