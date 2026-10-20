@@ -223,8 +223,6 @@ struct FlooProgramHost: CardHost {
 /// The list, and the program opened from it in its place, as the window's inspector shows them.
 struct FlooProgramsView: View {
     @State var programs: FlooPrograms
-    /// Puts the inspector away.
-    var close: () -> Void
     @State private var open: FlooOpenProgram?
 
     var body: some View {
@@ -238,29 +236,28 @@ struct FlooProgramsView: View {
         }
     }
 
+    /// No bar of its own: the conversation's bar opens and closes the inspector.
     private var list: some View {
-        NavigationStack {
-            List(programs.programs, id: \.id) { summary in
-                Button(summary.name) {
-                    let program = FlooOpenProgram(summary: summary, server: programs.server)
-                    open = program
-                    Task { await program.open(among: programs.programs) }
+        List {
+            Section("小程序") {
+                ForEach(programs.programs, id: \.id) { summary in
+                    Button(summary.name) {
+                        let program = FlooOpenProgram(summary: summary, server: programs.server)
+                        open = program
+                        Task { await program.open(among: programs.programs) }
+                    }
                 }
             }
-            .overlay {
-                if let problem = programs.problem {
-                    ContentUnavailableView("没有读到", systemImage: "exclamationmark.triangle", description: Text(problem))
-                } else if programs.loaded, programs.programs.isEmpty {
-                    ContentUnavailableView("还没有小程序", systemImage: "square.grid.2x2")
-                }
-            }
-            .navigationTitle("小程序")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("完成") { close() } }
-            }
-            .task { await programs.load() }
-            .refreshable { await programs.load() }
         }
+        .overlay {
+            if let problem = programs.problem {
+                ContentUnavailableView("没有读到", systemImage: "exclamationmark.triangle", description: Text(problem))
+            } else if programs.loaded, programs.programs.isEmpty {
+                ContentUnavailableView("还没有小程序", systemImage: "square.grid.2x2")
+            }
+        }
+        .task { await programs.load() }
+        .refreshable { await programs.load() }
     }
 }
 

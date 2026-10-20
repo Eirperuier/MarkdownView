@@ -45,8 +45,6 @@ struct FlooDestination: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
             TiledView(list: demo.list, scrollPosition: $demo.scrollPosition) { row in
                 FlooRowCell(item: row, demo: demo)
             }
@@ -119,8 +117,9 @@ struct FlooDestination: View {
         .background { FlooChatBackground(background: background) }
         .environment(\.colorScheme, background == nil ? colorScheme : .dark)
         .environment(\.flooOnBackground, background != nil)
-        // The inspector's bar is this bar's: shown with it, for what's open there.
-        .toolbar(showsPrograms ? .visible : .hidden, for: .navigationBar)
+        .navigationTitle(demo.title)
+        .navigationSubtitle(demo.isLive && demo.origin != nil ? "话题 · 在\(demo.origin?.title ?? "")" : scenario.name)
+        .toolbar { toolbar }
         .sheet(isPresented: $demo.startsGroup) {
             if let live = demo.live { FlooNewGroupView(live: live) }
         }
@@ -131,7 +130,7 @@ struct FlooDestination: View {
         // rather than the conversation's rows getting narrower.
         .flooInspector(isPresented: $showsPrograms, width: 400, keeping: 720 + 2 * 16) {
             if let server = demo.live?.server {
-                FlooProgramsView(programs: FlooPrograms(server: server)) { showsPrograms = false }
+                FlooProgramsView(programs: FlooPrograms(server: server))
             }
         }
         .alert("开话题", isPresented: Binding(get: { demo.naming != nil }, set: { if !$0 { demo.naming = nil } })) {
@@ -154,44 +153,44 @@ struct FlooDestination: View {
         .task { play() }
     }
 
-    // MARK: Header
+    // MARK: Toolbar
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            // In a topic: back to where it hangs.
-            if demo.isLive, let origin = demo.origin {
-                Button {
-                    demo.go(to: origin)
-                } label: {
-                    Image(systemName: "chevron.left").font(.body.weight(.semibold))
-                }
-                .buttonStyle(.borderless)
-                .help("回到\(origin.title)")
+    /// The conversation's bar: where it hangs, then where to go, then how the demo runs, then who's in.
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        // In a topic: back to where it hangs.
+        if demo.isLive, let origin = demo.origin {
+            ToolbarItem(placement: .navigation) {
+                Button("回到\(origin.title)", systemImage: "chevron.left") { demo.go(to: origin) }
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(demo.title).font(.headline)
-                Text(demo.isLive && demo.origin != nil ? "话题 · 在\(demo.origin?.title ?? "")" : scenario.name)
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer()
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
             if demo.isLive, demo.signedIn != nil || !demo.places.isEmpty {
                 placesMenu
             }
             if demo.isLive, demo.live?.server != nil {
-                Button {
-                    showsPrograms = true
-                } label: {
-                    Image(systemName: "square.grid.2x2").font(.body.weight(.medium))
-                }
-                .buttonStyle(.borderless)
-                .help("小程序")
+                Button("小程序", systemImage: "square.grid.2x2") { showsPrograms.toggle() }
             }
+        }
+        if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .primaryAction) }
+        ToolbarItemGroup(placement: .primaryAction) {
             if let cards = demo.cardModel {
                 cardModelMenu(cards)
             }
             backgroundMenu
-            if let account = demo.signedIn {
-                Menu {
+            Menu("场景", systemImage: "list.bullet") {
+                ForEach(FlooScenario.allCases) { item in
+                    Button(item.name) {
+                        scenario = item
+                        play()
+                    }
+                }
+            }
+            Button("重来", systemImage: "arrow.counterclockwise") { play() }
+        }
+        if let account = demo.signedIn {
+            if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .primaryAction) }
+            ToolbarItem(placement: .primaryAction) {
+                Menu("账号", systemImage: "person.crop.circle") {
                     if let email = account.email { Text(email) }
                     Button("退出登录", role: .destructive) {
                         Task {
@@ -202,28 +201,9 @@ struct FlooDestination: View {
                             play()
                         }
                     }
-                } label: {
-                    Image(systemName: "person.crop.circle").font(.body.weight(.medium))
                 }
-            }
-            Menu {
-                ForEach(FlooScenario.allCases) { item in
-                    Button(item.name) {
-                        scenario = item
-                        play()
-                    }
-                }
-            } label: {
-                Image(systemName: "list.bullet").font(.body.weight(.medium))
-            }
-            Button {
-                play()
-            } label: {
-                Image(systemName: "arrow.counterclockwise").font(.body.weight(.medium))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
     }
 
     /// The backend's conversations to go to, and starting a group or connecting a service.
@@ -247,7 +227,7 @@ struct FlooDestination: View {
             Button("新建群聊…", systemImage: "person.2") { demo.startsGroup = true }
             Button("连接服务…", systemImage: "link") { demo.showsServices = true }
         } label: {
-            Image(systemName: "bubble.left.and.bubble.right").font(.body.weight(.medium))
+            Label("对话", systemImage: "bubble.left.and.bubble.right")
         }
     }
 
@@ -275,7 +255,7 @@ struct FlooDestination: View {
                 }
             }
         } label: {
-            Image(systemName: "photo").font(.body.weight(.medium))
+            Label("背景", systemImage: "photo")
         }
     }
 
@@ -299,7 +279,7 @@ struct FlooDestination: View {
                 }
             }
         } label: {
-            Image(systemName: "slider.horizontal.3").font(.body.weight(.medium))
+            Label("画卡模型", systemImage: "slider.horizontal.3")
         }
     }
 
