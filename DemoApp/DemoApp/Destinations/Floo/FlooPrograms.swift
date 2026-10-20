@@ -13,6 +13,7 @@ import CardModel
 import CardRuntime
 import CardSyntax
 import CardUI
+import FlooDesign
 import TransportKit
 import Wire
 
@@ -266,11 +267,13 @@ struct FlooProgramsView: View {
     }
 }
 
-/// An open mini program, as it draws itself.
+/// An open mini program, as it draws itself. In a Mac's inspector column the screens it
+/// opens are the column's, each with its items in the column's part of the toolbar.
 struct FlooProgramScreen: View {
     let program: FlooOpenProgram
     /// Back to the list.
     var close: () -> Void
+    @Environment(\.flooInspectorNavigation) private var column
 
     var body: some View {
         Group {
@@ -284,6 +287,7 @@ struct FlooProgramScreen: View {
                     .environment(\.cardShowsPage, true)
                     .environment(\.cardRuntime, FlooOpenProgram.runtime)
                     .environment(\.horizontalSizeClass, .compact)
+                    .environment(\.cardScreens, column.map { CardScreens(push: $0.push) })
             }
         }
         // In the inspector's part of the window's toolbar.
