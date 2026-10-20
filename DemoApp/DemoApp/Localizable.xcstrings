@@ -127,6 +127,16 @@
         }
       }
     },
+    "Add" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加"
+          }
+        }
+      }
+    },
     "Add Column" : {
       "localizations" : {
         "zh-Hans" : {
@@ -336,6 +346,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在改一句话"
+          }
+        }
+      }
+    },
+    "Choose from Files…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从文件选取…"
+          }
+        }
+      }
+    },
+    "Choose from Photos…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从照片选取…"
           }
         }
       }
