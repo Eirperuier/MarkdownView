@@ -317,12 +317,12 @@ struct FlooProgramScreen: View {
                 }
             }
         }
-        .modifier(InspectorHeading())
+        .modifier(InspectorScreen())
     }
 
     /// The column's navigation, as the page's stacks push onto it.
     private static func screens(_ column: FlooInspectorNavigation, bar: CardHostedBar) -> CardScreens {
-        CardScreens(push: { screen, back in column.push(AnyView(screen.modifier(InspectorHeading())), back) }, bar: bar)
+        CardScreens(push: { screen, back in column.push(AnyView(screen.modifier(InspectorScreen())), back) }, bar: bar)
     }
 
     /// The column's presentations, as the page asks for them.
@@ -332,7 +332,7 @@ struct FlooProgramScreen: View {
             return CardPresented(
                 close: shown.close,
                 resize: { detents in shown.resize(detents.map { $0 == .medium ? .medium : .large }) },
-                push: { screen, back in shown.push(AnyView(screen.modifier(InspectorHeading())), back) }
+                push: { screen, back in shown.push(AnyView(screen.modifier(InspectorScreen())), back) }
             )
         }
     }
@@ -341,7 +341,7 @@ struct FlooProgramScreen: View {
         func button(_ button: CardAlertButton?) -> FlooAlertButton? { button.map { $0 == .ok ? .ok : .cancel } }
         switch presentation {
         case .sheet(let content):
-            return .sheet(AnyView(content.modifier(InspectorHeading())), detents: [.large])
+            return .sheet(AnyView(content.modifier(InspectorScreen())), detents: [.large])
         case .alert(let title, let message, let actions, let adding):
             return .alert(title: title, message: message, actions: actions, adding: button(adding))
         case .dialog(let title, let message, let actions, let adding):
@@ -350,16 +350,20 @@ struct FlooProgramScreen: View {
     }
 }
 
-/// The title and subtitle a page's screen writes, as the inspector shows them.
-private struct InspectorHeading: ViewModifier {
+/// What a page's screen tells the inspector: the title and subtitle it writes, and the color
+/// scheme its background makes, for the bar over it.
+private struct InspectorScreen: ViewModifier {
     @State private var heading: CardHeading?
+    @State private var scheme: ColorScheme?
 
     func body(content: Content) -> some View {
         content
             .onPreferenceChange(CardHeadingKey.self) { heading = $0 }
+            .onPreferenceChange(CardScreenSchemeKey.self) { scheme = $0 }
             .preference(
                 key: FlooInspectorHeadingKey.self,
                 value: heading.map { FlooInspectorHeading(title: $0.title, subtitle: $0.subtitle) }
             )
+            .preference(key: FlooInspectorSchemeKey.self, value: scheme)
     }
 }
