@@ -220,13 +220,25 @@ struct FlooProgramHost: CardHost {
     }
 }
 
-/// The list, and the program opened from it over everything.
+/// The list, and the program opened from it in its place, as the window's inspector shows them.
 struct FlooProgramsView: View {
     @State var programs: FlooPrograms
+    /// Puts the inspector away.
+    var close: () -> Void
     @State private var open: FlooOpenProgram?
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        if let open {
+            FlooProgramScreen(program: open) {
+                open.close()
+                self.open = nil
+            }
+        } else {
+            list
+        }
+    }
+
+    private var list: some View {
         NavigationStack {
             List(programs.programs, id: \.id) { summary in
                 Button(summary.name) {
@@ -244,13 +256,10 @@ struct FlooProgramsView: View {
             }
             .navigationTitle("小程序")
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { close() } }
             }
             .task { await programs.load() }
             .refreshable { await programs.load() }
-        }
-        .sheet(item: $open, onDismiss: { open?.close() }) { program in
-            FlooProgramScreen(program: program)
         }
     }
 }
@@ -258,16 +267,14 @@ struct FlooProgramsView: View {
 /// An open mini program, as it draws itself.
 struct FlooProgramScreen: View {
     let program: FlooOpenProgram
-    @Environment(\.dismiss) private var dismiss
+    /// Back to the list.
+    var close: () -> Void
 
     var body: some View {
         // A bar of its own above the program, whose toolbar has both corners.
         VStack(spacing: 0) {
             HStack {
-                Button("关闭", systemImage: "xmark") {
-                    program.close()
-                    dismiss()
-                }
+                Button("关闭", systemImage: "xmark") { close() }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.circle)
@@ -287,7 +294,5 @@ struct FlooProgramScreen: View {
                     .environment(\.horizontalSizeClass, .compact)
             }
         }
-        // A phone's screen: programs are laid out for one.
-        .frame(width: 430, height: 880)
     }
 }

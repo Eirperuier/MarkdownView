@@ -119,15 +119,20 @@ struct FlooDestination: View {
         .background { FlooChatBackground(background: background) }
         .environment(\.colorScheme, background == nil ? colorScheme : .dark)
         .environment(\.flooOnBackground, background != nil)
-        .toolbar(.hidden, for: .navigationBar)
+        // The inspector's bar is this bar's: shown with it, for what's open there.
+        .toolbar(showsPrograms ? .visible : .hidden, for: .navigationBar)
         .sheet(isPresented: $demo.startsGroup) {
             if let live = demo.live { FlooNewGroupView(live: live) }
         }
         .sheet(isPresented: $demo.showsServices) {
             if let live = demo.live { FlooContactsDestination(live: live) }
         }
-        .sheet(isPresented: $showsPrograms) {
-            if let server = demo.live?.server { FlooProgramsView(programs: FlooPrograms(server: server)) }
+        // Beside the conversation, as the Mac app's inspector: the window grows for it
+        // rather than the conversation's rows getting narrower.
+        .flooInspector(isPresented: $showsPrograms, width: 400, keeping: 720 + 2 * 16) {
+            if let server = demo.live?.server {
+                FlooProgramsView(programs: FlooPrograms(server: server)) { showsPrograms = false }
+            }
         }
         .alert("开话题", isPresented: Binding(get: { demo.naming != nil }, set: { if !$0 { demo.naming = nil } })) {
             TextField("话题名", text: $topicTitle)
