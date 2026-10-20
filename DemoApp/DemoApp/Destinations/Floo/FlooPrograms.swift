@@ -215,7 +215,8 @@ struct FlooProgramHost: CardHost {
         return try? await URLSession.shared.data(from: address).0  // nil: the placeholder stays
     }
 
-    /// A picked photo, uploaded: the program's Media for it.
+    /// A picked photo, uploaded: the program's Media for it, with its subject cut out on the
+    /// device under `variants` where Vision finds one (`FlooClient.upload`).
     func upload(_ data: Data, type: String) async throws -> CardValue {
         let media = try await server.upload(data, type: type)
         return try JSONDecoder().decode(CardValue.self, from: JSONEncoder().encode(media))
