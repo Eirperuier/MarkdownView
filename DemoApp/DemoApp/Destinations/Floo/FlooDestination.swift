@@ -16,6 +16,22 @@ import DocKit
 import FlooDesign
 import ChatBackgrounds
 
+/// A subtitle under the window's or the bar's title, where the system has one: the Mac, and
+/// iOS from 26.
+private struct Subtitle: ViewModifier {
+    let text: String
+
+    func body(content: Content) -> some View {
+        #if targetEnvironment(macCatalyst)
+            content.navigationSubtitle(text)
+        #elseif os(iOS)
+            if #available(iOS 26, *) { content.navigationSubtitle(text) } else { content }
+        #else
+            content
+        #endif
+    }
+}
+
 struct FlooDestination: View {
     @State private var demo = FlooDemo()
     // Opened as it is, it's the real conversation: the floo server, once you're signed in.
@@ -124,7 +140,7 @@ struct FlooDestination: View {
         .environment(\.colorScheme, background == nil ? colorScheme : .dark)
         .environment(\.flooOnBackground, background != nil)
         .navigationTitle(demo.title)
-        .navigationSubtitle(demo.isLive && demo.origin != nil ? "话题 · 在\(demo.origin?.title ?? "")" : scenario.name)
+        .modifier(Subtitle(text: demo.isLive && demo.origin != nil ? "话题 · 在\(demo.origin?.title ?? "")" : scenario.name))
         .toolbar { toolbar }
         .sheet(isPresented: $demo.startsGroup) {
             if let live = demo.live { FlooNewGroupView(live: live) }
