@@ -493,6 +493,8 @@ final class FlooDemo {
     @ObservationIgnored private var working: [FlooAgent: [Int]] = [:]
     /// While a batch of changes is made (`batch`), the messages changed, shown once at its end.
     @ObservationIgnored private var batching = 0
+    /// Remaking rows for a list filled at once at a batch's end: they're kept, not put in.
+    @ObservationIgnored private var filling = false
     @ObservationIgnored private var changed: Set<Int> = []
     @ObservationIgnored private var changedAnimated = false
     /// The backend this conversation is with, when it's the live one (FlooLive).
@@ -1157,7 +1159,15 @@ final class FlooDemo {
         let animated = changedAnimated
         changed = []
         changedAnimated = false
-        if animated {
+        if list.items.isEmpty {
+            // A conversation entered: its rows go in as one whole list, which opens at its end,
+            // not inserted one by one into a list at its top that then scrolls down past them all.
+            filling = true
+            for key in keys { remake(key) }
+            filling = false
+            list.reset(entries.flatMap { shownRows[$0.key] ?? [] })
+            showLast()
+        } else if animated {
             withAnimation(FlooDesignTokens.Motion.layout) { for key in keys { remake(key) } }
         } else {
             for key in keys { remake(key) }
@@ -1570,7 +1580,9 @@ final class FlooDemo {
         let old = shownRows[key] ?? []
         guard made != old else { return }
         shownRows[key] = made.isEmpty ? nil : made
-        list.replace(old, with: made, after: before.flatMap { shownRows[entries[$0].key]?.last?.id })
+        if !filling {
+            list.replace(old, with: made, after: before.flatMap { shownRows[entries[$0].key]?.last?.id })
+        }
         // Coming or going, it may put the message after it under its signature or out of it.
         if old.isEmpty != made.isEmpty, let next = shownEntry(from: index + 1, by: 1),
            case .message = entries[next].entry {
