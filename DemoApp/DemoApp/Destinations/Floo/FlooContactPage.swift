@@ -74,7 +74,7 @@ struct FlooContactPage: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
         .task { tint = await service.backdrop() }
-        // Where it can come from, when it isn't one of yours yet.
+        // All it says of itself, read once and kept.
         .task { if demo.live != nil { await demo.look(service) } }
         .sheet(isPresented: $showsAbout) { FlooAboutSheet(service: service) }
         .confirmationDialog("不再关注 \(service.name)？", isPresented: $confirmsUnfollow, titleVisibility: .visible) {

@@ -677,6 +677,8 @@ private struct FlooServicePage: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
         .task { tint = await service.backdrop() }
+        // Where it can come from: it isn't one of yours yet, so its standing wasn't read with theirs.
+        .task { if demo.live != nil { await demo.look(service) } }
     }
 
     /// From devices' reports: which online devices could provide it now.
