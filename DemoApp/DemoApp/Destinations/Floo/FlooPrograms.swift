@@ -50,7 +50,8 @@ final class FlooOpenProgram: Identifiable {
     private(set) var mini: MiniProgram?
     private(set) var problem: String?
     let host: FlooProgramHost
-    @ObservationIgnored private var version: Int64 = 0
+    /// The published version shown: a new one is drawn anew.
+    private(set) var version: Int64 = 0
     @ObservationIgnored private var following: [Task<Void, Never>] = []
 
     nonisolated var id: ProgramID { summary.id }
@@ -286,18 +287,23 @@ struct FlooProgramScreen: View {
 
     var body: some View {
         Group {
-            if let problem = program.problem, program.mini == nil {
-                ScrollView { Text(problem).font(.system(.footnote, design: .monospaced)).padding() }
-            } else {
+            // Drawn once it can run its intents: a tab, made with its environment as it is
+            // then, doesn't get a later one.
+            if let mini = program.mini {
                 CardView(tree: program.session.tree)
                     .environment(\.cloudStore, program.store)
-                    .environment(\.miniProgram, program.mini)
+                    .environment(\.miniProgram, mini)
                     .environment(\.cardHost, program.host)
                     .environment(\.cardShowsPage, true)
                     .environment(\.cardRuntime, FlooOpenProgram.runtime)
                     .environment(\.horizontalSizeClass, .compact)
                     .environment(\.cardScreens, column.map { CardScreens(push: $0.push, bar: bar) })
                     .cardHostedBar(bar)
+                    .id(program.version)
+            } else if let problem = program.problem {
+                ScrollView { Text(problem).font(.system(.footnote, design: .monospaced)).padding() }
+            } else {
+                ProgressView()
             }
         }
         .toolbar {
