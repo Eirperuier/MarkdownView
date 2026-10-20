@@ -221,10 +221,13 @@ struct FlooProgramHost: CardHost {
     }
 }
 
-/// The list, and the program opened from it in its place, as the window's inspector shows them.
+/// The list, and a program opened from it: pushed onto the inspector's navigation where it
+/// has one (a Mac's inspector column), in the list's place elsewhere.
 struct FlooProgramsView: View {
     @State var programs: FlooPrograms
     @State private var open: FlooOpenProgram?
+    @Environment(\.flooInspectorNavigation) private var column
+    @Environment(\.self) private var environment
 
     var body: some View {
         if let open {
@@ -237,16 +240,20 @@ struct FlooProgramsView: View {
         }
     }
 
+    private func show(_ summary: ProgramSummary) {
+        let program = FlooOpenProgram(summary: summary, server: programs.server)
+        Task { await program.open(among: programs.programs) }
+        guard let column else { return open = program }
+        let screen = FlooProgramScreen(program: program, close: nil).transformEnvironment(\.self) { $0 = environment }
+        _ = column.push(AnyView(screen)) { program.close() }
+    }
+
     /// The conversation's bar opens and closes the inspector; its own part of the toolbar reloads the list.
     private var list: some View {
         List {
             Section("小程序") {
                 ForEach(programs.programs, id: \.id) { summary in
-                    Button(summary.name) {
-                        let program = FlooOpenProgram(summary: summary, server: programs.server)
-                        open = program
-                        Task { await program.open(among: programs.programs) }
-                    }
+                    Button(summary.name) { show(summary) }
                 }
             }
         }
@@ -272,8 +279,8 @@ struct FlooProgramsView: View {
 /// its tabs' first screens put theirs too.
 struct FlooProgramScreen: View {
     let program: FlooOpenProgram
-    /// Back to the list.
-    var close: () -> Void
+    /// Back to the list, where it's in the list's place; pushed, the navigation's own goes back.
+    var close: (() -> Void)?
     @Environment(\.flooInspectorNavigation) private var column
     @State private var bar = CardHostedBar()
 
@@ -293,10 +300,11 @@ struct FlooProgramScreen: View {
                     .cardHostedBar(bar)
             }
         }
-        // In the inspector's part of the window's toolbar.
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button("小程序", systemImage: "chevron.left") { close() }
+            if let close {
+                ToolbarItem(placement: .navigation) {
+                    Button("小程序", systemImage: "chevron.left") { close() }
+                }
             }
         }
     }
