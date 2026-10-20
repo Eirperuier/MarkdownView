@@ -229,7 +229,6 @@ struct FlooProgramsView: View {
     @State var programs: FlooPrograms
     @State private var open: FlooOpenProgram?
     @Environment(\.flooInspectorNavigation) private var column
-    @Environment(\.self) private var environment
 
     var body: some View {
         if let open {
@@ -246,8 +245,10 @@ struct FlooProgramsView: View {
         let program = FlooOpenProgram(summary: summary, server: programs.server)
         Task { await program.open(among: programs.programs) }
         guard let column else { return open = program }
-        let screen = FlooProgramScreen(program: program, close: nil).transformEnvironment(\.self) { $0 = environment }
-        _ = column.push(AnyView(screen)) { program.close() }
+        // In the column's environment, not the list's: a copy of the list's carries what
+        // SwiftUI keeps for the list's own controller, which a search in the program then
+        // shared, drawing the list again and again once a screen was pushed over the search.
+        _ = column.push(AnyView(FlooProgramScreen(program: program, close: nil))) { program.close() }
     }
 
     /// The conversation's bar opens and closes the inspector; its own part of the toolbar reloads the list.
