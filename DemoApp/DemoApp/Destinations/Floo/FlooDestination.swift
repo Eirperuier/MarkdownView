@@ -82,8 +82,9 @@ struct FlooDestination: View {
             .reader(FlooScrollSweep.speed == nil ? nil : sweepReader)
             #endif
             .itemBackground({ $0.bubble?.run }) { run, geometry in
-                FlooBubbleBackground(state: demo.bubbleState(run), geometry: geometry)
+                FlooBubbleBackground(run: run, state: demo.bubbleState(run), geometry: geometry)
             }
+            .itemContextMenu { [demo] row in FlooMessageMenu.menu(for: row, demo: demo) }
             // Following is yours to leave: only scrolling by hand changes it.
             .onTiledScrollGeometryChange { geometry in
                 fromBottom = geometry.pointsFromBottom
@@ -679,7 +680,7 @@ private struct FlooRowView: View {
 
     var body: some View {
         content
-            .flooDesignContextMenu(isEnabled: demo.isLive && demo.number(of: row) != nil) { _ in menu }
+            .environment(\.markdownSelectableTextHooks, Self.textHooks)
             // A citation chip opens what it names (§20.2).
             .environment(\.openURL, OpenURLAction { FlooSiteIcons.open($0) })
             .frame(maxWidth: 720)
@@ -699,34 +700,16 @@ private struct FlooRowView: View {
             }
     }
 
-    /// On a message of the backend's: a reaction to it (messaging.md §3.11), the one you gave
-    /// ringed, taken back by choosing it again; on an agent's, a comment under it, or a topic
-    /// of its own.
-    private var menu: [FlooDesignActionMenuSection] {
-        guard let number = demo.number(of: row) else { return [] }
-        let mine = demo.myReaction(on: row)
-        let tiles = FlooReaction.offered.map { emoji in
-            FlooDesignMenuTile(id: emoji, help: emoji, isOn: emoji == mine) {
-                FlooDesignContextMenus.close()
-                demo.react(number, emoji == mine ? nil : emoji)
-            } label: {
-                Text(emoji).font(.title3)
+    /// On a phone a long press is for the message's menu: its words are picked by a double
+    /// tap. (A text view puts its long presses back as it changes how it's selected.)
+    private static let textHooks: MarkdownSelectableTextHooks? = FlooDesignTokens.Platform.isPointer ? nil : {
+        let noLongPress = { @MainActor (textView: UITextView) in
+            for gesture in textView.gestureRecognizers ?? [] where gesture is UILongPressGestureRecognizer {
+                gesture.isEnabled = false
             }
         }
-        var sections = [FlooDesignActionMenuSection(controls: [.tiles("reactions", tiles)])]
-        if let message = row.message {
-            switch row.kind {
-            case .block, .signature, .cards, .fence, .work, .mentions:
-                sections.append(FlooDesignActionMenuSection(.rows, [
-                    .action("评论", symbol: "text.bubble") { demo.openTopic(on: message, title: nil) },
-                    .action("开话题…", symbol: "bubble.left.and.text.bubble.right") { demo.naming = message },
-                ]))
-            default:
-                break
-            }
-        }
-        return sections
-    }
+        return MarkdownSelectableTextHooks(onTextViewReady: noLongPress, onSelectionChanged: noLongPress)
+    }()
 
     @ViewBuilder
     private var content: some View {
@@ -881,6 +864,7 @@ private struct FlooRowView: View {
                     .padding(.vertical, 10)
                     .background(Color.accentColor.opacity(onBackground ? 0.35 : 0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .background(onBackground ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .tiledLiftShape(row.id, cornerRadius: 18)
                     if let receipt {
                         FlooReceiptLabel(receipt: receipt)
                     }
@@ -894,6 +878,7 @@ private struct FlooRowView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(onBackground ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color(uiColor: .secondarySystemFill)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .tiledLiftShape(row.id, cornerRadius: 18)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, 48)
@@ -1766,6 +1751,7 @@ private struct FlooChatBackground: View {
 /// words already there have it whole.
 private struct FlooBubbleBackground: View {
     @Environment(\.flooOnBackground) private var onBackground
+    let run: String
     let state: FlooBubbleState
     let geometry: TiledItemBackgroundGeometry<String>
 
@@ -1831,6 +1817,16 @@ private struct FlooBubbleBackground: View {
             .transaction { $0.animation = $0.flooRevealMoved ? FlooDesignTokens.Motion.layout : nil }
             .opacity(bubble.shown ? 1 : 0)
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+            // What lifts with its message's menu: placed, not moved there (offset isn't where
+            // a view is laid out).
+            .overlay {
+                if bubble.shown {
+                    Color.clear
+                        .frame(width: bubble.rect.width, height: bubble.rect.height)
+                        .tiledLiftShape(run, cornerRadius: Self.radius)
+                        .position(x: bubble.rect.midX, y: bubble.rect.midY)
+                }
+            }
     }
 }
 
@@ -2160,6 +2156,84 @@ extension FlooRow {
                 }
             })
         }
+    }
+}
+
+/// A message's menu, the system's: reactions (messaging.md §3.11) — on a phone a bar
+/// above the bubble that lifts, on a Mac a row atop the menu —, the one you gave lit and
+/// taken back by choosing it again; on an agent's message, a comment under it or a topic of
+/// its own.
+@MainActor
+enum FlooMessageMenu {
+    static func menu(for row: FlooRow, demo: FlooDemo) -> TiledContextMenu? {
+        guard demo.isLive, let number = demo.number(of: row) else { return nil }
+        let lift: String?
+        switch row.kind {
+        case .reactions: return nil
+        case .said: lift = row.id
+        case .signature: lift = row.message.map(FlooDemo.leadRun)
+        default: lift = row.bubble?.run
+        }
+        let mine = demo.myReaction(on: row)
+        let react = { (emoji: String) in demo.react(number, emoji == mine ? nil : emoji) }
+        var sections: [UIMenuElement] = []
+        let pointer = FlooDesignTokens.Platform.isPointer
+        if pointer {
+            sections.append(UIMenu(options: .displayAsPalette, children: FlooReaction.offered.map { emoji in
+                UIAction(title: emoji, image: image(of: emoji), state: emoji == mine ? .on : .off) { _ in react(emoji) }
+            }))
+        }
+        if let message = row.message {
+            sections.append(UIMenu(options: .displayInline, children: [
+                UIAction(title: "评论", image: UIImage(systemName: "text.bubble")) { _ in demo.openTopic(on: message, title: nil) },
+                UIAction(title: "开话题…", image: UIImage(systemName: "bubble.left.and.text.bubble.right")) { _ in demo.naming = message },
+            ]))
+        }
+        let yours: Bool = if case .said(.me, _, _, _) = row.kind { true } else { false }
+        let accessory = pointer ? nil : TiledMenuAccessory(side: yours ? .trailing : .leading) { dismiss in
+            FlooReactionBar(mine: mine) { emoji in
+                dismiss()
+                react(emoji)
+            }
+        }
+        return TiledContextMenu(menu: UIMenu(children: sections), lift: lift, accessory: accessory)
+    }
+
+    /// An emoji as a menu's image (a palette shows images, not titles).
+    private static func image(of emoji: String) -> UIImage {
+        if let image = images[emoji] { return image }
+        let attributes: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 24)]
+        let size = (emoji as NSString).size(withAttributes: attributes)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            (emoji as NSString).draw(at: .zero, withAttributes: attributes)
+        }.withRenderingMode(.alwaysOriginal)
+        images[emoji] = image
+        return image
+    }
+
+    private static var images: [String: UIImage] = [:]
+}
+
+/// The reactions offered above a bubble that lifts with its menu: yours ringed.
+private struct FlooReactionBar: View {
+    let mine: String?
+    let choose: (String) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(FlooReaction.offered, id: \.self) { emoji in
+                Button { choose(emoji) } label: {
+                    Text(emoji)
+                        .font(.system(size: 26))
+                        .frame(width: 42, height: 42)
+                        .background(emoji == mine ? AnyShapeStyle(Color.accentColor.opacity(0.22)) : AnyShapeStyle(.clear), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(5)
+        .flooDesignGlass(.regular, in: Capsule())
+        .padding(.bottom, 8)
     }
 }
 
