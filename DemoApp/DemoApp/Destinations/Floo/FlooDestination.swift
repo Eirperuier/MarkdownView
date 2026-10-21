@@ -987,7 +987,8 @@ private struct FlooRowView: View {
     private func open(_ mention: Mention) {
         if let place = mention.conversation {
             demo.go(to: FlooPlace(id: place.id, title: mention.title ?? "", kind: place.kind == .group ? .group : .topic(listed: true)))
-        } else if let url = mention.url {
+        } else if let url = mention.url, url.scheme != nil {
+            // A path in floo (/drive/…) waits for its opener.
             openURL(url)
         }
     }
