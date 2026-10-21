@@ -162,8 +162,9 @@ struct FlooRow: Identifiable, Equatable {
         case ask(FlooAskCard)
         /// The topics and comments hung on a message, to go to.
         case topics([FlooPlace])
-        /// Where an answer was found, as the backend checked it (FlooLive).
-        case mention(Mention)
+        /// Where an answer was found, as the backend checked it (FlooLive): in its message's
+        /// bubble; several with nothing between, one card of them.
+        case mentions([Mention])
         /// A page the agent wrote (```floo.page): its path under /drive/, and its title and
         /// preview, as Docs' page block shows them.
         case page(String, DocPage)
@@ -1743,6 +1744,8 @@ final class FlooDemo {
             var cuts: Set<String> = []
             // The cards in a row with nothing between, and where their row is.
             var run: (index: Int, id: String, cards: [FlooCard])?
+            // The same for mentions.
+            var mentioned: (index: Int, id: String, mentions: [Mention])?
             for block in message.blocks {
                 if waiting != nil { break }
                 if let manager = message.coordinator.manager(for: block.id), !manager.isRevealed { waiting = manager }
@@ -1791,8 +1794,31 @@ final class FlooDemo {
                             body = keys
                             row = "\(id)#\(keys.count)"
                         }
-                    } else if message.number != nil, let mention = message.fenceMentions[fence] {
-                        rows.append(FlooRow(id: "\(id)#mention", message: message.id, kind: .mention(mention)))
+                    } else if let mention = message.number != nil
+                        ? message.fenceMentions[fence]
+                        : language == "floo.mention" ? body.first.flatMap({ FlooDemoMentions.all[$0] }) : nil
+                    {
+                        // In the bubble with the words around it; after the one before with
+                        // nothing between, one card with it (a page or a place stands alone).
+                        if let before = mentioned, before.index == rows.count - 1,
+                            Self.joins(mention), before.mentions.allSatisfy(Self.joins)
+                        {
+                            let all = before.mentions + [mention]
+                            var row = FlooRow(id: "\(before.id)#\(all.count)", message: message.id, kind: .mentions(all))
+                            row.bubble = rows[before.index].bubble
+                            rows[before.index] = row
+                            mentioned = (before.index, before.id, all)
+                            continue
+                        }
+                        let rowID = "\(id)#mention"
+                        var row = FlooRow(id: rowID, message: message.id, kind: .mentions([mention]))
+                        if Self.agentBubbles {
+                            row.bubble = FlooBubble(run: rowID, top: true, last: true)
+                            if cut { cuts.insert(rowID) }
+                        }
+                        cut = false
+                        mentioned = (rows.count, rowID, [mention])
+                        rows.append(row)
                         continue
                     } else if message.number != nil, language != "floo.draw" || message.fenceFailed.contains(fence) {
                         // What is still to come ends the bubble before it; once the words are all
@@ -1847,6 +1873,10 @@ final class FlooDemo {
             }
             joinBubbles(&rows, cuts: cuts, lead: message.number == nil ? nil : lead.run)
             for row in rows {
+                // A mention is whole as soon as it's there.
+                if let bubble = row.bubble, case .mentions = row.kind {
+                    bubbleState(bubble.run).follow(row.id, reveal: nil)
+                }
                 guard let bubble = row.bubble, case .block(let block, _) = row.kind else { continue }
                 // Once the words are all in, a reveal still running them out is followed to its end.
                 let reveal = message.streaming
@@ -1913,6 +1943,12 @@ final class FlooDemo {
 
     /// All of an agent's markdown goes in its bubble: words, lists, quotes, math, tables and
     /// code; only a card (a fence of floo's own) stands between bubbles.
+    /// A mention that shares a card with those next to it: not a page or a place, which show
+    /// as themselves.
+    private static func joins(_ mention: Mention) -> Bool {
+        mention.doc == nil && mention.conversation == nil
+    }
+
     private static func inBubble(_ block: MarkdownStreamBlock) -> Bool {
         if case .markdown = block.kind { true } else { false }
     }

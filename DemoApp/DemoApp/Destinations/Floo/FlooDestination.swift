@@ -675,6 +675,7 @@ private struct FlooRowView: View {
     let demo: FlooDemo
     @Environment(\.updateSelfSizing) private var updateSelfSizing
     @Environment(\.flooOnBackground) private var onBackground
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         content
@@ -815,27 +816,13 @@ private struct FlooRowView: View {
         case .topics(let topics):
             FlooTopicLinks(topics: topics, demo: demo)
                 .padding(.vertical, 4)
-        case .mention(let mention):
-            if let doc = mention.doc {
-                // A page the agent wrote: Docs' page block, as a page shows; a tap opens it.
-                DocPageRowView(page: DocPage(doc: DocID(doc.page) ?? DocID(rawValue: UUID()), title: mention.title ?? "",
-                                             preview: doc.preview))
-                    .contentShape(Rectangle())
-                    .onTapGesture { demo.open(page: doc.path) }
-                    .padding(.vertical, 6)
-            } else if let place = mention.conversation {
-                // A topic or a group: a tap goes there.
-                MentionView(mention)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        demo.go(to: FlooPlace(id: place.id, title: mention.title ?? "", kind: place.kind == .group ? .group : .topic(listed: true)))
-                    }
-                    .padding(.vertical, 6)
+        case .mentions(let mentions):
+            if let bubble = row.bubble {
+                FlooBubblePiece(bubble: bubble, row: row.id, state: demo.bubbleState(bubble.run)) {
+                    mentionCard(mentions)
+                }
             } else {
-                MentionView(mention)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 6)
+                mentionCard(mentions).padding(.vertical, 6)
             }
         case .images(let images):
             FlooImagesView(images: images)
@@ -969,6 +956,40 @@ private struct FlooRowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 14)
         .padding(.bottom, 2)
+    }
+
+    /// Mentions as one card in the bubble (agent-kernel.md §20.2, ⓪): a page the agent wrote as
+    /// Docs' page block, opening it; a topic or a group going there; the rest one after
+    /// another, hairlines between, each opening its link.
+    @ViewBuilder
+    private func mentionCard(_ mentions: [Mention]) -> some View {
+        if mentions.count == 1, let mention = mentions.first, let doc = mention.doc {
+            DocPageRowView(page: DocPage(doc: DocID(doc.page) ?? DocID(rawValue: UUID()), title: mention.title ?? "",
+                                         preview: doc.preview))
+                .contentShape(Rectangle())
+                .onTapGesture { demo.open(page: doc.path) }
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(mentions.enumerated()), id: \.offset) { index, mention in
+                    if index > 0 { Divider() }
+                    MentionRow(mention)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture { open(mention) }
+                }
+            }
+            .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
+        }
+    }
+
+    /// A mention tapped: a topic or a group goes there; the rest open their link, if they have one.
+    private func open(_ mention: Mention) {
+        if let place = mention.conversation {
+            demo.go(to: FlooPlace(id: place.id, title: mention.title ?? "", kind: place.kind == .group ? .group : .topic(listed: true)))
+        } else if let url = mention.url {
+            openURL(url)
+        }
     }
 
     @ViewBuilder
@@ -2093,7 +2114,7 @@ extension FlooRow {
                 (line, used) = (max(line, CGFloat(card.layout.size.height())), used + span)
             }
             return height + line + 12
-        case .mention: return 90
+        case .mentions(let mentions): return 70 * CGFloat(mentions.count) + 20
         case .page: return DocPageMetrics.rowHeight + 12
         case .images(let images):
             let caption: CGFloat = images.contains { !$0.alt.isEmpty } ? 24 : 0
