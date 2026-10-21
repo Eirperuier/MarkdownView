@@ -1001,13 +1001,17 @@ final class FlooLive {
         return messages[number].map { "m\($0.id)#sig" }
     }
 
-    /// How an agent's message stands to what came before it (§19.2): the message it replies to
-    /// (`replyTo`, messaging.md §3.12), and the errand it goes on with — in the agent's words
-    /// when it gave some, else by what it points at.
+    /// How an agent's message stands to what came before it (§19.2): pushed, and why it rang
+    /// (`notify`'s reason, §17); the message it replies to (`replyTo`, messaging.md §3.12);
+    /// and the errand it goes on with — in the agent's words when it gave some, else by what
+    /// it points at.
     private func marks(of parts: [MessageInfo], _ replica: ConversationReplica) -> [FlooMark] {
-        let label = parts.lazy.flatMap { replica.blocks(of: $0.number) }
-            .compactMap { if case .aboutLabel(let label) = $0.content { label } else { nil } }.first
+        let blocks = parts.lazy.flatMap { replica.blocks(of: $0.number) }
+        let label = blocks.compactMap { if case .aboutLabel(let label) = $0.content { label } else { nil } }.first
         var marks: [FlooMark] = []
+        if let why = blocks.compactMap({ if case .notified(let why) = $0.content { why } else { nil } }).first {
+            marks += [.proactive, .notified(why)]
+        }
         if let number = parts.lazy.reversed().compactMap(\.replyTo).first {
             marks.append(.replying(reply(to: number, replica)))
         }
