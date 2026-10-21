@@ -1768,6 +1768,8 @@ final class FlooDemo {
                         }
                         continue
                     }
+                    // A question shows as its card, which rides on the message (FlooLive).
+                    if language == "floo.ask" { continue }
                     if language == "floo.choice" {
                         let options = Self.choiceOptions(block.source).map { FlooChoice(option: $0.option, tappable: $0.tappable) }
                         choiceFences[id] = (message.id, fence)
@@ -1907,7 +1909,7 @@ final class FlooDemo {
     }
 
     /// The backend's answer fences (AnswerFence): what a fence's place counts.
-    static let answerFences: Set<String> = ["floo.card", "floo.draw", "floo.mention", "floo.choice", "floo.page"]
+    static let answerFences: Set<String> = ["floo.card", "floo.draw", "floo.mention", "floo.choice", "floo.page", "floo.ask"]
 
     /// All of an agent's markdown goes in its bubble: words, lists, quotes, math, tables and
     /// code; only a card (a fence of floo's own) stands between bubbles.

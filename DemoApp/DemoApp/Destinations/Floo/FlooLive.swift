@@ -567,15 +567,27 @@ final class FlooLive {
     }
 
     /// Your answer to an item of an agent's ask: a message of yours answering it, with what you
-    /// picked, whether you went ahead, or what you filled in.
+    /// picked, whether you went ahead, or what you filled in. A question in a message's words is
+    /// answered at its fence; an older ask by its id.
     func answer(ask: String, item: Int, text: String, picked: [Int]? = nil, confirmed: Bool? = nil, filled: [String]? = nil) {
         guard let session, let id = AskID(ask) else { return }
-        let send = MessageSend(
-            id: .generate(),
-            text: text,
-            answering: AskAnswer(ask: id, item: item, picked: picked, confirmed: confirmed, filled: filled)
-        )
-        Task { _ = try? await session.send(send) }  // try?: as `send`
+        Task {
+            let send: MessageSend
+            if let asked = await session.replica.asks[id], let message = asked.message, let fence = asked.fence {
+                send = MessageSend(
+                    id: .generate(),
+                    text: text,
+                    choosing: FenceAnswer(message: message, fence: fence, picked: picked, confirmed: confirmed, filled: filled)
+                )
+            } else {
+                send = MessageSend(
+                    id: .generate(),
+                    text: text,
+                    answering: AskAnswer(ask: id, item: item, picked: picked, confirmed: confirmed, filled: filled)
+                )
+            }
+            _ = try? await session.send(send)  // try?: as `send`
+        }
     }
 
     // MARK: Card model
@@ -1025,6 +1037,8 @@ final class FlooLive {
             }
             let quote = item.message.answering.flatMap { answer in
                 replica.asks[answer.ask].flatMap { $0.items.indices.contains(answer.item) ? "回答「\($0.items[answer.item].title)」" : nil }
+            } ?? item.message.choosing.flatMap { answer in
+                replica.asks.values.first { $0.message == answer.message && $0.fence == answer.fence }?.title.map { "回答「\($0)」" }
             }
             let shown = demo.say(.me, item.message.text, receipt: receipt, quote: quote)
             outgoing[item.message.id] = shown
@@ -1045,29 +1059,53 @@ final class FlooLive {
         var cards: [ObjectIdentifier: (message: FlooDemo.Message, cards: [FlooAskCard])] = [:]
         for message in messages.values { cards[ObjectIdentifier(message)] = (message, []) }
         for ask in replica.asks.values.sorted(by: { $0.pts < $1.pts }) {
-            guard let number = ask.message, let message = messages[number], let id = ask.agent.actor.agent else { continue }
-            cards[ObjectIdentifier(message), default: (message, [])].cards.append(card(ask, agent(id), replica))
+            guard let number = ask.message, let message = messages[number], let id = ask.agent.actor.agent,
+                let card = card(ask, agent(id), replica)
+            else { continue }
+            cards[ObjectIdentifier(message), default: (message, [])].cards.append(card)
         }
         for (message, asks) in cards.values { demo.setAsks(message, asks) }
     }
 
-    private func card(_ ask: AskInfo, _ agent: FlooAgent, _ replica: ConversationReplica) -> FlooAskCard {
+    /// An ask as its card shows it; a question in a message's words, once its block is in.
+    private func card(_ ask: AskInfo, _ agent: FlooAgent, _ replica: ConversationReplica) -> FlooAskCard? {
         let state: FlooAskCard.State =
             switch ask.status {
             case .open: .open
             case .answered: .answered
-            case .withdrawn: .withdrawn
+            case .withdrawn, .replaced: .withdrawn
             case .expired: .expired
             }
+        // Answered: what the answering message says.
+        func said(_ number: Int64) -> String {
+            replica.blocks(of: number).compactMap { if case .text(let text) = $0.content { text } else { nil } }
+                .joined(separator: " ")
+        }
+        if let number = ask.message, let fence = ask.fence, let title = ask.title {
+            let blocks = replica.blocks(of: number)
+            guard
+                let question = blocks.lazy.compactMap({ block -> AnswerQuestion? in
+                    if case .question(let question) = block.content, question.fence == fence { question } else { nil }
+                }).first
+            else { return nil }
+            let words = blocks.compactMap { if case .text(let text) = $0.content { text } else { nil } }.joined(separator: "\n")
+            let item = FlooAskItem(
+                title: title, question: Self.asking(title, in: words), form: Self.form(question.form),
+                answer: ask.answer.map(said)
+            )
+            return FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
+        }
         let items = ask.items.map { item in
-            // Answered: what the answering message says.
-            let answer = item.answer.map { number in
-                replica.blocks(of: number).compactMap { if case .text(let text) = $0.content { text } else { nil } }
-                    .joined(separator: " ")
-            }
-            return FlooAskItem(title: item.title, question: item.question, form: Self.form(item.form), answer: answer)
+            FlooAskItem(title: item.title, question: item.question, form: Self.form(item.form), answer: item.answer.map(said))
         }
         return FlooAskCard(id: ask.id.description, agent: agent, items: items, state: state)
+    }
+
+    /// The sentence a `floo.ask` fence follows in `words`: what it asks; its title if none.
+    private static func asking(_ title: String, in words: String) -> String {
+        guard let fence = words.firstRange(of: "```floo.ask \(title)") else { return title }
+        let before = words[..<fence.lowerBound].split(separator: "\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return before.map { $0.trimmingCharacters(in: .whitespaces) } ?? title
     }
 
     private static func form(_ form: AskForm) -> FlooAskItem.Form {
@@ -1139,6 +1177,7 @@ final class FlooLive {
             switch block.content {
             case .quote(let words): quote = words
             case .answering(_, _, let title, _) where quote == nil: quote = "回答「\(title)」"
+            case .answers(_, _, let title) where quote == nil: quote = "回答「\(title)」"
             case .choosing(_, _, _, let label) where text.isEmpty: text = label
             default: break
             }
@@ -1259,7 +1298,7 @@ final class FlooLive {
         // What was asked on it and the topics hung on it.
         let numbers = Set(parts.map(\.number))
         let asks = replica.asks.values.filter { $0.message.map(numbers.contains) == true }.sorted { $0.pts < $1.pts }
-        demo.setAsks(message, asks.compactMap { ask in ask.agent.actor.agent.map { card(ask, agent($0), replica) } })
+        demo.setAsks(message, asks.compactMap { ask in ask.agent.actor.agent.flatMap { card(ask, agent($0), replica) } })
         demo.setTopics(message, parts.flatMap { hung[$0.number] ?? [] })
         speakers.insert(id)
         for info in parts {
