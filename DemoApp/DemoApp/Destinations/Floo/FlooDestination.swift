@@ -53,6 +53,7 @@ struct FlooDestination: View {
     @AppStorage("flooChatBackground") private var backgroundName = "plain"
     /// A topic's name as you type it.
     @State private var topicTitle = ""
+    @FocusState private var composerFocused: Bool
     /// The window's inspector, where the person's mini programs open.
     @Environment(WindowInspector.self) private var inspector
     @Environment(\.colorScheme) private var colorScheme
@@ -82,7 +83,7 @@ struct FlooDestination: View {
             .reader(FlooScrollSweep.speed == nil ? nil : sweepReader)
             #endif
             .itemBackground({ $0.bubble?.run }) { run, geometry in
-                FlooBubbleBackground(run: run, state: demo.bubbleState(run), geometry: geometry)
+                FlooBubbleBackground(run: run, state: demo.bubbleState(run), geometry: geometry, demo: demo)
             }
             .itemContextMenu { [demo] row in FlooMessageMenu.menu(for: row, demo: demo) }
             // Following is yours to leave: only scrolling by hand changes it.
@@ -350,6 +351,10 @@ struct FlooDestination: View {
                 FlooAnswering(item: answering)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            if let replying = demo.replying {
+                FlooReplying(draft: replying) { demo.replying = nil }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             ForEach(demo.queued, id: \.id) { said in
                 FlooQueued(text: said.text)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -377,6 +382,8 @@ struct FlooDestination: View {
                 HStack(spacing: 10) {
                     TextField("发消息", text: $demo.draft, axis: .vertical)
                         .lineLimit(1...6)
+                        .focused($composerFocused)
+                        .onChange(of: demo.composing) { composerFocused = true }
                         .onSubmit { demo.sendDraft() }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -412,6 +419,7 @@ struct FlooDestination: View {
         .animation(FlooDesignTokens.Motion.layout, value: demo.showsAsks)
         .animation(FlooDesignTokens.Motion.layout, value: demo.approval)
         .animation(FlooDesignTokens.Motion.layout, value: demo.answering)
+        .animation(FlooDesignTokens.Motion.layout, value: demo.replying)
         .animation(FlooDesignTokens.Motion.layout, value: demo.queued.map(\.id))
         .animation(FlooDesignTokens.Motion.layout, value: demo.showsErrands)
         .animation(FlooDesignTokens.Motion.layout, value: demo.presence.isEmpty)
@@ -548,6 +556,29 @@ private struct FlooAskList: View {
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemBackground).opacity(0.7), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+/// The message you're replying to, over the composer while you write; ✕ lets it go.
+private struct FlooReplying: View {
+    let draft: FlooReplyDraft
+    let cancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Capsule().fill(Color.accentColor.opacity(0.6)).frame(width: 2.5)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(draft.who == "你" ? "回复你自己" : "回复\(draft.who)").font(.caption.weight(.semibold)).foregroundStyle(.tint)
+                Text(draft.begins).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button(action: cancel) {
+                Image(systemName: "xmark.circle.fill").font(.body).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 6)
     }
 }
 
@@ -742,8 +773,8 @@ private struct FlooRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .padding(.bottom, 4)
-        case .said(let speaker, let text, let receipt, let quote):
-            said(speaker, text, receipt, quote)
+        case .said(let speaker, let text, let receipt, let reply):
+            said(speaker, text, receipt, reply)
                 // Didn't go: a tap sends it again.
                 .onTapGesture { if receipt == .failed { demo.retry(row.id) } }
         case .signature(let agent, let time, let marks):
@@ -845,26 +876,21 @@ private struct FlooRowView: View {
 
     // MARK: People
 
-    private func said(_ speaker: FlooSpeaker, _ text: String, _ receipt: FlooReceipt?, _ quote: String?) -> some View {
+    private func said(_ speaker: FlooSpeaker, _ text: String, _ receipt: FlooReceipt?, _ reply: FlooReply?) -> some View {
         Group {
             switch speaker {
             case .me:
                 VStack(alignment: .trailing, spacing: 4) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        if let quote {
-                            HStack(spacing: 8) {
-                                Capsule().fill(Color.accentColor.opacity(0.5)).frame(width: 2.5)
-                                Text(quote).font(.footnote).foregroundStyle(.secondary).lineLimit(3)
-                            }
-                            .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Text(text)
+                    if let reply {
+                        FlooReplyTag(reply: reply, trailing: true, reach: 6) { demo.jump(to: reply) }
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color.accentColor.opacity(onBackground ? 0.35 : 0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .background(onBackground ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .tiledLiftShape(row.id, cornerRadius: 18)
+                    Text(text)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor.opacity(onBackground ? 0.35 : 0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .background(onBackground ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay { FlooLit(demo: demo, key: row.id) }
+                        .tiledLiftShape(row.id, cornerRadius: 18)
                     if let receipt {
                         FlooReceiptLabel(receipt: receipt)
                     }
@@ -873,11 +899,15 @@ private struct FlooRowView: View {
                 .padding(.leading, 48)
             case .person(let name):
                 VStack(alignment: .leading, spacing: 4) {
+                    if let reply {
+                        FlooReplyTag(reply: reply, trailing: false, reach: 5) { demo.jump(to: reply) }
+                    }
                     Text(name).font(.caption).foregroundStyle(.secondary)
                     Text(text)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(onBackground ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color(uiColor: .secondarySystemFill)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay { FlooLit(demo: demo, key: row.id) }
                         .tiledLiftShape(row.id, cornerRadius: 18)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -891,6 +921,11 @@ private struct FlooRowView: View {
 
     private func signature(_ agent: FlooAgent, _ time: String, _ marks: [FlooMark]) -> some View {
         VStack(alignment: .leading, spacing: 5) {
+            ForEach(Array(marks.enumerated()), id: \.offset) { _, mark in
+                if case .replying(let reply) = mark {
+                    FlooReplyTag(reply: reply, trailing: false, reach: 6) { demo.jump(to: reply) }
+                }
+            }
             HStack(spacing: 6) {
                 Text(String(agent.name.prefix(1)))
                     .font(.system(size: 10, weight: .bold))
@@ -929,23 +964,9 @@ private struct FlooRowView: View {
                             .foregroundStyle(agent.tint)
                     }
                     .buttonStyle(.plain)
-                case .replying(let what, let row):
-                    if let row {
-                        Button {
-                            demo.jump(toRow: row)
-                        } label: {
-                            Label(what, systemImage: "arrowshape.turn.up.left")
-                                .font(.caption)
-                                .foregroundStyle(agent.tint)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        Label(what, systemImage: "arrowshape.turn.up.left")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                case .replying:
+                    // Over its name (above).
+                    EmptyView()
                 case .soFar(let how):
                     Button {
                         demo.jumpToWork(of: agent)
@@ -1754,6 +1775,7 @@ private struct FlooBubbleBackground: View {
     let run: String
     let state: FlooBubbleState
     let geometry: TiledItemBackgroundGeometry<String>
+    let demo: FlooDemo
 
     static let radius: CGFloat = 18
 
@@ -1809,6 +1831,7 @@ private struct FlooBubbleBackground: View {
         let bubble = bubble
         RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
             .fill(onBackground ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.flooReceived))
+            .overlay { FlooLit(demo: demo, key: run) }
             .modifier(FlooBubbleFrame(rect: bubble.rect, revealed: bubble.revealed, settled: bubble.revealed))
             // Where it is follows its rows frame by frame as the list moves and loads them (and
             // the words across as they're revealed): an animation of its own would trail
@@ -2106,8 +2129,9 @@ extension FlooRow {
         case .time: return 40
         case .unread: return 36
         case .catchUp(let text): return prose(text) + 70
-        case .said(_, let text, _, let quote): return prose(text) + (quote.map { prose($0) * 0.8 + 6 } ?? 0) + 52
-        case .signature(_, _, let marks): return 40 + CGFloat(marks.count) * 18
+        case .said(_, let text, _, let reply): return prose(text) + (reply == nil ? 0 : 30) + 52
+        case .signature(_, _, let marks):
+            return 40 + marks.reduce(0) { if case .replying = $1 { $0 + 31 } else { $0 + 18 } }
         case .process(let process, let expanded, let open):
             guard expanded else { return 30 }
             guard !process.tasks.isEmpty else { return 40 + CGFloat(process.steps.count) * 21 }
@@ -2183,12 +2207,14 @@ enum FlooMessageMenu {
                 UIAction(title: emoji, image: image(of: emoji), state: emoji == mine ? .on : .off) { _ in react(emoji) }
             }))
         }
+        var actions = [UIAction(title: "回复", image: UIImage(systemName: "arrowshape.turn.up.left")) { _ in demo.reply(to: number) }]
         if let message = row.message {
-            sections.append(UIMenu(options: .displayInline, children: [
+            actions += [
                 UIAction(title: "评论", image: UIImage(systemName: "text.bubble")) { _ in demo.openTopic(on: message, title: nil) },
                 UIAction(title: "开话题…", image: UIImage(systemName: "bubble.left.and.text.bubble.right")) { _ in demo.naming = message },
-            ]))
+            ]
         }
+        sections.append(UIMenu(options: .displayInline, children: actions))
         let yours: Bool = if case .said(.me, _, _, _) = row.kind { true } else { false }
         let accessory = pointer ? nil : TiledMenuAccessory(side: yours ? .trailing : .leading) { dismiss in
             FlooReactionBar(mine: mine) { emoji in
@@ -2212,6 +2238,86 @@ enum FlooMessageMenu {
     }
 
     private static var images: [String: UIImage] = [:]
+}
+
+/// What a message replies to, over its bubble (messaging.md §3.12.4): the face of who said
+/// that one and how it begins (the words picked out of it in quotes, or the question it
+/// answers), an elbow coming down from it to what's under it, `reach` below; a tap goes there.
+private struct FlooReplyTag: View {
+    @Environment(\.flooOnBackground) private var onBackground
+    let reply: FlooReply
+    /// On yours, on the right.
+    let trailing: Bool
+    let reach: CGFloat
+    let go: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(reply.initial ?? "")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 18, height: 18)
+                .background(reply.tint ?? Color.secondary.opacity(0.4), in: Circle())
+            words.lineLimit(1)
+        }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .padding(3)
+        .padding(.trailing, 7)
+        .background(onBackground ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.primary.opacity(0.05)), in: Capsule())
+        .contentShape(Capsule())
+        .onTapGesture(perform: go)
+        .frame(maxWidth: 260, alignment: trailing ? .trailing : .leading)
+        .padding(trailing ? .trailing : .leading, 24)
+        .overlay(alignment: trailing ? .trailing : .leading) {
+            FlooReplyElbow(trailing: trailing, reach: reach)
+                .stroke(Color.primary.opacity(0.2), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .frame(width: 24)
+        }
+    }
+
+    @ViewBuilder
+    private var words: some View {
+        switch reply.shown {
+        case .begins(let words): Text(words)
+        case .part(let words): Text("“\(words)”")
+        case .answer(let title): Text("✓ 答「\(title)」").fontWeight(.semibold).foregroundStyle(.green)
+        case .older: Text("一条更早的消息")
+        }
+    }
+}
+
+/// A reply's elbow: from the middle of its tag's side, round the corner, down past the tag by
+/// `reach`, 9 points in from the edge of what's under it.
+private struct FlooReplyElbow: Shape {
+    let trailing: Bool
+    let reach: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let x: CGFloat = trailing ? rect.maxX - 9 : rect.minX + 9
+        let end: CGFloat = trailing ? rect.minX + 6 : rect.maxX - 6
+        let radius: CGFloat = 7
+        var path = Path()
+        path.move(to: CGPoint(x: x, y: rect.maxY + reach))
+        path.addLine(to: CGPoint(x: x, y: rect.midY + radius))
+        path.addQuadCurve(to: CGPoint(x: x + (trailing ? -radius : radius), y: rect.midY), control: CGPoint(x: x, y: rect.midY))
+        path.addLine(to: CGPoint(x: end, y: rect.midY))
+        return path
+    }
+}
+
+/// A bubble just gone to from a reply to it, lit up a moment.
+private struct FlooLit: View {
+    let demo: FlooDemo
+    let key: String
+
+    var body: some View {
+        let lit = demo.lit == key
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(Color.accentColor.opacity(lit ? 0.22 : 0))
+            .animation(.easeOut(duration: lit ? 0.15 : 0.9), value: lit)
+            .allowsHitTesting(false)
+    }
 }
 
 /// The reactions offered above a bubble that lifts with its menu: yours ringed.

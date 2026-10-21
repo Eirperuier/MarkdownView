@@ -570,10 +570,17 @@ final class FlooLive {
 
     // MARK: Sending
 
-    func send(_ text: String) {
+    func send(_ text: String, replyTo: Int64? = nil) {
         guard let session else { return }
         // try?: one that doesn't go shows so in the conversation, to send again.
-        Task { _ = try? await session.send(MessageSend(id: .generate(), text: text)) }
+        Task { _ = try? await session.send(MessageSend(id: .generate(), text: text, replyTo: replyTo)) }
+    }
+
+    /// A message of the backend's as a reply to it shows over the composer: whose it is and
+    /// how it begins.
+    func replyDraft(_ number: Int64) async -> FlooReplyDraft? {
+        guard let replica = await session?.replica, replica.message(number) != nil else { return nil }
+        return FlooReplyDraft(number: number, who: whose(number, replica) ?? "", begins: begins(number, replica))
     }
 
     func choose(message: Int64, fence: Int, item: Int, option: FlooOption) {
@@ -853,7 +860,7 @@ final class FlooLive {
             case .person:
                 showAgent(parts, replica: replica)
                 parts = []
-                showPerson(info, blocks: replica.blocks(of: info.number), agentsRead: agentsRead)
+                showPerson(info, replica, agentsRead: agentsRead)
             case .agent:
                 if let last = parts.last, info.run != nil, info.run == last.run, !Self.speaks(last, replica) {
                     parts.append(info)
@@ -929,7 +936,7 @@ final class FlooLive {
         guard let first = group.first else { return }
         if first.author.actor == .person {
             let agentsRead = replica.members.filter { $0.key.actor.agent != nil }.map(\.value)
-            showPerson(first, blocks: replica.blocks(of: first.number), agentsRead: agentsRead)
+            showPerson(first, replica, agentsRead: agentsRead)
         } else {
             showAgent(group, replica: replica)
         }
@@ -1002,7 +1009,7 @@ final class FlooLive {
             .compactMap { if case .aboutLabel(let label) = $0.content { label } else { nil } }.first
         var marks: [FlooMark] = []
         if let number = parts.lazy.reversed().compactMap(\.replyTo).first {
-            marks.append(replying(to: number, replica))
+            marks.append(.replying(reply(to: number, replica)))
         }
         guard let about = parts.lazy.reversed().compactMap(\.about).first else { return marks }
         let errand = about.errand.flatMap { errandTitles[$0] ?? replica.errands[$0].map(Self.title) }
@@ -1017,20 +1024,37 @@ final class FlooLive {
             marks.append(.soFar(label ?? "按目前进度"))
         case .following, .replying:
             // Stored before replies moved to `replyTo`; the server moved them over (m0112).
-            if let number = about.message, marks.isEmpty { marks.append(replying(to: number, replica)) }
+            if let number = about.message, marks.isEmpty { marks.append(.replying(reply(to: number, replica))) }
         }
         return marks
     }
 
-    /// "回复 X「…」": who wrote the message replied to and how it begins.
-    private func replying(to number: Int64, _ replica: ConversationReplica) -> FlooMark {
-        guard let info = replica.message(number) else { return .replying("回复一条更早的消息", row: nil) }
+    /// What a message replies to (messaging.md §3.12.4): who wrote that one and how it begins,
+    /// or the words picked out of it; where it's shown, to go to.
+    private func reply(to number: Int64, quote: String? = nil, _ replica: ConversationReplica) -> FlooReply {
+        guard let info = replica.message(number) else { return FlooReply(shown: .older) }
+        let mine = info.author.account == backend.account
+        let face: (name: String, tint: Color) = switch info.author.actor {
+        case .agent(let id): (agent(id, of: info.author.account).name, agent(id, of: info.author.account).tint)
+        case .person: mine ? (names[backend.account] ?? "我", .accentColor) : (names[info.author.account] ?? "成员", .gray)
+        }
+        let bubble = said[number].map { demo.row(of: $0) } ?? messages[number].map { FlooDemo.leadRun($0.id) }
+        return FlooReply(
+            initial: String(face.name.prefix(1)),
+            tint: face.tint,
+            shown: quote.map { .part($0) } ?? .begins(begins(number, replica)),
+            row: row(number),
+            bubble: bubble
+        )
+    }
+
+    /// How a message begins, as a reply to it shows it: its words for people on one line.
+    private func begins(_ number: Int64, _ replica: ConversationReplica) -> String {
         let words = replica.blocks(of: number)
             .compactMap { if case .text(let text) = $0.content, $0.audience != .model { text } else { nil } }
-            .joined(separator: " ").split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        let begins = words.count > 18 ? "\(words.prefix(18))…" : words
-        let who = whose(number, replica) ?? ""
-        return .replying(begins.isEmpty ? "回复\(who)的消息" : "回复\(who)「\(begins)」", row: row(info.number))
+            .joined(separator: " ").replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return String(words.prefix(80))
     }
 
     /// Who said a message, as a mark names them: "你" for yours, else their name or their
@@ -1060,12 +1084,14 @@ final class FlooLive {
                 if shown.receipt != receipt { demo.mark(shown, receipt) }
                 continue
             }
-            let quote = item.message.answering.flatMap { answer in
-                replica.asks[answer.ask].flatMap { $0.items.indices.contains(answer.item) ? "回答「\($0.items[answer.item].title)」" : nil }
+            let answers = item.message.answering.flatMap { answer in
+                replica.asks[answer.ask].flatMap { $0.items.indices.contains(answer.item) ? $0.items[answer.item].title : nil }
             } ?? item.message.choosing.flatMap { answer in
-                replica.asks.values.first { $0.message == answer.message && $0.fence == answer.fence }?.title.map { "回答「\($0)」" }
+                replica.asks.values.first { $0.message == answer.message && $0.fence == answer.fence }?.title
             }
-            let shown = demo.say(.me, item.message.text, receipt: receipt, quote: quote)
+            let reply = answers.map { FlooReply(.butler, .answer($0)) }
+                ?? item.message.replyTo.map { reply(to: $0, quote: item.message.quote, replica) }
+            let shown = demo.say(.me, item.message.text, receipt: receipt, reply: reply)
             outgoing[item.message.id] = shown
             let id = item.message.id
             demo.retries[demo.row(of: shown)] = { [weak self] in
@@ -1196,7 +1222,8 @@ final class FlooLive {
             }
     }
 
-    private func showPerson(_ info: MessageInfo, blocks: [BlockInfo], agentsRead: [MemberInfo]) {
+    private func showPerson(_ info: MessageInfo, _ replica: ConversationReplica, agentsRead: [MemberInfo]) {
+        let blocks = replica.blocks(of: info.number)
         let receipt: FlooReceipt =
             agentsRead.contains { $0.answeredMax >= info.number } ? .answered
             : agentsRead.contains { $0.readMax >= info.number } ? .read : .delivered
@@ -1214,20 +1241,27 @@ final class FlooLive {
         }
         var text = blocks.compactMap { if case .text(let text) = $0.content { text } else { nil } }.joined(separator: "\n\n")
         var quote: String?
+        var answers: (title: String, message: Int64?)?
         for block in blocks {
             switch block.content {
             case .quote(let words): quote = words
-            case .answering(_, _, let title, _) where quote == nil: quote = "回答「\(title)」"
-            case .answers(_, _, let title) where quote == nil: quote = "回答「\(title)」"
+            case .answering(let ask, _, let title, _) where answers == nil: answers = (title, replica.asks[ask]?.message)
+            case .answers(let message, _, let title) where answers == nil: answers = (title, message)
             case .choosing(_, _, _, let label) where text.isEmpty: text = label
             default: break
             }
         }
         guard !text.isEmpty else { return }
+        // An answer shows the question it answers, by the face of the one who asked.
+        let reply = answers.map { answers in
+            var reply = answers.message.map { reply(to: $0, replica) } ?? FlooReply(.butler, .older)
+            reply.shown = .answer(answers.title)
+            return reply
+        } ?? info.replyTo.map { reply(to: $0, quote: quote, replica) }
         if mine {
-            said[info.number] = demo.say(.me, text, receipt: receipt, quote: quote)
+            said[info.number] = demo.say(.me, text, receipt: receipt, reply: reply)
         } else {
-            let theirs = demo.say(.person(names[info.author.account] ?? "成员"), text, quote: quote)
+            let theirs = demo.say(.person(names[info.author.account] ?? "成员"), text, reply: reply)
             said[info.number] = theirs
             saidBy[info.author.account, default: []].append(theirs)
         }

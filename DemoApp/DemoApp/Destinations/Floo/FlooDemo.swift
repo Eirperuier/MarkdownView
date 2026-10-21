@@ -91,9 +91,46 @@ enum FlooMark: Hashable, Sendable {
     /// What you asked for went into a thing it already had in hand, by that thing's name; the
     /// agent's own words for it, when it gave some.
     case joined(String, label: String? = nil)
-    /// It answers an earlier message: said as the agent put it or by whose it is and how it
-    /// begins, with the row that message is in, to go to.
-    case replying(String, row: String?)
+    /// It replies to an earlier message, shown over it.
+    case replying(FlooReply)
+}
+
+/// What a message replies to, over its bubble (messaging.md §3.12.4): who said that one, and
+/// how it begins, the words picked out of it, or the question it answers; and where it is.
+struct FlooReply: Hashable, Sendable {
+    enum Shown: Hashable, Sendable {
+        /// How it begins.
+        case begins(String)
+        /// The words picked out of it.
+        case part(String)
+        /// The question it answers, by its title.
+        case answer(String)
+        /// It isn't here: an older message.
+        case older
+    }
+
+    /// Who said it, as their initial on their colour; nil, nobody shown.
+    var initial: String?
+    var tint: Color?
+    var shown: Shown
+    /// The row it's in, to go to, and its bubble, lit up there; nil when it isn't shown.
+    var row: String? = nil
+    var bubble: String? = nil
+}
+
+extension FlooReply {
+    /// To a message of `agent`'s.
+    init(_ agent: FlooAgent, _ shown: Shown, row: String? = nil, bubble: String? = nil) {
+        self.init(initial: String(agent.name.prefix(1)), tint: agent.tint, shown: shown, row: row, bubble: bubble)
+    }
+}
+
+/// The message you're replying to, over the composer while you write.
+struct FlooReplyDraft: Equatable {
+    let number: Int64
+    /// Whose it is: "管家", "你".
+    let who: String
+    let begins: String
 }
 
 /// An agent's work in a message: live while it runs, one line when done. What it's at is the
@@ -152,8 +189,8 @@ struct FlooRow: Identifiable, Equatable {
         case time(String)
         case unread(String)
         case catchUp(String)
-        /// Who said it, what, where it is with the agents, and the part of an answer it replies to.
-        case said(FlooSpeaker, String, FlooReceipt?, quote: String?)
+        /// Who said it, what, where it is with the agents, and what it replies to.
+        case said(FlooSpeaker, String, FlooReceipt?, reply: FlooReply?)
         case signature(FlooAgent, String, [FlooMark])
         /// Its work, whether it's opened, and which of its tasks are.
         case process(FlooProcess, expanded: Bool, open: Set<String>)
@@ -398,18 +435,18 @@ final class FlooDemo {
         fileprivate(set) var speaker: FlooSpeaker
         let text: String
         var receipt: FlooReceipt?
-        /// The part of an answer it replies to, picked out of it.
-        let quote: String?
+        /// What it replies to.
+        let reply: FlooReply?
         /// Its number in the backend's conversation (FlooLive); nil for a scripted one.
         var number: Int64?
         var reactions: [FlooReaction] = []
 
-        init(id: Int, speaker: FlooSpeaker, text: String, receipt: FlooReceipt?, quote: String? = nil) {
+        init(id: Int, speaker: FlooSpeaker, text: String, receipt: FlooReceipt?, reply: FlooReply? = nil) {
             self.id = id
             self.speaker = speaker
             self.text = text
             self.receipt = receipt
-            self.quote = quote
+            self.reply = reply
         }
     }
 
@@ -530,6 +567,12 @@ final class FlooDemo {
     private(set) var isLive = false
     /// What you're typing, in the live conversation.
     var draft = ""
+    /// The message what you're typing replies to.
+    var replying: FlooReplyDraft?
+    /// Asks the composer to take the keyboard: counts up each time.
+    var composing = 0
+    /// The bubble just gone to, lit up a moment (`jump(to:)`).
+    var lit: String?
     /// The page open over the conversation.
     var openPage: FlooOpenPage?
     /// The model the backend's cards are drawn with, as the stage has it (FlooLive).
@@ -648,24 +691,26 @@ final class FlooDemo {
 
     /// Saying something yourself brings you back to the latest, wherever you'd scrolled to.
     @discardableResult
-    func say(_ speaker: FlooSpeaker, _ text: String, receipt: FlooReceipt? = nil, quote: String? = nil) -> Said {
+    func say(_ speaker: FlooSpeaker, _ text: String, receipt: FlooReceipt? = nil, reply: FlooReply? = nil) -> Said {
         let said = Said(
             id: takeID(),
             speaker: speaker,
             text: text,
             receipt: speaker == .me ? receipt ?? .delivered : nil,
-            quote: quote
+            reply: reply
         )
         if speaker == .me { following = true }
         add(.said(said), key: said.id)
         return said
     }
 
-    /// Types `text` into the composer as a person would, then sends it.
+    /// Types `text` into the composer as a person would, then sends it; `quote`, replying to
+    /// those words of the butler's.
     @discardableResult
     func type(_ text: String, receipt: FlooReceipt = .delivered, quote: String? = nil) async throws -> Said {
         try await typeOut(text)
-        return say(.me, text, receipt: receipt, quote: quote)
+        let reply = quote.map { FlooReply(.butler, .part($0)) }
+        return say(.me, text, receipt: receipt, reply: reply)
     }
 
     /// Types `text` and sends it while an agent is mid-message: it waits over the composer
@@ -1070,7 +1115,18 @@ final class FlooDemo {
             live.answer(ask: ask, item: answering.item, text: text)
             return
         }
-        live.send(text)
+        live.send(text, replyTo: replying?.number)
+        replying = nil
+    }
+
+    /// Starts a reply to a message of the backend's: it shows over the composer, which takes
+    /// the keyboard.
+    func reply(to number: Int64) {
+        Task {
+            guard let draft = await live?.replyDraft(number) else { return }
+            replying = draft
+            composing += 1
+        }
     }
 
     /// The backend's asks on a message, as they are now (FlooLive).
@@ -1278,7 +1334,7 @@ final class FlooDemo {
         if let message = askMessage(id), let card = message.asks.first(where: { $0.id == id }),
            card.items.indices.contains(item), let answered = card.items[item].answer
         {
-            return Said(id: -1, speaker: .me, text: answered, receipt: .read, quote: "回答「\(card.items[item].title)」")
+            return Said(id: -1, speaker: .me, text: answered, receipt: .read, reply: FlooReply(card.agent, .answer(card.items[item].title)))
         }
         let automatic = Task { [weak self] in
             try await self?.wait(autoAfter)
@@ -1365,7 +1421,7 @@ final class FlooDemo {
         guard let message = askMessage(id), let ci = message.asks.firstIndex(where: { $0.id == id }) else { return }
         message.asks[ci].items[index].answer = value
         if message.asks[ci].items.allSatisfy({ $0.answer != nil }) { message.asks[ci].state = .answered }
-        let said = say(.me, value, receipt: .read, quote: "回答「\(message.asks[ci].items[index].title)」")
+        let said = say(.me, value, receipt: .read, reply: FlooReply(message.agent, .answer(message.asks[ci].items[index].title), row: "m\(message.id)#sig", bubble: Self.leadRun(message.id)))
         askWaits.removeValue(forKey: "\(id)#\(index)")?.resume(returning: said)
     }
 
@@ -1517,6 +1573,17 @@ final class FlooDemo {
     func jump(toRow row: String) {
         following = false
         scrollPosition.scrollTo(id: row, anchor: .top, animated: true)
+    }
+
+    /// To the message a reply replies to, its bubble lit up a moment.
+    func jump(to reply: FlooReply) {
+        guard let row = reply.row else { return }
+        jump(toRow: row)
+        lit = reply.bubble
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(0.9))  // try?: a cancelled wait only ends it sooner
+            if self?.lit == reply.bubble { self?.lit = nil }
+        }
     }
 
     /// To the card an open ask rides on, wherever in the conversation it was asked.
@@ -1746,7 +1813,7 @@ final class FlooDemo {
         case .catchUp(let text):
             return [FlooRow(id: "catchUp:\(key)", message: nil, kind: .catchUp(text))]
         case .said(let said):
-            var rows = [FlooRow(id: row(of: said), message: nil, kind: .said(said.speaker, said.text, said.receipt, quote: said.quote))]
+            var rows = [FlooRow(id: row(of: said), message: nil, kind: .said(said.speaker, said.text, said.receipt, reply: said.reply))]
             rows[0].number = said.number
             if !said.reactions.isEmpty {
                 var reactions = FlooRow(
