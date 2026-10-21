@@ -45,6 +45,10 @@ struct FlooDestination: View {
     /// The message being written and how far down the list it starts, until its start has
     /// reached the top.
     @State private var head: (id: String, y: CGFloat)?
+    #if DEBUG
+    /// The list's offsets, for `-flooScrollSweep` (FlooScrollSweep).
+    @State private var sweepReader = TiledViewReader<String>()
+    #endif
     /// The chat's background, by its names (ChatBackground's "Aurora" "Green"); "plain": the page's own.
     @AppStorage("flooChatBackground") private var backgroundName = "plain"
     /// A topic's name as you type it.
@@ -74,6 +78,9 @@ struct FlooDestination: View {
             .heightEstimate { row, width in
                 row.estimatedHeight(width: width)
             }
+            #if DEBUG
+            .reader(FlooScrollSweep.speed == nil ? nil : sweepReader)
+            #endif
             .itemBackground({ $0.bubble?.run }) { run, geometry in
                 FlooBubbleBackground(state: demo.bubbleState(run), geometry: geometry)
             }
@@ -105,6 +112,9 @@ struct FlooDestination: View {
                     .transition(.opacity)
                 }
             }
+            #if DEBUG
+            .task { if let speed = FlooScrollSweep.speed { await FlooScrollSweep.run(sweepReader, speed: speed) } }
+            #endif
             .onChange(of: demo.speaking) {
                 head = demo.speaking.map { ($0, contentEnd) }
             }
