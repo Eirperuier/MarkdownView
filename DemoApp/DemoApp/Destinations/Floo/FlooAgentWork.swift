@@ -77,7 +77,11 @@ struct FlooCall: Hashable, Identifiable {
 @MainActor
 final class FlooThought {
     private(set) var text = ""
-    private(set) var blocks: [MarkdownStreamBlock] = []
+    private var split: [MarkdownStreamBlock] = []
+    /// `text` changed since it was split: split again when it's shown, not before (a folded
+    /// thought in the history is never split).
+    private var stale = false
+    private var splits = 0
     private var splitter = MarkdownBlockSplitter()
     let coordinator = StreamingRevealCoordinator<UUID>(rate: .thinkingBlock)
     private var generation = 0
@@ -87,16 +91,28 @@ final class FlooThought {
 
     private var going = true
 
+    /// Its words as blocks, split when first asked for after a change.
+    var blocks: [MarkdownStreamBlock] {
+        if stale { resplit() }
+        return split
+    }
+
     /// Sets what it has said so far; `going`: more is coming.
     func update(_ text: String, going: Bool) {
         if going { streamed = true }
         guard text != self.text || going != self.going else { return }
-        let first = self.text.isEmpty && blocks.isEmpty
         self.text = text
         self.going = going
-        blocks = splitter.split(text, isStreaming: going)
+        stale = true
+    }
+
+    private func resplit() {
+        let first = splits == 0
+        stale = false
+        splits += 1
+        split = splitter.split(text, isStreaming: going)
         generation += 1
-        coordinator.syncBlocks(blocks.map { ($0.id, $0.revealPlainTextCount) }, generation: generation)
+        coordinator.syncBlocks(split.map { ($0.id, $0.revealPlainTextCount) }, generation: generation)
         if !streamed {
             coordinator.revealAll()
         } else if !going, !first {
@@ -314,8 +330,9 @@ struct FlooWorkLine: Identifiable, Equatable {
         for step in steps {
             switch step.kind {
             case .thinking:
-                let blocks = thoughts[step.id]?.blocks ?? []
                 let opened = !step.going && open.contains(step.id)
+                // Split only where it shows.
+                let blocks = step.going || opened ? thoughts[step.id]?.blocks ?? [] : []
                 lines.append(FlooWorkLine(
                     id: step.id, message: message, step: step.id,
                     kind: .thinking(going: step.going, seconds: step.seconds, open: opened)

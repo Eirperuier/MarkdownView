@@ -143,6 +143,8 @@ final class FlooLive {
     private var details: [ServiceID: ServiceDetail] = [:]
     /// Details being read, so one is asked for once.
     private var reading: Set<ServiceID> = []
+    /// Services whose details a shown call waits for: one read each, then one show.
+    private var describing: Set<ServiceID> = []
     /// The conversation as last shown, to show again once the catalog is in.
     private var last: ConversationReplica?
     /// The conversation shown, and the following of it, ended to go to another.
@@ -664,7 +666,10 @@ final class FlooLive {
     /// of its calls is shown (shown again then).
     private func operation(_ tool: ToolID) -> Operation? {
         guard let detail = details[tool.service] else {
+            // The other calls of its service wait for this read, not one each.
+            guard describing.insert(tool.service).inserted else { return nil }
             Task {
+                defer { describing.remove(tool.service) }
                 guard await detail(tool.service) != nil, let last else { return }
                 show(last)
             }
@@ -1617,13 +1622,18 @@ final class FlooLive {
         )
     }
 
+    /// A mention's date as written: a time, with fractions of a second or not, or a day.
     private static func date(_ text: String) -> Date? {
-        let full = ISO8601DateFormatter()
-        if let date = full.date(from: text) { return date }
-        full.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = full.date(from: text) { return date }
-        full.formatOptions = [.withFullDate]
-        return full.date(from: text)
+        dateFormats.lazy.compactMap { $0.date(from: text) }.first
+    }
+
+    /// Made once: making one costs more than reading many dates with it.
+    private static let dateFormats: [ISO8601DateFormatter] = ([
+        [.withInternetDateTime], [.withInternetDateTime, .withFractionalSeconds], [.withFullDate],
+    ] as [ISO8601DateFormatter.Options]).map { options in
+        let format = ISO8601DateFormatter()
+        format.formatOptions = options
+        return format
     }
 }
 

@@ -99,11 +99,15 @@ extension MathParser {
         in text: String,
         unescapingCommonMarkEscapes: Bool = false
     ) -> String? {
+        // Display math opens with `$$` or a backslash: most paragraphs aren't scanned.
+        guard text.contains("$") || text.contains("\\") else { return nil }
         let source = unescapingCommonMarkEscapes
             ? commonMarkUnescapedMathSource(text)
             : text
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.isEmpty,
+              MathRepresentation.Kind.allCases.contains(where: { !$0.inline && trimmed.hasPrefix($0.leftTerminator) })
+        else { return nil }
 
         let mathRepresentations = MathParser(text: trimmed).mathRepresentations
         guard mathRepresentations.count == 1,
