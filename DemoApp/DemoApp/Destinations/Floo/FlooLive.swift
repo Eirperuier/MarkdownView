@@ -1262,7 +1262,7 @@ final class FlooLive {
                         message.fenceCards[card.fence] = keys.sorted { Self.item($0) < Self.item($1) }
                     }
                 case .mention(let mention):
-                    message.fenceMentions[mention.fence] = self.mention(mention)
+                    message.fenceMentions[mention.fence] = self.mention(mention, in: info.number, replica)
                 case .page(let page):
                     message.fencePages[page.fence] = Self.page(page)
                 default:
@@ -1282,7 +1282,7 @@ final class FlooLive {
             // Mentions checked and pages read as their fences closed, before they're stored.
             for (place, content) in replica.filled where place.message == info.number {
                 if case .mention(let mention) = content, message.fenceMentions[mention.fence] == nil {
-                    message.fenceMentions[mention.fence] = self.mention(mention)
+                    message.fenceMentions[mention.fence] = self.mention(mention, in: info.number, replica)
                 }
                 if case .page(let page) = content, message.fencePages[page.fence] == nil {
                     message.fencePages[page.fence] = Self.page(page)
@@ -1588,8 +1588,9 @@ final class FlooLive {
         (page.path, DocPage(doc: DocID(page.page) ?? DocID(rawValue: UUID()), title: page.title, preview: page.preview))
     }
 
-    /// A mention as CardUI shows it, its service's icon from the catalog on its corner.
-    private func mention(_ mention: AnswerMention) -> Mention {
+    /// A mention as CardUI shows it in message `number`, on its corner the catalog's icon of
+    /// the service its result's call went to.
+    private func mention(_ mention: AnswerMention, in number: Int64, _ replica: ConversationReplica) -> Mention {
         let conversation = mention.conversation.flatMap { place in
             Mention.Conversation.Kind(rawValue: place.kind).map { Mention.Conversation(id: place.id.description, kind: $0) }
         }
@@ -1599,7 +1600,8 @@ final class FlooLive {
             : conversation?.kind == .topic ? "话题" : conversation?.kind == .group ? "群聊" : doc != nil ? "文档" : ""
         // Media were a kind of their own once: a file now.
         let kind = mention.kind == "media" ? "file" : mention.kind
-        let service = index?.services.first { $0.id.rawValue == mention.service }
+        let called = replica.operation(ofResult: mention.from, from: number)?.service
+        let service = index?.services.first { $0.id == called }
         return Mention(
             kind: Mention.Kind(rawValue: kind) ?? .note,
             source: source,
