@@ -2232,7 +2232,7 @@ private struct FlooReactionBar: View {
             }
         }
         .padding(5)
-        .flooDesignGlass(.regular, in: Capsule())
+        .flooDesignGlass(.clear, in: Capsule())
         .padding(.bottom, 8)
     }
 }
