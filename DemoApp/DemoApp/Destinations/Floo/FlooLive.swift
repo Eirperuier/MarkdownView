@@ -317,6 +317,23 @@ final class FlooLive {
         watching?.cancel()
     }
 
+    /// Your reaction to a message of the conversation shown (messaging.md §3.11); nil takes
+    /// it back. It shows once the conversation has it.
+    func react(_ number: Int64, _ emoji: String?) {
+        guard let client, let current else { return }
+        Task {
+            do {
+                if let emoji {
+                    try await client.react(emoji, to: number, in: current)
+                } else {
+                    try await client.unreact(to: number, in: current)
+                }
+            } catch {
+                demo.catchUp("回应没成：\(error)")
+            }
+        }
+    }
+
     /// A topic on a message of the conversation shown, gone to once it's open.
     func openTopic(on number: Int64, title: String?) {
         guard let client, let current else { return }
@@ -849,6 +866,7 @@ final class FlooLive {
             }
         }
         showAgent(parts, replica: replica)
+        showReactions(replica)
         showOutbox(replica)
         showAsks(replica)
         showErrands(replica)
@@ -877,6 +895,7 @@ final class FlooLive {
         }
         let rest = changes.messages.subtracting(older)
         for group in groups(rest, replica) { showGroup(group, replica) }
+        showReactions(replica, of: changes.messages)
         if changes.parts.contains(.outbox) { showOutbox(replica) }
         // A message's own asks and topics are shown with it (showAgent).
         if changes.parts.contains(.asks) { showAsks(replica) }
@@ -1189,6 +1208,7 @@ final class FlooLive {
         // Someone else's, in a group: by name, with no receipt of yours.
         let mine = info.author.account == backend.account
         if let said = said[info.number] {
+            demo.setNumber(said, info.number)
             if mine, said.receipt != receipt { demo.mark(said, receipt) }
             return
         }
@@ -1210,6 +1230,39 @@ final class FlooLive {
             let theirs = demo.say(.person(names[info.author.account] ?? "成员"), text, quote: quote)
             said[info.number] = theirs
             saidBy[info.author.account, default: []].append(theirs)
+        }
+        if let shown = said[info.number] { demo.setNumber(shown, info.number) }
+    }
+
+    /// The reactions on the messages shown (or on `numbers` of them), each emoji once with how
+    /// many gave it, in the order first given; yours marked.
+    private func showReactions(_ replica: ConversationReplica, of numbers: Set<Int64>? = nil) {
+        for info in replica.messages where numbers?.contains(info.number) ?? true {
+            let given = replica.reactions(of: info.number)
+            var shown: [FlooReaction] = []
+            for reaction in given {
+                guard let emoji = reaction.emoji, !shown.contains(where: { $0.emoji == emoji }) else { continue }
+                let all = given.filter { $0.emoji == emoji }
+                shown.append(FlooReaction(
+                    emoji: emoji,
+                    count: all.count,
+                    mine: all.contains { $0.by == .person(backend.account) },
+                    who: all.map { who($0.by) }
+                ))
+            }
+            if let person = said[info.number] {
+                demo.setReactions(person, shown)
+            } else if let message = messages[info.number], message.number == info.number {
+                demo.setReactions(message, shown)
+            }
+        }
+    }
+
+    /// Who gave a reaction, as they're called here.
+    private func who(_ participant: Participant) -> String {
+        switch participant.actor {
+        case .person: participant.account == backend.account ? "你" : names[participant.account] ?? "成员"
+        case .agent(let id): agent(id, of: participant.account).name
         }
     }
 

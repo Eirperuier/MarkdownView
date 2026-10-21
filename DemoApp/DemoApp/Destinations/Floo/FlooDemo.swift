@@ -67,6 +67,18 @@ enum FlooReceipt: Hashable, Sendable {
     }
 }
 
+/// A reaction as a bubble shows it (floo messaging.md §3.11): one emoji, how many gave it,
+/// whether you did, and who did, as they're called.
+struct FlooReaction: Hashable, Sendable {
+    let emoji: String
+    let count: Int
+    let mine: Bool
+    let who: [String]
+
+    /// The ones a message's menu offers.
+    static let offered = ["👍", "❤️", "😂", "👀", "🎉", "🔥", "😢", "🤔"]
+}
+
 enum FlooMark: Hashable, Sendable {
     /// Said with nobody asking: a push.
     case proactive
@@ -170,6 +182,8 @@ struct FlooRow: Identifiable, Equatable {
         case page(String, DocPage)
         /// Images in its words, taken out of them (FlooImages): one, or a run of them.
         case images([FlooImage])
+        /// The reactions on a message, under its bubble: on the side of yours when it's yours.
+        case reactions([FlooReaction], trailing: Bool)
     }
 
     let id: String
@@ -177,6 +191,9 @@ struct FlooRow: Identifiable, Equatable {
     let kind: Kind
     /// Where the block sits in its message's bubble, when agents' words are in bubbles.
     var bubble: FlooBubble?
+    /// A person's message's number in the backend's conversation (FlooLive); an agent's is its
+    /// message's.
+    var number: Int64? = nil
 }
 
 /// One of the backend's cards in a run of them: a drawing (its request and its card) or a
@@ -383,6 +400,9 @@ final class FlooDemo {
         var receipt: FlooReceipt?
         /// The part of an answer it replies to, picked out of it.
         let quote: String?
+        /// Its number in the backend's conversation (FlooLive); nil for a scripted one.
+        var number: Int64?
+        var reactions: [FlooReaction] = []
 
         init(id: Int, speaker: FlooSpeaker, text: String, receipt: FlooReceipt?, quote: String? = nil) {
             self.id = id
@@ -416,6 +436,7 @@ final class FlooDemo {
         var asks: [FlooAskCard] = []
         /// The topics and comments hung on it (FlooLive), under it.
         var topics: [FlooPlace] = []
+        var reactions: [FlooReaction] = []
         var splitter = MarkdownBlockSplitter(customFence: { language, source in
             guard language.hasPrefix("floo.") else { return nil }
             // In the list from its first whole line: what the card will show, or what it points
@@ -491,6 +512,8 @@ final class FlooDemo {
     /// Each entry's rows in the list, by its key; none while it shows nothing.
     @ObservationIgnored private var shownRows: [Int: [FlooRow]] = [:]
     @ObservationIgnored private var messageByID: [Int: Message] = [:]
+    /// People's messages by their backend's number (FlooLive).
+    @ObservationIgnored private var saidByNumber: [Int64: Said] = [:]
     /// The message each ask is on, and the messages each card shows in.
     @ObservationIgnored private var askMessages: [String: Int] = [:]
     @ObservationIgnored private var cardMessages: [String: Set<Int>] = [:]
@@ -582,6 +605,7 @@ final class FlooDemo {
         order = TiledPositions()
         shownRows = [:]
         messageByID = [:]
+        saidByNumber = [:]
         askMessages = [:]
         cardMessages = [:]
         working = [:]
@@ -973,6 +997,46 @@ final class FlooDemo {
     func go(to place: FlooPlace) {
         guard place.id != self.place?.id else { return }
         live?.open(place)
+    }
+
+    /// The reactions on a message as they are now, under it.
+    func setReactions(_ message: Message, _ reactions: [FlooReaction]) {
+        guard message.reactions != reactions else { return }
+        message.reactions = reactions
+        show(message.id)
+    }
+
+    /// A person's message is the backend's message `number`.
+    func setNumber(_ said: Said, _ number: Int64) {
+        saidByNumber[number] = said
+        guard said.number != number else { return }
+        said.number = number
+        show(said.id)
+    }
+
+    func setReactions(_ said: Said, _ reactions: [FlooReaction]) {
+        guard said.reactions != reactions else { return }
+        said.reactions = reactions
+        show(said.id)
+    }
+
+    /// The backend's number of the message a row is of: a person's, or an agent's.
+    func number(of row: FlooRow) -> Int64? {
+        row.number ?? row.message.flatMap { messageByID[$0]?.number }
+    }
+
+    /// The reaction you gave a row's message, if you did.
+    func myReaction(on row: FlooRow) -> String? {
+        if let message = row.message.flatMap({ messageByID[$0] }) { return message.reactions.first(where: \.mine)?.emoji }
+        guard case .reactions(let reactions, _) = row.kind else {
+            return number(of: row).flatMap { number in saidByNumber[number]?.reactions.first(where: \.mine)?.emoji }
+        }
+        return reactions.first(where: \.mine)?.emoji
+    }
+
+    /// Gives your reaction to a message of the backend's; nil takes it back.
+    func react(_ number: Int64, _ emoji: String?) {
+        live?.react(number, emoji)
     }
 
     /// A topic on a message of this conversation: titled, it's listed with the conversations;
@@ -1682,7 +1746,17 @@ final class FlooDemo {
         case .catchUp(let text):
             return [FlooRow(id: "catchUp:\(key)", message: nil, kind: .catchUp(text))]
         case .said(let said):
-            return [FlooRow(id: row(of: said), message: nil, kind: .said(said.speaker, said.text, said.receipt, quote: said.quote))]
+            var rows = [FlooRow(id: row(of: said), message: nil, kind: .said(said.speaker, said.text, said.receipt, quote: said.quote))]
+            rows[0].number = said.number
+            if !said.reactions.isEmpty {
+                var reactions = FlooRow(
+                    id: "\(row(of: said))#reactions", message: nil,
+                    kind: .reactions(said.reactions, trailing: said.speaker == .me)
+                )
+                reactions.number = said.number
+                rows.append(reactions)
+            }
+            return rows
         case .message(let message):
             // A message is there once it has something: its first step of work or words, or
             // (the backend's) once it's being written.
@@ -1886,6 +1960,9 @@ final class FlooDemo {
             wait(message.id, on: waiting)
             // What it asked rides on its words; the work it went on with is under them.
             guard waiting == nil else { return rows }
+            if !message.reactions.isEmpty {
+                rows.append(FlooRow(id: "m\(message.id)#reactions", message: message.id, kind: .reactions(message.reactions, trailing: false)))
+            }
             for card in message.asks {
                 rows.append(FlooRow(id: "m\(message.id)#ask-\(card.id)", message: message.id, kind: .ask(card)))
             }

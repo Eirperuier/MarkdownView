@@ -679,7 +679,7 @@ private struct FlooRowView: View {
 
     var body: some View {
         content
-            .contextMenu { topicMenu }
+            .flooDesignContextMenu(isEnabled: demo.isLive && demo.number(of: row) != nil) { _ in menu }
             // A citation chip opens what it names (§20.2).
             .environment(\.openURL, OpenURLAction { FlooSiteIcons.open($0) })
             .frame(maxWidth: 720)
@@ -699,18 +699,33 @@ private struct FlooRowView: View {
             }
     }
 
-    /// On an agent's message of the backend's: a comment under it, or a topic of its own.
-    @ViewBuilder
-    private var topicMenu: some View {
-        if demo.isLive, let message = row.message {
-            switch row.kind {
-            case .block, .signature, .cards, .fence, .work:
-                Button("评论", systemImage: "text.bubble") { demo.openTopic(on: message, title: nil) }
-                Button("开话题…", systemImage: "bubble.left.and.text.bubble.right") { demo.naming = message }
-            default:
-                EmptyView()
+    /// On a message of the backend's: a reaction to it (messaging.md §3.11), the one you gave
+    /// ringed, taken back by choosing it again; on an agent's, a comment under it, or a topic
+    /// of its own.
+    private var menu: [FlooDesignActionMenuSection] {
+        guard let number = demo.number(of: row) else { return [] }
+        let mine = demo.myReaction(on: row)
+        let tiles = FlooReaction.offered.map { emoji in
+            FlooDesignMenuTile(id: emoji, help: emoji, isOn: emoji == mine) {
+                FlooDesignContextMenus.close()
+                demo.react(number, emoji == mine ? nil : emoji)
+            } label: {
+                Text(emoji).font(.title3)
             }
         }
+        var sections = [FlooDesignActionMenuSection(controls: [.tiles("reactions", tiles)])]
+        if let message = row.message {
+            switch row.kind {
+            case .block, .signature, .cards, .fence, .work, .mentions:
+                sections.append(FlooDesignActionMenuSection(.rows, [
+                    .action("评论", symbol: "text.bubble") { demo.openTopic(on: message, title: nil) },
+                    .action("开话题…", symbol: "bubble.left.and.text.bubble.right") { demo.naming = message },
+                ]))
+            default:
+                break
+            }
+        }
+        return sections
     }
 
     @ViewBuilder
@@ -827,6 +842,11 @@ private struct FlooRowView: View {
         case .images(let images):
             FlooImagesView(images: images)
                 .padding(.vertical, 6)
+        case .reactions(let reactions, let trailing):
+            FlooReactionsView(reactions: reactions) { reaction in
+                if let number = demo.number(of: row) { demo.react(number, reaction.mine ? nil : reaction.emoji) }
+            }
+            .frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
         case .page(let path, let page):
             // Docs' page block; a tap opens the page.
             DocPageRowView(page: page)
@@ -2116,6 +2136,7 @@ extension FlooRow {
             }
             return height + line + 12
         case .mentions(let mentions): return 70 * CGFloat(mentions.count) + 20
+        case .reactions: return 34
         case .page: return DocPageMetrics.rowHeight + 12
         case .images(let images):
             let caption: CGFloat = images.contains { !$0.alt.isEmpty } ? 24 : 0
@@ -2139,5 +2160,42 @@ extension FlooRow {
                 }
             })
         }
+    }
+}
+
+/// The reactions on a message, under its bubble (floo messaging.md §3.11): each emoji once, with
+/// how many gave it, yours ringed in the tint. A tap gives the same, or takes yours back; who
+/// gave it is its help.
+private struct FlooReactionsView: View {
+    let reactions: [FlooReaction]
+    let tap: (FlooReaction) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(reactions, id: \.emoji) { reaction in
+                Button { tap(reaction) } label: {
+                    HStack(spacing: 4) {
+                        Text(reaction.emoji).font(.subheadline)
+                        if reaction.count > 1 {
+                            Text("\(reaction.count)")
+                                .font(.caption.weight(.semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(reaction.mine ? Color.accentColor : .secondary)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .background(reaction.mine ? Color.accentColor.opacity(0.12) : Color(.secondarySystemFill), in: Capsule())
+                    .overlay {
+                        if reaction.mine { Capsule().strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 1) }
+                    }
+                }
+                .buttonStyle(FlooDesignPlainButtonStyle(in: Capsule()))
+                .help(reaction.who.joined(separator: "、"))
+                .accessibilityLabel("\(reaction.emoji) \(reaction.who.joined(separator: "、"))")
+            }
+        }
+        .padding(.top, 2)
+        .padding(.bottom, 6)
     }
 }
