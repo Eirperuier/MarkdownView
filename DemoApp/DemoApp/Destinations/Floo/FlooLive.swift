@@ -957,35 +957,43 @@ final class FlooLive {
         return messages[number].map { "m\($0.id)#sig" }
     }
 
-    /// How an agent's message stands to what came before it, as the kernel marked it (§19.2):
-    /// in the agent's words when it gave some, else by what it points at.
+    /// How an agent's message stands to what came before it (§19.2): the message it replies to
+    /// (`replyTo`, messaging.md §3.12), and the errand it goes on with — in the agent's words
+    /// when it gave some, else by what it points at.
     private func marks(of parts: [MessageInfo], _ replica: ConversationReplica) -> [FlooMark] {
-        guard let about = parts.lazy.reversed().compactMap(\.about).first else { return [] }
         let label = parts.lazy.flatMap { replica.blocks(of: $0.number) }
             .compactMap { if case .aboutLabel(let label) = $0.content { label } else { nil } }.first
+        var marks: [FlooMark] = []
+        if let number = parts.lazy.reversed().compactMap(\.replyTo).first {
+            marks.append(replying(to: number, replica))
+        }
+        guard let about = parts.lazy.reversed().compactMap(\.about).first else { return marks }
         let errand = about.errand.flatMap { errandTitles[$0] ?? replica.errands[$0].map(Self.title) }
         switch about.kind {
         case .delivery:
-            return []
+            break
         case .continuing:
-            return [.continuing(label ?? errand.map { "接着 \($0)" } ?? "接着之前的事")]
+            marks.append(.continuing(label ?? errand.map { "接着 \($0)" } ?? "接着之前的事"))
         case .joined:
-            return [.joined(errand ?? "在办的事", label: label)]
+            marks.append(.joined(errand ?? "在办的事", label: label))
         case .soFar:
-            return [.soFar(label ?? "按目前进度")]
-        case .following:
-            guard let number = about.message else { return [] }
-            return [.continuing(label ?? "接着\(whose(number, replica) ?? "")刚补充的")]
-        case .replying:
-            guard let number = about.message else { return [] }
-            guard let info = replica.message(number) else { return [.replying(label ?? "回复一条更早的消息", row: nil)] }
-            let words = replica.blocks(of: number)
-                .compactMap { if case .text(let text) = $0.content, $0.audience != .model { text } else { nil } }
-                .joined(separator: " ").split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            let begins = words.count > 18 ? "\(words.prefix(18))…" : words
-            let who = whose(number, replica) ?? ""
-            return [.replying(label ?? (begins.isEmpty ? "回复\(who)的消息" : "回复\(who)「\(begins)」"), row: row(info.number))]
+            marks.append(.soFar(label ?? "按目前进度"))
+        case .following, .replying:
+            // Stored before replies moved to `replyTo`; the server moved them over (m0112).
+            if let number = about.message, marks.isEmpty { marks.append(replying(to: number, replica)) }
         }
+        return marks
+    }
+
+    /// "回复 X「…」": who wrote the message replied to and how it begins.
+    private func replying(to number: Int64, _ replica: ConversationReplica) -> FlooMark {
+        guard let info = replica.message(number) else { return .replying("回复一条更早的消息", row: nil) }
+        let words = replica.blocks(of: number)
+            .compactMap { if case .text(let text) = $0.content, $0.audience != .model { text } else { nil } }
+            .joined(separator: " ").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let begins = words.count > 18 ? "\(words.prefix(18))…" : words
+        let who = whose(number, replica) ?? ""
+        return .replying(begins.isEmpty ? "回复\(who)的消息" : "回复\(who)「\(begins)」", row: row(info.number))
     }
 
     /// Who said a message, as a mark names them: "你" for yours, else their name or their
