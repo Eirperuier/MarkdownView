@@ -186,6 +186,11 @@ final class FlooLive {
     private var saidBy: [AccountID: [FlooDemo.Said]] = [:]
     private var agentsOf: [AccountID: [(message: FlooDemo.Message, agent: AgentID)]] = [:]
     private var entered = false
+    /// The things the agents took on, by what they're called here: kept after they're
+    /// delivered (the replica lets them go) for the messages that go on with them. And each
+    /// one's key in the demo's list, below zero, apart from its messages'.
+    private var errandTitles: [ErrandID: String] = [:]
+    private var errandKeys: [ErrandID: Int] = [:]
 
     private init(demo: FlooDemo, backend: Backend) {
         self.demo = demo
@@ -828,6 +833,7 @@ final class FlooLive {
         showAgent(parts, replica: replica)
         showOutbox(replica)
         showAsks(replica)
+        showErrands(replica)
         showPresence(replica)
         lowestShown = replica.messages.first?.number
         moreTopics()
@@ -856,7 +862,9 @@ final class FlooLive {
         if changes.parts.contains(.outbox) { showOutbox(replica) }
         // A message's own asks and topics are shown with it (showAgent).
         if changes.parts.contains(.asks) { showAsks(replica) }
-        if changes.parts.contains(.active) || !rest.isEmpty { showPresence(replica) }
+        // In hand: where each hangs may have come in with older messages.
+        if changes.parts.contains(.errands) || !changes.messages.isEmpty { showErrands(replica) }
+        if changes.parts.contains(.active) || changes.parts.contains(.errands) || !rest.isEmpty { showPresence(replica) }
     }
 
     /// The shown units holding `numbers`: a person's message, or an agent's run's parts shown
@@ -891,11 +899,102 @@ final class FlooLive {
     }
 
     /// An agent with a run going is writing, between its model's calls too (its message
-    /// stops streaming while a tool runs, and the next one starts after).
+    /// stops streaming while a tool runs, and the next one starts after). Not writing, it's at
+    /// what it has in hand: the one thing it's doing, or how many it has.
     private func showPresence(_ replica: ConversationReplica) {
         let writing = Set(replica.active.compactMap(\.agent.actor.agent)).union(self.writing.values)
-        for id in speakers.union(writing) {
-            demo.setPresence(agent(id), writing.contains(id) ? "正在写…" : nil)
+        var inHand: [AgentID: [ErrandInfo]] = [:]
+        for errand in replica.inHand {
+            if let id = errand.agent.actor.agent { inHand[id, default: []].append(errand) }
+        }
+        for id in speakers.union(writing).union(inHand.keys) {
+            let doing: String? =
+                if writing.contains(id) { "正在写…" }
+                else if let errands = inHand[id] { errands.count == 1 ? "\(Self.doing(errands[0]))…" : "手上 \(errands.count) 件事" }
+                else { nil }
+            demo.setPresence(agent(id), doing)
+        }
+    }
+
+    // MARK: In hand
+
+    /// The things the agents have in hand here, each going to the message that asked for it,
+    /// in the conversation's order.
+    private func showErrands(_ replica: ConversationReplica) {
+        let errands = replica.inHand.sorted { ($0.origin ?? .max, $0.pts) < ($1.origin ?? .max, $1.pts) }
+        demo.setErrands(errands.compactMap { errand in
+            guard let id = errand.agent.actor.agent else { return nil }
+            let title = Self.title(errand)
+            errandTitles[errand.id] = title
+            let key = errandKeys[errand.id] ?? -(errandKeys.count + 1)
+            errandKeys[errand.id] = key
+            return FlooDemo.Errand(
+                id: key,
+                agent: agent(id, of: errand.agent.account),
+                title: title,
+                doing: Self.doing(errand),
+                since: errand.origin.flatMap { replica.message($0) }.map { Self.time($0.createdAt) } ?? "",
+                row: errand.origin.flatMap { row($0) }
+            )
+        })
+    }
+
+    /// What a thing is called: its name, or before it's named, what its first work does.
+    private static func title(_ errand: ErrandInfo) -> String {
+        errand.title ?? errand.works.lazy.compactMap(\.label).first ?? "在办的事"
+    }
+
+    /// What it's at: the newest of its works still going, else the next step it means to take.
+    private static func doing(_ errand: ErrandInfo) -> String {
+        if let work = errand.works.last(where: { $0.status == .running }) { return work.doing ?? work.label ?? "在弄" }
+        if let next = errand.notStarted.first { return "等 \(next)" }
+        return "在收尾"
+    }
+
+    /// The row a message of the backend's is shown in, if it is.
+    private func row(_ number: Int64) -> String? {
+        if let said = said[number] { return demo.row(of: said) }
+        return messages[number].map { "m\($0.id)#sig" }
+    }
+
+    /// How an agent's message stands to what came before it, as the kernel marked it (§19.2):
+    /// in the agent's words when it gave some, else by what it points at.
+    private func marks(of parts: [MessageInfo], _ replica: ConversationReplica) -> [FlooMark] {
+        guard let about = parts.lazy.reversed().compactMap(\.about).first else { return [] }
+        let label = parts.lazy.flatMap { replica.blocks(of: $0.number) }
+            .compactMap { if case .aboutLabel(let label) = $0.content { label } else { nil } }.first
+        let errand = about.errand.flatMap { errandTitles[$0] ?? replica.errands[$0].map(Self.title) }
+        switch about.kind {
+        case .delivery:
+            return []
+        case .continuing:
+            return [.continuing(label ?? errand.map { "接着 \($0)" } ?? "接着之前的事")]
+        case .joined:
+            return [.joined(errand ?? "在办的事", label: label)]
+        case .soFar:
+            return [.soFar(label ?? "按目前进度")]
+        case .following:
+            guard let number = about.message else { return [] }
+            return [.continuing(label ?? "接着\(whose(number, replica) ?? "")刚补充的")]
+        case .replying:
+            guard let number = about.message else { return [] }
+            guard let info = replica.message(number) else { return [.replying(label ?? "回复一条更早的消息", row: nil)] }
+            let words = replica.blocks(of: number)
+                .compactMap { if case .text(let text) = $0.content, $0.audience != .model { text } else { nil } }
+                .joined(separator: " ").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            let begins = words.count > 18 ? "\(words.prefix(18))…" : words
+            let who = whose(number, replica) ?? ""
+            return [.replying(label ?? (begins.isEmpty ? "回复\(who)的消息" : "回复\(who)「\(begins)」"), row: row(info.number))]
+        }
+    }
+
+    /// Who said a message, as a mark names them: "你" for yours, else their name or their
+    /// agent's.
+    private func whose(_ number: Int64, _ replica: ConversationReplica) -> String? {
+        guard let info = replica.message(number) else { return nil }
+        switch info.author.actor {
+        case .person: return info.author.account == backend.account ? "你" : names[info.author.account] ?? "成员"
+        case .agent(let id): return agent(id, of: info.author.account).name
         }
     }
 
@@ -1060,6 +1159,7 @@ final class FlooLive {
         self.parts[ObjectIdentifier(message)] = parts.map(\.number)
         // Its fences are its words', the last part's: what a choice answers.
         message.number = last.number
+        message.marks = marks(of: parts, replica)
         let streaming = parts.contains { $0.state == .streaming }
 
         var words: [String] = []

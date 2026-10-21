@@ -926,15 +926,32 @@ private struct FlooRowView: View {
                     Label(why, systemImage: "bell.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
-                case .joined(let errand):
+                case .joined(let errand, let label):
                     Button {
                         demo.jumpToErrand(titled: errand)
                     } label: {
-                        Label("并进 \(errand)", systemImage: "arrow.triangle.merge")
+                        Label(label ?? "并进 \(errand)", systemImage: "arrow.triangle.merge")
                             .font(.caption)
                             .foregroundStyle(agent.tint)
                     }
                     .buttonStyle(.plain)
+                case .replying(let what, let row):
+                    if let row {
+                        Button {
+                            demo.jump(toRow: row)
+                        } label: {
+                            Label(what, systemImage: "arrowshape.turn.up.left")
+                                .font(.caption)
+                                .foregroundStyle(agent.tint)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Label(what, systemImage: "arrowshape.turn.up.left")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 case .soFar(let how):
                     Button {
                         demo.jumpToWork(of: agent)

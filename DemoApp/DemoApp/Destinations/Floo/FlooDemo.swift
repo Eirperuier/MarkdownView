@@ -76,8 +76,12 @@ enum FlooMark: Hashable, Sendable {
     case notified(String)
     /// Said while its work is still going, from what the work has come to so far.
     case soFar(String)
-    /// What you asked for went into a thing it already had in hand, by that thing's name.
-    case joined(String)
+    /// What you asked for went into a thing it already had in hand, by that thing's name; the
+    /// agent's own words for it, when it gave some.
+    case joined(String, label: String? = nil)
+    /// It answers an earlier message: said as the agent put it or by whose it is and how it
+    /// begins, with the row that message is in, to go to.
+    case replying(String, row: String?)
 }
 
 /// An agent's work in a message: live while it runs, one line when done. What it's at is the
@@ -803,6 +807,9 @@ final class FlooDemo {
         let doing: String
         /// When you asked for it.
         let since: String
+        /// Where it's gone to: where the agent took it on (scripted), or the message that asked
+        /// for it (the backend's; nil while that isn't shown).
+        let row: String?
     }
 
     /// Everything the agents have in hand here, oldest first.
@@ -826,6 +833,13 @@ final class FlooDemo {
         case 1: setPresence(agent, "\(messageByID[at[0]]?.process?.doing ?? "在弄")…")
         default: setPresence(agent, "手上 \(at.count) 件事")
         }
+        if errands.count < 2 { showsErrands = false }
+    }
+
+    /// What the backend's agents have in hand here, as it is now (FlooLive).
+    func setErrands(_ errands: [Errand]) {
+        guard self.errands != errands else { return }
+        self.errands = errands
         if errands.count < 2 { showsErrands = false }
     }
 
@@ -1431,8 +1445,13 @@ final class FlooDemo {
     /// To where the agent took the thing on, wherever that is by now.
     func jump(to errand: Errand) {
         showsErrands = false
+        if let row = errand.row { jump(toRow: row) }
+    }
+
+    /// To a row, wherever in the conversation it is: the message a reply answers.
+    func jump(toRow row: String) {
         following = false
-        scrollPosition.scrollTo(id: "m\(errand.id)#sig", anchor: .top, animated: true)
+        scrollPosition.scrollTo(id: row, anchor: .top, animated: true)
     }
 
     /// To the card an open ask rides on, wherever in the conversation it was asked.
@@ -1617,7 +1636,7 @@ final class FlooDemo {
         let id = message.id
         var errand: Errand?
         if !gone, let process = message.process, process.running, let title = process.title {
-            errand = Errand(id: id, agent: message.agent, title: title, doing: process.doing ?? "在弄", since: message.time)
+            errand = Errand(id: id, agent: message.agent, title: title, doing: process.doing ?? "在弄", since: message.time, row: "m\(id)#sig")
         }
         if errands.first(where: { $0.id == id }) != errand {
             var all = errands.filter { $0.id != id }
