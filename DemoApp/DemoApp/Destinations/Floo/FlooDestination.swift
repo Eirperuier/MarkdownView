@@ -679,6 +679,8 @@ private struct FlooRowView: View {
     var body: some View {
         content
             .contextMenu { topicMenu }
+            // A citation chip opens what it names (§20.2).
+            .environment(\.openURL, OpenURLAction { FlooSiteIcons.open($0) })
             .frame(maxWidth: 720)
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)

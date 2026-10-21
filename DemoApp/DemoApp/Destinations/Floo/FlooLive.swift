@@ -10,6 +10,7 @@
 
 import Foundation
 import SwiftUI
+import MarkdownView
 import CardModel
 import CardUI
 import Wire
@@ -1067,6 +1068,21 @@ final class FlooLive {
         for (message, asks) in cards.values { demo.setAsks(message, asks) }
     }
 
+    /// `text` with its citation chips (§20.2) as MarkdownView draws them: a web one as written; a
+    /// result one checked, as a tool chip with its tool's icon; one not checked (yet) left out.
+    /// `from`: the index of its first chip among the message's.
+    private static func chips(_ text: String, _ cites: [Int: AnswerCite], from index: inout Int) -> String {
+        text.replacing(#/\[([^\]\n]+)\]\(([^\s()"]+)[ \t]+"cite"\)/#) { match in
+            defer { index += 1 }
+            let target = String(match.2)
+            guard target.hasPrefix("result:") else { return String(match.0) }
+            guard let cite = cites[index], "result:" + cite.from == target else { return "" }
+            let link = "\(MarkdownLinkChips.toolScheme)://\(cite.from)"
+            FlooSiteIcons.cites[link] = cite
+            return "[\(match.1)](\(link) \"cite\")"
+        }
+    }
+
     /// An ask as its card shows it; a question in a message's words, once its block is in.
     private func card(_ ask: AskInfo, _ agent: FlooAgent, _ replica: ConversationReplica) -> FlooAskCard? {
         let state: FlooAskCard.State =
@@ -1212,6 +1228,7 @@ final class FlooLive {
         var words: [String] = []
         var work = Work(live: streaming)
         for info in parts {
+            let start = words.count
             let blocks = replica.blocks(of: info.number)
             let stored = Set(blocks.map(\.id))
             let live = replica.live(of: info.id).filter { !stored.contains($0.id) }
@@ -1291,6 +1308,11 @@ final class FlooLive {
                 default: break
                 }
             }
+            // Its result chips as checked (§20.2), as stored or as they closed.
+            var cites = replica.cited[info.number] ?? [:]
+            for block in blocks { if case .cite(let cite) = block.content { cites[cite.index] = cite } }
+            var chip = 0
+            for at in words.indices where at >= start { words[at] = Self.chips(words[at], cites, from: &chip) }
         }
 
         demo.setSteps(message, steps(work, progress: replica.progress), thinking: work.thinking)
