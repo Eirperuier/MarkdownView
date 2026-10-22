@@ -94,6 +94,8 @@ enum FlooMark: Hashable, Sendable {
     case joined(String, label: String? = nil)
     /// It replies to an earlier message, shown over it.
     case replying(FlooReply)
+    /// A commitment it took on, changed or stopped in this message: the rule and what it does.
+    case committed(String)
 }
 
 /// What a message replies to, over its bubble (messaging.md §3.12.4): who said that one, and

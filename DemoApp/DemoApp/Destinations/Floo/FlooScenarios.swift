@@ -7,6 +7,7 @@
 
 import Foundation
 import CardUI
+import Wire
 
 @MainActor
 enum FlooScenario: Int, CaseIterable, Identifiable {
@@ -1042,8 +1043,14 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
 }
 
 enum FlooDemoMentions {
-    static func date(_ day: Int, _ hour: Int, _ minute: Int) -> Date {
+    /// A time of the scripted week, on this device's clock.
+    static func clock(_ day: Int, _ hour: Int, _ minute: Int) -> Date {
         Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour, minute: minute)) ?? .now
+    }
+
+    /// That time as a mention's moment.
+    static func date(_ day: Int, _ hour: Int, _ minute: Int) -> When {
+        .moment(Moment(Timestamp(clock(day, hour, minute)), in: ZoneName(TimeZone.current.identifier) ?? .utc))
     }
 
     static let all: [String: Mention] = [

@@ -473,7 +473,7 @@ extension FlooContactsDemo {
         case .hook(let event): "有变化时就知道（\(event)）"
         case .polls(let tool, let every): "每 \(every >= 3600 ? "\(every / 3600) 小时" : "\(max(1, every / 60)) 分钟")看一次 \(tool)"
         }
-        let until = watch.until.map { "，到 \(FlooDay.label($0.date)) 为止" } ?? ""
+        let until = watch.until.map { "，到 \(FlooDay.label($0.at.date)) 为止" } ?? ""
         return FlooDoing(text: watch.why ?? watch.name ?? watch.id, asked: what + until)
     }
 

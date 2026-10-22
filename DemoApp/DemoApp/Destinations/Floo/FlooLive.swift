@@ -623,7 +623,15 @@ final class FlooLive {
         guard let session, let id = AskID(ask) else { return }
         Task {
             let send: MessageSend
-            if let asked = await session.replica.asks[id], let message = asked.message, let fence = asked.fence {
+            let asked = await session.replica.asks[id]
+            // What was typed, as each field takes it: a date field's words a day, a time field's a clock.
+            let kinds: [AskField.Kind] =
+                if let form = asked?.items.indices.contains(item) == true ? asked?.items[item].form : nil,
+                    case .fill(let fields) = form { fields.map(\.kind) } else { [] }
+            let filled = filled?.enumerated().map { place, words in
+                AskValue.text(words).read(as: kinds.indices.contains(place) ? kinds[place] : .text)
+            }
+            if let asked, let message = asked.message, let fence = asked.fence {
                 send = MessageSend(
                     id: .generate(),
                     text: text,
@@ -1038,6 +1046,7 @@ final class FlooLive {
         if let number = parts.lazy.reversed().compactMap(\.replyTo).first {
             marks.append(.replying(reply(to: number, replica)))
         }
+        for case .committed(let committed) in blocks.map(\.content) { marks.append(.committed(Self.said(committed))) }
         guard let about = parts.lazy.reversed().compactMap(\.about).first else { return marks }
         let errand = about.errand.flatMap { errandTitles[$0] ?? replica.errands[$0].map(Self.title) }
         switch about.kind {
@@ -1212,9 +1221,50 @@ final class FlooLive {
         case .confirm(let effect):
             .confirm(effect: effect, yes: "好", no: "先不要")
         case .fill(let fields):
-            .fill(fields: fields.map { FlooAskItem.Field(label: $0.label, kind: Self.kind($0.kind), guess: $0.guess ?? "") })
+            .fill(fields: fields.map { FlooAskItem.Field(label: $0.label, kind: Self.kind($0.kind), guess: $0.guess.map(Self.words) ?? "") })
         case .unknown:
             .fill(fields: [])
+        }
+    }
+
+    /// A commitment as the message shows it (floo docs/time.md §8): what happened to it, its rule
+    /// as a rule ("每天 07:00"), the zone it goes by where that isn't this device's, what it does.
+    private static func said(_ committed: Committed) -> String {
+        let change = switch committed.change {
+        case .added: "约好"
+        case .changed: "改成"
+        case .stopped: "不再"
+        }
+        let zone = committed.next?.zone
+        let elsewhere = zone.flatMap { $0.identifier == TimeZone.current.identifier ? nil : FlooZones.city(of: $0) }
+        let when: String? =
+            switch committed.trigger {
+            case .at(let moment)?: "\(FlooDay.label(moment.at.date)) \(moment.at.date.formatted(.dateTime.hour().minute()))"
+            case .daily(let clock, let weekdays)?: "\(Self.days(weekdays)) \(clock)"
+            case .on?, .when?: "有动静时"
+            case nil: committed.said
+            }
+        let rule = [when, elsewhere.map { "（\($0) 时间）" }].compactMap { $0 }.joined()
+        return [change, rule, "· \(committed.line)"].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// "每天", "工作日", or the days by name.
+    private static func days(_ weekdays: Set<Weekday>) -> String {
+        if weekdays.isEmpty || weekdays.count == 7 { return "每天" }
+        if weekdays == [.monday, .tuesday, .wednesday, .thursday, .friday] { return "工作日" }
+        let names: [Weekday: String] = [
+            .monday: "一", .tuesday: "二", .wednesday: "三", .thursday: "四", .friday: "五", .saturday: "六", .sunday: "日",
+        ]
+        let order: [Weekday] = [.monday, .tuesday, .wednesday, .thursday, .friday, .saturday, .sunday]
+        return "每周" + order.filter(weekdays.contains).compactMap { names[$0] }.joined(separator: "、")
+    }
+
+    /// A field's value as it's typed: a day as "2026-10-23", a clock as "07:30".
+    private static func words(_ value: AskValue) -> String {
+        switch value {
+        case .text(let words): words
+        case .day(let day): day.description
+        case .clock(let clock): clock.description
         }
     }
 
@@ -1754,8 +1804,8 @@ final class FlooLive {
         return Mention(
             kind: Mention.Kind(rawValue: kind) ?? .note,
             source: source,
-            date: mention.date.flatMap(Self.date),
-            end: mention.end.flatMap(Self.date),
+            date: mention.date,
+            end: mention.end,
             title: mention.title,
             quote: mention.quote,
             image: mention.image.flatMap(URL.init(string:)),
@@ -1781,19 +1831,6 @@ final class FlooLive {
         return services.first { details[$0.id]?.operations.contains { $0.id.rawValue == tool } == true }
     }
 
-    /// A mention's date as written: a time, with fractions of a second or not, or a day.
-    private static func date(_ text: String) -> Date? {
-        dateFormats.lazy.compactMap { $0.date(from: text) }.first
-    }
-
-    /// Made once: making one costs more than reading many dates with it.
-    private static let dateFormats: [ISO8601DateFormatter] = ([
-        [.withInternetDateTime], [.withInternetDateTime, .withFractionalSeconds], [.withFullDate],
-    ] as [ISO8601DateFormatter.Options]).map { options in
-        let format = ISO8601DateFormatter()
-        format.formatOptions = options
-        return format
-    }
 }
 
 /// The model a stage draws its cards with and its reasoning (floo's `/lab/cards`).

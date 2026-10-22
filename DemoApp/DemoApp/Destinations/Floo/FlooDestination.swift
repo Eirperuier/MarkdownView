@@ -1021,6 +1021,10 @@ private struct FlooRowView: View {
                             .foregroundStyle(agent.tint)
                     }
                     .buttonStyle(.plain)
+                case .committed(let what):
+                    Label(what, systemImage: "alarm")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -1179,7 +1183,7 @@ private struct FlooRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         case "floo.mention":
             if let mention = lines.first.flatMap({ FlooDemoMentions.all[$0] }) {
-                MentionView(mention, now: FlooDemoMentions.date(30, 16, 0))
+                MentionView(mention, now: FlooDemoMentions.clock(30, 16, 0))
             }
         default:
             EmptyView()
@@ -1460,7 +1464,7 @@ private struct FlooOptions: View {
     @ViewBuilder
     private func optionFrom(_ from: String) -> some View {
         if let mention = FlooDemoMentions.all[from] {
-            MentionView(mention, now: FlooDemoMentions.date(30, 16, 0))
+            MentionView(mention, now: FlooDemoMentions.clock(30, 16, 0))
         } else if let session = demo.card(from) {
             FlooCardFrame(size: FlooDemoCards.all[from]?.size ?? .small) { CardView(tree: session.tree) }
         }
