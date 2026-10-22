@@ -1116,7 +1116,7 @@ final class FlooLive {
             }
             let reply = answers.map { FlooReply(.butler, .answer($0)) }
                 ?? item.message.replyTo.map { reply(to: $0, quote: item.message.quote, replica) }
-            let shown = demo.say(.me, item.message.text, receipt: receipt, reply: reply)
+            let shown = demo.say(.me, item.message.text, receipt: receipt, reply: reply, at: item.at.date)
             outgoing[item.message.id] = shown
             let id = item.message.id
             demo.retries[demo.row(of: shown)] = { [weak self] in
@@ -1284,9 +1284,9 @@ final class FlooLive {
             return reply
         } ?? info.replyTo.map { reply(to: $0, quote: quote, replica) }
         if mine {
-            said[info.number] = demo.say(.me, text, receipt: receipt, reply: reply)
+            said[info.number] = demo.say(.me, text, receipt: receipt, reply: reply, at: info.createdAt.date)
         } else {
-            let theirs = demo.say(.person(names[info.author.account] ?? "成员"), text, reply: reply)
+            let theirs = demo.say(.person(names[info.author.account] ?? "成员"), text, reply: reply, at: info.createdAt.date)
             said[info.number] = theirs
             saidBy[info.author.account, default: []].append(theirs)
         }
@@ -1331,7 +1331,7 @@ final class FlooLive {
         guard let first = parts.first, let last = parts.last, case .agent(let id) = first.author.actor else { return }
         let owner = first.author.account
         let message = parts.lazy.compactMap { self.messages[$0.number] }.first ?? {
-            let message = demo.begin(agent(id, of: owner), at: Self.time(first.createdAt))
+            let message = demo.begin(agent(id, of: owner), at: Self.time(first.createdAt), on: first.createdAt.date)
             if owner != backend.account { agentsOf[owner, default: []].append((message, id)) }
             return message
         }()
@@ -1760,7 +1760,13 @@ final class FlooLive {
             url: mention.url.flatMap(URL.init(string:)),
             badge: icon(service?.icon),
             conversation: conversation,
-            doc: doc
+            doc: doc,
+            subtitle: mention.subtitle,
+            value: mention.value,
+            mark: mention.mark,
+            tags: mention.tags,
+            facts: mention.facts?.map { Mention.Fact(name: $0.name, value: $0.value) },
+            pieces: mention.pieces?.map { Mention.Piece(field: $0.field, component: $0.component) }
         )
     }
 

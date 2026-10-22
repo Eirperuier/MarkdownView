@@ -188,6 +188,8 @@ struct FlooTask: Hashable, Sendable, Identifiable {
 struct FlooRow: Identifiable, Equatable {
     enum Kind: Equatable {
         case time(String)
+        /// The day the messages under it were said on, named where it's shown (今天, 昨天, a date).
+        case day(Date)
         case unread(String)
         case catchUp(String)
         /// Who said it, what, where it is with the agents, and what it replies to.
@@ -449,13 +451,16 @@ final class FlooDemo {
         /// Its number in the backend's conversation (FlooLive); nil for a scripted one.
         var number: Int64?
         var reactions: [FlooReaction] = []
+        /// When it was said (FlooLive); nil for a scripted one, whose times are its own rows.
+        let at: Date?
 
-        init(id: Int, speaker: FlooSpeaker, text: String, receipt: FlooReceipt?, reply: FlooReply? = nil) {
+        init(id: Int, speaker: FlooSpeaker, text: String, receipt: FlooReceipt?, reply: FlooReply? = nil, at: Date? = nil) {
             self.id = id
             self.speaker = speaker
             self.text = text
             self.receipt = receipt
             self.reply = reply
+            self.at = at
         }
     }
 
@@ -465,6 +470,8 @@ final class FlooDemo {
         /// Whose it is, as they're called now (``rename(_:as:)``).
         fileprivate(set) var agent: FlooAgent
         let time: String
+        /// When it began (FlooLive); nil for a scripted one.
+        let at: Date?
         var marks: [FlooMark]
         var process: FlooProcess?
         var text = ""
@@ -512,10 +519,11 @@ final class FlooDemo {
         var status = FlooWorkStatus([])
         var settling: Task<Void, Never>?
 
-        init(id: Int, agent: FlooAgent, time: String, marks: [FlooMark]) {
+        init(id: Int, agent: FlooAgent, time: String, at: Date?, marks: [FlooMark]) {
             self.id = id
             self.agent = agent
             self.time = time
+            self.at = at
             self.marks = marks
         }
     }
@@ -526,6 +534,15 @@ final class FlooDemo {
         case catchUp(String)
         case said(Said)
         case message(Message)
+
+        /// When it was said, for a live one.
+        var at: Date? {
+            switch self {
+            case .said(let said): said.at
+            case .message(let message): message.at
+            default: nil
+            }
+        }
     }
 
     /// The rows shown, kept as the changes made to them: a change re-makes the rows of the
@@ -708,13 +725,16 @@ final class FlooDemo {
 
     /// Saying something yourself brings you back to the latest, wherever you'd scrolled to.
     @discardableResult
-    func say(_ speaker: FlooSpeaker, _ text: String, receipt: FlooReceipt? = nil, reply: FlooReply? = nil) -> Said {
+    func say(
+        _ speaker: FlooSpeaker, _ text: String, receipt: FlooReceipt? = nil, reply: FlooReply? = nil, at: Date? = nil
+    ) -> Said {
         let said = Said(
             id: takeID(),
             speaker: speaker,
             text: text,
             receipt: speaker == .me ? receipt ?? .delivered : nil,
-            reply: reply
+            reply: reply,
+            at: at
         )
         if speaker == .me { following = true }
         add(.said(said), key: said.id)
@@ -785,9 +805,9 @@ final class FlooDemo {
         show(message.id)
     }
 
-    /// An agent's message, empty until it works or speaks.
-    func begin(_ agent: FlooAgent, at time: String, marks: [FlooMark] = []) -> Message {
-        let message = Message(id: takeID(), agent: agent, time: time, marks: marks)
+    /// An agent's message, empty until it works or speaks; `on`: when, for a live one.
+    func begin(_ agent: FlooAgent, at time: String, on date: Date? = nil, marks: [FlooMark] = []) -> Message {
+        let message = Message(id: takeID(), agent: agent, time: time, at: date, marks: marks)
         messageByID[message.id] = message
         add(.message(message), key: message.id)
         return message
@@ -1690,10 +1710,12 @@ final class FlooDemo {
         order.moved(0..<page.count, by: page.count, count: entries.count) { entries[$0].key }
         var rows: [FlooRow] = []
         var last: FlooAgent?
-        for (key, entry) in page {
+        for (index, (key, entry)) in page.enumerated() {
+            let day = opensDay(at: index)
             var continuing = false
-            if case .message(let message) = entry { continuing = last == message.agent }
-            let made = self.rows(for: entry, key: key, continuing: continuing)
+            if day == nil, case .message(let message) = entry { continuing = last == message.agent }
+            var made = self.rows(for: entry, key: key, continuing: continuing)
+            if let day, !made.isEmpty { made.insert(FlooRow(id: "day:\(key)", message: nil, kind: .day(day)), at: 0) }
             if case .message(let message) = entry { note(message) }
             changed.remove(key)
             guard !made.isEmpty else { continue }
@@ -1753,11 +1775,13 @@ final class FlooDemo {
         guard let index = order[key] else { return }
         let entry = entries[index].entry
         let before = shownEntry(from: index - 1, by: -1)
+        let day = opensDay(at: index)
         var continuing = false
-        if case .message(let message) = entry, let before, case .message(let previous) = entries[before].entry {
+        if day == nil, case .message(let message) = entry, let before, case .message(let previous) = entries[before].entry {
             continuing = previous.agent == message.agent
         }
-        let made = rows(for: entry, key: key, continuing: continuing)
+        var made = rows(for: entry, key: key, continuing: continuing)
+        if let day, !made.isEmpty { made.insert(FlooRow(id: "day:\(key)", message: nil, kind: .day(day)), at: 0) }
         if case .message(let message) = entry { note(message) }
         let old = shownRows[key] ?? []
         guard made != old else { return }
@@ -1776,6 +1800,14 @@ final class FlooDemo {
     /// The messages showing a card, again: what's drawn of it changed.
     private func showCard(_ card: String) {
         for message in cardMessages[card] ?? [] { show(message) }
+    }
+
+    /// The day the entry at `index` opens: a live one said on another day (of this device's
+    /// calendar) than the one shown before it, or the first shown. Its messages go under it.
+    private func opensDay(at index: Int) -> Date? {
+        guard let at = entries[index].entry.at else { return nil }
+        let before = entries[..<index].last { $0.entry.at != nil && shownRows[$0.key] != nil }?.entry.at
+        return before.map { Calendar.current.isDate($0, inSameDayAs: at) } == true ? nil : at
     }
 
     /// The nearest entry from `index` on (`step` 1) or back (-1) that shows something.

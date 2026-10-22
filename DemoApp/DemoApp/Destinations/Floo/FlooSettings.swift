@@ -21,6 +21,7 @@
 
 import SwiftUI
 import FlooDesign
+import Wire
 
 // MARK: - JSON as the formats are written
 
@@ -266,7 +267,11 @@ enum FlooListed {
     /// A Pro account, a tenth of its week used; the model and effort are Codex's fallback
     /// (`model/list`), the rest from its config file.
     private static var codexAccount: FlooJSON {
-        let when = { (seconds: TimeInterval) in FlooJSON.string(ISO8601DateFormatter().string(from: updated.addingTimeInterval(seconds))) }
+        // A moment as services give one (floo docs/time.md §3.2): {at, local, zone}.
+        let when = { (seconds: TimeInterval) -> FlooJSON in
+            let moment = Moment(Timestamp(updated.addingTimeInterval(seconds)), in: ZoneName(TimeZone.current.identifier) ?? .utc)
+            return (try? JSONDecoder().decode(FlooJSON.self, from: JSONEncoder().encode(moment))) ?? .null  // try?: a moment always encodes
+        }
         let config = FlooJSON.string("~/.codex/config.toml")
         return .object([
             "version": .string("0.162.0"),
@@ -543,7 +548,7 @@ struct FlooProviderSettingsPage: View {
     private func when(_ value: FlooJSON?, _ path: String) -> String? {
         guard let value else { return nil }
         return phrased(value, at: path)
-            ?? value.string.flatMap(Self.date).map { "\(Self.relative($0))后\(words(path)?.title ?? "")" }
+            ?? Self.moment(value).map { "\(Self.relative($0))后\(words(path)?.title ?? "")" }
             ?? text(value, at: path)
     }
 
@@ -552,10 +557,7 @@ struct FlooProviderSettingsPage: View {
     private func phrased(_ value: FlooJSON, at path: String) -> String? {
         guard let phrase = words(path)?.phrase else { return nil }
         let shown: String =
-            switch (value, outputSchema(at: path)?["format"]?.string) {
-            case (.string(let when), "date-time"): Self.date(when).map(Self.relative) ?? when
-            default: text(value, at: path)
-            }
+            Self.moment(value).map(Self.relative) ?? text(value, at: path)
         let left = value.number.map { (max(0, 100 - $0) / 100).formatted(.percent.precision(.fractionLength(0))) }
         return phrase.replacingOccurrences(of: "{left}", with: left ?? "").replacingOccurrences(of: "{}", with: shown)
     }
@@ -662,16 +664,21 @@ struct FlooProviderSettingsPage: View {
     private func text(_ value: FlooJSON, at path: String) -> String {
         let schema = outputSchema(at: path)
         if let name = words(path)?.values?[value.text] { return name }
+        if let moment = Self.moment(value) { return "\(Self.relative(moment))后" }
         switch (value, schema?["format"]?.string) {
         case (.number(let used), "percent"): return (used / 100).formatted(.percent.precision(.fractionLength(0)))
-        case (.string(let when), "date-time"): return Self.date(when).map { "\(Self.relative($0))后" } ?? when
         case (.number(let number), _): return number.formatted()
         case (.bool(let yes), _): return yes ? "是" : "否"
         default: return value.text
         }
     }
 
-    static func date(_ text: String) -> Date? { ISO8601DateFormatter().date(from: text) }
+    /// A moment, as services give one: `{at, local, zone}` (floo docs/time.md §3.2), or text that
+    /// says its own zone, as older ones wrote it.
+    static func moment(_ value: FlooJSON) -> Date? {
+        guard let text = value["at"]?.string ?? value.string else { return nil }
+        return TimeText.moment(inText: text)?.at.date
+    }
 
     /// How long until `date`, in its two largest units ("6 天 1 小时").
     static func relative(_ date: Date) -> String {

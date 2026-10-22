@@ -11,8 +11,10 @@ import SwiftUI
 import MarkdownView
 import MessagingUI
 import CardModel
+import CardRuntime
 import CardUI
 import DocKit
+import TransportKit
 import FlooDesign
 import Wire
 import ChatBackgrounds
@@ -785,6 +787,16 @@ private struct FlooRowView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 18)
                 .padding(.bottom, 4)
+        case .day(let date):
+            // Named by the clock now: today's heading says 昨天 after midnight.
+            TimelineView(.everyMinute) { _ in
+                Text(FlooDay.label(date))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 18)
+                    .padding(.bottom, 4)
+            }
         case .unread(let text):
             HStack(spacing: 8) {
                 Rectangle().fill(Color.accentColor.opacity(0.5)).frame(height: 0.5)
@@ -1018,8 +1030,8 @@ private struct FlooRowView: View {
     }
 
     /// Mentions as one card in the bubble (agent-kernel.md §20.2, ⓪): a page the agent wrote as
-    /// Docs' page block, opening it; a topic or a group going there; the rest one after
-    /// another, hairlines between, each opening its link.
+    /// Docs' page block, opening it; a topic or a group going there; the rest laid out by their
+    /// fields' components (CardUI's `MentionList`), each opening its link.
     @ViewBuilder
     private func mentionCard(_ mentions: [Mention]) -> some View {
         if mentions.count == 1, let mention = mentions.first, let doc = mention.doc {
@@ -1028,18 +1040,31 @@ private struct FlooRowView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { demo.open(page: doc.path) }
         } else {
-            VStack(spacing: 0) {
-                ForEach(Array(mentions.enumerated()), id: \.offset) { index, mention in
-                    if index > 0 { Divider() }
-                    MentionRow(mention, now: FlooClock.now)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .onTapGesture { open(mention) }
-                }
-            }
+            MentionList(mentions, now: FlooClock.now) { open($0) }
+            .environment(\.cardHost, demo.live?.server.map(FlooAssetHost.init))
             .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
         }
+    }
+
+    /// Pictures of things by name for mentions' marks (a sender's or a site's logo): the server's
+    /// `/v1/assets/…`, which anyone may fetch.
+    struct FlooAssetHost: CardHost {
+        let server: FlooClient
+
+        struct NotHere: Error {}
+
+        func call(_ tool: String, arguments: [String: CardValue]) async throws -> CardValue { throw NotHere() }
+
+        func image(_ path: String) async -> Data? {
+            guard path.hasPrefix("/v1/assets/"), let url = URL(string: "\(server.scheme)://\(server.authority)\(path)"),
+                let (data, response) = try? await URLSession.shared.data(from: url),  // nil: the mark stays
+                (response as? HTTPURLResponse)?.statusCode == 200
+            else { return nil }
+            return data
+        }
+
+        func upload(_ data: Data, type: String) async throws -> CardValue { throw NotHere() }
     }
 
     /// A mention tapped: a topic or a group goes there; the rest open their link, if they have one.
@@ -2161,7 +2186,7 @@ extension FlooRow {
             return CGFloat(lines) * 24
         }
         switch kind {
-        case .time: return 40
+        case .time, .day: return 40
         case .unread: return 36
         case .catchUp(let text): return prose(text) + 70
         case .said(_, let text, _, let reply): return prose(text) + (reply == nil ? 0 : 30) + 52
