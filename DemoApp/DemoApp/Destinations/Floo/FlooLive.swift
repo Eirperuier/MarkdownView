@@ -272,8 +272,10 @@ final class FlooLive {
         }
         if backend.lab {
             Task { await loadCardModel() }
-            // The lab's clock, which a scene moves: "today" and "3 minutes ago" are said by it.
+            // The lab's clock, which a scene moves: "today" and "3 minutes ago" are said by it,
+            // and cards read it as their now.
             following.append(Task { await FlooClock.follow(lab: backend.base) })
+            CardClock.follow { Wire.Timestamp(FlooClock.now) }
         }
         Task { await loadIndex() }
         let listing = Task { await keepListing() }
