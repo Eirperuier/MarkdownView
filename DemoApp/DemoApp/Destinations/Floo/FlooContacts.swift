@@ -73,7 +73,8 @@ struct FlooService: Decodable, Identifiable, Hashable {
     /// Writes, deletions and those whose effect isn't known: each asks first (PolicyKit).
     var changes: [Operation] { operations.filter { $0.effect != "read" } }
 
-    var icon: URL? { presentation.icon.flatMap { URL(string: "https://floo-server.fly.dev" + $0) } }
+    /// Its icon as the definition names it, a path on the server (``Assets``) or a URL.
+    var icon: URL? { presentation.icon.flatMap(URL.init(string:)) }
     var tint: Color { presentation.color.flatMap(Color.init(hex:)) ?? .gray }
 
     /// The App's own name for a category (a UI string, localized with the App).

@@ -110,6 +110,8 @@ final class FlooLive {
     }
 
     private static func go(_ demo: FlooDemo, _ backend: Backend) async throws {
+        // Pictures of things and services' icons from the server played.
+        Assets.server = backend.base
         let live = FlooLive(demo: demo, backend: backend)
         demo.goLive(live)
         try await live.run()

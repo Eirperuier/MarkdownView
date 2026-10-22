@@ -686,18 +686,12 @@ struct FlooCallIconView: View {
                     FlooCallIconView(icon: .symbol("globe"), size: size)
                 }
             case .image(let url):
-                if let image = DocImageCache.shared.image(url) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFill()
-                        .frame(width: size, height: size)
-                        .clipShape(FlooIconShape())
-                } else {
-                    RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
-                        .frame(width: size, height: size)
+                // Its service's icon as Assets has it: the app's own copy of a device service's.
+                AssetImage(url) {
+                    RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous).fill(Color.primary.opacity(0.06))
                 }
+                .frame(width: size, height: size)
+                .clipShape(FlooIconShape())
             case .symbol(let name):
                 Image(systemName: name)
                     .font(.system(size: size * 0.52, weight: .medium))

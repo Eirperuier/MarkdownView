@@ -9,6 +9,7 @@ import SwiftUI
 import MarkdownView
 import MessagingUI
 import FlooDesign
+import CardUI
 
 @main
 struct DemoAppApp: App {
@@ -21,6 +22,8 @@ struct DemoAppApp: App {
         MarkdownHighlightSyntax.backgroundColor = MarkdownColorToken.highlight("yellow")
         MarkdownPenMarkSyntax.isEnabled = true
         FlooSiteIcons.install()
+        // Pictures of things and services' icons come from the floo server until a stage is played.
+        Assets.server = URL(string: "https://\(FlooOnline.server)")
     }
 
     var body: some Scene {

@@ -1045,30 +1045,9 @@ private struct FlooRowView: View {
                 .onTapGesture { demo.open(page: doc.path) }
         } else {
             MentionList(mentions, now: FlooClock.now) { open($0) }
-            .environment(\.cardHost, demo.live?.server.map(FlooAssetHost.init))
             .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
         }
-    }
-
-    /// Pictures of things by name for mentions' marks (a sender's or a site's logo): the server's
-    /// `/v1/assets/…`, which anyone may fetch.
-    struct FlooAssetHost: CardHost {
-        let server: FlooClient
-
-        struct NotHere: Error {}
-
-        func call(_ tool: String, arguments: [String: CardValue]) async throws -> CardValue { throw NotHere() }
-
-        func image(_ path: String) async -> Data? {
-            guard path.hasPrefix("/v1/assets/"), let url = URL(string: "\(server.scheme)://\(server.authority)\(path)"),
-                let (data, response) = try? await URLSession.shared.data(from: url),  // nil: the mark stays
-                (response as? HTTPURLResponse)?.statusCode == 200
-            else { return nil }
-            return data
-        }
-
-        func upload(_ data: Data, type: String) async throws -> CardValue { throw NotHere() }
     }
 
     /// A mention tapped: a topic or a group goes there; the rest open their link, if they have one.

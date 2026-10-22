@@ -8,6 +8,7 @@
 //  plate turns dark and a dark, colourless logo (GitHub's) turns white.
 //
 
+import CardUI
 import SwiftUI
 import UIKit
 
@@ -150,17 +151,16 @@ struct FlooIconImage: @unchecked Sendable {
     }
 }
 
-/// Fetches each icon once.
+/// Each icon as drawn, from its bytes as ``Assets`` has them (the app's own copy of a device
+/// service's, else the server's), read once.
 actor FlooIconLoader {
     static let shared = FlooIconLoader()
     private var loaded: [URL: FlooIconImage] = [:]
 
     func icon(at url: URL) async -> FlooIconImage? {
         if let icon = loaded[url] { return icon }
-        // try?: unreachable or not an image; the letter stands in.
-        guard let (data, _) = try? await URLSession.shared.data(from: url), let icon = FlooIconImage(data: data) else {
-            return nil
-        }
+        // Nil: none, or not reached now; the letter stands in.
+        guard let data = await Assets.data(url.absoluteString), let icon = FlooIconImage(data: data) else { return nil }
         loaded[url] = icon
         return icon
     }
