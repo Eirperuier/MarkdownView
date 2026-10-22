@@ -269,6 +269,7 @@ enum FlooListed {
     private static var codexAccount: FlooJSON {
         // A moment as services give one (floo docs/time.md §3.2): {at, local, zone}.
         let when = { (seconds: TimeInterval) -> FlooJSON in
+            // time: sample data, on this device's clock
             let moment = Moment(Timestamp(updated.addingTimeInterval(seconds)), in: ZoneName(TimeZone.current.identifier) ?? .utc)
             return (try? JSONDecoder().decode(FlooJSON.self, from: JSONEncoder().encode(moment))) ?? .null  // try?: a moment always encodes
         }
@@ -682,6 +683,7 @@ struct FlooProviderSettingsPage: View {
 
     /// How long until `date`, in its two largest units ("6 天 1 小时").
     static func relative(_ date: Date) -> String {
+        // time: shown on this device, by its calendar
         let parts = Calendar.current.dateComponents([.day, .hour, .minute], from: FlooClock.now, to: date)
         let said = [(parts.day ?? 0, "天"), (parts.hour ?? 0, "小时"), (parts.minute ?? 0, "分钟")]
             .drop { $0.0 <= 0 }.prefix(2).filter { $0.0 > 0 }

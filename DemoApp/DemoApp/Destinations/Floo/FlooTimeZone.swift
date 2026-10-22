@@ -155,7 +155,7 @@ enum FlooClock {
 /// 10月6日, or with its year when it isn't this one's.
 enum FlooDay {
     static func label(_ date: Date) -> String {
-        let calendar = Calendar.current
+        let calendar = Calendar.current  // time: shown on this device, by its calendar
         let today = calendar.startOfDay(for: FlooClock.now)
         let day = calendar.startOfDay(for: date)
         if day == today { return "今天" }

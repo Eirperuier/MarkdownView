@@ -1238,6 +1238,7 @@ final class FlooLive {
         case .stopped: "不再"
         }
         let zone = committed.next?.zone
+        // time: shown on this device, by its calendar
         let elsewhere = zone.flatMap { $0.identifier == TimeZone.current.identifier ? nil : FlooZones.city(of: $0) }
         let when: String? =
             switch committed.trigger {
@@ -1754,8 +1755,8 @@ final class FlooLive {
         return agent
     }
 
-    private static let clock: DateFormatter = {
-        let formatter = DateFormatter()
+    private static let clock: DateFormatter = {  // time: shown on this device, by its calendar
+        let formatter = DateFormatter()  // time: shown on this device, by its calendar
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "HH:mm"
         return formatter

@@ -1809,6 +1809,7 @@ final class FlooDemo {
     private func opensDay(at index: Int) -> Date? {
         guard let at = entries[index].entry.at else { return nil }
         let before = entries[..<index].last { $0.entry.at != nil && shownRows[$0.key] != nil }?.entry.at
+        // time: shown on this device, by its calendar
         return before.map { Calendar.current.isDate($0, inSameDayAs: at) } == true ? nil : at
     }
 

@@ -864,6 +864,7 @@ enum DocFieldText {
 
     /// The day a date picker picked, on this device's calendar.
     static func day(of date: Date) -> Day {
+        // time: shown on this device, by its calendar
         let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
         return Day(LocalDate(year: parts.year ?? 1970, month: parts.month ?? 1, day: parts.day ?? 1))
     }
@@ -873,6 +874,7 @@ enum DocFieldText {
     static func date(of value: When) -> Date {
         switch value {
         case .day(let day):
+            // time: shown on this device, by its calendar
             Calendar.current.date(from: DateComponents(year: day.year ?? 2000, month: day.month, day: day.day)) ?? .distantPast
         case .moment(let moment): moment.at.date
         }

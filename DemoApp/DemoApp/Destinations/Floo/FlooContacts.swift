@@ -195,7 +195,7 @@ struct FlooPush: Hashable {
 extension FlooPush {
     /// A scripted one: on "今天", "昨天" or "10月6日" (this year), at "8:02".
     init(day: String, time: String, text: String, card: String? = nil, mention: FlooMention? = nil) {
-        let calendar = Calendar.current
+        let calendar = Calendar.current  // time: sample data, on this device's clock
         let today = calendar.startOfDay(for: FlooClock.now)
         var date = today
         if day == "昨天" {

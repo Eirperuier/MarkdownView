@@ -514,7 +514,7 @@ struct FlooMomentsPage: View {
     private var days: [(day: Date, posts: [(index: Int, push: FlooPush)])] {
         var result: [(day: Date, posts: [(index: Int, push: FlooPush)])] = []
         for (index, push) in pushes.enumerated() {
-            let day = Calendar.current.startOfDay(for: push.at)
+            let day = Calendar.current.startOfDay(for: push.at)  // time: shown on this device, by its calendar
             if result.last?.day == day {
                 result[result.count - 1].posts.append((index, push))
             } else {

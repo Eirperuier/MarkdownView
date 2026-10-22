@@ -1045,11 +1045,13 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
 enum FlooDemoMentions {
     /// A time of the scripted week, on this device's clock.
     static func clock(_ day: Int, _ hour: Int, _ minute: Int) -> Date {
+        // time: sample data, on this device's clock
         Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour, minute: minute)) ?? .now
     }
 
     /// That time as a mention's moment.
     static func date(_ day: Int, _ hour: Int, _ minute: Int) -> When {
+        // time: sample data, on this device's clock
         .moment(Moment(Timestamp(clock(day, hour, minute)), in: ZoneName(TimeZone.current.identifier) ?? .utc))
     }
 
