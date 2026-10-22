@@ -7,6 +7,7 @@
 //  reminders by it; away from home, by where the phone is. Only these two screens set it.
 //
 
+import Synchronization
 import SwiftUI
 import Wire
 
@@ -125,6 +126,44 @@ struct FlooZonePicker: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
             }
         }
+    }
+}
+
+/// What time it is for the person, where the demo says "today" or "3 minutes ago": this
+/// device's clock, or on a lab stage the lab's, which a scene moves (floo docs/time.md §8).
+enum FlooClock {
+    /// The lab's clock ahead of this device's, as last asked.
+    private static let offset = Mutex<TimeInterval>(0)
+
+    static var now: Date { Date().addingTimeInterval(offset.withLock { $0 }) }
+
+    /// Keeps up with a lab stage's clock at `base`, every few seconds as a scene moves it.
+    static func follow(lab base: URL) async {
+        struct Info: Decodable { let epochMilliseconds: Int64 }
+        while !Task.isCancelled {
+            if let (data, _) = try? await URLSession.shared.data(from: base.appending(path: "lab/info")),  // try?: asked again soon
+                let info = try? JSONDecoder().decode(Info.self, from: data)  // try?: an older stage says no time
+            {
+                offset.withLock { $0 = Double(info.epochMilliseconds) / 1000 - Date().timeIntervalSince1970 }
+            }
+            try? await Task.sleep(for: .seconds(5))  // try?: cancelled, the loop ends
+        }
+    }
+}
+
+/// A day as people are shown it, from this device's calendar when it's shown: 今天, 昨天,
+/// 10月6日, or with its year when it isn't this one's.
+enum FlooDay {
+    static func label(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: FlooClock.now)
+        let day = calendar.startOfDay(for: date)
+        if day == today { return "今天" }
+        if calendar.date(byAdding: .day, value: 1, to: day) == today { return "昨天" }
+        let month = calendar.component(.month, from: date)
+        let number = calendar.component(.day, from: date)
+        let year = calendar.component(.year, from: date)
+        return year == calendar.component(.year, from: today) ? "\(month)月\(number)日" : "\(year)年\(month)月\(number)日"
     }
 }
 

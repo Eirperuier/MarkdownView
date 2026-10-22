@@ -1031,7 +1031,7 @@ private struct FlooRowView: View {
             VStack(spacing: 0) {
                 ForEach(Array(mentions.enumerated()), id: \.offset) { index, mention in
                     if index > 0 { Divider() }
-                    MentionRow(mention)
+                    MentionRow(mention, now: FlooClock.now)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                         .onTapGesture { open(mention) }

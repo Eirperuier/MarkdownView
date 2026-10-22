@@ -270,7 +270,11 @@ final class FlooLive {
             // §6.1); the lab's people have theirs.
             if !backend.lab { await askZone(client) }
         }
-        if backend.lab { Task { await loadCardModel() } }
+        if backend.lab {
+            Task { await loadCardModel() }
+            // The lab's clock, which a scene moves: "today" and "3 minutes ago" are said by it.
+            following.append(Task { await FlooClock.follow(lab: backend.base) })
+        }
         Task { await loadIndex() }
         let listing = Task { await keepListing() }
         defer { listing.cancel() }

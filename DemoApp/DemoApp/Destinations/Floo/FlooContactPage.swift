@@ -509,14 +509,16 @@ struct FlooMomentsPage: View {
 
     private var pushes: [FlooPush] { demo.following[service.id]?.pushes ?? [] }
 
-    /// Days in order, each with its posts and their places in the feed.
-    private var days: [(day: String, posts: [(index: Int, push: FlooPush)])] {
-        var result: [(day: String, posts: [(index: Int, push: FlooPush)])] = []
+    /// Days in order, each with its posts and their places in the feed: a day of this
+    /// device's calendar, said as it is now.
+    private var days: [(day: Date, posts: [(index: Int, push: FlooPush)])] {
+        var result: [(day: Date, posts: [(index: Int, push: FlooPush)])] = []
         for (index, push) in pushes.enumerated() {
-            if result.last?.day == push.day {
+            let day = Calendar.current.startOfDay(for: push.at)
+            if result.last?.day == day {
                 result[result.count - 1].posts.append((index, push))
             } else {
-                result.append((push.day, [(index, push)]))
+                result.append((day, [(index, push)]))
             }
         }
         return result
@@ -533,7 +535,7 @@ struct FlooMomentsPage: View {
                 }
                 ForEach(days, id: \.day) { day in
                     HStack(alignment: .top, spacing: 8) {
-                        dayLabel(day.day).frame(width: 76, alignment: .leading)
+                        dayLabel(FlooDay.label(day.day)).frame(width: 76, alignment: .leading)
                         VStack(alignment: .leading, spacing: 12) {
                             ForEach(day.posts, id: \.index) { post in
                                 Button { demo.path.append(.post(service.id, post.index)) } label: {
@@ -638,7 +640,8 @@ struct FlooPostPage: View {
                         }
                         if let mention = push.mention { FlooMentionBox(mention: mention, tint: tint) }
                         HStack {
-                            Text("\(push.day) \(push.time)").font(.caption).foregroundStyle(.secondary)
+                            Text("\(FlooDay.label(push.at)) \(push.at.formatted(.dateTime.hour().minute()))")
+                                .font(.caption).foregroundStyle(.secondary)
                             Spacer()
                             Button {
                                 demo.drafts[service.id] = nil

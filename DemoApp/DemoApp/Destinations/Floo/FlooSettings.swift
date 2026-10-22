@@ -675,7 +675,7 @@ struct FlooProviderSettingsPage: View {
 
     /// How long until `date`, in its two largest units ("6 天 1 小时").
     static func relative(_ date: Date) -> String {
-        let parts = Calendar.current.dateComponents([.day, .hour, .minute], from: .now, to: date)
+        let parts = Calendar.current.dateComponents([.day, .hour, .minute], from: FlooClock.now, to: date)
         let said = [(parts.day ?? 0, "天"), (parts.hour ?? 0, "小时"), (parts.minute ?? 0, "分钟")]
             .drop { $0.0 <= 0 }.prefix(2).filter { $0.0 > 0 }
         return said.isEmpty ? "1 分钟" : said.map { "\($0.0) \($0.1)" }.joined(separator: " ")

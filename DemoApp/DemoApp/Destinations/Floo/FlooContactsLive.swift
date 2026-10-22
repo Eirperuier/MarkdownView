@@ -124,7 +124,7 @@ extension FlooContactsDemo {
             entry.pushes = (pushes[standing.service] ?? []).compactMap(Self.push)
             entry.doing = (watches[id] ?? []).map(Self.doing)
             if let dialog = dialogs[id] {
-                entry.quiet = dialog.settings?.notifications.mutedUntil.map { $0 > .now } ?? false
+                entry.quiet = dialog.settings?.notifications.mutedUntil.map { $0.date > FlooClock.now } ?? false
                 entry.pinned = dialog.settings?.pinnedAt != nil
             }
             following[id] = entry
@@ -473,7 +473,7 @@ extension FlooContactsDemo {
         case .hook(let event): "有变化时就知道（\(event)）"
         case .polls(let tool, let every): "每 \(every >= 3600 ? "\(every / 3600) 小时" : "\(max(1, every / 60)) 分钟")看一次 \(tool)"
         }
-        let until = watch.until.map { "，到 \(Self.day($0.date)) 为止" } ?? ""
+        let until = watch.until.map { "，到 \(FlooDay.label($0.date)) 为止" } ?? ""
         return FlooDoing(text: watch.why ?? watch.name ?? watch.id, asked: what + until)
     }
 
@@ -485,19 +485,11 @@ extension FlooContactsDemo {
         let plain = text.replacingOccurrences(of: "```[\\s\\S]*?```", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !plain.isEmpty else { return nil }
-        let date = item.message.createdAt.date
-        return FlooPush(day: day(date), time: date.formatted(.dateTime.hour().minute()), text: plain)
-    }
-
-    private static func day(_ date: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(date) { return "今天" }
-        if calendar.isDateInYesterday(date) { return "昨天" }
-        return "\(calendar.component(.month, from: date))月\(calendar.component(.day, from: date))日"
+        return FlooPush(at: item.message.createdAt.date, text: plain)
     }
 
     private static func ago(_ date: Date) -> String {
-        let minutes = Int(Date().timeIntervalSince(date) / 60)
+        let minutes = Int(FlooClock.now.timeIntervalSince(date) / 60)
         if minutes < 60 { return "\(max(1, minutes)) 分钟前" }
         if minutes < 24 * 60 { return "\(minutes / 60) 小时前" }
         return "\(minutes / (24 * 60)) 天前"

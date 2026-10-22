@@ -183,12 +183,35 @@ struct FlooServiceSources {
 /// One of its pushes (the Feed, agent-kernel §10.7, for this service): its words, and the
 /// card (`floo.card`) or the thing it points at (`floo.mention`) it came with.
 struct FlooPush: Hashable {
-    /// "今天", "昨天", or a date: the album groups by it.
-    let day: String
-    let time: String
+    /// When it was said: the album groups by its day and says it as today, yesterday or a
+    /// date where it's shown, on this device's calendar (floo docs/time.md §8).
+    let at: Date
     let text: String
     var card: String? = nil
     var mention: FlooMention? = nil
+}
+
+extension FlooPush {
+    /// A scripted one: on "今天", "昨天" or "10月6日" (this year), at "8:02".
+    init(day: String, time: String, text: String, card: String? = nil, mention: FlooMention? = nil) {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: FlooClock.now)
+        var date = today
+        if day == "昨天" {
+            date = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+        } else if day != "今天", let month = Int(day.prefix { $0 != "月" }),
+            let number = Int(day.drop { $0 != "月" }.dropFirst().prefix { $0 != "日" })
+        {
+            date = calendar.date(from: DateComponents(year: calendar.component(.year, from: today), month: month, day: number)) ?? today
+        }
+        let clock = time.split(separator: ":").compactMap { Int($0) }
+        self.init(
+            at: calendar.date(bySettingHour: clock.first ?? 0, minute: clock.last ?? 0, second: 0, of: date) ?? date,
+            text: text,
+            card: card,
+            mention: mention
+        )
+    }
 }
 
 /// What a `floo.mention` points at, as the App previews it: like a link shared in Moments.
