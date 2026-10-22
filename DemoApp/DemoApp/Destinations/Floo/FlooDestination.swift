@@ -183,6 +183,14 @@ struct FlooDestination: View {
         .sheet(item: $demo.openPage) { page in
             DocDestination(doc: page.doc)
         }
+        .sheet(item: $demo.openThing) { thing in
+            FlooThingView(thing: thing)
+        }
+        .alert("无法打开", isPresented: $demo.cannotOpen) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text("这台设备上找不到它。")
+        }
         .task { play() }
     }
 
@@ -1013,6 +1021,8 @@ private struct FlooRowView: View {
     private func open(_ mention: Mention) {
         if let place = mention.conversation {
             demo.go(to: FlooPlace(id: place.id, title: mention.title ?? "", kind: place.kind == .group ? .group : .topic(listed: true)))
+        } else if let url = mention.url, url.scheme == "floo" {
+            demo.open(link: url.absoluteString)
         } else if let url = mention.url, url.scheme != nil {
             // A path in floo (/drive/…) waits for its opener.
             openURL(url)
@@ -2377,5 +2387,29 @@ private struct FlooReactionsView: View {
         }
         .padding(.top, 2)
         .padding(.bottom, 6)
+    }
+}
+
+/// A thing a link found, read only: its title and its whole text.
+private struct FlooThingView: View {
+    let thing: FlooOpenThing
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(thing.text)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .navigationTitle(thing.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
     }
 }

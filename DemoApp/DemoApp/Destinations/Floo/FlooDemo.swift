@@ -248,6 +248,14 @@ struct FlooOpenPage: Identifiable {
     let doc: Doc
 }
 
+/// A thing a floo link found on this device, open over the conversation (floo's
+/// docs/services.md §2.10): the link, and the thing as its service tells it.
+struct FlooOpenThing: Identifiable {
+    let id: String
+    let title: String
+    let text: String
+}
+
 /// A block of an agent's words in its bubble: the blocks between two cards are one bubble,
 /// drawn once behind their rows.
 struct FlooBubble: Equatable {
@@ -575,6 +583,10 @@ final class FlooDemo {
     var lit: String?
     /// The page open over the conversation.
     var openPage: FlooOpenPage?
+    /// The thing a link opened, over the conversation.
+    var openThing: FlooOpenThing?
+    /// A link tapped that isn't on this device.
+    var cannotOpen = false
     /// The model the backend's cards are drawn with, as the stage has it (FlooLive).
     var cardModel: FlooCardModel?
     /// The floo server's sign-in, while it's asked for (FlooLive).
@@ -1273,6 +1285,20 @@ final class FlooDemo {
         sessions[key] = session
         versions[key, default: 0] += 1
         showCard(key)
+    }
+
+    /// Opens a floo link (`floo://<service>/…`) on this device: the service here that has
+    /// the thing finds it; none does, it can't be opened — never looked for elsewhere.
+    func open(link: String) {
+        Task {
+            #if targetEnvironment(macCatalyst)
+            if let thing = await FlooHelper.thing(at: link) {
+                openThing = FlooOpenThing(id: link, title: thing.title, text: thing.text)
+                return
+            }
+            #endif
+            cannotOpen = true
+        }
     }
 
     /// Opens a page the conversation shows, over it, read as it is now.

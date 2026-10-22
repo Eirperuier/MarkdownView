@@ -115,6 +115,61 @@ enum FlooHelper {
         _ = await launch(["--allow"] + services, activates: true, waits: true)
     }
 
+    /// The thing a floo link points to, as this Mac's service that has it tells it (floo's
+    /// docs/services.md §2.10); nil when none here has it, or it isn't serving. Asked over
+    /// its socket in its home, which answers only the app it is in.
+    static func thing(at link: String) async -> (title: String, text: String)? {
+        /// What it answers: DeepLink's `DeepLinkTarget`, `found` with the thing or `notFound`.
+        struct Target: Decodable {
+            struct Found: Decodable {
+                struct Item: Decodable {
+                    let title: String
+                    let text: String
+                }
+                let _0: Item
+            }
+            let found: Found?
+        }
+        guard let request = try? JSONSerialization.data(withJSONObject: ["open": link]),  // try?: a string always encodes
+              let reply = await ask(request),
+              let target = try? JSONDecoder().decode(Target.self, from: reply)  // try?: unreadable, not here
+        else { return nil }
+        return target.found.map { ($0._0.title, $0._0.text) }
+    }
+
+    /// One request over its socket, `<home>/helper.sock`: a JSON line out, a JSON line back.
+    private static func ask(_ request: Data) async -> Data? {
+        let path = home.appending(path: "helper.sock").path
+        return await Task.detached {
+            let socket = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+            guard socket >= 0 else { return nil }
+            defer { close(socket) }
+            var address = sockaddr_un()
+            address.sun_family = sa_family_t(AF_UNIX)
+            let bytes = Array(path.utf8)
+            guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
+            withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
+            let connected = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    connect(socket, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
+            }
+            guard connected == 0 else { return nil }
+            let line = request + Data([0x0A])
+            let written = line.withUnsafeBytes { write(socket, $0.baseAddress, $0.count) }
+            guard written == line.count else { return nil }
+            var reply = Data()
+            var buffer = [UInt8](repeating: 0, count: 16 << 10)
+            while true {
+                let count = read(socket, &buffer, buffer.count)
+                guard count > 0 else { break }
+                reply.append(contentsOf: buffer[0..<count])
+                if buffer[0..<count].contains(0x0A) { break }
+            }
+            return reply.isEmpty ? nil : reply
+        }.value
+    }
+
     /// Opens a new instance of it with `arguments` through Launch Services, from this app:
     /// the active one, whose click it is, so the system lets it come to the front (one opened
     /// by `open` started from here doesn't: that process isn't active). AppKit's workspace,
