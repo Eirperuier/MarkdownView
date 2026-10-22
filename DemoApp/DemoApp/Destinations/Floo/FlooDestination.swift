@@ -14,6 +14,7 @@ import CardModel
 import CardUI
 import DocKit
 import FlooDesign
+import Wire
 import ChatBackgrounds
 
 /// A subtitle under the window's or the bar's title, where the system has one: the Mac, and
@@ -53,6 +54,8 @@ struct FlooDestination: View {
     @AppStorage("flooChatBackground") private var backgroundName = "plain"
     /// A topic's name as you type it.
     @State private var topicTitle = ""
+    /// The zones to pick the person's from, from the account menu.
+    @State private var picksZone = false
     @FocusState private var composerFocused: Bool
     /// The window's inspector, where the person's mini programs open.
     @Environment(WindowInspector.self) private var inspector
@@ -133,11 +136,16 @@ struct FlooDestination: View {
                     demo.scrollPosition.scrollTo(edge: .bottom, animated: true)
                 }
             }
-            // Signing in to the floo server: the form until you're in, and nothing to type into.
+            // Signing in to the floo server, then the zone they go by when the account has none:
+            // the form until you're in, and nothing to type into.
             .overlay {
-                if let signIn = demo.signIn { FlooSignInView(model: signIn) }
+                if let signIn = demo.signIn {
+                    FlooSignInView(model: signIn)
+                } else if let choice = demo.zoneChoice {
+                    FlooZoneChoiceView(model: choice)
+                }
             }
-            if demo.signIn == nil {
+            if demo.signIn == nil, demo.zoneChoice == nil {
                 // Something opening over the composer shortens the list, which keeps its bottom.
                 bottom
             }
@@ -154,6 +162,13 @@ struct FlooDestination: View {
         .navigationTitle(demo.title)
         .modifier(Subtitle(text: demo.isLive && demo.origin != nil ? "话题 · 在\(demo.origin?.title ?? "")" : scenario.name))
         .toolbar { toolbar }
+        .sheet(isPresented: $picksZone) {
+            FlooZonePicker(selected: demo.usualZone) { zone in
+                Task {
+                    do { try await demo.live?.setUsualZone(zone) } catch { demo.catchUp("时区没改成：\(error)") }
+                }
+            }
+        }
         .sheet(isPresented: $demo.startsGroup) {
             if let live = demo.live { FlooNewGroupView(live: live) }
         }
@@ -237,6 +252,16 @@ struct FlooDestination: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu("账号", systemImage: "person.crop.circle") {
                     if let email = account.email { Text(email) }
+                    Button {
+                        picksZone = true
+                    } label: {
+                        Label {
+                            Text("时区")
+                            if let zone = demo.usualZone { Text(FlooZones.name(of: zone)) }
+                        } icon: {
+                            Image(systemName: "globe")
+                        }
+                    }
                     Button("退出登录", role: .destructive) {
                         Task {
                             try? await account.auth.signOut()  // try?: the kept session may be gone already

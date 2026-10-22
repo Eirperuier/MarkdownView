@@ -16,6 +16,7 @@ import CardModel
 import CardUI
 import DocKit
 import FlooDesign
+import Wire
 
 /// Who wrote a message: the butler, or one of the person's services, by the name it goes by.
 struct FlooAgent: Hashable, Sendable {
@@ -591,6 +592,10 @@ final class FlooDemo {
     var cardModel: FlooCardModel?
     /// The floo server's sign-in, while it's asked for (FlooLive).
     var signIn: FlooSignIn?
+    /// The zone the person goes by, asked for once after signing in (FlooLive).
+    var zoneChoice: FlooZoneChoice?
+    /// The zone they go by, as the account has it; nil before they pick one.
+    var usualZone: ZoneName?
     /// Who is signed in to the floo server.
     var signedIn: FlooOnline.Account?
     /// Each choice row's message and fence place, for a choice sent to the backend.

@@ -118,6 +118,8 @@ final class FlooLive {
     private let demo: FlooDemo
     private let backend: Backend
     private var session: ConversationSession?
+    /// Whether this device is the person's phone, which says where they are (floo docs/time.md §6.2).
+    private var phone = false
     /// Where the conversations are kept on this device (encrypted, LocalStore): opened from
     /// here with no network, the server only bringing what's new; in memory if it won't open.
     private var store: LocalStore?
@@ -210,9 +212,12 @@ final class FlooLive {
             transport: URLSessionTransport(),
             tokens: backend.tokens
         )
+        // This device, as the server knows it: registered, or described again when what it is
+        // changed — its system's time zone too, said again whenever that changes, which is how
+        // a phone tells where the person is (floo docs/time.md §6.2).
+        let register: @MainActor () async throws -> DeviceCredentials
         do {
             let folder = URL.demoSupport.appending(path: backend.folder, directoryHint: .isDirectory)
-            let device: DeviceCredentials
             #if targetEnvironment(macCatalyst)
             // On the Mac it's one device with Floo Helper, this Mac: its key, kept in the Helper's
             // home, signs for both, and it's named and described as the Mac it is.
@@ -220,18 +225,26 @@ final class FlooLive {
             #else
             let identity: DeviceIdentity? = nil
             #endif
+            // Online it is the phone or iPad it runs on; on a stage, an iPad of the person's, the
+            // stage's own phone being theirs.
+            let platform: DevicePlatform = backend.lab ? .iPad : ThisDevice.platform
+            phone = platform == .iPhone
+            let account = backend.account
             if let identity {
-                device = try await identity.registered(for: backend.account, with: base, appVersion: Self.helperVersion)
+                register = { try await identity.registered(for: account, with: base, appVersion: Self.helperVersion) }
             } else {
-                device = try await DeviceIdentity(store: FileSecrets(folder: folder)).registered(
-                    for: backend.account,
-                    with: base,
-                    platform: .iPad,
-                    appVersion: "demo",
-                    osVersion: ProcessInfo.processInfo.operatingSystemVersionString
-                )
+                let plain = try DeviceIdentity(store: FileSecrets(folder: folder))
+                register = {
+                    try await plain.registered(
+                        for: account,
+                        with: base,
+                        platform: platform,
+                        appVersion: "demo",
+                        osVersion: ProcessInfo.processInfo.operatingSystemVersionString
+                    )
+                }
             }
-            self.client = base.with(device: device)
+            self.client = base.with(device: try await register())
         } catch {
             demo.catchUp("没连上：\(error)")
             return
@@ -252,8 +265,10 @@ final class FlooLive {
             let people = PeopleNames(remote: client, storage: listStorage)
             self.people = people
             following.append(Task { await followNames(people) })
-            // The lab's people have their own zone; here it's this device's.
-            if !backend.lab { following.append(Task { await followTimeZone(client) }) }
+            following.append(Task { await followTimeZone(register) })
+            // The zone they go by, asked once when the account has none (floo docs/time.md
+            // §6.1); the lab's people have theirs.
+            if !backend.lab { await askZone(client) }
         }
         if backend.lab { Task { await loadCardModel() } }
         Task { await loadIndex() }
@@ -573,7 +588,8 @@ final class FlooLive {
     func send(_ text: String, replyTo: Int64? = nil) {
         guard let session else { return }
         // try?: one that doesn't go shows so in the conversation, to send again.
-        Task { _ = try? await session.send(MessageSend(id: .generate(), text: text, replyTo: replyTo)) }
+        let send = zoned(MessageSend(id: .generate(), text: text, replyTo: replyTo))
+        Task { _ = try? await session.send(send) }
     }
 
     /// A message of the backend's as a reply to it shows over the composer: whose it is and
@@ -590,7 +606,8 @@ final class FlooLive {
             text: option.send ?? option.label,
             choosing: ChoiceRef(message: message, fence: fence, item: item)
         )
-        Task { _ = try? await session.send(send) }  // try?: as `send`
+        let zoned = zoned(send)
+        Task { _ = try? await session.send(zoned) }  // try?: as `send`
     }
 
     /// Your answer to an item of an agent's ask: a message of yours answering it, with what you
@@ -613,7 +630,7 @@ final class FlooLive {
                     answering: AskAnswer(ask: id, item: item, picked: picked, confirmed: confirmed, filled: filled)
                 )
             }
-            _ = try? await session.send(send)  // try?: as `send`
+            _ = try? await session.send(zoned(send))  // try?: as `send`
         }
     }
 
@@ -1583,15 +1600,47 @@ final class FlooLive {
         }
     }
 
-    /// The person's time zone, as this device has it, and again whenever it changes: the
-    /// agents tell the time where they are by it.
-    private func followTimeZone(_ client: FlooClient) async {
-        var changes = NotificationCenter.default.notifications(named: .NSSystemTimeZoneDidChange).makeAsyncIterator()
-        repeat {
-            do { try await client.setTimeZone(TimeZone.autoupdatingCurrent.identifier) } catch {
+    /// This device's system zone, said again whenever it changes: a phone's says where the
+    /// person is (floo docs/time.md §6.2). It never sets the zone they go by.
+    private func followTimeZone(_ register: @MainActor () async throws -> DeviceCredentials) async {
+        for await _ in NotificationCenter.default.notifications(named: .NSSystemTimeZoneDidChange) {
+            do { _ = try await register() } catch {
                 demo.catchUp("时区没告诉服务器：\(error)")
             }
-        } while await changes.next() != nil
+        }
+    }
+
+    /// The zone they go by, when the account has none yet: picked here, where their phone says
+    /// they are, else this device's zone.
+    private func askZone(_ client: FlooClient) async {
+        do {
+            // A server from before zones says none: nothing to ask then.
+            guard let zones = try await client.account().zones else { return }
+            demo.usualZone = zones.usual
+            guard zones.usual == nil else { return }
+            let choice = FlooZoneChoice(zone: zones.here ?? ThisDevice.timeZone ?? .utc)
+            demo.zoneChoice = choice
+            let zone = await choice.chosen()
+            demo.zoneChoice = nil
+            try await setUsualZone(zone)
+        } catch {
+            demo.zoneChoice = nil
+            demo.catchUp("没读到时区：\(error)")
+        }
+    }
+
+    /// The zone they go by, as they picked it.
+    func setUsualZone(_ zone: ZoneName) async throws {
+        guard let client else { return }
+        try await client.setTimeZone(zone.identifier)
+        demo.usualZone = zone
+    }
+
+    /// A message as this device sends it: from a phone, with the zone it's sent in.
+    private func zoned(_ send: MessageSend) -> MessageSend {
+        var send = send
+        if phone { send.zone = ThisDevice.timeZone }
+        return send
     }
 
     /// The names' changes, as the list's stream brings them: each shows where it's shown.
