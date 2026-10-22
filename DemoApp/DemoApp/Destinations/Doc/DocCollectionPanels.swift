@@ -576,7 +576,7 @@ private struct DocFilterRule: View {
                 if case .date(let day)? = filter.value { return DocFieldText.date(of: day) }
                 return .now
             } set: { date in
-                set(.date(value: DocFieldText.timestamp(of: date)))
+                set(.date(value: .day(DocFieldText.day(of: date))))
             }, displayedComponents: [.date])
             .datePickerStyle(.compact)
             .labelsHidden()
@@ -1043,14 +1043,14 @@ struct DocDatePanel: View {
     }
 
     private func pick(_ day: Date) {
-        controller.set(.date(value: DocFieldText.timestamp(of: day)), row: row.id, column: column.id, in: block)
+        controller.set(.date(value: .day(DocFieldText.day(of: day))), row: row.id, column: column.id, in: block)
         controller.close(panel, in: block)
     }
 
     /// Return: the day typed; text that isn't one stays to be corrected.
     private func submit() {
         guard let day = DocFieldText.day(from: text) else { return }
-        controller.set(.date(value: day), row: row.id, column: column.id, in: block)
+        controller.set(.date(value: .day(day)), row: row.id, column: column.id, in: block)
         controller.close(panel, in: block)
     }
 }

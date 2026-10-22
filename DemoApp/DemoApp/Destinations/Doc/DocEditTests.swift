@@ -2728,7 +2728,7 @@ final class DocEditTests {
             try self.expect(cell(row, link) == .url(value: "https://example.com/plan"), "words went into the link")
 
             // A day typed is yyyy-MM-dd or as days show, never a lenient guess.
-            try self.expect(DocFieldText.day(from: "2026-10-20") == DocFieldText.timestamp(of: DateComponents(calendar: .current, year: 2026, month: 10, day: 20).date!), "2026-10-20 isn't that day")
+            try self.expect(DocFieldText.day(from: "2026-10-20") == Day(LocalDate(year: 2026, month: 10, day: 20)), "2026-10-20 isn't that day")
             try self.expect(DocFieldText.day(from: "2026-13-40") == nil, "2026-13-40 read as a day")
             // A date cell's calendar is the collection's panel, one at a time.
             let due = try self.expectValue(original.columns.first { $0.type == .date }, "no date column")

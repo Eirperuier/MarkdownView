@@ -115,7 +115,7 @@ enum DocDemoCorpus {
         let due = Column(id: .generate(), name: "截止", type: .date)
         let hours = Column(id: .generate(), name: "工时", type: .number)
         let reviewed = Column(id: .generate(), name: "已评审", type: .checkbox)
-        func day(_ day: Int) -> CellValue { .date(value: Timestamp(millisecondsSince1970: (1_791_158_400 + Int64(day - 5) * 86_400) * 1000)) }
+        func day(_ day: Int) -> CellValue { .date(value: .day(Day(LocalDate(year: 2026, month: 10, day: day)))) }
         func row(_ title: String, _ who: Int, _ how: Int, _ when: Int, _ time: Double, _ checked: Bool = false) -> Row {
             var cells: [ColumnID: CellValue] = [task.id: .text(value: title), owner.id: .select(option: owners[who].id),
                                                 state.id: .select(option: states[how].id), due.id: day(when), hours.id: .number(value: time)]

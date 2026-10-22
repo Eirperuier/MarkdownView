@@ -375,7 +375,7 @@ final class DocCollectionController {
             return ["✓", "true", "yes", "1", "x"].contains(text.lowercased()) ? .checkbox(value: true) : nil
         case .date:
             if case .date = value { return value }
-            return DocFieldText.day(from: text).map { .date(value: $0) }
+            return DocFieldText.day(from: text).map { .date(value: .day($0)) }
         case .select: return names.first.map { .select(option: option($0)) }
         case .multiSelect: return names.isEmpty ? nil : .multiSelect(options: names.map(option))
         }
@@ -805,7 +805,7 @@ enum DocFieldText {
         case .text(let value)?, .url(let value)?, .person(let value)?: value
         case .richText(let text)?: text.string
         case .number(let value)?: value.formatted()
-        case .date(let value)?: Date(timeIntervalSince1970: TimeInterval(value.millisecondsSince1970) / 1000).formatted(day)
+        case .date(let value)?: shown(value)
         case .select(let option)?: options(column).first { $0.id == option }?.name ?? ""
         case .multiSelect(let ids)?: options(column).filter { ids.contains($0.id) }.map(\.name).joined(separator: ", ")
         case .checkbox(let on)?: on ? "✓" : ""
@@ -822,7 +822,7 @@ enum DocFieldText {
         case .person: .person(value: text)
         case .number: number(text).map { .number(value: $0) }
         case .url: CellFormat.link(text).map { .url(value: $0) }
-        case .date: day(from: text).map { .date(value: $0) }
+        case .date: day(from: text).map { .date(value: .day($0)) }
         case .checkbox: ["✓", "true", "yes", "1", "x"].contains(text.lowercased()) ? .checkbox(value: true) : nil
         case .select, .multiSelect: nil
         }
@@ -838,45 +838,44 @@ enum DocFieldText {
         CellFormat.number(text, grouping: Locale.current.groupingSeparator ?? "", decimal: Locale.current.decimalSeparator ?? ".")
     }
 
-    /// A day as Craft shows it ("Oct 15 2026"): dates are days at midnight UTC.
-    private static let day: Date.FormatStyle = {
-        var style = Date.FormatStyle.dateTime.month(.abbreviated).day().year()
-        style.timeZone = TimeZone(identifier: "UTC")!
-        return style
-    }()
+    /// A day as Craft shows it ("Oct 15 2026").
+    private static let day = Date.FormatStyle.dateTime.month(.abbreviated).day().year()
 
-    /// A day read from text (as shown, or yyyy-MM-dd), at midnight UTC.
-    static func day(from text: String) -> Timestamp? {
+    /// A date cell as it shows (floo docs/time.md §8): a day as that day wherever it's read, a
+    /// moment with its time by this device's clock.
+    static func shown(_ value: When) -> String {
+        switch value {
+        case .day(let day): date(of: .day(day)).formatted(Self.day)
+        case .moment(let moment): moment.at.date.formatted(Self.day.hour().minute())
+        }
+    }
+
+    /// A day read from text (as shown, or yyyy-MM-dd).
+    static func day(from text: String) -> Day? {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
-        // Both readings are in UTC: the day's midnight there is the value as it is (not a
-        // picked day in the person's zone, `timestamp(of:)`).
-        func utc(_ date: Date) -> Timestamp { Timestamp(millisecondsSince1970: Int64(date.timeIntervalSince1970 * 1000)) }
-        if let iso = try? Date(trimmed, strategy: Date.ISO8601FormatStyle(timeZone: TimeZone(identifier: "UTC")!).year().month().day().parseStrategy) {
-            return utc(iso)
-        }
+        if let day = Day(trimmed) { return day }
         // The shown form's reading is lenient ("2026-13-40" is a day in 2208): a day counts
         // when it shows as what was typed, spaces and commas aside.
         func letters(_ text: String) -> String { text.lowercased().filter { $0.isLetter || $0.isNumber } }
         guard let shown = try? Date(trimmed, strategy: day.parseStrategy), letters(shown.formatted(day)) == letters(trimmed) else { return nil }
-        return utc(shown)
+        return day(of: shown)
     }
 
-    /// The day a date picker picked (in the person's time zone) at midnight UTC.
-    static func timestamp(of date: Date) -> Timestamp {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
+    /// The day a date picker picked, on this device's calendar.
+    static func day(of date: Date) -> Day {
         let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        let midnight = calendar.date(from: parts) ?? date
-        return Timestamp(millisecondsSince1970: Int64(midnight.timeIntervalSince1970 * 1000))
+        return Day(LocalDate(year: parts.year ?? 1970, month: parts.month ?? 1, day: parts.day ?? 1))
     }
 
-    /// A day to show in a date picker (in the person's time zone).
-    static func date(of timestamp: Timestamp) -> Date {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        let utc = Date(timeIntervalSince1970: TimeInterval(timestamp.millisecondsSince1970) / 1000)
-        return Calendar.current.date(from: calendar.dateComponents([.year, .month, .day], from: utc)) ?? utc
+    /// A date cell's value to show in a date picker: a day at its start on this device's
+    /// calendar, a moment as it is.
+    static func date(of value: When) -> Date {
+        switch value {
+        case .day(let day):
+            Calendar.current.date(from: DateComponents(year: day.year ?? 2000, month: day.month, day: day.day)) ?? .distantPast
+        case .moment(let moment): moment.at.date
+        }
     }
 
     static func hasOptions(_ column: Column) -> Bool {
