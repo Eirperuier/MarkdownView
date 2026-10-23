@@ -888,7 +888,8 @@ final class FlooLive {
         // errand's result): its words go to the run's next message, after that. With nothing
         // shown between them, they're one message here: the work, then the words.
         var parts: [MessageInfo] = []
-        for info in replica.messages {
+        // A post is for their feed, not this conversation (floo proactivity.md 5.5).
+        for info in replica.messages where info.about?.kind != .posting {
             switch info.author.actor {
             case .person:
                 showAgent(parts, replica: replica)
@@ -954,7 +955,7 @@ final class FlooLive {
         var seen = Set<Int64>()
         var groups: [[MessageInfo]] = []
         for number in numbers.sorted() where !seen.contains(number) {
-            guard let at = replica.position(of: number) else { continue }
+            guard let at = replica.position(of: number), list[at].about?.kind != .posting else { continue }
             var start = at, end = at
             while start > 0, joins(list[start - 1], list[start]) { start -= 1 }
             while end + 1 < list.count, joins(list[end], list[end + 1]) { end += 1 }
@@ -1034,8 +1035,8 @@ final class FlooLive {
         return messages[number].map { "m\($0.id)#sig" }
     }
 
-    /// How an agent's message stands to what came before it (§19.2): pushed, and why it rang
-    /// (`notify`'s reason, §17); the message it replies to (`replyTo`, messaging.md §3.12);
+    /// How an agent's message stands to what came before it (§19.2): pushed, and the line it
+    /// rang with (`tell`'s alert, floo proactivity.md 5.5); the message it replies to (`replyTo`, messaging.md §3.12);
     /// and the errand it goes on with — in the agent's words when it gave some, else by what
     /// it points at.
     private func marks(of parts: [MessageInfo], _ replica: ConversationReplica) -> [FlooMark] {
@@ -1063,6 +1064,8 @@ final class FlooLive {
         case .following, .replying:
             // Stored before replies moved to `replyTo`; the server moved them over (m0112).
             if let number = about.message, marks.isEmpty { marks.append(.replying(reply(to: number, replica))) }
+        case .posting:
+            break
         }
         return marks
     }

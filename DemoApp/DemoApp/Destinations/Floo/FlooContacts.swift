@@ -181,7 +181,7 @@ struct FlooServiceSources {
 
 // MARK: - You and a service
 
-/// One of its pushes (the Feed, agent-kernel §10.7, for this service): its words, and the
+/// One of its posts (the Feed, floo proactivity.md 5.5, for this service): its words, and the
 /// card (`floo.card`) or the thing it points at (`floo.mention`) it came with.
 struct FlooPush: Hashable {
     /// When it was said: the album groups by its day and says it as today, yesterday or a
@@ -305,7 +305,7 @@ final class FlooContactsDemo {
     @ObservationIgnored var deviceStandings: [DeviceStanding] = []
     /// The standings' revision as last read: read again, they come only if changed.
     @ObservationIgnored var standingsRevision: String?
-    /// The feed's latest pushes, by the service whose conversation they're in.
+    /// The feed's latest posts, by the service whose conversation they're in.
     @ObservationIgnored var pushes: [ServiceID: [FeedItem]] = [:]
     @ObservationIgnored var watches: [String: [WatchInfo]] = [:]
     var following: [String: FlooFollowing] = FlooContactsDemo.start

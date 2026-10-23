@@ -150,7 +150,7 @@ extension FlooContactsDemo {
     }
 
     /// A service's conversation as it is now: muted, pinned; with a message since, what it
-    /// pushed and what its agent watches.
+    /// posted and what its agent watches.
     private func take(_ row: FlooLive.ServiceRow) async {
         let id = row.service.rawValue
         let old = dialogs[id]
@@ -175,7 +175,7 @@ extension FlooContactsDemo {
         refollow()
     }
 
-    /// The feed's newest pushes, read as a service's conversation moves.
+    /// The feed's newest posts, read as a service's conversation moves.
     private static let newestPushes = 20
 
     /// While a device was asked to set a service up: where your services stand, asked every
@@ -477,7 +477,7 @@ extension FlooContactsDemo {
         return FlooDoing(text: watch.why ?? watch.name ?? watch.id, asked: what + until)
     }
 
-    /// A push of its conversation: its words, fences left out.
+    /// A post of its in their feed (floo proactivity.md 5.5): its words, fences left out.
     private static func push(_ item: FeedItem) -> FlooPush? {
         let text = item.blocks.compactMap { block -> String? in
             if case .text(let words) = block.content { words } else { nil }
