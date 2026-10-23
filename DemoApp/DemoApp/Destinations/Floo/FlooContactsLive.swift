@@ -477,7 +477,7 @@ extension FlooContactsDemo {
         return FlooDoing(text: watch.why ?? watch.name ?? watch.id, asked: what + until)
     }
 
-    /// A post of its in their feed (floo proactivity.md 5.5): its words, fences left out.
+    /// A message of its posted in their feed (floo proactivity.md 5.5): its words, fences left out.
     private static func push(_ item: FeedItem) -> FlooPush? {
         let text = item.blocks.compactMap { block -> String? in
             if case .text(let words) = block.content { words } else { nil }

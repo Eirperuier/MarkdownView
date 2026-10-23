@@ -888,8 +888,7 @@ final class FlooLive {
         // errand's result): its words go to the run's next message, after that. With nothing
         // shown between them, they're one message here: the work, then the words.
         var parts: [MessageInfo] = []
-        // A post is for their feed, not this conversation (floo proactivity.md 5.5).
-        for info in replica.messages where info.about?.kind != .posting {
+        for info in replica.messages {
             switch info.author.actor {
             case .person:
                 showAgent(parts, replica: replica)
@@ -955,7 +954,7 @@ final class FlooLive {
         var seen = Set<Int64>()
         var groups: [[MessageInfo]] = []
         for number in numbers.sorted() where !seen.contains(number) {
-            guard let at = replica.position(of: number), list[at].about?.kind != .posting else { continue }
+            guard let at = replica.position(of: number) else { continue }
             var start = at, end = at
             while start > 0, joins(list[start - 1], list[start]) { start -= 1 }
             while end + 1 < list.count, joins(list[end], list[end + 1]) { end += 1 }
@@ -1064,8 +1063,6 @@ final class FlooLive {
         case .following, .replying:
             // Stored before replies moved to `replyTo`; the server moved them over (m0112).
             if let number = about.message, marks.isEmpty { marks.append(.replying(reply(to: number, replica))) }
-        case .posting:
-            break
         }
         return marks
     }
