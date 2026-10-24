@@ -33,7 +33,7 @@ extension FlooContactsDemo {
         // A page opened before shows its detail as the catalog has it now, read again only
         // when the index says it changed: the catalog is where a service's names are.
         for entry in entries where opened[entry.id.rawValue] != nil {
-            if let detail = await live.detail(entry.id) { opened[entry.id.rawValue] = Self.service(detail) }
+            if let detail = await live.detail(entry.id) { opened[entry.id.rawValue] = Self.service(detail, standings[entry.id]) }
         }
         if services.isEmpty { services = entries.map { opened[$0.id.rawValue] ?? Self.service($0) } }
         // The services' conversations as the chat's list has them; changes come by `follow`.
@@ -92,19 +92,20 @@ extension FlooContactsDemo {
         }
     }
 
-    /// A service's page opened: all it says of itself (its detail, read once and kept), and
-    /// where it can come from, read now when it isn't one of yours.
+    /// A service's page opened: all it says of itself (its detail, read once and kept), what
+    /// its providers do of it and where it can come from (its own standing: a list's has
+    /// no operations), read now when it hasn't been.
     func look(_ service: FlooService) async {
         guard let live, let id = try? ServiceID(service.id),  // try?: not a name
               let entry = await live.directory()?.first(where: { $0.id == id }) else { return }
-        if let detail = await live.detail(id) {
-            let shown = Self.service(detail)
-            opened[service.id] = shown
-            if let at = services.firstIndex(where: { $0.id == service.id }) { services[at] = shown }
-        }
-        if standings[id] == nil, let client = live.server, let read = try? await client.standing(of: id) {  // try?: read again next time it opens
+        if standings[id]?.operations == nil, let client = live.server, let read = try? await client.standing(of: id) {  // try?: read again next time it opens
             deviceStandings = read.devices
             if let standing = read.services.first { standings[id] = standing }
+        }
+        if let detail = await live.detail(id) {
+            let shown = Self.service(detail, standings[id])
+            opened[service.id] = shown
+            if let at = services.firstIndex(where: { $0.id == service.id }) { services[at] = shown }
         }
         found[service.id] = sources(entry, standings[id])
     }
@@ -366,8 +367,9 @@ extension FlooContactsDemo {
     }
 
     /// A service as its page shows it, from its detail: all its words, what it does with each
-    /// operation's effect, what it tells of.
-    private static func service(_ detail: ServiceDetail) -> FlooService {
+    /// operation's effect, what it tells of; those two from its standing when its providers
+    /// reported them (a service devices provide has none in the catalog).
+    private static func service(_ detail: ServiceDetail, _ standing: ServiceStanding?) -> FlooService {
         let given = detail.presentation
         let presentation = FlooService.Presentation(
             name: given.name,
@@ -387,11 +389,11 @@ extension FlooContactsDemo {
             category: given.category
         )
         let zh = given.localized["zh-Hans"]?.operations ?? [:]
-        let operations = detail.operations.filter { !$0.hidden }.map {
+        let operations = (standing?.operations ?? detail.operations).filter { !$0.hidden }.map {
             FlooService.Operation(title: zh[$0.id.rawValue]?.title ?? $0.title, effect: $0.effect?.rawValue ?? "unknown")
         }
         return FlooService(id: detail.id.rawValue, presentation: presentation, operations: operations,
-                           hooks: detail.hooks.map { FlooService.Hook(summary: $0.summary) })
+                           hooks: (standing?.hooks ?? detail.hooks).map { FlooService.Hook(summary: $0.summary) })
     }
 
     /// Where it can come from, from its standing: a cloud account when the cloud hosts it,
