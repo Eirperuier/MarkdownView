@@ -145,6 +145,7 @@
 				8C21E5AE2D9E7FB20097554E /* XCLocalSwiftPackageReference "../../MarkdownView" */,
 				8C21E5C02D9E7FB20097554E /* XCLocalSwiftPackageReference "floo-swiftui-messaging-ui" */,
 				F100C0DE2E00000000000001 /* XCLocalSwiftPackageReference "Cards" */,
+				F100C0DE2E00000000000060 /* XCLocalSwiftPackageReference "CardUI" */,
 				F100C0DE2E00000000000030 /* XCLocalSwiftPackageReference "Core" */,
 				F100C0DE2E00000000000031 /* XCLocalSwiftPackageReference "ApplePlatform" */,
 				F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */,
@@ -438,6 +439,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../floo/Packages/Cards;
 		};
+		F100C0DE2E00000000000060 /* XCLocalSwiftPackageReference "CardUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../floo/Packages/CardUI;
+		};
 		F100C0DE2E00000000000030 /* XCLocalSwiftPackageReference "Core" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../floo/Packages/Core;
@@ -476,7 +481,7 @@
 		};
 		F100C0DE2E00000000000002 /* CardUI */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = F100C0DE2E00000000000001 /* XCLocalSwiftPackageReference "Cards" */;
+			package = F100C0DE2E00000000000060 /* XCLocalSwiftPackageReference "CardUI" */;
 			productName = CardUI;
 		};
 		F100C0DE2E00000000000004 /* CardModel */ = {
