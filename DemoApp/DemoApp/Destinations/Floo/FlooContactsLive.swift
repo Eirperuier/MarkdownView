@@ -204,6 +204,19 @@ extension FlooContactsDemo {
         }
     }
 
+    /// Adds one the server runs itself, connected in the cloud there and then.
+    func addInCloud(_ service: FlooService) async {
+        guard let client = live?.server, let id = try? ServiceID(service.id) else { return }  // try?: not a name, none to add
+        do {
+            try await client.add(id)
+            // One added before adding connected it (by an agent, say) is connected now.
+            _ = try await client.connect(id, on: .cloud)
+            await load()
+        } catch {
+            show("没添加上：\(error)")
+        }
+    }
+
     /// Has it set up on this device: Floo Helper asks for what this Mac needs, and connects it
     /// here once it can work.
     func allowHere(_ service: FlooService) async {
@@ -401,7 +414,11 @@ extension FlooContactsDemo {
     private func sources(_ entry: ServiceSummary, _ standing: ServiceStanding?) -> FlooServiceSources {
         var sources = FlooServiceSources()
         if entry.hosts.contains(.cloud) {
-            sources.account = opened[entry.id.rawValue]?.presentation.developer ?? entry.name
+            if entry.signIn {
+                sources.account = opened[entry.id.rawValue]?.presentation.developer ?? entry.name
+            } else {
+                sources.cloud = true
+            }
         }
         let platforms = Dictionary(deviceStandings.map { ($0.device, $0.platform) }) { first, _ in first }
         var byDevice: [String: String] = [:]

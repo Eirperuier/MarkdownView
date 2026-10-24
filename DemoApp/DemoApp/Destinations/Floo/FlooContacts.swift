@@ -154,6 +154,8 @@ struct FlooDevice: Identifiable, Hashable {
 /// device that provide it, each with what it needs there (the providers' requirements).
 struct FlooServiceSources {
     var account: String?
+    /// The server runs it in the cloud, nothing to sign in to (the weather): adding it is all.
+    var cloud = false
     var devices: [FlooDevice.Kind: String] = [:]
     /// From the devices' reports, by device: what it still needs there ("" for nothing);
     /// none for a device with no provider of it. Nil when scripted, by kind instead.
@@ -807,7 +809,7 @@ private struct FlooHooksPage: View {
 
 // MARK: - Following
 
-/// The ways to follow it: sign in, allow on this iPhone, or set it up on another device online.
+/// The ways to follow it: add it, sign in, allow on this iPhone, or set it up on another device online.
 private struct FlooFollowSheet: View {
     let demo: FlooContactsDemo
     let service: FlooService
@@ -830,6 +832,13 @@ private struct FlooFollowSheet: View {
             Text("关注 \(service.name)").font(.title3.weight(.bold))
             if let notYet { Text(notYet).font(.footnote).foregroundStyle(.orange) }
             VStack(spacing: 10) {
+                if demo.sources(service).cloud {
+                    way("添加", "plus", prominent: true) {
+                        dismiss()
+                        guard demo.live != nil else { return demo.followed(service) }
+                        Task { await demo.addInCloud(service) }
+                    }
+                }
                 if let account = demo.sources(service).account {
                     way("用 \(account) 登录", "person.crop.circle", prominent: true) {
                         guard demo.live != nil else { return signingIn = true }
@@ -839,7 +848,7 @@ private struct FlooFollowSheet: View {
                 }
                 if let here, let need = demo.sources(service).need(on: here) {
                     way(need.isEmpty ? "在\(here.name)上启用" : "在\(here.name)上\(need)", here.symbol,
-                        prominent: demo.sources(service).account == nil) {
+                        prominent: demo.sources(service).account == nil && !demo.sources(service).cloud) {
                         guard demo.live != nil else { return allowing = true }
                         dismiss()
                         Task { await demo.allowHere(service) }
@@ -853,7 +862,7 @@ private struct FlooFollowSheet: View {
                 }
             }
             .padding(.horizontal, 24)
-            if demo.sources(service).account == nil && here == nil && elsewhere.isEmpty {
+            if demo.sources(service).account == nil && !demo.sources(service).cloud && here == nil && elsewhere.isEmpty {
                 Text("需要一台在线的 Mac。").font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
