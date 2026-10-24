@@ -32,10 +32,12 @@ enum FlooHelper {
     }
 
     /// Where it stands for `account`, started first when it's signed in as it and isn't
-    /// serving.
+    /// serving. One serving from another copy (a build of floo's opened by hand) is stopped
+    /// first: what it's allowed isn't what the demo's asked for (TCC gives the Helper inside
+    /// the app what it allows in the app's name), so it'd say it isn't allowed.
     static func state(for account: AccountID) async -> State {
         guard await self.account() == account else { return .signedOut }
-        if serving { return .ready }
+        if serving, await stopOthers() == 0 { return .ready }
         if let failure = await launch([], activates: false) { return .stopped(failure) }
         // Up once it holds its home: it reads its settings and session first.
         for _ in 0..<20 {
@@ -86,6 +88,32 @@ enum FlooHelper {
         for _ in 0..<20 where serving {
             try? await Task.sleep(for: .milliseconds(250))  // try?: cancelled, gone on regardless
         }
+    }
+
+    /// Stops the instances running from copies of it other than the one in the app, and
+    /// returns how many it stopped: NSRunningApplication's, by its bundle id.
+    @MainActor private static func stopOthers() async -> Int {
+        guard let bundle = Bundle(url: app)?.bundleIdentifier,
+              let runningClass = NSClassFromString(name("TlNSdW5uaW5nQXBwbGljYXRpb24=")) as? NSObject.Type
+        else { return 0 }
+        let find = NSSelectorFromString(name("cnVubmluZ0FwcGxpY2F0aW9uc1dpdGhCdW5kbGVJZGVudGlmaWVyOg=="))
+        guard let found = runningClass.perform(find, with: bundle)?.takeUnretainedValue() as? [NSObject] else { return 0 }
+        let ours = app.resolvingSymlinksInPath().standardizedFileURL
+        let others = found.filter {
+            ($0.value(forKey: "bundleURL") as? URL)?.resolvingSymlinksInPath().standardizedFileURL != ours
+        }
+        for other in others { _ = other.perform(NSSelectorFromString("terminate")) }
+        // Gone once its home's lock is let go; one that won't quit is made to.
+        for _ in 0..<20 where !others.isEmpty && serving {
+            try? await Task.sleep(for: .milliseconds(250))  // try?: cancelled, gone on regardless
+        }
+        if !others.isEmpty && serving {
+            for other in others { _ = other.perform(NSSelectorFromString("forceTerminate")) }
+            for _ in 0..<8 where serving {
+                try? await Task.sleep(for: .milliseconds(250))  // try?: as above
+            }
+        }
+        return others.count
     }
 
     /// The server and sign-in it starts with, in its settings.json (docs/mac-services.md
