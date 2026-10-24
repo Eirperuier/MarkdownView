@@ -5,5 +5,21 @@
 	<!-- ProMotion for animations the app drives itself (scrolls, springs), not only touch scrolling. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Floo Helper's purposes (floo Apps/Floo/Config/Helper-Info.plist): TCC asks for what the Helper
+	     inside this app needs in this app's name, with this app's words, and refuses without them. -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>floo uses Mail to read the emails you ask about, Mail or Messages to send for you, and Notes to write a note, when you ask.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>floo reads your calendars to answer about your schedule, and adds or changes events when you ask.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>floo reads your calendars to answer about your schedule, and adds or changes events when you ask.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>floo looks people up in your contacts when you mention them, shows who your messages are from, and adds or updates contacts when you ask.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>floo finds and exports the photos you ask about, and adds them to albums when you ask.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>floo reads your reminders and adds, completes or changes them when you ask.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>floo reads your reminders and adds, completes or changes them when you ask.</string>
 </dict>
 </plist>

@@ -171,10 +171,12 @@ enum FlooHelper {
     }
 
     /// Opens a new instance of it with `arguments` through Launch Services, from this app:
-    /// the active one, whose click it is, so the system lets it come to the front (one opened
-    /// by `open` started from here doesn't: that process isn't active). AppKit's workspace,
-    /// which Catalyst doesn't declare but has. `waits`: until it has quit. Why it didn't
-    /// open, if it didn't.
+    /// the active one, whose click it is. To come to the front (`activates`) this app hands it
+    /// the front once it's running (`bringForward`): since macOS 14 the window server lets an
+    /// app activate only when the active one let it (`activates` alone came to nothing, and
+    /// its prompts were never asked: not_in_foreground). AppKit's workspace, application and
+    /// running application, which Catalyst doesn't declare but has. `waits`: until it has
+    /// quit. Why it didn't open, if it didn't.
     private static func launch(_ arguments: [String], activates: Bool, waits: Bool = false) async -> String? {
         guard let workspaceClass = NSClassFromString(name("TlNXb3Jrc3BhY2U=")) as? NSObject.Type,
               let configurationClass = NSClassFromString(name("TlNXb3Jrc3BhY2VPcGVuQ29uZmlndXJhdGlvbg==")) as? NSObject.Type,
@@ -200,12 +202,32 @@ enum FlooHelper {
             }
         }
         if let error = opened.error { return error }
+        if activates, let running = opened.app { await bringForward(running) }
         guard waits, let running = opened.app else { return nil }
         // NSRunningApplication says when it has quit.
         while (running.value(forKey: "terminated") as? Bool) == false {
             try? await Task.sleep(for: .milliseconds(500))  // try?: cancelled, looked at once more
         }
         return nil
+    }
+
+    /// Hands `running` the front from this app, the active one: yields it the front
+    /// (NSApplication's yieldActivationToApplication:) and activates it with this app's
+    /// activation (NSRunningApplication's activateFromApplication:options:). Yielding by
+    /// bundle id before it ran let it come forward only sometimes.
+    @MainActor private static func bringForward(_ running: NSObject) {
+        guard let applicationClass = NSClassFromString(name("TlNBcHBsaWNhdGlvbg==")) as? NSObject.Type,
+              let application = applicationClass.value(forKey: name("c2hhcmVkQXBwbGljYXRpb24=")) as? NSObject,
+              let runningClass = NSClassFromString(name("TlNSdW5uaW5nQXBwbGljYXRpb24=")) as? NSObject.Type,
+              let current = runningClass.value(forKey: name("Y3VycmVudEFwcGxpY2F0aW9u")) as? NSObject
+        else { return }
+        let yield = NSSelectorFromString(name("eWllbGRBY3RpdmF0aW9uVG9BcHBsaWNhdGlvbjo="))
+        if application.responds(to: yield) { _ = application.perform(yield, with: running) }
+        let activate = NSSelectorFromString(name("YWN0aXZhdGVGcm9tQXBwbGljYXRpb246b3B0aW9uczo="))
+        guard running.responds(to: activate) else { return }
+        typealias Activate = @convention(c) (NSObject, Selector, NSObject, UInt) -> Bool
+        let activated = unsafeBitCast(running.method(for: activate), to: Activate.self)(running, activate, current, 0)
+        if !activated { NSLog("Floo Helper wasn't brought to the front") }
     }
 
     /// A name Catalyst doesn't declare, from its base64.
