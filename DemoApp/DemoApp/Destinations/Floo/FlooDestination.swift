@@ -268,7 +268,7 @@ struct FlooDestination: View {
                         Task {
                             try? await account.auth.signOut()  // try?: the kept session may be gone already
                             #if targetEnvironment(macCatalyst)
-                            await FlooHelper.stop()
+                            await FlooHelper.signedOut()
                             #endif
                             play()
                         }

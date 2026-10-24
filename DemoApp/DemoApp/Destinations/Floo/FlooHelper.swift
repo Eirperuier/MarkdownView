@@ -5,12 +5,16 @@
 //  Floo Helper, carried in the Mac app (embed-helper.sh): this Mac's node, which holds the
 //  Mac's system grants and runs its services — mail, messages, calendar and the rest (floo's
 //  docs/mac-services.md §11). It's signed in with the demo's own session, kept in its home
-//  for both; the demo starts it, stops it when you sign out, and has it ask for what a
-//  service of this Mac needs, through its own commands.
+//  for both; the demo starts it, has it start at login as the app's login item, stops it
+//  when you sign out, and has it ask for what a service of this Mac needs, through its own
+//  commands. It runs apart from the app: quitting the app leaves it serving. It's the only
+//  copy that may run: inside the app, its grants are the app's, so a person sees one app
+//  when allowing and in Login Items.
 //
 
 #if targetEnvironment(macCatalyst)
 import Foundation
+import ServiceManagement
 import DeviceSupport
 import TransportKit
 import Wire
@@ -37,6 +41,7 @@ enum FlooHelper {
     /// the app what it allows in the app's name), so it'd say it isn't allowed.
     static func state(for account: AccountID) async -> State {
         guard await self.account() == account else { return .signedOut }
+        startsAtLogin(true)
         if serving, await stopOthers() == 0 { return .ready }
         if let failure = await launch([], activates: false) { return .stopped(failure) }
         // Up once it holds its home: it reads its settings and session first.
@@ -82,7 +87,23 @@ enum FlooHelper {
         _ = await state(for: account)
     }
 
-    /// You signed out: this Mac's node goes too.
+    /// You signed out: this Mac's node goes too, and no longer starts at login.
+    static func signedOut() async {
+        startsAtLogin(false)
+        await stop()
+    }
+
+    /// Whether launchd starts it at login: the app's login item (SMAppService), the copy in
+    /// the app, shown in Login Items as the app. One started by both it and `state` serves
+    /// once: the home's lock.
+    private static func startsAtLogin(_ on: Bool) {
+        let item = SMAppService.loginItem(identifier: Bundle(url: app)?.bundleIdentifier ?? "dev.floo.helper")
+        // try?: not changed, as it was; starting at login is a convenience, the app starts it too
+        if on, item.status != .enabled { try? item.register() }
+        if !on, item.status != .notRegistered { try? item.unregister() }
+    }
+
+    /// Stops the one serving.
     static func stop() async {
         _ = await run("/usr/bin/pkill", ["-x", "Floo Helper"])
         for _ in 0..<20 where serving {
