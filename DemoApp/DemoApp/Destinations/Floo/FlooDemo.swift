@@ -33,13 +33,14 @@ enum FlooSpeaker: Hashable, Sendable {
     case person(String)
 }
 
-/// A conversation of the backend's you can go to (FlooLive): the main one, a group, a topic
-/// (listed, or a comment under its message), or one with a service.
+/// A conversation of the backend's you can go to (FlooLive): the main one, a group, or one
+/// with a service. A group with you and one agent in it is called a topic (floo
+/// messaging.md §3.13.7), one with more a group: the same kind, named by who's in it.
 struct FlooPlace: Identifiable, Hashable, Sendable {
     enum Kind: Hashable, Sendable {
         case main
         case group
-        case topic(listed: Bool)
+        case topic
         case service
     }
 
@@ -128,6 +129,47 @@ extension FlooReply {
     }
 }
 
+/// A thread as its first message shows it (floo messaging.md §3.13.4): how many replies,
+/// and who replied, first to reply first, by their initials on their colours.
+struct FlooThreadLine: Hashable, Sendable {
+    struct Face: Hashable, Sendable {
+        let initial: String
+        let tint: Color
+    }
+
+    let count: Int
+    let faces: [Face]
+}
+
+/// A thread open over the conversation (floo messaging.md §3.13.4): its first message's
+/// number and its messages, oldest first; what's said in it replies to its newest.
+struct FlooThreadShown: Identifiable, Equatable {
+    struct Line: Identifiable, Equatable {
+        /// The message's number.
+        let id: Int64
+        let who: String
+        let face: FlooThreadLine.Face
+        let mine: Bool
+        let text: String
+        let time: String
+    }
+
+    let id: Int64
+    var lines: [Line]
+    /// Not all of it is on this device yet.
+    var loading = false
+}
+
+/// Someone in a group as its members sheet shows them (FlooLive): its host first.
+struct FlooMember: Identifiable, Hashable {
+    let participant: Participant
+    let name: String
+    let agent: Bool
+    let host: Bool
+
+    var id: Participant { participant }
+}
+
 /// The message you're replying to, over the composer while you write.
 struct FlooReplyDraft: Equatable {
     let number: Int64
@@ -214,8 +256,13 @@ struct FlooRow: Identifiable, Equatable {
         case choice([FlooChoice], chosen: Int?)
         /// An ask card on a message: in the conversation where it was asked.
         case ask(FlooAskCard)
-        /// The topics and comments hung on a message, to go to.
+        /// The topics a thread on a message was made into, to go to.
         case topics([FlooPlace])
+        /// The replies to a message, under it: to open its thread.
+        case replies(FlooThreadLine, trailing: Bool)
+        /// Who a person's message in a group went to when they @'d no one (floo messaging.md
+        /// §3.13.7): what the judge or the host made of it.
+        case sentTo(String, trailing: Bool)
         /// Where an answer was found, as the backend checked it (FlooLive): in its message's
         /// bubble; several with nothing between, one card of them.
         case mentions([Mention])
@@ -455,6 +502,12 @@ final class FlooDemo {
         var reactions: [FlooReaction] = []
         /// When it was said (FlooLive); nil for a scripted one, whose times are its own rows.
         let at: Date?
+        /// The thread it begins, if it was replied to and not made a topic.
+        var thread: FlooThreadLine?
+        /// The topics its thread was made into (FlooLive), under it.
+        var topics: [FlooPlace] = []
+        /// Whom it went to, in a group, when it @'d no one.
+        var sentTo: String?
 
         init(id: Int, speaker: FlooSpeaker, text: String, receipt: FlooReceipt?, reply: FlooReply? = nil, at: Date? = nil) {
             self.id = id
@@ -489,8 +542,10 @@ final class FlooDemo {
         var processAfterText = false
         /// What it asked without stopping: cards on this message, after its words.
         var asks: [FlooAskCard] = []
-        /// The topics and comments hung on it (FlooLive), under it.
+        /// The topics its thread was made into (FlooLive), under it.
         var topics: [FlooPlace] = []
+        /// The thread it begins, if it was replied to and not made a topic.
+        var thread: FlooThreadLine?
         var reactions: [FlooReaction] = []
         var splitter = MarkdownBlockSplitter(customFence: { language, source in
             guard language.hasPrefix("floo.") else { return nil }
@@ -1033,11 +1088,18 @@ final class FlooDemo {
     private(set) var place: FlooPlace?
     /// Where a topic shown hangs: the conversation to go back to.
     private(set) var origin: FlooPlace?
-    /// The message a topic is being named for, before it's opened on it.
-    var naming: Int?
-    /// Starting a group, connecting services: their sheets.
+    /// The backend's message whose thread is being made a topic, while it's named.
+    var naming: Int64?
+    /// The backend's messages in a thread, first ones too: their menus open it.
+    private(set) var inThread: Set<Int64> = []
+    /// Starting a group, connecting services, a group's members: their sheets.
     var startsGroup = false
     var showsServices = false
+    var showsMembers = false
+
+    func setInThread(_ numbers: Set<Int64>) {
+        if inThread != numbers { inThread = numbers }
+    }
 
     func setPlaces(_ places: [FlooPlace], current: FlooPlace?, origin: FlooPlace?) {
         self.places = places
@@ -1104,6 +1166,49 @@ final class FlooDemo {
         show(said.id)
     }
 
+    /// The thread a message begins (floo messaging.md §3.13.4): its replies under it; nil,
+    /// none, or it was made a topic.
+    func setThread(_ said: Said, _ thread: FlooThreadLine?) {
+        guard said.thread != thread else { return }
+        said.thread = thread
+        show(said.id)
+    }
+
+    func setThread(_ message: Message, _ thread: FlooThreadLine?) {
+        guard message.thread != thread else { return }
+        message.thread = thread
+        show(message.id)
+    }
+
+    /// Whom a person's message in a group went to, when they @'d no one.
+    func setSentTo(_ said: Said, _ to: String?) {
+        guard said.sentTo != to else { return }
+        said.sentTo = to
+        show(said.id)
+    }
+
+    /// The thread open over the conversation; nil, none.
+    var openThread: FlooThreadShown?
+
+    /// Opens the thread a message of the backend's is in.
+    func showThread(of number: Int64) {
+        live?.showThread(of: number)
+    }
+
+    /// Says something in the open thread: a reply to its newest message.
+    func sayInThread(_ text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let live, let thread = openThread, !text.isEmpty else { return }
+        following = true
+        live.send(text, replyTo: thread.lines.last?.id ?? thread.id)
+    }
+
+    /// The open thread made a topic, titled.
+    func makeTopic(of thread: FlooThreadShown, title: String) {
+        openThread = nil
+        live?.openTopic(on: thread.id, title: title)
+    }
+
     /// The backend's number of the message a row is of: a person's, or an agent's.
     func number(of row: FlooRow) -> Int64? {
         row.number ?? row.message.flatMap { messageByID[$0]?.number }
@@ -1123,14 +1228,20 @@ final class FlooDemo {
         live?.react(number, emoji)
     }
 
-    /// A topic on a message of this conversation: titled, it's listed with the conversations;
-    /// without, it's a comment under the message.
-    func openTopic(on message: Int, title: String?) {
-        guard let number = messageByID[message]?.number else { return }
+    /// The thread on a message of the backend's made a topic (floo messaging.md §3.13.6),
+    /// listed with the conversations.
+    func openTopic(on number: Int64, title: String) {
         live?.openTopic(on: number, title: title)
     }
 
-    /// The topics and comments hung on a message, under it.
+    /// The topics hung on a person's message, under it.
+    func setTopics(_ said: Said, _ topics: [FlooPlace]) {
+        guard said.topics != topics else { return }
+        said.topics = topics
+        show(said.id)
+    }
+
+    /// The topics hung on a message, under it.
     func setTopics(_ message: Message, _ topics: [FlooPlace]) {
         guard message.topics != topics else { return }
         message.topics = topics
@@ -1881,6 +1992,11 @@ final class FlooDemo {
         case .said(let said):
             var rows = [FlooRow(id: row(of: said), message: nil, kind: .said(said.speaker, said.text, said.receipt, reply: said.reply))]
             rows[0].number = said.number
+            if let to = said.sentTo {
+                var sent = FlooRow(id: "\(row(of: said))#to", message: nil, kind: .sentTo(to, trailing: said.speaker == .me))
+                sent.number = said.number
+                rows.append(sent)
+            }
             if !said.reactions.isEmpty {
                 var reactions = FlooRow(
                     id: "\(row(of: said))#reactions", message: nil,
@@ -1888,6 +2004,15 @@ final class FlooDemo {
                 )
                 reactions.number = said.number
                 rows.append(reactions)
+            }
+            if !said.topics.isEmpty {
+                var topics = FlooRow(id: "\(row(of: said))#topics", message: nil, kind: .topics(said.topics))
+                topics.number = said.number
+                rows.append(topics)
+            } else if let thread = said.thread {
+                var replies = FlooRow(id: "\(row(of: said))#replies", message: nil, kind: .replies(thread, trailing: said.speaker == .me))
+                replies.number = said.number
+                rows.append(replies)
             }
             return rows
         case .message(let message):
@@ -2101,6 +2226,8 @@ final class FlooDemo {
             }
             if !message.topics.isEmpty {
                 rows.append(FlooRow(id: "m\(message.id)#topics", message: message.id, kind: .topics(message.topics)))
+            } else if let thread = message.thread {
+                rows.append(FlooRow(id: "m\(message.id)#replies", message: message.id, kind: .replies(thread, trailing: false)))
             }
             if let work, message.processAfterText { rows.append(work) }
             return rows

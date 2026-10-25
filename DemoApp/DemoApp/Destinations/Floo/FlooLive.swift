@@ -42,10 +42,16 @@ struct FlooConnectError: Error, CustomStringConvertible {
 @MainActor
 final class FlooLive {
     /// The stage to talk to, from the launch arguments
-    /// `-flooStage http://localhost:8920 -flooAccount <person id>`.
+    /// `-flooStage http://localhost:8920 -flooAccount <person id>`; for screenshots, where
+    /// to start: `-flooOpen <conversation id>`, then `-flooThread <message number>` open
+    /// over it or `-flooMembers 1` its members.
     struct Stage: Sendable {
         let base: URL
         let account: AccountID
+
+        static var opens: ConversationID? { UserDefaults.standard.string(forKey: "flooOpen").flatMap(ConversationID.init) }
+        static var thread: Int64? { UserDefaults.standard.string(forKey: "flooThread").flatMap { Int64($0) } }
+        static var members: Bool { UserDefaults.standard.bool(forKey: "flooMembers") }
 
         static var launched: Stage? {
             let defaults = UserDefaults.standard
@@ -282,7 +288,7 @@ final class FlooLive {
         Task { await loadIndex() }
         let listing = Task { await keepListing() }
         defer { listing.cancel() }
-        current = .main(of: backend.account)
+        current = backend.lab ? Stage.opens ?? .main(of: backend.account) : .main(of: backend.account)
         while let current, !Task.isCancelled {
             await follow(current)
         }
@@ -316,10 +322,17 @@ final class FlooLive {
         defer { topics.cancel() }
         let following = Task { await session.follow() }
         let watching = Task { @MainActor in
+            var first = true
             for await update in await session.updates() {
                 guard !Task.isCancelled else { return }
                 last = update.replica
                 show(update)
+                // A stage started here for a screenshot: what it asked for over it.
+                if first, backend.lab, id == Stage.opens {
+                    first = false
+                    if let number = Stage.thread { showThread(of: number) }
+                    if Stage.members { demo.showsMembers = true }
+                }
             }
         }
         self.watching = watching
@@ -357,11 +370,11 @@ final class FlooLive {
         }
     }
 
-    /// A topic on a message of the conversation shown, gone to once it's open.
-    func openTopic(on number: Int64, title: String?) {
+    /// The thread on a message of the conversation shown made a topic (floo messaging.md
+    /// §3.13.6), gone to once it's open.
+    func openTopic(on number: Int64, title: String) {
         guard let client, let current else { return }
-        let topic = TopicOpen(id: .generate(), origin: MessageRef(conversation: current, number: number),
-                              title: title, listed: title != nil)
+        let topic = TopicOpen(id: .generate(), origin: MessageRef(conversation: current, number: number), title: title)
         Task {
             do {
                 let info = try await client.open(topic)
@@ -447,12 +460,10 @@ final class FlooLive {
         }
     }
 
-    /// Whether the list shows the row: not agents' own conversations; a topic when it's listed
-    /// or it's the one you're in; the rest unless archived.
+    /// Whether the list shows the row: not agents' own conversations; the rest unless archived.
     private func shows(_ dialog: Dialog) -> Bool {
         switch dialog.conversation.kind {
         case .agents, .helper: false
-        case .topic(_, let listed): listed || dialog.conversation.id == current
         default: !dialog.conversation.archived
         }
     }
@@ -511,11 +522,8 @@ final class FlooLive {
             kind = .main
             title = "floo"
         case .group:
-            kind = .group
-            title = info.title ?? "群聊"
-        case .topic(_, let listed):
-            kind = .topic(listed: listed)
-            title = info.title ?? "评论"
+            kind = Self.isTopic(dialogs[info.id]) ? .topic : .group
+            title = info.title ?? (kind == .topic ? "话题" : "群聊")
         case .service(let service):
             kind = .service
             title = info.title ?? agent(.service(service)).name
@@ -526,14 +534,23 @@ final class FlooLive {
         return FlooPlace(id: info.id.description, title: title, kind: kind, unread: unread)
     }
 
-    /// The one you're in, and where a topic you're in hangs, to go back to; an unlisted topic
-    /// shows in the list while you're in it.
+    /// Whether a group is a topic, as it's called (floo messaging.md §3.13.7): you and one
+    /// agent in it; another person or agent makes it a group.
+    static func isTopic(_ dialog: Dialog?) -> Bool {
+        guard let dialog else { return false }
+        let members = dialog.members.filter { !$0.left }
+        let count = dialog.memberCount ?? members.count
+        return count == 2 && members.count { $0.participant.actor == .person } == 1
+            && members.count { $0.participant.actor.agent != nil } == 1
+    }
+
+    /// The one you're in, and where a topic you're in hangs, to go back to.
     private func showPlaces() {
         let left = listedCurrent
         listedCurrent = current
         for id in Set([left, current].compactMap { $0 }) { reposition(id, was: dialogs[id]) }
         var origin: FlooPlace?
-        if let current, case .topic(let from, _)? = dialogs[current]?.conversation.kind {
+        if let current, let from = dialogs[current]?.conversation.origin {
             origin = place(from.conversation)
         }
         demo.setPlaces(demo.places, current: current.map(place), origin: origin)
@@ -566,7 +583,7 @@ final class FlooLive {
     private static let topicPage = 100
 
     private static func origin(of dialog: Dialog?) -> Int64? {
-        if case .topic(let origin, _)? = dialog?.conversation.kind { origin.number } else { nil }
+        dialog?.conversation.origin?.number
     }
 
     /// The row hung where it is now: under its message if it's a topic on the shown
@@ -574,7 +591,7 @@ final class FlooLive {
     private func hang(_ id: ConversationID) {
         let was = hangs[id]
         var now: Int64?
-        if let dialog = dialogs[id], case .topic(let origin, _) = dialog.conversation.kind, origin.conversation == current {
+        if let dialog = dialogs[id], let origin = dialog.conversation.origin, origin.conversation == current {
             now = origin.number
         }
         guard was != nil || now != nil else { return }
@@ -584,11 +601,143 @@ final class FlooLive {
         for number in Set([was, now].compactMap { $0 }) { showTopics(on: number) }
     }
 
-    /// The topics on the shown message holding `number`: those hung on any of its parts.
+    /// The topics on the shown message holding `number`: those hung on any of its parts; a
+    /// person's, on it.
     private func showTopics(on number: Int64) {
+        if let shown = said[number] {
+            demo.setTopics(shown, hung[number] ?? [])
+            if let last { showThreads(last) }
+            return
+        }
         guard let message = messages[number] else { return }
         let numbers = parts[ObjectIdentifier(message)] ?? [number]
         demo.setTopics(message, numbers.flatMap { hung[$0] ?? [] })
+        if let last { showThreads(last) }
+    }
+
+    // MARK: Threads
+
+    /// The replies under each thread's first message (floo messaging.md §3.13.4), counted
+    /// from the messages on this device: replies come after their first, so with it here
+    /// they all are. A thread made a topic shows its topic instead. Every message in a thread
+    /// opens it from its menu; the thread open is shown again as it changes.
+    private func showThreads(_ replica: ConversationReplica) {
+        var replies: [Int64: [MessageInfo]] = [:]
+        for info in replica.messages { if let first = info.thread { replies[first, default: []].append(info) } }
+        var inThread = Set<Int64>()
+        for (first, them) in replies {
+            inThread.insert(first)
+            inThread.formUnion(them.map(\.number))
+        }
+        demo.setInThread(inThread)
+        func line(_ numbers: [Int64]) -> FlooThreadLine? {
+            guard !numbers.contains(where: { hung[$0]?.isEmpty == false }) else { return nil }
+            let them = numbers.flatMap { replies[$0] ?? [] }.sorted { $0.number < $1.number }
+            guard !them.isEmpty else { return nil }
+            var faces: [FlooThreadLine.Face] = []
+            var seen = Set<Participant>()
+            for info in them where seen.insert(info.author).inserted {
+                let face = self.face(info.author)
+                faces.append(FlooThreadLine.Face(initial: String(face.name.prefix(1)), tint: face.tint))
+            }
+            return FlooThreadLine(count: them.count, faces: faces)
+        }
+        for (number, shown) in said { demo.setThread(shown, line([number])) }
+        var done = Set<ObjectIdentifier>()
+        for message in messages.values where done.insert(ObjectIdentifier(message)).inserted {
+            demo.setThread(message, line(parts[ObjectIdentifier(message)] ?? message.number.map { [$0] } ?? []))
+        }
+        if let open = demo.openThread { demo.openThread = thread(open.id, replica, loading: open.loading) }
+    }
+
+    /// Who wrote a message, as a face shows them: your name, someone else's, or the agent's.
+    private func face(_ author: Participant) -> (name: String, tint: Color) {
+        switch author.actor {
+        case .agent(let id): (agent(id, of: author.account).name, agent(id, of: author.account).tint)
+        case .person: author.account == backend.account ? (names[backend.account] ?? "我", .accentColor) : (names[author.account] ?? "成员", .gray)
+        }
+    }
+
+    /// Opens the thread `number` is in: its messages here; the server's when its first isn't.
+    func showThread(of number: Int64) {
+        guard let replica = last, let current else { return }
+        let first = replica.message(number)?.thread ?? number
+        let here = replica.message(first) != nil
+        demo.openThread = thread(first, replica, loading: !here)
+        guard !here, let client else { return }
+        Task {
+            // try?: the lines here stay, without the older ones
+            let page = try? await client.thread(first, of: current, limit: 100)
+            guard demo.openThread?.id == first else { return }
+            var shown = thread(first, replica, loading: false)
+            if let page {
+                let local = Set(shown.lines.map(\.id))
+                let older = page.messages.filter { !local.contains($0.number) }.compactMap { info in
+                    lineOf(info, words: page.blocks.filter { $0.message == info.number })
+                }
+                shown.lines = (older + shown.lines).sorted { $0.id < $1.id }
+            }
+            demo.openThread = shown
+        }
+    }
+
+    /// A thread's messages on this device, oldest first.
+    private func thread(_ first: Int64, _ replica: ConversationReplica, loading: Bool) -> FlooThreadShown {
+        let lines = replica.messages.filter { $0.number == first || $0.thread == first }.compactMap {
+            lineOf($0, words: replica.blocks(of: $0.number))
+        }
+        return FlooThreadShown(id: first, lines: lines, loading: loading)
+    }
+
+    /// A message as a thread shows it: who, when, and its words for people.
+    private func lineOf(_ info: MessageInfo, words blocks: [BlockInfo]) -> FlooThreadShown.Line? {
+        let text = blocks.compactMap { if case .text(let text) = $0.content, $0.audience != .model { text } else { nil } }
+            .joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty || info.state == .streaming else { return nil }
+        let face = face(info.author)
+        return FlooThreadShown.Line(
+            id: info.number,
+            who: face.name,
+            face: FlooThreadLine.Face(initial: String(face.name.prefix(1)), tint: face.tint),
+            mine: info.author == .person(backend.account),
+            text: text.isEmpty ? "…" : text,
+            time: Self.time(info.createdAt)
+        )
+    }
+
+    // MARK: Members
+
+    /// Who is in the conversation shown, its host first marked, and whether you may change
+    /// the host: it's your group (floo messaging.md §3.13.7).
+    func members() async -> (members: [FlooMember], yours: Bool) {
+        guard let replica = await session?.replica else { return ([], false) }
+        let host = replica.conversation?.host
+        let members = replica.members.values.filter { !$0.left }.map { member in
+            let face = face(member.participant)
+            return FlooMember(
+                participant: member.participant,
+                name: member.participant == .person(backend.account) ? "你" : face.name,
+                agent: member.participant.actor.agent != nil,
+                host: member.participant == host
+            )
+        }.sorted { ($0.host ? 0 : $0.agent ? 2 : 1, $0.name) < ($1.host ? 0 : $1.agent ? 2 : 1, $1.name) }
+        return (members, replica.conversation?.owner == backend.account)
+    }
+
+    /// Brings people (each with their butler) and your services into the group shown.
+    func add(people: [AccountID], services: [String]) async throws {
+        guard let client, let current else { return }
+        try await client.add(
+            MembersAdd(people: people, services: services.compactMap { try? ServiceID($0) }),  // try?: from the catalog, names
+            to: current
+        )
+    }
+
+    /// Makes an agent in the group shown its host: who answers what you say there when it
+    /// isn't clear whom it's for.
+    func setHost(_ host: Participant) async throws {
+        guard let client, let current else { return }
+        try await client.setHost(host, of: current)
     }
 
     // MARK: Sending
@@ -597,7 +746,14 @@ final class FlooLive {
         guard let session else { return }
         // try?: one that doesn't go shows so in the conversation, to send again.
         let send = zoned(MessageSend(id: .generate(), text: text, replyTo: replyTo))
-        Task { _ = try? await session.send(send) }
+        Task {
+            // A reply to a thread made a topic goes into the topic (floo messaging.md
+            // §3.13.6): it's shown there.
+            if let accepted = try? await session.send(send), let went = accepted.conversation, went != current {
+                demo.openThread = nil
+                open(place(went))
+            }
+        }
     }
 
     /// A message of the backend's as a reply to it shows over the composer: whose it is and
@@ -907,6 +1063,7 @@ final class FlooLive {
         }
         showAgent(parts, replica: replica)
         showReactions(replica)
+        showThreads(replica)
         showOutbox(replica)
         showAsks(replica)
         showErrands(replica)
@@ -936,6 +1093,7 @@ final class FlooLive {
         let rest = changes.messages.subtracting(older)
         for group in groups(rest, replica) { showGroup(group, replica) }
         showReactions(replica, of: changes.messages)
+        if !changes.messages.isEmpty { showThreads(replica) }
         if changes.parts.contains(.outbox) { showOutbox(replica) }
         // A message's own asks and topics are shown with it (showAgent).
         if changes.parts.contains(.asks) { showAsks(replica) }
@@ -1317,6 +1475,7 @@ final class FlooLive {
         if let said = said[info.number] {
             demo.setNumber(said, info.number)
             if mine, said.receipt != receipt { demo.mark(said, receipt) }
+            demo.setSentTo(said, sentTo(info, replica))
             return
         }
         var text = blocks.compactMap { if case .text(let text) = $0.content { text } else { nil } }.joined(separator: "\n\n")
@@ -1345,7 +1504,23 @@ final class FlooLive {
             said[info.number] = theirs
             saidBy[info.author.account, default: []].append(theirs)
         }
-        if let shown = said[info.number] { demo.setNumber(shown, info.number) }
+        if let shown = said[info.number] {
+            demo.setNumber(shown, info.number)
+            demo.setSentTo(shown, sentTo(info, replica))
+        }
+    }
+
+    /// Whom a person's message in a group went to, when it @'d none of them (floo
+    /// messaging.md §3.13.7): the agents the judge or the host gave it to, by name.
+    private func sentTo(_ info: MessageInfo, _ replica: ConversationReplica) -> String? {
+        guard replica.conversation?.kind == .group else { return nil }
+        let agents = info.addressees.filter { $0.actor.agent != nil }
+        guard !agents.isEmpty else { return nil }
+        let text = replica.blocks(of: info.number).compactMap { if case .text(let text) = $0.content { text } else { nil } }
+            .joined(separator: " ")
+        let names = agents.map { face($0).name }
+        guard !names.contains(where: { text.contains("@" + $0) }) else { return nil }
+        return names.joined(separator: "、")
     }
 
     /// The reactions on the messages shown (or on `numbers` of them), each emoji once with how

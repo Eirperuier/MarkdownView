@@ -162,7 +162,7 @@ struct FlooDestination: View {
         .environment(\.colorScheme, background == nil ? colorScheme : .dark)
         .environment(\.flooOnBackground, background != nil)
         .navigationTitle(demo.title)
-        .modifier(Subtitle(text: demo.isLive && demo.origin != nil ? "话题 · 在\(demo.origin?.title ?? "")" : scenario.name))
+        .modifier(Subtitle(text: demo.isLive && demo.origin != nil ? "从「\(demo.origin?.title ?? "")」转来" : scenario.name))
         .toolbar { toolbar }
         .sheet(isPresented: $picksZone) {
             FlooZonePicker(selected: demo.usualZone) { zone in
@@ -177,24 +177,30 @@ struct FlooDestination: View {
         .sheet(isPresented: $demo.showsServices) {
             if let live = demo.live { FlooContactsDestination(live: live) }
         }
+        .sheet(isPresented: $demo.showsMembers) {
+            if let live = demo.live { FlooMembersView(live: live) }
+        }
+        .sheet(item: $demo.openThread) { thread in
+            FlooThreadView(thread: thread, demo: demo)
+        }
         // Beside the conversation, as the Mac app's inspector: what the rows can spare of
         // their width before they get narrower, measured while it's away.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
             if !inspector.isPresented { inspector.spare = width - Self.rowsWidth }
         }
         .onDisappear { inspector.close("floo") }
-        .alert("开话题", isPresented: Binding(get: { demo.naming != nil }, set: { if !$0 { demo.naming = nil } })) {
+        .alert("转为话题", isPresented: Binding(get: { demo.naming != nil }, set: { if !$0 { demo.naming = nil } })) {
             TextField("话题名", text: $topicTitle)
-            Button("开") {
-                if let message = demo.naming {
+            Button("转") {
+                if let number = demo.naming {
                     let title = topicTitle.trimmingCharacters(in: .whitespaces)
-                    demo.openTopic(on: message, title: title.isEmpty ? "话题" : title)
+                    demo.openTopic(on: number, title: title.isEmpty ? "话题" : title)
                 }
                 topicTitle = ""
             }
             Button("取消", role: .cancel) { topicTitle = "" }
         } message: {
-            Text("话题会进对话列表，管家在里面接着这条消息聊。")
+            Text("这一串会转成一个话题，进对话列表；之后回复这一串的话都进那里。")
         }
         // A page the agent wrote, read only: what's on the backend is the agent's to change.
         .sheet(item: $demo.openPage) { page in
@@ -224,6 +230,10 @@ struct FlooDestination: View {
         ToolbarItemGroup(placement: .primaryAction) {
             if demo.isLive, demo.signedIn != nil || !demo.places.isEmpty {
                 placesMenu
+            }
+            // A topic or a group: who's in it, its host.
+            if demo.isLive, demo.place?.kind == .group || demo.place?.kind == .topic {
+                Button("成员", systemImage: "person.2.badge.gearshape") { demo.showsMembers = true }
             }
             if demo.isLive, demo.live?.server != nil {
                 Button("小程序", systemImage: "square.grid.2x2") {
@@ -906,6 +916,18 @@ private struct FlooRowView: View {
                 if let number = demo.number(of: row) { demo.react(number, reaction.mine ? nil : reaction.emoji) }
             }
             .frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
+        case .replies(let thread, let trailing):
+            FlooRepliesLink(thread: thread) {
+                if let number = demo.number(of: row) { demo.showThread(of: number) }
+            }
+            .frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
+            .padding(.vertical, 2)
+        case .sentTo(let to, let trailing):
+            Text("→ \(to)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
+                .padding(.horizontal, 6)
         case .page(let path, let page):
             // Docs' page block; a tap opens the page.
             DocPageRowView(page: page)
@@ -1053,7 +1075,7 @@ private struct FlooRowView: View {
     /// A mention tapped: a topic or a group goes there; the rest open their link, if they have one.
     private func open(_ mention: Mention) {
         if let place = mention.conversation {
-            demo.go(to: FlooPlace(id: place.id, title: mention.title ?? "", kind: place.kind == .group ? .group : .topic(listed: true)))
+            demo.go(to: FlooPlace(id: place.id, title: mention.title ?? "", kind: .group))
         } else if let url = mention.url, url.scheme == "floo" {
             demo.open(link: url.absoluteString)
         } else if let url = mention.url, url.scheme != nil {
@@ -1768,7 +1790,8 @@ extension EnvironmentValues {
     @Entry var flooOnBackground = false
 }
 
-/// The topics and comments hung on a message, one line each, to go to.
+/// The topics a thread was made into, hung on its first message (floo messaging.md §3.13.6):
+/// one line each, to go to.
 private struct FlooTopicLinks: View {
     let topics: [FlooPlace]
     let demo: FlooDemo
@@ -1780,8 +1803,8 @@ private struct FlooTopicLinks: View {
                     demo.go(to: topic)
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: topic.kind == .topic(listed: true) ? "bubble.left.and.text.bubble.right" : "text.bubble")
-                        Text(topic.kind == .topic(listed: true) ? "话题：\(topic.title)" : "评论")
+                        Image(systemName: topic.kind == .topic ? "bubble.left.and.text.bubble.right" : "person.2")
+                        Text("查看\(topic.kind == .topic ? "话题" : "群")「\(topic.title)」")
                         if topic.unread > 0 {
                             Text("\(topic.unread) 条新消息").foregroundStyle(.secondary)
                         }
@@ -2200,6 +2223,8 @@ extension FlooRow {
             return height + line + 12
         case .mentions(let mentions): return 70 * CGFloat(mentions.count) + 20
         case .reactions: return 34
+        case .replies: return 28
+        case .sentTo: return 18
         case .page: return DocPageMetrics.rowHeight + 12
         case .images(let images):
             let caption: CGFloat = images.contains { !$0.alt.isEmpty } ? 24 : 0
@@ -2251,12 +2276,12 @@ enum FlooMessageMenu {
             }))
         }
         var actions = [UIAction(title: "回复", image: UIImage(systemName: "arrowshape.turn.up.left")) { _ in demo.reply(to: number) }]
-        if let message = row.message {
-            actions += [
-                UIAction(title: "评论", image: UIImage(systemName: "text.bubble")) { _ in demo.openTopic(on: message, title: nil) },
-                UIAction(title: "开话题…", image: UIImage(systemName: "bubble.left.and.text.bubble.right")) { _ in demo.naming = message },
-            ]
+        if demo.inThread.contains(number) {
+            actions.append(UIAction(title: "查看这一串", image: UIImage(systemName: "text.bubble")) { _ in demo.showThread(of: number) })
         }
+        actions.append(
+            UIAction(title: "转为话题…", image: UIImage(systemName: "bubble.left.and.text.bubble.right")) { _ in demo.naming = number }
+        )
         sections.append(UIMenu(options: .displayInline, children: actions))
         let yours: Bool = if case .said(.me, _, _, _) = row.kind { true } else { false }
         let accessory = pointer ? nil : TiledMenuAccessory(side: yours ? .trailing : .leading) { dismiss in
