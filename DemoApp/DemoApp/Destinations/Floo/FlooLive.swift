@@ -509,7 +509,9 @@ final class FlooLive {
     /// A conversation as the list shows it.
     private func place(_ id: ConversationID) -> FlooPlace {
         guard let dialog = dialogs[id] else {
-            return FlooPlace(id: id.description, title: id == .main(of: backend.account) ? "floo" : "对话", kind: .group)
+            // Before the list has its row: yours with the butler is the main one still.
+            let main = id == .main(of: backend.account)
+            return FlooPlace(id: id.description, title: main ? "floo" : "对话", kind: main ? .main : .group)
         }
         return place(dialog.conversation, unread: dialog.unread)
     }
