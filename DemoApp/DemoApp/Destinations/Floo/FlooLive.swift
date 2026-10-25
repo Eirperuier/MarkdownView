@@ -1036,8 +1036,10 @@ final class FlooLive {
         writing = [:]
         name(Set(replica.members.keys.map(\.account)))
         let agentsRead = replica.members.filter { $0.key.actor.agent != nil }.map(\.value)
-        // Taken back (its run passed having said nothing): it goes.
-        let present = Set(replica.messages.map(\.number))
+        // Taken back, or the work of a run that passed having said nothing: it goes.
+        let told = Self.told(replica)
+        let shown = replica.messages.filter { !Self.unheard($0, told: told, replica) }
+        let present = Set(shown.map(\.number))
         for (number, message) in messages where !present.contains(number) {
             messages[number] = nil
             if !messages.values.contains(where: { $0 === message }) { demo.remove(message) }
@@ -1046,7 +1048,7 @@ final class FlooLive {
         // errand's result): its words go to the run's next message, after that. With nothing
         // shown between them, they're one message here: the work, then the words.
         var parts: [MessageInfo] = []
-        for info in replica.messages {
+        for info in shown {
             switch info.author.actor {
             case .person:
                 showAgent(parts, replica: replica)
@@ -1081,7 +1083,10 @@ final class FlooLive {
     private func show(_ update: ConversationUpdate) {
         let replica = update.replica, changes = update.changes
         demo.setHasOlder(replica.hasOlder)
-        if changes.all || !changes.removed.isEmpty || changes.parts.contains(.members) { return show(replica) }
+        // A run ending may leave its work unheard: that goes too.
+        if changes.all || !changes.removed.isEmpty || changes.parts.contains(.members) || changes.parts.contains(.active) {
+            return show(replica)
+        }
         demo.batch { showChanges(changes, replica) }
     }
 
@@ -1113,8 +1118,9 @@ final class FlooLive {
         }
         var seen = Set<Int64>()
         var groups: [[MessageInfo]] = []
+        let told = Self.told(replica)
         for number in numbers.sorted() where !seen.contains(number) {
-            guard let at = replica.position(of: number) else { continue }
+            guard let at = replica.position(of: number), !Self.unheard(list[at], told: told, replica) else { continue }
             var start = at, end = at
             while start > 0, joins(list[start - 1], list[start]) { start -= 1 }
             while end + 1 < list.count, joins(list[end], list[end + 1]) { end += 1 }
@@ -1442,9 +1448,11 @@ final class FlooLive {
         }
     }
 
-    /// Whether a message has words, stored or coming.
+    /// Whether a message has words, stored or coming. Only what people read speaks: a run's
+    /// work is its agent's own, its words there drafts (floo messaging.md §3.14).
     private static func speaks(_ info: MessageInfo, _ replica: ConversationReplica) -> Bool {
-        replica.blocks(of: info.number).contains {
+        guard info.visibility == .members else { return false }
+        return replica.blocks(of: info.number).contains {
             if case .text = $0.content { $0.audience != .model } else { false }
         } || replica.live(of: info.id).contains {
             if case .text = $0.kind { true } else { false }
@@ -1460,6 +1468,18 @@ final class FlooLive {
                 default: false
                 }
             }
+    }
+
+    /// A run's work out of sight: the run is over and told nothing here, as it passed unheard
+    /// (floo messaging.md §3.14). While it goes, its work shows.
+    private static func unheard(_ info: MessageInfo, told: Set<RunID>, _ replica: ConversationReplica) -> Bool {
+        guard info.visibility != .members, let run = info.run, !told.contains(run) else { return false }
+        return !replica.active.contains { $0.run == run }
+    }
+
+    /// The runs that told something here.
+    private static func told(_ replica: ConversationReplica) -> Set<RunID> {
+        Set(replica.messages.filter { $0.visibility == .members }.compactMap(\.run))
     }
 
     private func showPerson(_ info: MessageInfo, _ replica: ConversationReplica, agentsRead: [MemberInfo]) {
@@ -1557,8 +1577,11 @@ final class FlooLive {
         }
     }
 
+    /// The calls an agent speaks and ends with: what they say is its words, not its work.
+    private static let speech: Set<String> = ["tell", "pass"]
+
     /// An agent's message, from the backend's messages it's made of: one, or a run's work
-    /// overtaken and its words after.
+    /// and what it told after.
     private func showAgent(_ parts: [MessageInfo], replica: ConversationReplica) {
         guard let first = parts.first, let last = parts.last, case .agent(let id) = first.author.actor else { return }
         let owner = first.author.account
@@ -1581,10 +1604,18 @@ final class FlooLive {
             let blocks = replica.blocks(of: info.number)
             let stored = Set(blocks.map(\.id))
             let live = replica.live(of: info.id).filter { !stored.contains($0.id) }
+            // Words only in what people read; in its work, drafts, shown as its thinking.
+            let read = info.visibility == .members
             for block in blocks {
                 switch block.content {
                 case .text(let text) where block.audience != .model:
-                    words.append(text)
+                    if read {
+                        words.append(text)
+                    } else {
+                        work.think(block.id.description, text, going: false, started: block.startedAt, ended: block.endedAt)
+                    }
+                case .toolCall(_, let name, _, _) where Self.speech.contains(name):
+                    break
                 case .reasoning(let summary, _, _):
                     work.think(block.id.description, summary, going: false, started: block.startedAt, ended: block.endedAt)
                 case .toolCall(let callID, let name, let arguments, let operation):
@@ -1639,8 +1670,12 @@ final class FlooLive {
             }
             for block in live {
                 switch block.kind {
-                case .text:
+                case .text where read:
                     words.append(block.text)
+                case .text:
+                    work.think(block.id.description, block.text, going: !block.done, started: block.startedAt, ended: block.endedAt)
+                case .toolCall where block.call.map { Self.speech.contains($0.name) } == true:
+                    break
                 case .reasoning:
                     work.think(block.id.description, block.text, going: !block.done, started: block.startedAt, ended: block.endedAt)
                 case .toolCall:
