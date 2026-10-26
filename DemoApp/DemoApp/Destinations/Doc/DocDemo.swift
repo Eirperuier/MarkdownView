@@ -857,7 +857,11 @@ extension DocRow {
         if page != nil { return DocPageMetrics.rowHeight + spacing }
         if let recordFields { return CGFloat(recordFields + 1) * DocCollectionMetrics.rowHeight + 1 + spacing }
         if let collection {
-            // The header, then the table's rows or a kanban's longest column.
+            // The header, then the table's rows, a chart, or a kanban's longest column.
+            if let chart = collection.collection.currentView?.layout.chart {
+                let groups = Set(collection.database.rows.compactMap { $0.cells[chart.groupBy].map { "\($0)" } }).count
+                return 80 + (chart.kind == .bar ? CGFloat(groups) * 26 : 230) + spacing
+            }
             guard let view = collection.collection.currentView, view.layout.isKanban else {
                 return 80 + CGFloat(collection.database.rows.count + 2) * 36 + spacing
             }

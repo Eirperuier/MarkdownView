@@ -11,7 +11,8 @@
 //    Sort, Group, rename, duplicate, delete, Download as CSV);
 //  - the table (DocCollectionTable): a field's header opens its menu, + adds a field;
 //    the row number turns into a box to pick rows; the title's arrow opens the record;
-//  - the kanban (DocCollectionKanban): a column per option of the grouping select.
+//  - the kanban (DocCollectionKanban): a column per option of the grouping select;
+//  - the chart (DocCollectionChart): a mark per group of the field it groups by.
 //  Every change is DocKit steps (a database step for the records and fields, a setBlock
 //  for the name and views), so undo, redo and sync treat it like the rest of the document.
 //  What only this window shows (a search, the rows picked, an open panel) isn't.
@@ -34,6 +35,7 @@ struct DocCollectionPanel: Hashable {
     enum Kind: Hashable {
         case layout, sort, filter, group
         case createKanban
+        case createChart
         /// A view just added, to name.
         case nameView(CollectionViewID)
         case addField
@@ -195,7 +197,8 @@ final class DocCollectionController {
 
     /// A table becomes a kanban grouped by `group` (or what the table's grouped by, or the
     /// first select, or the first field after the title), a kanban an ungrouped table (a
-    /// table groups only when asked to); what's hidden and the sorting stay.
+    /// table groups only when asked to), a chart a table grouped by its axis; what's hidden
+    /// and the sorting stay.
     func setLayout(kanban: Bool, groupedBy group: ColumnID? = nil, in view: CollectionViewID, of block: DocBlockID) {
         guard let (_, database) = snapshot(block) else { return }
         changeView(view, in: block) { view in
@@ -207,7 +210,53 @@ final class DocCollectionController {
             } else if view.layout.isKanban {
                 view.layout = .table(hidden: hidden, sort: sort)
                 view.grouping = CollectionGrouping()
+            } else if let chart = view.layout.chart {
+                view.layout = .table(hidden: hidden, sort: sort, groupBy: chart.groupBy)
             }
+        }
+    }
+
+    /// A view becomes a chart of `kind` (a chart, one of that kind): along what it's grouped
+    /// by, or the field its kind reads best along; its groups' order and what's hidden stay.
+    func setChart(_ kind: CollectionChart.Kind = .bar, in view: CollectionViewID, of block: DocBlockID) {
+        guard let (_, database) = snapshot(block) else { return }
+        changeView(view, in: block) { view in
+            if var chart = view.layout.chart {
+                chart.kind = kind
+                view.layout = .chart(chart: chart)
+                return
+            }
+            guard var chart = Self.chart(kind, in: database, groupedBy: view.layout.groupBy) else { return }
+            chart.hidden = view.layout.hidden
+            chart.sort = view.layout.sort
+            if chart.groupBy != view.layout.groupBy { view.grouping = CollectionGrouping() }
+            view.layout = .chart(chart: chart)
+        }
+    }
+
+    /// A new chart's fields: grouped by `group`, else the first select for a ring, the first
+    /// date for bars up or a line, else the title; the first number summed (none: counted);
+    /// bars along the titles ranked.
+    static func chart(_ kind: CollectionChart.Kind, in database: Database, groupedBy group: ColumnID? = nil) -> CollectionChart? {
+        let title = titleColumn(of: database)?.id
+        let date = database.columns.first { $0.type == .date }?.id
+        let preferred: ColumnID? = switch kind {
+        case .donut: selects(in: database).first?.id
+        case .column, .line: date
+        case .bar: title
+        }
+        guard let axis = group ?? preferred ?? title ?? database.columns.first?.id else { return nil }
+        let values = kind == .donut ? [] : database.columns.first { $0.type == .number }.map { [$0.id] } ?? []
+        return CollectionChart(kind: kind, groupBy: axis, values: values, calculation: values.isEmpty ? .count : .sum,
+                               order: kind == .bar && axis == title && !values.isEmpty ? .valueDescending : .groups)
+    }
+
+    /// A chart view's settings changed: one step.
+    func changeChart(_ view: CollectionViewID, in block: DocBlockID, _ update: @escaping (inout CollectionChart) -> Void) {
+        changeView(view, in: block) { view in
+            guard var chart = view.layout.chart else { return }
+            update(&chart)
+            view.layout = .chart(chart: chart)
         }
     }
 
@@ -221,6 +270,11 @@ final class DocCollectionController {
             case .kanban(_, let hidden, let sort):
                 guard let column else { return }
                 view.layout = .kanban(groupBy: column, hidden: hidden, sort: sort)
+            case .chart(var chart):
+                guard let column else { return }
+                chart.groupBy = column
+                chart.highlight = []
+                view.layout = .chart(chart: chart)
             }
             view.grouping = CollectionGrouping()
         }
@@ -329,6 +383,12 @@ final class DocCollectionController {
                 if view.layout.groupBy == column {
                     view.layout = .table(hidden: view.layout.hidden, sort: view.layout.sort)
                     view.grouping = CollectionGrouping()
+                }
+                if var chart = view.layout.chart {
+                    chart.values.removeAll { $0 == column }
+                    if chart.values.isEmpty, CollectionChart.measures(chart.calculation) { chart.calculation = .count }
+                    if chart.colorBy == column { chart.colorBy = nil }
+                    view.layout = .chart(chart: chart)
                 }
                 view.filters.removeAll { $0.column == column }
                 view.calculations[column] = nil
@@ -949,6 +1009,8 @@ struct DocCollectionView: View {
                     DocCollectionTable(snapshot: snapshot, view: view, controller: controller)
                 case .kanban(let group, _, _):
                     DocCollectionKanban(snapshot: snapshot, view: view, group: group, controller: controller)
+                case .chart(let chart):
+                    DocCollectionChart(snapshot: snapshot, view: view, chart: chart, controller: controller)
                 }
             }
         }
@@ -1008,7 +1070,9 @@ private struct DocCollectionHeader: View {
             HStack(spacing: 0) {
                 if controller.isEditable {
                     toolbarButton("plus.circle.fill", String(localized: "New Item")) {
-                        controller.addRecord(to: block, in: kanbanGroup)
+                        let row = controller.addRecord(to: block, in: kanbanGroup)
+                        // A chart doesn't show a record with nothing in it: it opens to be filled in.
+                        if current?.layout.chart != nil, let row { controller.openRecord?(row, block) }
                     }
                 }
                 viewMenu
@@ -1128,10 +1192,16 @@ private struct DocCollectionHeader: View {
     /// also downloads it.
     private func viewSections(_ view: CollectionView, full: Bool) -> [FlooDesignActionMenuSection] {
         // Ticked when the view groups (Craft's).
+        // A chart's groups are its axis; its order is theirs, so it has no sorting.
+        let isChart = view.layout.chart != nil
         let panels: [FlooDesignActionMenuItem] = [
             .action(String(localized: "Filter"), symbol: "line.3.horizontal.decrease") { open(.filter, for: view) },
+        ] + (isChart ? [] : [
             .action(String(localized: "Sort"), symbol: "arrow.up.arrow.down") { open(.sort, for: view) },
-            .action(String(localized: "Group"), symbol: "rectangle.3.group", isOn: view.layout.groupBy != nil) { open(.group, for: view) },
+        ]) + [
+            isChart
+                ? .action(String(localized: "X Axis"), symbol: "chart.bar.xaxis") { open(.group, for: view) }
+                : .action(String(localized: "Group"), symbol: "rectangle.3.group", isOn: view.layout.groupBy != nil) { open(.group, for: view) },
         ]
         var sections: [FlooDesignActionMenuSection] = [
             .init(.rows, [.action(String(localized: "Layout & Visibility"), symbol: "tablecells") { open(.layout, for: view) }]),
@@ -1197,6 +1267,9 @@ private struct DocCollectionHeader: View {
                 controller.show(.createKanban, in: block)
             }
             .disabled(DocCollectionController.groupable(in: snapshot.database).isEmpty)
+            Button(String(localized: "Add Chart View"), systemImage: "chart.bar.xaxis") {
+                controller.show(.createChart, in: block)
+            }
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: FlooDesignTokens.Icon.compact, weight: .semibold))
@@ -1207,9 +1280,16 @@ private struct DocCollectionHeader: View {
         .menuIndicator(.hidden)
         .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
         .accessibilityLabel(String(localized: "Add View"))
-        .flooDesignAnchoredPanel(isPresented: controller.isShowing(.createKanban, in: block),
-                                 onDismiss: { controller.close(.createKanban, in: block) }) {
-            DocCreateKanbanPanel(snapshot: snapshot, controller: controller)
+        .flooDesignAnchoredPanel(isPresented: controller.isShowing(.createKanban, in: block) || controller.isShowing(.createChart, in: block),
+                                 onDismiss: {
+                                     controller.close(.createKanban, in: block)
+                                     controller.close(.createChart, in: block)
+                                 }) {
+            if controller.isShowing(.createChart, in: block) {
+                DocCreateChartPanel(snapshot: snapshot, controller: controller)
+            } else {
+                DocCreateKanbanPanel(snapshot: snapshot, controller: controller)
+            }
         }
     }
 

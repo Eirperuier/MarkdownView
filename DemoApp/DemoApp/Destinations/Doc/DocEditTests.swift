@@ -2705,6 +2705,52 @@ final class DocEditTests {
             (_, collection, _) = try current()
             try self.expect(collection.currentView?.id != table.id, "showing the table after undo")
         }
+        await test("a collection's chart: a kanban turned into one along its field, drawn; its settings and groups each a step that undoes; a table again grouped the same") {
+            let collections = self.editor.collections
+            @MainActor func current() throws -> (id: DocBlockID, collection: DocCollection, database: Database) {
+                let block = try self.expectValue(self.demo.doc.blocks.first { if case .collection = $0.kind { true } else { false } }, "no collection")
+                guard case .collection(let collection) = block.kind, let database = self.demo.doc.databases[collection.database] else { throw Failure(description: "no database") }
+                return (block.id, collection, database)
+            }
+            var (id, collection, database) = try current()
+            await show(id)
+            let view = try self.expectValue(collection.currentView, "no view")
+            let group = try self.expectValue(view.layout.groupBy, "the kanban groups by nothing")
+            let hours = try self.expectValue(database.columns.first { $0.type == .number }, "no number column")
+            collections.setChart(.bar, in: view.id, of: id)
+            (_, collection, database) = try current()
+            var chart = try self.expectValue(collection.currentView?.layout.chart, "not a chart")
+            try self.expect(chart.groupBy == group && chart.values == [hours.id] && chart.calculation == .sum, "chart \(chart)")
+            let data = try self.expectValue(collection.currentView?.chartData(of: database.rows, in: database), "nothing drawn")
+            try self.expect(!data.groups.isEmpty && data.groups.allSatisfy { $0.values.count == 1 }, "groups \(data.groups.map(\.key))")
+            try? await Task.sleep(for: .milliseconds(400))
+            let frame = try self.expectValue(blocks.testContentFrame(id), "no frame")
+            try self.expect(frame.height > 120, "the chart is \(frame.height) tall")
+            // Its settings: each one step.
+            collections.changeChart(view.id, in: id) { $0.kind = .donut }
+            collections.changeChart(view.id, in: id) { $0.order = .valueDescending }
+            (_, collection, _) = try current()
+            chart = try self.expectValue(collection.currentView?.layout.chart, "not a chart")
+            try self.expect(chart.kind == .donut && chart.order == .valueDescending, "chart \(chart)")
+            try await self.undo()
+            try await self.undo()
+            (_, collection, _) = try current()
+            try self.expect(collection.currentView?.layout.chart?.kind == .bar && collection.currentView?.layout.chart?.order == .groups, "after undo \(String(describing: collection.currentView?.layout))")
+            // A group hidden, then the axis another field: its groups start afresh, nothing highlighted.
+            let first = try self.expectValue(data.groups.first?.key, "no group")
+            collections.setGrouping(CollectionGrouping(hidden: [first]), in: view.id, of: id)
+            (_, collection, database) = try current()
+            let fewer = try self.expectValue(collection.currentView?.chartData(of: database.rows, in: database), "nothing drawn")
+            try self.expect(fewer.groups.count == data.groups.count - 1, "\(fewer.groups.count) groups after hiding one")
+            // A table again: grouped by the chart's axis.
+            collections.setLayout(kanban: false, in: view.id, of: id)
+            (_, collection, _) = try current()
+            guard case .table(_, _, let grouped)? = collection.currentView?.layout else { throw Failure(description: "not a table") }
+            try self.expect(grouped == group, "the table groups by \(String(describing: grouped))")
+            for _ in 0..<3 { try await self.undo() }
+            (_, collection, _) = try current()
+            try self.expect(collection.currentView?.layout.isKanban == true, "after undo \(String(describing: collection.currentView?.layout))")
+        }
         await test("a collection's cells take what their fields hold: a number as written here, a link made whole, other text not at all") {
             let collections = self.editor.collections
             let block = try self.expectValue(self.demo.doc.blocks.first { if case .collection = $0.kind { true } else { false } }, "no collection")

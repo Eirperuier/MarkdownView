@@ -224,14 +224,14 @@ private struct DocPageView: View {
                 }
             }
             // -docCollectionPanel KIND: the first collection with a panel open (screenshots):
-            // layout, sort, filter, group, createKanban, addField, editField, options, date, addOption;
-            // -docCollectionView table|kanban shows that view of it first.
+            // layout, sort, filter, group, createKanban, createChart, addField, editField, options, date, addOption;
+            // -docCollectionView table|kanban|chart shows that view of it first.
             if let name = UserDefaults.standard.string(forKey: "docCollectionPanel"),
                let block = demo.doc.blocks.first(where: { if case .collection = $0.kind { true } else { false } }),
                case .collection(var collection) = block.kind, let database = demo.doc.databases[collection.database] {
                 let collections = editor.collections
                 if let layout = UserDefaults.standard.string(forKey: "docCollectionView"),
-                   let view = collection.views.first(where: { $0.layout.isKanban == (layout == "kanban") }) {
+                   let view = collection.views.first(where: { ($0.layout.chart != nil ? "chart" : $0.layout.isKanban ? "kanban" : "table") == layout }) {
                     collections.show(view.id, in: block.id)
                     collection.current = view.id
                 }
@@ -242,6 +242,7 @@ private struct DocPageView: View {
                 case "sort": .sort
                 case "filter": .filter
                 case "createKanban": .createKanban
+                case "createChart": .createChart
                 case "addField": .addField
                 case "editField": database.columns.last.map { .editField($0.id) }
                 case "options": database.rows.first.flatMap { row in select.map { .options(row: row.id, column: $0.id) } }

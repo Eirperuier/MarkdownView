@@ -692,19 +692,6 @@ enum DocCollectionMath {
     }
 
     static func value(_ calculation: CollectionCalculation, of column: Column, in rows: [Row]) -> String {
-        let numbers = rows.compactMap { if case .number(let value)? = $0.cells[column.id] { value } else { nil } }.sorted()
-        let filled = rows.filter { $0.cells[column.id] != nil }.count
-        let result: Double? = switch calculation {
-        case .count: Double(rows.count)
-        case .countEmpty: Double(rows.count - filled)
-        case .countFilled: Double(filled)
-        case .sum: numbers.reduce(0, +)
-        case .average: numbers.isEmpty ? nil : numbers.reduce(0, +) / Double(numbers.count)
-        case .median: numbers.isEmpty ? nil : numbers.count % 2 == 1 ? numbers[numbers.count / 2] : (numbers[numbers.count / 2 - 1] + numbers[numbers.count / 2]) / 2
-        case .min: numbers.first
-        case .max: numbers.last
-        case .range: numbers.last.flatMap { last in numbers.first.map { last - $0 } }
-        }
-        return result.map { $0.formatted(.number.precision(.fractionLength(0...2))) } ?? "–"
+        calculation.result(of: column.id, in: rows).map { $0.formatted(.number.precision(.fractionLength(0...2))) } ?? "–"
     }
 }
