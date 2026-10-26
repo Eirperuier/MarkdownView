@@ -5,8 +5,8 @@
 //  A collection's panels (Craft's), each anchored to what opened it, in FlooDesign's
 //  floating panel: a title and ✕ over a rule, then what it sets.
 //  - Layout & Visibility: table, kanban or chart (and what it groups by), the calculation
-//    row, which fields show and in what order (drag a field by its handle); a chart's kind,
-//    what it measures, what colours it, its values;
+//    row, which fields show and in what order (drag a field by its handle);
+//  - Chart (DocCollectionChartPanel): what a chart measures and how it looks;
 //  - Group By (a chart's X Axis): the field, the groups' order, which show;
 //  - Sort By and Filter: a rule per line, each change at once;
 //  - Create Kanban, Create Chart, Name View, Add/Edit Field, Add/Edit Option: a form,
@@ -87,7 +87,7 @@ struct DocPanelMenuLabel: View {
 }
 
 /// A small heading over a part of a panel.
-private struct DocPanelSection: View {
+struct DocPanelSection: View {
     let title: String
 
     var body: some View {
@@ -98,7 +98,7 @@ private struct DocPanelSection: View {
 }
 
 /// Cancel and the panel's own button, as wide as each other.
-private struct DocPanelButtons: View {
+struct DocPanelButtons: View {
     let title: String
     var enabled = true
     let cancel: () -> Void
@@ -148,7 +148,7 @@ private struct DocFieldTag: View {
 }
 
 /// Picks one of the database's fields.
-private struct DocFieldMenu: View {
+struct DocFieldMenu: View {
     let columns: [Column]
     let chosen: Column?
     var placeholder = String(localized: "Select Field")
@@ -171,7 +171,7 @@ private struct DocFieldMenu: View {
 }
 
 /// An add line under a panel's rules: + and what it adds, a menu of fields.
-private struct DocAddRuleMenu: View {
+struct DocAddRuleMenu: View {
     let title: String
     let columns: [Column]
     let pick: (Column) -> Void
@@ -196,7 +196,7 @@ private struct DocAddRuleMenu: View {
     }
 }
 
-private struct DocTrashButton: View {
+struct DocTrashButton: View {
     let action: () -> Void
 
     var body: some View {
@@ -241,9 +241,14 @@ struct DocLayoutPanel: View {
                     Image(systemName: "chart.bar.xaxis").font(.system(size: Tokens.Icon.prominent - 2))
                 }
             }
-            if let chart = view.layout.chart {
-                // What it's along is the X Axis panel's.
-                DocChartSettings(snapshot: snapshot, view: view, chart: chart, controller: controller)
+            if view.layout.chart != nil {
+                // Its settings are the Chart panel's, what it's along the X Axis panel's.
+                Button {
+                    controller.show(.chart, in: block)
+                } label: {
+                    DocPanelMenuLabel(symbol: "slider.horizontal.3", title: String(localized: "Chart Settings…"), fills: true)
+                }
+                .buttonStyle(.plain)
             }
             // What a kanban groups by is the Group panel's.
             if !view.layout.isKanban && view.layout.chart == nil {
@@ -749,7 +754,7 @@ struct DocCreateChartPanel: View {
 }
 
 /// A chart's four kinds, one on.
-private struct DocChartKinds: View {
+struct DocChartKinds: View {
     let kind: CollectionChart.Kind
     let pick: (CollectionChart.Kind) -> Void
 
@@ -783,7 +788,7 @@ private struct DocChartKinds: View {
 }
 
 /// What a chart measures: Count, or one of the number fields.
-private struct DocChartValueMenu: View {
+struct DocChartValueMenu: View {
     let database: Database
     let chosen: ColumnID?
     var excluding: [ColumnID] = []
@@ -804,111 +809,6 @@ private struct DocChartValueMenu: View {
         .menuStyle(.button)
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
-    }
-}
-
-/// A chart view's own settings in Layout & Visibility: its kind, what it measures and with
-/// which calculation (more values side by side), what colours it, whether values show.
-private struct DocChartSettings: View {
-    let snapshot: DocCollectionSnapshot
-    let view: CollectionView
-    let chart: CollectionChart
-    let controller: DocCollectionController
-
-    private var block: DocBlockID { snapshot.block }
-    private var database: Database { snapshot.database }
-    private var numbers: [Column] { database.columns.filter { $0.type == .number } }
-    private var selects: [Column] { database.columns.filter(DocFieldText.hasOptions) }
-
-    var body: some View {
-        DocPanelSection(title: String(localized: "Chart Type"))
-        DocChartKinds(kind: chart.kind) { kind in controller.changeChart(view.id, in: block) { $0.kind = kind } }
-        VStack(alignment: .leading, spacing: Tokens.Space.sm) {
-            DocPanelSection(title: String(localized: "Y Axis"))
-            if chart.values.isEmpty {
-                DocChartValueMenu(database: database, chosen: nil) { picked in set(0, to: picked) }
-            }
-            ForEach(Array(chart.values.enumerated()), id: \.offset) { index, value in
-                HStack(spacing: Tokens.Space.sm) {
-                    DocChartValueMenu(database: database, chosen: value, excluding: chart.values) { picked in set(index, to: picked) }
-                    if index == 0 { calculations }
-                    if chart.values.count > 1 {
-                        DocTrashButton { controller.changeChart(view.id, in: block) { $0.values.remove(at: index) } }
-                    }
-                }
-            }
-            // More values are side by side; a chart split by colour measures one.
-            if !chart.values.isEmpty, chart.colorBy == nil {
-                DocAddRuleMenu(title: String(localized: "Add Value"), columns: numbers.filter { !chart.values.contains($0.id) }) { column in
-                    controller.changeChart(view.id, in: block) { $0.values.append(column.id) }
-                }
-            }
-        }
-        if chart.kind != .donut {
-            VStack(alignment: .leading, spacing: Tokens.Space.sm) {
-                DocPanelSection(title: String(localized: "Color By"))
-                Menu {
-                    Button(String(localized: "None")) { controller.changeChart(view.id, in: block) { $0.colorBy = nil } }
-                    ForEach(selects, id: \.id) { column in
-                        Button(column.name, systemImage: DocFieldText.symbol(column)) {
-                            controller.changeChart(view.id, in: block) { $0.colorBy = column.id }
-                        }
-                    }
-                } label: {
-                    let column = database.columns.first { $0.id == chart.colorBy }
-                    DocPanelMenuLabel(symbol: column.map(DocFieldText.symbol), title: column?.name ?? String(localized: "None"), fills: true, quiet: column == nil)
-                }
-                .menuStyle(.button)
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
-                .disabled(chart.values.count > 1 || selects.isEmpty)
-            }
-        }
-        VStack(alignment: .leading, spacing: Tokens.Space.sm) {
-            DocPanelSection(title: String(localized: "Options"))
-            HStack {
-                Text(String(localized: "Show Values")).font(.system(size: 13))
-                Spacer()
-                Toggle(String(localized: "Show Values"), isOn: Binding { chart.showsValues } set: { shows in
-                    controller.changeChart(view.id, in: block) { $0.showsValues = shows }
-                })
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .tint(Tokens.ColorRole.Accent.primary)
-            }
-        }
-    }
-
-    /// What the first value comes to in each group: a number's calculations.
-    private var calculations: some View {
-        Menu {
-            ForEach(CollectionCalculation.allCases.filter(CollectionChart.measures), id: \.self) { calculation in
-                Button {
-                    controller.changeChart(view.id, in: block) { $0.calculation = calculation }
-                } label: {
-                    if calculation == chart.calculation { Label(DocCollectionMath.title(calculation), systemImage: "checkmark") } else { Text(DocCollectionMath.title(calculation)) }
-                }
-            }
-        } label: {
-            DocPanelMenuLabel(title: DocCollectionMath.title(chart.calculation))
-        }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        .buttonStyle(.plain)
-        .fixedSize()
-    }
-
-    /// The value at `index` becomes `column`; none counts the records instead.
-    private func set(_ index: Int, to column: ColumnID?) {
-        controller.changeChart(view.id, in: block) { chart in
-            guard let column else {
-                chart.values = []
-                chart.calculation = .count
-                return
-            }
-            if index < chart.values.count { chart.values[index] = column } else { chart.values.append(column) }
-            if !CollectionChart.measures(chart.calculation) { chart.calculation = .sum }
-        }
     }
 }
 

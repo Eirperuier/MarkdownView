@@ -34,6 +34,8 @@ struct DocCollectionSnapshot: Equatable {
 struct DocCollectionPanel: Hashable {
     enum Kind: Hashable {
         case layout, sort, filter, group
+        /// A chart view's settings: what it measures, how it looks.
+        case chart
         case createKanban
         case createChart
         /// A view just added, to name.
@@ -251,9 +253,9 @@ final class DocCollectionController {
                                order: kind == .bar && axis == title && !values.isEmpty ? .valueDescending : .groups)
     }
 
-    /// A chart view's settings changed: one step.
-    func changeChart(_ view: CollectionViewID, in block: DocBlockID, _ update: @escaping (inout CollectionChart) -> Void) {
-        changeView(view, in: block) { view in
+    /// A chart view's settings changed: one step (or one for all typed in one field).
+    func changeChart(_ view: CollectionViewID, in block: DocBlockID, typing key: AnyHashable? = nil, _ update: @escaping (inout CollectionChart) -> Void) {
+        changeView(view, in: block, typing: key) { view in
             guard var chart = view.layout.chart else { return }
             update(&chart)
             view.layout = .chart(chart: chart)
@@ -1091,6 +1093,7 @@ private struct DocCollectionHeader: View {
                 case .sort?: DocSortPanel(snapshot: snapshot, view: current, controller: controller)
                 case .filter?: DocFilterPanel(snapshot: snapshot, view: current, controller: controller)
                 case .group?: DocGroupPanel(snapshot: snapshot, view: current, controller: controller)
+                case .chart?: DocChartPanel(snapshot: snapshot, view: current, controller: controller)
                 default: EmptyView()
                 }
             }
@@ -1100,7 +1103,7 @@ private struct DocCollectionHeader: View {
     private var toolbarPanel: DocCollectionPanel.Kind? {
         guard let panel = controller.panel, panel.block == block else { return nil }
         switch panel.kind {
-        case .layout, .sort, .filter, .group: return panel.kind
+        case .layout, .sort, .filter, .group, .chart: return panel.kind
         default: return nil
         }
     }
@@ -1204,7 +1207,8 @@ private struct DocCollectionHeader: View {
                 : .action(String(localized: "Group"), symbol: "rectangle.3.group", isOn: view.layout.groupBy != nil) { open(.group, for: view) },
         ]
         var sections: [FlooDesignActionMenuSection] = [
-            .init(.rows, [.action(String(localized: "Layout & Visibility"), symbol: "tablecells") { open(.layout, for: view) }]),
+            .init(.rows, [.action(String(localized: "Layout & Visibility"), symbol: "tablecells") { open(.layout, for: view) }]
+                  + (isChart ? [.action(String(localized: "Chart"), symbol: "slider.horizontal.3") { open(.chart, for: view) }] : [])),
             .init(.rows, panels),
         ]
         if controller.isEditable {
