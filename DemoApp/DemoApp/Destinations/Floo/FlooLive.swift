@@ -460,10 +460,12 @@ final class FlooLive {
         }
     }
 
-    /// Whether the list shows the row: not agents' own conversations; the rest unless archived.
+    /// Whether the list shows the row: not agents' own conversations (their chats among
+    /// themselves, a helper's, each agent's own, floo agent-kernel.md §4.8); the rest
+    /// unless archived.
     private func shows(_ dialog: Dialog) -> Bool {
         switch dialog.conversation.kind {
-        case .agents, .helper: false
+        case .agents, .helper, .own: false
         default: !dialog.conversation.archived
         }
     }
@@ -529,7 +531,7 @@ final class FlooLive {
         case .service(let service):
             kind = .service
             title = info.title ?? agent(.service(service)).name
-        case .agents, .helper:
+        case .agents, .helper, .own:
             kind = .service
             title = info.title ?? ""
         }
