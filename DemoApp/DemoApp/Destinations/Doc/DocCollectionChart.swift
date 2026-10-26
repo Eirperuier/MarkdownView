@@ -436,7 +436,8 @@ private struct DocChartAxes: View {
                 .foregroundStyle(plot.color(group, series: index))
                 .cornerRadius(3)
                 .annotation(position: .top, spacing: 3) {
-                    if (plot.chart.showsValues || selected == group.key) && index == plot.series.count - 1 {
+                    // The total over the top part the group has.
+                    if (plot.chart.showsValues || selected == group.key) && index == group.values.lastIndex(where: { ($0 ?? 0) != 0 }) {
                         Text(plot.label(group)).font(.system(size: 11)).foregroundStyle(Tokens.ColorRole.Content.secondary)
                     }
                 }
