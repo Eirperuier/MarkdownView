@@ -18,6 +18,7 @@
 //
 
 import SwiftUI
+import UIKit
 import DocKit
 import FlooDesign
 
@@ -40,20 +41,25 @@ struct DocCollectionTable: View {
     private var picked: Set<RowID> { controller.selectedRows[block] ?? [] }
     private var trailing: CGFloat { controller.isEditable ? Metrics.addFieldWidth : 0 }
 
-    /// Each column's width: the title wider, the rest alike, stretched to fill the block
-    /// when there's room; past it the table scrolls sideways.
-    private func widths() -> [CGFloat] {
-        let natural = columns.map { $0.id == titleColumn?.id ? Metrics.titleWidth : Metrics.fieldWidth }
+    /// Each column as wide as its widest cell or its header on one line, up to a cap past
+    /// which its cells wrap (a plain table's columns, MarkdownTable); stretched to fill the
+    /// block when there's room, past it the table scrolls sideways.
+    private func widths(_ rows: [Row]) -> [CGFloat] {
+        let natural = columns.map { column in
+            let isTitle = column.id == titleColumn?.id
+            let widest = rows.map { DocCollectionWidths.cell($0.cells[column.id], in: column, isTitle: isTitle) }.max() ?? 0
+            return min(max(widest, DocCollectionWidths.head(column), Metrics.minFieldWidth), Metrics.maxFieldWidth)
+        }
         let fixed = Metrics.numberWidth + trailing
         let total = natural.reduce(0, +)
         guard width > total + fixed, total > 0 else { return natural }
-        let scale = (width - fixed) / total
-        return natural.map { $0 * scale }
+        let excess = width - fixed - total
+        return natural.map { $0 + excess * $0 / total }
     }
 
     var body: some View {
-        let widths = widths()
         let rows = controller.rows(snapshot, view)
+        let widths = widths(rows)
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(spacing: 0) {
                 head(widths)
@@ -166,7 +172,8 @@ struct DocCollectionTable: View {
     private func record(_ row: Row, number: Int, widths: [CGFloat]) -> some View {
         let isPicked = picked.contains(row.id)
         let isHovered = hoveredRow == row.id
-        return HStack(spacing: 0) {
+        // Top-aligned, a wrapped cell as tall as it reads; the row as tall as its tallest.
+        return HStack(alignment: .top, spacing: 0) {
             numberCell(row, number: number, isHovered: isHovered, isPicked: isPicked)
             ForEach(Array(zip(columns, widths)), id: \.0.id) { column, width in
                 separator
@@ -183,6 +190,7 @@ struct DocCollectionTable: View {
             }
         }
         .frame(minHeight: Metrics.rowHeight)
+        .fixedSize(horizontal: false, vertical: true)
         .background(isPicked ? FlooDesignTokens.ColorRole.Surface.selected : .clear)
         .onHover { over in
             if over { hoveredRow = row.id } else if hoveredRow == row.id { hoveredRow = nil }
@@ -244,7 +252,7 @@ struct DocCollectionTable: View {
             Text("\(number)")
                 .font(.system(size: 13).monospacedDigit())
                 .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
-                .frame(width: Metrics.numberWidth)
+                .frame(width: Metrics.numberWidth, height: Metrics.rowHeight)
                 .contentShape(Rectangle())
                 .onTapGesture { if controller.isEditable { controller.togglePicked(row.id, in: block) } }
         }
@@ -459,17 +467,17 @@ struct DocCollectionCell: View {
         }
     }
 
-    /// One line, as Craft's cells are: a longer text runs on out of sight.
+    /// The whole text, in as many lines as the column's width makes it: none of it out of sight.
     private var field: some View {
-        TextField("", text: $text)
+        TextField("", text: $text, axis: .vertical)
             .textFieldStyle(.plain)
             .font(.system(size: 14))
             // Text the field doesn't take (a word in a number, a link without a host) shows
             // faint while it's typed; it goes when the editing ends (Craft's).
             .foregroundStyle(DocFieldText.takes(text, in: column) ? FlooDesignTokens.ColorRole.Content.primary
                                                                  : FlooDesignTokens.ColorRole.Content.tertiary)
-            .lineLimit(1)
             .multilineTextAlignment(column.type == .number && !compact ? .trailing : .leading)
+            .padding(.vertical, Metrics.cellLinePadding)
             .frame(minHeight: Metrics.rowHeight)
             .focused($focused)
             .disabled(!controller.isEditable)
@@ -485,8 +493,14 @@ struct DocCollectionCell: View {
             .onChange(of: value) { _, value in
                 if DocFieldText.value(typed: text, in: column) != value { text = DocFieldText.text(value, in: column) }
             }
-            .onChange(of: text) { _, text in
-                if text != DocFieldText.text(value, in: column) { controller.setText(text, row: row.id, column: column.id, in: block) }
+            .onChange(of: text) { _, typed in
+                // Return ends the editing, as on one line: the field wraps, its value doesn't break.
+                if typed.contains("\n") {
+                    text = typed.replacingOccurrences(of: "\n", with: "")
+                    focused = false
+                    return
+                }
+                if typed != DocFieldText.text(value, in: column) { controller.setText(typed, row: row.id, column: column.id, in: block) }
             }
             .onChange(of: focused) { _, focused in
                 if !focused { text = DocFieldText.text(value, in: column) }
@@ -534,6 +548,41 @@ struct DocCollectionCell: View {
                 DocOptionsPanel(snapshot: snapshot, row: row, column: column, controller: controller)
             }
         }
+    }
+}
+
+/// How wide a table's column reads on one line: its header, and each of its cells as shown.
+enum DocCollectionWidths {
+    static func head(_ column: Column) -> CGFloat {
+        // The type's symbol, its gap, the name, the chevron's room, the insets.
+        width(column.name, size: 13, weight: .medium) + FlooDesignTokens.Icon.compact + 3 * FlooDesignTokens.Space.xs + 2
+            + 12 + 2 * Metrics.cellInset
+    }
+
+    static func cell(_ value: CellValue?, in column: Column, isTitle: Bool) -> CGFloat {
+        let inset = 2 * Metrics.cellInset
+        switch (column.type, value) {
+        case (.select(let options), .select(let id)?):
+            return chips(options.filter { $0.id == id }) + inset
+        case (.multiSelect(let options), .multiSelect(let ids)?):
+            return chips(ids.compactMap { id in options.first { $0.id == id } }) + inset
+        case (.checkbox, _):
+            return FlooDesignTokens.Icon.standard + inset
+        default:
+            let title = isTitle ? Metrics.openButton + FlooDesignTokens.Space.xs : 0
+            return width(DocFieldText.text(value, in: column), size: 14) + title + inset + 2
+        }
+    }
+
+    private static func chips(_ options: [SelectOption]) -> CGFloat {
+        options.map { width($0.name, size: 13, weight: .medium) + 14 }.reduce(0, +)
+            + CGFloat(max(options.count - 1, 0)) * FlooDesignTokens.Space.xs
+    }
+
+    static func width(_ text: String, size: CGFloat, weight: UIFont.Weight = .regular) -> CGFloat {
+        guard !text.isEmpty else { return 0 }
+        let font = UIFont.systemFont(ofSize: size, weight: weight)
+        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
     }
 }
 

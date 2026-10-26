@@ -668,8 +668,12 @@ enum DocCollectionMetrics {
     static let rowHeight: CGFloat = 36
     static let headHeight: CGFloat = 32
     static let numberWidth: CGFloat = 46
-    static let titleWidth: CGFloat = 200
     static let fieldWidth: CGFloat = 140
+    /// A table column's width as its cells read: no narrower, and no wider before they wrap.
+    static let minFieldWidth: CGFloat = 72
+    static let maxFieldWidth: CGFloat = 300
+    /// Above and below a cell's lines, so a wrapped one keeps the row's spacing.
+    static let cellLinePadding: CGFloat = 8
     static let addFieldWidth: CGFloat = 36
     static let cellInset = FlooDesignTokens.Space.sm
     static let focusWidth: CGFloat = 2

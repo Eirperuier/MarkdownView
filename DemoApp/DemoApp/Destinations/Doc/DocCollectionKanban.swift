@@ -249,6 +249,15 @@ private struct DocKanbanCard: View {
         DocCollectionController.fields(view, of: snapshot.database).filter { $0.id != titleColumn?.id && row.cells[$0.id] != nil }
     }
 
+    /// Text that reads as words (a note, a link, a person) goes under the title whole; the
+    /// short values (options, numbers, dates, a box) are chips.
+    private static func reads(_ column: Column) -> Bool {
+        switch column.type {
+        case .text, .url, .person: true
+        default: false
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: FlooDesignTokens.Space.sm) {
             // Room at the title's end for the arrow, there or not.
@@ -260,9 +269,17 @@ private struct DocKanbanCard: View {
                 titleView
             }
             .padding(.trailing, Metrics.openButton + FlooDesignTokens.Space.xs)
-            if !fields.isEmpty {
+            ForEach(fields.filter(Self.reads), id: \.id) { column in
+                Text(DocFieldText.text(row.cells[column.id], in: column))
+                    .font(.system(size: 13))
+                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            let chips = fields.filter { !Self.reads($0) }
+            if !chips.isEmpty {
                 DocFlow {
-                    ForEach(fields, id: \.id) { column in
+                    ForEach(chips, id: \.id) { column in
                         chip(column)
                     }
                 }
