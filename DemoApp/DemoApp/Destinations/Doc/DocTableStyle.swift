@@ -169,9 +169,17 @@ extension DocTableController {
             if let header = column.headerStyle {
                 cells[MarkdownTableCellPosition(row: 0, column: c)] = DocCellLook.appearance(header)
             }
-            guard let styles = column.cellStyles else { continue }
+            if let styles = column.cellStyles {
+                for (r, row) in database.rows.enumerated() {
+                    if let cell = styles[row.id] { cells[MarkdownTableCellPosition(row: r + 1, column: c)] = DocCellLook.appearance(cell) }
+                }
+            }
+            // A select's option reads as a tag in its colour, as a collection shows it.
+            guard case .select(let options) = column.type else { continue }
             for (r, row) in database.rows.enumerated() {
-                if let cell = styles[row.id] { cells[MarkdownTableCellPosition(row: r + 1, column: c)] = DocCellLook.appearance(cell) }
+                guard case .select(let id)? = row.cells[column.id], let option = options.first(where: { $0.id == id }) else { continue }
+                let position = MarkdownTableCellPosition(row: r + 1, column: c)
+                cells[position, default: MarkdownTableCellAppearance()].tag = DocOptionColor.color(DocOptionColor.token(option, in: options))
             }
         }
         // The table's own light stripe until it's given another, or none.

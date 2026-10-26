@@ -211,14 +211,9 @@ struct CmarkNodeVisitor: @preconcurrency MarkupVisitor {
   }
 
   func visitTableCell(_ cell: Markdown.Table.Cell) -> MarkdownNodeView {
-    var cellViews = [MarkdownNodeView]()
-    for child in cell.children {
-      var renderer = CmarkNodeVisitor(configuration: configuration)
-      let cellView = renderer.visit(child)
-      cellViews.append(cellView)
-    }
-    return MarkdownNodeView(
-      cellViews,
+    // A cell's inlines as a paragraph's: "cite" links run together into a chip.
+    MarkdownNodeView(
+      [CmarkNodeVisitor(configuration: configuration).descendInto(cell)],
       alignment: cell.horizontalAlignment
     )
   }

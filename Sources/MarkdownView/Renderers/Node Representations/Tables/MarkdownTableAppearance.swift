@@ -56,11 +56,14 @@ public struct MarkdownTableCellAppearance: Hashable, Sendable {
     /// The cell's background, out to the middle of the space between it and its
     /// neighbours.
     public var fill: Color?
+    /// The cell's text drawn as a tag in this colour (a database's option).
+    public var tag: Color?
 
-    public init(alignment: Alignment? = nil, fontDesign: Font.Design? = nil, fill: Color? = nil) {
+    public init(alignment: Alignment? = nil, fontDesign: Font.Design? = nil, fill: Color? = nil, tag: Color? = nil) {
         self.alignment = alignment
         self.fontDesign = fontDesign
         self.fill = fill
+        self.tag = tag
     }
 }
 

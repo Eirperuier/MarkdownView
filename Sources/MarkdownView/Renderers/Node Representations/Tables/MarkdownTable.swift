@@ -1586,7 +1586,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
     var body: some View {
         let _ = MarkdownRenderProbe.increment(\.adaptiveTableCellBodyCalls)
         let phase = phaseHolder.phase
-        cellContent
+        tagged(cellContent)
             .markdownTablePhase(phase, offsetBase: blockTextOffset)
             .multilineTextAlignment(textAlignment)
             ._markdownCellPadding(padding)
@@ -1741,6 +1741,31 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         guard design != nil || look.isHeaderColumn else { return bodyFont }
         let weight: Font.Weight = look.isHeaderColumn ? .bold : .regular
         return .markdownScaled(.system(.body, design: design ?? .default).weight(weight), .body, weight: weight, design: design ?? .default)
+    }
+
+    /// A body cell's text as a tag, when the host gives it a colour: tinted on a light
+    /// rounded box of that colour, as wide as the words.
+    @ViewBuilder
+    private func tagged(_ content: some View) -> some View {
+        if !isHeader, let color = look.cell?.tag {
+            content
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Self.tagText(color))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        } else {
+            content
+        }
+    }
+
+    /// A tag's words: its colour softened toward the text's, where that can be mixed.
+    private static func tagText(_ color: Color) -> Color {
+        if #available(iOS 18.0, macOS 15.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *) {
+            color.mix(with: .primary, by: 0.2)
+        } else {
+            color
+        }
     }
 
     /// Where the cell is, as its fill draws it, for a host's decoration.
