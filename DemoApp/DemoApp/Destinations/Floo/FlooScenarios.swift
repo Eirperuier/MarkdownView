@@ -1094,27 +1094,13 @@ enum FlooDemoMentions {
     ])
 
     static let all: [String: Mention] = [
-        // Written as views (docs/sketches/mention-rows.html): rows of the library's MentionRow.
+        // Written as views (docs/sketches/mention-rows.html): the library's rows.
         "mails": Mention(
             kind: .view,
             source: "",
             view: """
                 ForEach(mail_search_3f2a.messages) { m in
-                    MentionRow {
-                        Badged { PersonMark(name: m.from) } badge: { AppBadge(app: m.app) }
-                    } content: {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            if m.unread { Circle().fill(.blue).frame(width: 8, height: 8) }
-                            Text(m.from).font(.headline).lineLimit(1)
-                            Spacer(minLength: 8)
-                            ListedDate(date: m.date).font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Text(m.subject).font(.subheadline).lineLimit(1)
-                        if let quote = m.quote {
-                            Text(AttributedString(markdown: quote)).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                        }
-                    } end: {
-                    }
+                    MailRow(sender: m.from, subject: m.subject, date: m.date, quote: m.quote, unread: m.unread, app: m.app)
                 }
                 """,
             data: .object(["mail_search_3f2a": mailResult])
@@ -1123,31 +1109,11 @@ enum FlooDemoMentions {
             kind: .view,
             source: "",
             view: """
-                MentionRow {
-                    Badged { DayMark(date: calendar_events_51b0.start) } badge: { AppBadge(app: "Calendar", bundle: "com.apple.mobilecal") }
-                } content: {
-                    Text("Q3 设计评审").font(.headline)
-                    Text("20:00 – 21:00").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
-                    Label("3F 大会议室", systemImage: "mappin.and.ellipse").font(.subheadline).foregroundStyle(.secondary)
-                } end: {
-                }
-                MentionRow {
-                    Badged { FileMark(name: "Q3 设计评审.pdf") } badge: { AppBadge(app: "Google Drive", bundle: "com.google.Drive") }
-                } content: {
-                    Text("Q3 设计评审.pdf").font(.headline)
-                    Text("李娜 昨天修改 · 4.2 MB").font(.subheadline).foregroundStyle(.secondary)
-                } end: {
-                }
-                MentionRow {
-                    Badged { PinMark() } badge: { AppBadge(app: "高德地图", bundle: "com.autonavi.amap") }
-                } content: {
-                    Text("兰心面馆 · 丁香路店").font(.headline).lineLimit(1)
-                    Text("步行 6 分钟 · 营业到 21:00").font(.subheadline).foregroundStyle(.secondary)
-                } end: {
-                    Text("¥45").font(.title3.weight(.semibold)).monospacedDigit()
-                }
+                CalendarEventRow(title: "Q3 设计评审", start: calendar_events_51b0.start, end: calendar_events_51b0.end, place: "3F 大会议室", app: "Calendar", bundle: "com.apple.mobilecal")
+                FileRow(name: "Q3 设计评审.pdf", detail: "李娜 昨天修改 · 4.2 MB", app: "Google Drive", bundle: "com.google.Drive")
+                PlaceRow(name: "兰心面馆 · 丁香路店", note: "步行 6 分钟 · 营业到 21:00", value: "¥45", app: "高德地图", bundle: "com.autonavi.amap")
                 """,
-            data: .object(["calendar_events_51b0": .object(["start": at(30, 20, 0)])])
+            data: .object(["calendar_events_51b0": .object(["start": at(30, 20, 0), "end": at(30, 21, 0)])])
         ),
         "issue509": Mention(
             kind: .web,
