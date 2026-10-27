@@ -1017,6 +1017,26 @@ final class FlooLive {
     // MARK: Pages
 
     /// A page the agent wrote, read whole as it is now; nil, said, if it can't be.
+    /// What a floo link names, as this device has it now (CardUI's `ItemName`, `ItemPreview`):
+    /// a topic or group by its number in the account (`/places/c12/`), a page by its path.
+    func item(_ url: String) async -> CardItem? {
+        if let place = place(at: url) {
+            return CardItem(name: place.title, line: place.kind == .topic ? "话题" : place.kind == .group ? "群聊" : nil)
+        }
+        guard url.hasPrefix("/drive/"), let doc = await page(url) else { return nil }
+        let summary = DocPage.summary(of: doc)
+        return CardItem(name: summary.title, line: summary.preview.isEmpty ? nil : summary.preview)
+    }
+
+    /// The conversation a link names by its number in the account (`/places/c12/`), as the
+    /// list has it (docs/place-refs.md §1); nil when it names none the list has.
+    func place(at url: String) -> FlooPlace? {
+        guard let match = url.wholeMatch(of: #/\/places\/c(\d+)\/?/#), let number = Int64(match.output.1),
+            let dialog = dialogs.values.first(where: { $0.place == number })
+        else { return nil }
+        return place(dialog.conversation, unread: dialog.unread)
+    }
+
     func page(_ path: String) async -> Doc? {
         guard let client else { return nil }
         do {

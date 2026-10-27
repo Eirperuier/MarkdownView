@@ -754,11 +754,29 @@ private struct FlooRowView: View {
     @Environment(\.flooOnBackground) private var onBackground
     @Environment(\.openURL) private var openURL
 
+
+    /// A link opened here: a topic or group of floo by its number (`/places/c12/`) is gone
+    /// to, a page (`/drive/…`) opens over the conversation; the rest as a citation's.
+    @MainActor static func open(_ url: URL, demo: FlooDemo) -> OpenURLAction.Result {
+        let text = url.absoluteString
+        if let place = demo.live?.place(at: text) {
+            demo.go(to: place)
+            return .handled
+        }
+        if text.hasPrefix("/drive/") {
+            demo.open(page: text)
+            return .handled
+        }
+        return FlooSiteIcons.open(url)
+    }
     var body: some View {
         content
             .environment(\.markdownSelectableTextHooks, Self.textHooks)
-            // A citation chip opens what it names (§20.2).
-            .environment(\.openURL, OpenURLAction { FlooSiteIcons.open($0) })
+            // A citation chip opens what it names (§20.2); so does a mention's row, a link
+            // into floo too: a topic or group, a page.
+            .environment(\.openURL, OpenURLAction { [demo] in Self.open($0, demo: demo) })
+            // What a mention's row of a topic, group or page shows of it, as this device has it.
+            .environment(\.cardItems, demo.live.map { live in CardItems { await live.item($0) } })
             .frame(maxWidth: 720)
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
