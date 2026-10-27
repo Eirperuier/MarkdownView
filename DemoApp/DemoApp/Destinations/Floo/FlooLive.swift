@@ -2035,7 +2035,9 @@ final class FlooLive {
             mark: mention.mark,
             tags: mention.tags,
             facts: mention.facts?.map { Mention.Fact(name: $0.name, value: $0.value) },
-            pieces: mention.pieces?.map { Mention.Piece(field: $0.field, component: $0.component) }
+            pieces: mention.pieces?.map { Mention.Piece(field: $0.field, component: $0.component) },
+            view: mention.view,
+            data: mention.data.map(Self.card)
         )
     }
 

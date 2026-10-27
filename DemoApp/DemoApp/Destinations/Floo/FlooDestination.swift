@@ -1056,8 +1056,8 @@ private struct FlooRowView: View {
     }
 
     /// Mentions as one card in the bubble (agent-kernel.md §20.2, ⓪): a page the agent wrote as
-    /// Docs' page block, opening it; a topic or a group going there; the rest laid out by their
-    /// fields' components (CardUI's `MentionList`), each opening its link.
+    /// Docs' page block, opening it; a topic or a group going there; the rest as CardUI's
+    /// `MentionList` draws them (docs/sketches/mention-rows.html), each opening its link.
     @ViewBuilder
     private func mentionCard(_ mentions: [Mention]) -> some View {
         if mentions.count == 1, let mention = mentions.first, let doc = mention.doc {
@@ -1067,8 +1067,6 @@ private struct FlooRowView: View {
                 .onTapGesture { demo.open(page: doc.path) }
         } else {
             MentionList(mentions, now: FlooClock.now) { open($0) }
-            .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
         }
     }
 

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CardModel
 import CardUI
 import Wire
 
@@ -1017,6 +1018,18 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
             ```floo.mention
             review
             ```
+
+            昨晚到现在的邮件，李娜那封要回：
+
+            ```floo.mention
+            mails
+            ```
+
+            晚上的评审，材料和吃饭的地方：
+
+            ```floo.mention
+            tonight
+            ```
             """)
         try await m.wait(1500)
         m.time("08:00")
@@ -1055,7 +1068,87 @@ enum FlooDemoMentions {
         .moment(Moment(Timestamp(clock(day, hour, minute)), in: ZoneName(TimeZone.current.identifier) ?? .utc))
     }
 
+    /// That time as a result gives it, for a view mention's data.
+    static func at(_ day: Int, _ hour: Int, _ minute: Int) -> CardValue {
+        .string(clock(day, hour, minute).ISO8601Format())
+    }
+
+    /// A mail search's result, as a view mention's data reads it by its id.
+    static let mailResult: CardValue = .object([
+        "messages": .array(
+            [
+                ("李娜", "Re: 周四评审改到下午", at(30, 7, 20), "那就 **周四 15:00**，会议室我来订。", true, "Gmail"),
+                ("招商银行", "信用卡电子账单（9月）", at(30, 6, 5), "本期应还 **¥3,286.40**，到期日 10月8日", false, "Outlook"),
+                ("GitHub", "[floo] PR #812 needs your review", at(29, 22, 15), nil, false, "Gmail"),
+                ("顺丰速运", "您的快件已签收", at(29, 18, 40), "已由 **前台** 代收", false, "Gmail"),
+                ("王磊", "周末爬山？", at(29, 13, 10), "周六 **早上 7 点** 地铁站见", true, "Gmail"),
+                ("Apple", "Your receipt from Apple", at(28, 3, 0), "iCloud+ 200GB **¥21.00**", false, "Gmail"),
+                ("携程旅行", "行程确认：上海—成都", at(26, 6, 30), "**10月2日** MU5401 08:05 起飞", false, "Gmail"),
+            ].map { sender, subject, date, quote, unread, app in
+                CardValue.object([
+                    "from": .string(sender), "subject": .string(subject), "date": date,
+                    "quote": quote.map(CardValue.string) ?? .null, "unread": .bool(unread), "app": .string(app),
+                ])
+            }
+        )
+    ])
+
     static let all: [String: Mention] = [
+        // Written as views (docs/sketches/mention-rows.html): rows of the library's MentionRow.
+        "mails": Mention(
+            kind: .view,
+            source: "",
+            view: """
+                ForEach(mail_search_3f2a.messages) { m in
+                    MentionRow {
+                        Badged { PersonMark(name: m.from) } badge: { AppBadge(app: m.app) }
+                    } content: {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            if m.unread { Circle().fill(.blue).frame(width: 8, height: 8) }
+                            Text(m.from).font(.headline).lineLimit(1)
+                            Spacer(minLength: 8)
+                            ListedDate(date: m.date).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Text(m.subject).font(.subheadline).lineLimit(1)
+                        if let quote = m.quote {
+                            Text(AttributedString(markdown: quote)).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                    } end: {
+                    }
+                }
+                """,
+            data: .object(["mail_search_3f2a": mailResult])
+        ),
+        "tonight": Mention(
+            kind: .view,
+            source: "",
+            view: """
+                MentionRow {
+                    Badged { DayMark(date: calendar_events_51b0.start) } badge: { AppBadge(app: "Calendar", bundle: "com.apple.mobilecal") }
+                } content: {
+                    Text("Q3 设计评审").font(.headline)
+                    Text("20:00 – 21:00").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+                    Label("3F 大会议室", systemImage: "mappin.and.ellipse").font(.subheadline).foregroundStyle(.secondary)
+                } end: {
+                }
+                MentionRow {
+                    Badged { FileMark(name: "Q3 设计评审.pdf") } badge: { AppBadge(app: "Google Drive", bundle: "com.google.Drive") }
+                } content: {
+                    Text("Q3 设计评审.pdf").font(.headline)
+                    Text("李娜 昨天修改 · 4.2 MB").font(.subheadline).foregroundStyle(.secondary)
+                } end: {
+                }
+                MentionRow {
+                    Badged { PinMark() } badge: { AppBadge(app: "高德地图", bundle: "com.autonavi.amap") }
+                } content: {
+                    Text("兰心面馆 · 丁香路店").font(.headline).lineLimit(1)
+                    Text("步行 6 分钟 · 营业到 21:00").font(.subheadline).foregroundStyle(.secondary)
+                } end: {
+                    Text("¥45").font(.title3.weight(.semibold)).monospacedDigit()
+                }
+                """,
+            data: .object(["calendar_events_51b0": .object(["start": at(30, 20, 0)])])
+        ),
         "issue509": Mention(
             kind: .web,
             source: "github.com/floo/floo",
