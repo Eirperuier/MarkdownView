@@ -758,13 +758,15 @@ private struct FlooRowView: View {
     /// A link opened here: a topic or group of floo by its number (`/places/c12/`) is gone
     /// to, a page (`/drive/…`) opens over the conversation; the rest as a citation's.
     @MainActor static func open(_ url: URL, demo: FlooDemo) -> OpenURLAction.Result {
-        let text = url.absoluteString
+        // As written: a page's name in other scripts comes percent-encoded.
+        let text = url.absoluteString.removingPercentEncoding ?? url.absoluteString
         if let place = demo.live?.place(at: text) {
             demo.go(to: place)
             return .handled
         }
         if text.hasPrefix("/drive/") {
-            demo.open(page: text)
+            // The page whole: the viewer doesn't go to one of its blocks (`#<block id>`).
+            demo.open(page: String(text.prefix { $0 != "#" }))
             return .handled
         }
         return FlooSiteIcons.open(url)

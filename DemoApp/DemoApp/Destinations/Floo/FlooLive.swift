@@ -1023,7 +1023,9 @@ final class FlooLive {
         if let place = place(at: url) {
             return CardItem(name: place.title, line: place.kind == .topic ? "话题" : place.kind == .group ? "群聊" : nil)
         }
-        guard url.hasPrefix("/drive/"), let doc = await page(url) else { return nil }
+        // A block of it (`#<block id>`) is the page's.
+        let path = String(url.prefix { $0 != "#" })
+        guard path.hasPrefix("/drive/"), let doc = await page(path) else { return nil }
         let summary = DocPage.summary(of: doc)
         return CardItem(name: summary.title, line: summary.preview.isEmpty ? nil : summary.preview)
     }
