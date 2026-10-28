@@ -2045,6 +2045,10 @@ final class FlooLive {
         case .double(let number): .number(number)
         case .string(let string): .string(string)
         case .array(let items): .array(items.map(card))
+        // A time is TimeKit's moment, read as CardValue reads one from JSON, as the server's
+        // check read it: else a view taking a Date gets an object, and draws nothing.
+        case .object(let fields) where Set(fields.keys) == ["at", "local", "zone"]:
+            (try? JSONDecoder().decode(CardValue.self, from: JSONEncoder().encode(json))) ?? .object(fields.mapValues(card))  // try?: not a moment, an object like it
         case .object(let fields): .object(fields.mapValues(card))
         }
     }
