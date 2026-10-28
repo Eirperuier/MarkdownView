@@ -879,7 +879,7 @@ final class FlooLive {
     @discardableResult
     private static func use(_ library: CardLibrary) async -> Bool {
         await Task.detached(priority: .utility) {
-            let files = library.files.map { (category: $0.category, source: $0.source) }
+            let files = library.files.map { (path: $0.path, source: $0.source) }
             guard let catalog = Catalog.withLibrary(files, words: library.words) else { return false }
             Catalog.use(catalog)
             return true
