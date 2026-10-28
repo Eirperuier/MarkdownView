@@ -2058,7 +2058,8 @@ final class FlooLive {
         (page.path, DocPage(doc: DocID(page.page) ?? DocID(rawValue: UUID()), title: page.title, preview: page.preview))
     }
 
-    /// A mention as CardUI shows it, on its corner the catalog's icon of its result's service.
+    /// A mention as CardUI shows it, on its corner the catalog's icon of its result's service: a view
+    /// mention's rows read that service as theirs where they name none.
     private func mention(_ mention: AnswerMention) -> Mention {
         let conversation = mention.conversation.flatMap { place in
             Mention.Conversation.Kind(rawValue: place.kind).map { Mention.Conversation(id: place.id.description, kind: $0) }
@@ -2090,7 +2091,8 @@ final class FlooLive {
             pieces: mention.pieces?.map { Mention.Piece(field: $0.field, component: $0.component) },
             view: mention.view,
             data: mention.data.map(Self.card),
-            templates: mention.templates
+            templates: mention.templates,
+            service: service?.id.rawValue
         )
     }
 
