@@ -1109,15 +1109,11 @@ enum FlooDemoMentions {
             kind: .view,
             source: "",
             view: """
-                CalendarEventRow(title: "Q3 设计评审", start: calendar_events_51b0.start, end: calendar_events_51b0.end, place: "3F 大会议室", app: "Calendar", bundle: "com.apple.mobilecal", url: calendar_events_51b0.link)
+                CalendarEventRow(title: "Q3 设计评审", start: calendar_events_51b0.start, end: calendar_events_51b0.end, place: "3F 大会议室", app: "Calendar", bundle: "com.apple.mobilecal")
                 FileRow(name: "Q3 设计评审.pdf", detail: "李娜 昨天修改 · 4.2 MB", app: "Google Drive", bundle: "com.google.Drive")
                 PlaceRow(name: "兰心面馆 · 丁香路店", note: "步行 6 分钟 · 营业到 21:00", value: "¥45", app: "高德地图", bundle: "com.autonavi.amap")
                 """,
-            data: .object([
-                "calendar_events_51b0": .object([
-                    "start": at(30, 20, 0), "end": at(30, 21, 0), "link": .string("floo://calendar/q3-design-review"),
-                ])
-            ])
+            data: .object(["calendar_events_51b0": .object(["start": at(30, 20, 0), "end": at(30, 21, 0)])])
         ),
         "issue509": Mention(
             kind: .web,
