@@ -286,6 +286,7 @@ final class FlooLive {
             CardClock.follow { Wire.Timestamp(FlooClock.now) }
         }
         Task { await loadIndex() }
+        Task { await loadLibrary() }
         let listing = Task { await keepListing() }
         defer { listing.cancel() }
         current = backend.lab ? Stage.opens ?? .main(of: backend.account) : .main(of: backend.account)
@@ -858,6 +859,31 @@ final class FlooLive {
             index = read
             kept.write(read, "catalog-index")
         }
+    }
+
+    /// The card library (floo docs/cards.md §5.1): the kept one put in use at once, then the
+    /// server's when it changed since. Until one is, the built-in library draws the cards; a
+    /// card keeps the catalog it began with.
+    private func loadLibrary() async {
+        let held = kept.read(CardLibrary.self, "card-library")
+        if let held { await Self.use(held) }
+        guard let client else { return }
+        // try?: not read now, the kept one (or the built-in) stands and it's asked again next time
+        guard let read = try? await client.cardLibrary(language: CardLanguage.version, revision: held?.revision)
+        else { return }
+        if await Self.use(read) { kept.write(read, "card-library") }
+    }
+
+    /// Compiles `library` off the main actor and draws the cards begun from now on with it;
+    /// false when it doesn't compile with this app's card language.
+    @discardableResult
+    private static func use(_ library: CardLibrary) async -> Bool {
+        await Task.detached(priority: .utility) {
+            let files = library.files.map { (category: $0.category, source: $0.source) }
+            guard let catalog = Catalog.withLibrary(files, words: library.words) else { return false }
+            Catalog.use(catalog)
+            return true
+        }.value
     }
 
     /// Where what was read of this backend is kept across launches (the demo's files; the
