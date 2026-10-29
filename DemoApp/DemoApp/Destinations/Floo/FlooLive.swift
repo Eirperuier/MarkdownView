@@ -193,6 +193,9 @@ final class FlooLive {
     private var people: PeopleNames?
     /// The conversation list's and the names' store: the device's, or memory.
     private var listStorage: any ConversationStorage = MemoryConversationStorage()
+    /// Keeps every listed conversation current in the store as its row changes, not only the
+    /// one shown, as an IM does: opening one reads it from the device. None without a store.
+    private var syncer: ConversationSync?
     /// The names had so far, by account, and what's shown of each person to name again when
     /// theirs changes: what they said, and their agents' messages ("林的天气").
     private var names: [AccountID: String] = [:]
@@ -265,7 +268,10 @@ final class FlooLive {
         } catch {
             demo.catchUp("本地库没打开，这次只在内存里：\(error)")
         }
-        if let store { listStorage = store.conversations }
+        if let store {
+            listStorage = store.conversations
+            if let client { syncer = ConversationSync(remote: client, storage: store.conversations) }
+        }
         // Followed while this account is live, and no longer once it isn't.
         var following: [Task<Void, Never>] = []
         defer { for task in following { task.cancel() } }
@@ -303,6 +309,16 @@ final class FlooLive {
     private func follow(_ id: ConversationID) async {
         guard let client else { return }
         let session = ConversationSession(id, remote: client, storage: store?.conversations ?? MemoryConversationStorage())
+        // Its session pulls it while it's shown; the syncer again once it isn't.
+        let syncer = syncer
+        await syncer?.hold(id)
+        defer { if let syncer { Task { await syncer.release(id) } } }
+        // What the device keeps of it, read before the page changes: the page goes from the
+        // last conversation to this one whole, with no blank and no wait on the network.
+        try? await session.open()  // try?: a store that can't be read: shown as the network brings it
+        let opened = await session.replica
+        // Gone to another meanwhile: that one is followed instead.
+        guard id == current else { return }
         self.session = session
         lowestShown = nil
         said = [:]
@@ -319,15 +335,24 @@ final class FlooLive {
         if entered { demo.enter(place(id)) }
         entered = true
         showPlaces()
+        last = opened
+        show(opened)
         let topics = Task { await loadTopics(of: id) }
         defer { topics.cancel() }
         let following = Task { await session.follow() }
         let watching = Task { @MainActor in
             var first = true
+            var fresh = true
             for await update in await session.updates() {
                 guard !Task.isCancelled else { return }
-                last = update.replica
-                show(update)
+                // The whole of what was shown as it opened, again, is shown once.
+                let again = fresh && update.replica.pts == opened.pts
+                    && update.replica.messages.count == opened.messages.count
+                fresh = false
+                if !again {
+                    last = update.replica
+                    show(update)
+                }
                 // A stage started here for a screenshot: what it asked for over it.
                 if first, backend.lab, id == Stage.opens {
                     first = false
@@ -456,6 +481,11 @@ final class FlooLive {
         dialogs[id] = dialog
         reposition(id, was: old)
         hang(id)
+        // What it says now is brought to the device in the background, there when it's opened.
+        if let dialog, shows(dialog), let syncer {
+            let pts = dialog.conversation.pts
+            Task { await syncer.want(id, at: pts) }
+        }
         if !serviceFollowers.isEmpty, case .service(let service)? = (dialog ?? old)?.conversation.kind {
             for follower in serviceFollowers.values { follower.yield(ServiceRow(service: service, dialog: dialog)) }
         }
