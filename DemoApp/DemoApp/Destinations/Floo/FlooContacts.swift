@@ -183,7 +183,7 @@ struct FlooServiceSources {
 
 // MARK: - You and a service
 
-/// One of its posts (the Feed, floo proactivity.md 5.5, for this service): its words, and the
+/// One of its posts in the feed (floo docs/plugins.md §6 item 9): its words, and the
 /// card (`floo.card`) or the thing it points at (`floo.mention`) it came with.
 struct FlooPush: Hashable {
     /// When it was said: the album groups by its day and says it as today, yesterday or a
@@ -307,8 +307,8 @@ final class FlooContactsDemo {
     @ObservationIgnored var deviceStandings: [DeviceStanding] = []
     /// The standings' revision as last read: read again, they come only if changed.
     @ObservationIgnored var standingsRevision: String?
-    /// The feed's latest posts, by the service whose conversation they're in.
-    @ObservationIgnored var pushes: [ServiceID: [FeedItem]] = [:]
+    /// Each service's posts in the feed, its agent's, read as its page opens.
+    @ObservationIgnored var pushes: [ServiceID: [FeedPost]] = [:]
     @ObservationIgnored var watches: [String: [WatchInfo]] = [:]
     var following: [String: FlooFollowing] = FlooContactsDemo.start
     var devices = FlooDevice.all
@@ -458,6 +458,15 @@ final class FlooContactsDemo {
             try? await Task.sleep(for: .seconds(2.5))  // try?: cancelled, no matter
             withAnimation(FlooDesignTokens.Motion.layout) { if toast == text { toast = nil } }
         }
+    }
+
+    /// A card the server drew (live), compiled here once, by `key` as `card` finds it.
+    func setCard(_ key: String, source: String, data: @autoclosure () -> CardValue) {
+        guard cards[key] == nil else { return }
+        let session = CardSession(data: data())
+        session.append(source)
+        session.finish()
+        cards[key] = session
     }
 
     func card(_ name: String) -> CardSession? {

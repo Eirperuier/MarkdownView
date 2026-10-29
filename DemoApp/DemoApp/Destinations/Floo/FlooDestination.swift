@@ -180,6 +180,9 @@ struct FlooDestination: View {
         .sheet(isPresented: $demo.showsMembers) {
             if let live = demo.live { FlooMembersView(live: live) }
         }
+        .sheet(isPresented: $demo.showsFeed) {
+            if let live = demo.live { FlooFeedSheet(live: live) }
+        }
         .sheet(item: $demo.openThread) { thread in
             FlooThreadView(thread: thread, demo: demo)
         }
@@ -236,6 +239,7 @@ struct FlooDestination: View {
                 Button("成员", systemImage: "person.2.badge.gearshape") { demo.showsMembers = true }
             }
             if demo.isLive, demo.live?.server != nil {
+                Button("动态", systemImage: "camera.aperture") { demo.showsFeed = true }
                 Button("小程序", systemImage: "square.grid.2x2") {
                     if let server = demo.live?.server {
                         inspector.toggle("floo", width: 400) { FlooProgramsView(programs: FlooPrograms(server: server)) }

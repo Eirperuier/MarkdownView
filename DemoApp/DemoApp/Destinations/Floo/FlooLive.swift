@@ -1022,6 +1022,31 @@ final class FlooLive {
         }
     }
 
+    // MARK: Feed
+
+    /// The backend's person, whose feed it is.
+    var account: AccountID { backend.account }
+
+    /// Who wrote something in the feed, as the chat names them: you, someone by `name` (the
+    /// one their page came with), an agent of yours, someone's agent as theirs.
+    func feedFace(_ author: Participant, name: String?) -> FlooAgent {
+        let mine = author.account == backend.account
+        let person = mine ? names[backend.account] : name ?? names[author.account]
+        switch author.actor {
+        case .person: return FlooAgent(name: person ?? (mine ? "我" : "成员"), tint: mine ? .accentColor : .gray)
+        case .agent(let id): return mine ? agent(id) : FlooAgent(name: "\(person ?? "别人")的\(agent(id).name)", tint: .teal)
+        }
+    }
+
+    /// A service's icon, as the catalog has it.
+    func icon(of service: ServiceID) async -> URL? {
+        if index == nil { await loadIndex() }
+        return icon(index?.services.first { $0.id == service }?.icon)
+    }
+
+    /// A card's data as cards take it.
+    static func cardData(_ json: Wire.JSONValue?) -> CardValue { value(json) }
+
     // MARK: Groups
 
     /// Someone to bring into a group, by their email; nil if there's no such account.

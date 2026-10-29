@@ -43,17 +43,9 @@ extension FlooContactsDemo {
 
         await readStandings(client, entries)
 
-        // try?: each part not read now stays as it was, read again on the next load
-        if let feed = try? await client.feed(limit: 100) {
-            let kinds = Dictionary(feed.conversations.map { ($0.id, $0.kind) }) { first, _ in first }
-            pushes = Dictionary(grouping: feed.items.compactMap { item -> (ServiceID, FeedItem)? in
-                if case .service(let service) = kinds[item.conversation] { (service, item) } else { nil }
-            }, by: \.0).mapValues { $0.map(\.1) }
-            refollow()
-        }
         for (id, dialog) in dialogs where following[id] != nil {
             guard case .service(let service) = dialog.conversation.kind,
-                  let found = try? await client.watches(in: dialog.conversation.id) else { continue }  // try?: as above
+                  let found = try? await client.watches(in: dialog.conversation.id) else { continue }  // try?: read again on the next load
             watches[id] = found.filter { $0.agent == .agent(.service(service), of: dialog.conversation.owner) }
             refollow()
         }
@@ -108,7 +100,16 @@ extension FlooContactsDemo {
             if let at = services.firstIndex(where: { $0.id == service.id }) { services[at] = shown }
         }
         found[service.id] = sources(entry, standings[id])
+        // Its album: its agent's posts, newest first.
+        if let client = live.server,
+           let page = try? await client.feed(from: Participant.agent(.service(id), of: live.account).description, limit: Self.albumPosts) {  // try?: read again next time it opens
+            pushes[id] = page.posts
+            refollow()
+        }
     }
+
+    /// The posts its album shows.
+    private static let albumPosts = 20
 
     /// What's followed and how it stands, from what was read so far.
     private func refollow() {
@@ -122,7 +123,7 @@ extension FlooContactsDemo {
             // The devices it's connected on and works on now.
             entry.devices = Set(standing.hosts.filter { $0.connected && Self.provides($0) }.compactMap { $0.host.device?.description })
             entry.asked = (asked[id] ?? []).subtracting(entry.devices)
-            entry.pushes = (pushes[standing.service] ?? []).compactMap(Self.push)
+            entry.pushes = (pushes[standing.service] ?? []).compactMap(push)
             entry.doing = (watches[id] ?? []).map(Self.doing)
             if let dialog = dialogs[id] {
                 entry.quiet = dialog.settings?.notifications.mutedUntil.map { $0.date > FlooClock.now } ?? false
@@ -136,8 +137,7 @@ extension FlooContactsDemo {
 
     /// While the pages are open: all read once, then the services' conversations as they
     /// change, from the chat's list and the account's one stream it follows (FlooLive), not
-    /// listed again; a message in one (a push, a watch its agent set) reads the newest of the
-    /// feed and its watches. Only while a device was asked to set something up are the
+    /// listed again; a message in one (a watch its agent set) reads its watches. Only while a device was asked to set something up are the
     /// standings asked again (no stream says when it's done), an answer only once they changed.
     func follow() async {
         guard let live else { return }
@@ -150,34 +150,20 @@ extension FlooContactsDemo {
         }
     }
 
-    /// A service's conversation as it is now: muted, pinned; with a message since, what it
-    /// posted and what its agent watches.
+    /// A service's conversation as it is now: muted, pinned; with a message since, what its
+    /// agent watches.
     private func take(_ row: FlooLive.ServiceRow) async {
         let id = row.service.rawValue
         let old = dialogs[id]
         dialogs[id] = row.dialog
         refollow()
         guard let client = live?.server, let old, let dialog = row.dialog, dialog.activeAt != old.activeAt else { return }
-        // try?: each part not read now stays as it was, read again on the next change or load
-        if let feed = try? await client.feed(limit: Self.newestPushes) {
-            let kinds = Dictionary(feed.conversations.map { ($0.id, $0.kind) }) { first, _ in first }
-            var fresh: [ServiceID: [FeedItem]] = [:]
-            for item in feed.items {
-                if case .service(let service) = kinds[item.conversation] { fresh[service, default: []].append(item) }
-            }
-            for (service, items) in fresh {
-                let ids = Set(items.map(\.message.id))
-                pushes[service] = items + (pushes[service] ?? []).filter { !ids.contains($0.message.id) }
-            }
-        }
+        // try?: not read now, read again on the next change or load
         if following[id] != nil, let found = try? await client.watches(in: dialog.conversation.id) {
             watches[id] = found.filter { $0.agent == .agent(.service(row.service), of: dialog.conversation.owner) }
         }
         refollow()
     }
-
-    /// The feed's newest posts, read as a service's conversation moves.
-    private static let newestPushes = 20
 
     /// While a device was asked to set a service up: where your services stand, asked every
     /// few seconds until it provides it (`refollow` ends the asking).
@@ -496,15 +482,27 @@ extension FlooContactsDemo {
         return FlooDoing(text: watch.why ?? watch.name ?? watch.id, asked: what + until)
     }
 
-    /// A message of its posted in their feed (floo proactivity.md 5.5): its words, fences left out.
-    private static func push(_ item: FeedItem) -> FlooPush? {
-        let text = item.blocks.compactMap { block -> String? in
-            if case .text(let words) = block.content { words } else { nil }
-        }.joined(separator: "\n")
-        let plain = text.replacingOccurrences(of: "```[\\s\\S]*?```", with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !plain.isEmpty else { return nil }
-        return FlooPush(at: item.message.createdAt.date, text: plain)
+    /// One of its posts in the feed (floo docs/plugins.md §6 item 9): its words, fences left
+    /// out, with its first card and the first thing it points at.
+    private func push(_ post: FeedPost) -> FlooPush? {
+        var card: String?
+        var mention: FlooMention?
+        for block in post.blocks {
+            switch block {
+            case .card(let drawn) where card == nil:
+                guard let source = drawn.source else { continue }
+                let key = "feed-\(post.number)-\(drawn.fence)-\(drawn.item)"
+                setCard(key, source: source, data: FlooLive.cardData(drawn.data))
+                card = key
+            case .mention(let found) where mention == nil:
+                mention = FlooMention(symbol: FlooFeedText.symbol(found.kind), title: found.title ?? found.source, detail: found.source)
+            default:
+                continue
+            }
+        }
+        let words = FlooFeedText.words(post.text)
+        guard !words.isEmpty || card != nil || mention != nil else { return nil }
+        return FlooPush(at: post.at.date, text: words, card: card, mention: mention)
     }
 
     private static func ago(_ date: Date) -> String {

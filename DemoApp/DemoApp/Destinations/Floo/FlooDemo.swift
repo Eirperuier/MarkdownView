@@ -1092,10 +1092,11 @@ final class FlooDemo {
     var naming: Int64?
     /// The backend's messages in a thread, first ones too: their menus open it.
     private(set) var inThread: Set<Int64> = []
-    /// Starting a group, connecting services, a group's members: their sheets.
+    /// Starting a group, connecting services, a group's members, the feed: their sheets.
     var startsGroup = false
     var showsServices = false
     var showsMembers = false
+    var showsFeed = false
 
     func setInThread(_ numbers: Set<Int64>) {
         if inThread != numbers { inThread = numbers }
