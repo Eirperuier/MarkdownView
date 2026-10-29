@@ -13,6 +13,7 @@ import AppleDeviceImages
 import SwiftUI
 import CardModel
 import CardUI
+import Wire
 
 // MARK: - Its colour
 
@@ -63,6 +64,7 @@ struct FlooContactPage: View {
                 actions
                 if !following.pushes.isEmpty { momentsRow }
                 devicesRow
+                permissionsRow
                 if !following.doing.isEmpty { doing }
                 if !following.shared.isEmpty { shared }
                 closing
@@ -76,6 +78,7 @@ struct FlooContactPage: View {
         .task { tint = await service.backdrop() }
         // All it says of itself, read once and kept.
         .task { if demo.live != nil { await demo.look(service) } }
+        .task { await demo.readApprovals() }
         .sheet(isPresented: $showsAbout) { FlooAboutSheet(service: service) }
         .confirmationDialog("不再关注 \(service.name)？", isPresented: $confirmsUnfollow, titleVisibility: .visible) {
             Button("不再关注", role: .destructive) {
@@ -313,6 +316,24 @@ struct FlooContactPage: View {
             .background(tint.opacity(dimmed ? 0.05 : 0.14), in: Circle())
     }
 
+    // MARK: Permissions
+
+    /// How what it does is let through: as the account's mode, or its own.
+    private var permissionsRow: some View {
+        Button { demo.path.append(.permissions(service.id)) } label: {
+            HStack(spacing: 12) {
+                Text("权限").font(.body.weight(.semibold)).foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Text(FlooApprovalWords.summary(demo.approvals[service.id], account: demo.approvalMode))
+                    .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: Doing, shared, closing
 
     private var doing: some View {
@@ -374,6 +395,104 @@ struct FlooContactPage: View {
         }
         .buttonStyle(.plain)
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+/// One service's permissions (floo agent-kernel.md §7.3): its own approval mode over the
+/// account's, and whether what it reads is asked first too — what it lets agents read of you
+/// (your mail, what you do in Claude Code) can be yours to give each time.
+struct FlooPermissionsPage: View {
+    let demo: FlooContactsDemo
+    let service: FlooService
+
+    private var approval: ServiceApproval? { demo.approvals[service.id] }
+
+    var body: some View {
+        List {
+            Section {
+                Picker("批准方式", selection: mode) {
+                    choice("跟随账户", "现在是「\(FlooApprovalWords.name(demo.approvalMode))」").tag(ApprovalMode?.none)
+                    ForEach(ApprovalMode.allCases, id: \.self) { mode in
+                        choice(FlooApprovalWords.name(mode), FlooApprovalWords.detail(mode)).tag(Optional(mode))
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } header: {
+                Text("修改之前")
+            } footer: {
+                Text("只管\(service.name)，盖过账户的批准方式。以前选过「以后都允许」的照旧直接执行，删除这类撤不回的除外。")
+            }
+
+            if !service.reads.isEmpty {
+                Section {
+                    Toggle("读取也按上面的方式", isOn: reads)
+                        .disabled(approval == nil)
+                } footer: {
+                    Text(
+                        approval == nil
+                            ? "先给\(service.name)选一种批准方式，才能单独管它的读取。"
+                            : "它的 \(service.reads.count) 项读取（\(service.reads.prefix(3).map(\.title).joined(separator: "、"))\(service.reads.count > 3 ? "等" : "")）平时直接执行；打开后和修改一样，按上面的方式问你。"
+                    )
+                }
+            }
+        }
+        .navigationTitle("权限")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await demo.readApprovals() }
+    }
+
+    private func choice(_ title: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+            Text(detail).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Its own mode; nil follows the account's (and drops what it set of its reads).
+    private var mode: Binding<ApprovalMode?> {
+        Binding(get: { approval?.mode }) { mode in
+            set(mode.flatMap { mode in
+                (try? ServiceID(service.id)).map { ServiceApproval(service: $0, mode: mode, reads: approval?.reads ?? false) }  // try?: not a name
+            })
+        }
+    }
+
+    private var reads: Binding<Bool> {
+        Binding(get: { approval?.reads ?? false }) { reads in
+            guard var approval else { return }
+            approval.reads = reads
+            set(approval)
+        }
+    }
+
+    private func set(_ approval: ServiceApproval?) {
+        Task { await demo.setApproval(service, approval) }
+    }
+}
+
+/// The approval modes as the App says them (floo agent-kernel.md §7.3).
+enum FlooApprovalWords {
+    static func name(_ mode: ApprovalMode) -> String {
+        switch mode {
+        case .open: "全部放开"
+        case .review: "自动审核"
+        case .ask: "每次都问"
+        }
+    }
+
+    static func detail(_ mode: ApprovalMode) -> String {
+        switch mode {
+        case .open: "直接执行；不是你发起的运行里，先由判断模型看一眼。"
+        case .review: "先由判断模型看，是你要的就执行，拿不准再问你。"
+        case .ask: "每次都等你批准。"
+        }
+    }
+
+    /// A service's row: its own mode, and its reads when they're asked too; else the account's.
+    static func summary(_ approval: ServiceApproval?, account: ApprovalMode) -> String {
+        guard let approval else { return "跟随账户 · \(name(account))" }
+        return name(approval.mode) + (approval.reads ? " · 含读取" : "")
     }
 }
 
@@ -597,7 +716,7 @@ struct FlooMomentsPage: View {
                 FlooPushThumbnail(demo: demo, push: push, tint: tint, side: 78)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(push.text).font(.subheadline).lineLimit(3)
-                    if let mention = push.mention {
+                    if let mention = push.mention, !mention.title.isEmpty {
                         Text(mention.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
@@ -638,7 +757,11 @@ struct FlooPostPage: View {
                                 .padding(12)
                                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
-                        if let mention = push.mention { FlooMentionBox(mention: mention, tint: tint) }
+                        if let shown = push.mention?.shown {
+                            MentionList([shown], now: FlooClock.now).frame(width: 256, alignment: .topLeading)
+                        } else if let mention = push.mention {
+                            FlooMentionBox(mention: mention, tint: tint)
+                        }
                         HStack {
                             Text("\(FlooDay.label(push.at)) \(push.at.formatted(.dateTime.hour().minute()))")
                                 .font(.caption).foregroundStyle(.secondary)

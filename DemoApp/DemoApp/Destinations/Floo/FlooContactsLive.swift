@@ -267,6 +267,55 @@ extension FlooContactsDemo {
         }
     }
 
+    // MARK: Permissions
+
+    /// The approval policy as the cloud has it, from this device's mailbox (floo
+    /// agent-kernel.md §7.3).
+    func readApprovals() async {
+        guard let client = live?.server else { return }
+        do {
+            take(try await Self.policy(client))
+        } catch {
+            show("没读到权限：\(error)")
+        }
+    }
+
+    /// `service` set apart from the account's approval mode, or put back under it (nil). The
+    /// rest of the policy — the mode, what was allowed from now on, the other services — is
+    /// read from the cloud first and kept, as the App's DeviceOperations sets it.
+    func setApproval(_ service: FlooService, _ approval: ServiceApproval?) async {
+        guard let live, let client = live.server else {
+            approvals[service.id] = approval
+            return
+        }
+        guard let id = try? ServiceID(service.id) else { return }  // try?: not a name, nothing to set
+        do {
+            let now = try await Self.policy(client)
+            let policy = ApprovalPolicy(
+                account: live.account,
+                mode: now?.mode ?? .open,
+                grants: now?.grants ?? [],
+                services: (now?.services ?? []).filter { $0.service != id } + (approval.map { [$0] } ?? []),
+                at: .now
+            )
+            try await client.setApprovalPolicy(policy)
+            take(policy)
+        } catch {
+            show("没改成：\(error)")
+        }
+    }
+
+    /// The policy the first mailbox brings; nil when none was chosen.
+    private static func policy(_ client: FlooClient) async throws -> ApprovalPolicy? {
+        for try await mailbox in client.mailbox() { return mailbox.policy }
+        return nil
+    }
+
+    private func take(_ policy: ApprovalPolicy?) {
+        approvalMode = policy?.mode ?? .open
+        approvals = Dictionary((policy?.services ?? []).map { ($0.service.rawValue, $0) }) { _, last in last }
+    }
+
     /// Goes to its conversation in the chat.
     func message(_ service: FlooService) {
         guard let live, let id = try? ServiceID(service.id) else { return }  // try?: not a name
@@ -495,7 +544,8 @@ extension FlooContactsDemo {
                 setCard(key, source: source, data: FlooLive.cardData(drawn.data))
                 card = key
             case .mention(let found) where mention == nil:
-                mention = FlooMention(symbol: FlooFeedText.symbol(found.kind), title: found.title ?? found.source, detail: found.source)
+                mention = FlooMention(symbol: FlooFeedText.symbol(found.kind), title: found.title ?? found.source, detail: found.source,
+                                      shown: live?.mention(found))
             default:
                 continue
             }

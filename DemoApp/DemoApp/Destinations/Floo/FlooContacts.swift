@@ -222,6 +222,9 @@ struct FlooMention: Hashable {
     let symbol: String
     let title: String
     let detail: String
+    /// The whole of it as the chat draws it, for a post read from the server: a view
+    /// mention's rows say what they are only there.
+    var shown: Mention? = nil
 }
 
 /// Something it took on for you: a commitment or a watch it wrote (agent-kernel §22), and
@@ -265,6 +268,8 @@ enum FlooContactsRoute: Hashable {
     case post(String, Int)
     /// A provider's settings: the service, the device it is on.
     case settings(String, String)
+    /// One service's permissions: its own approval mode, and whether its reads are asked first.
+    case permissions(String)
 
     static var launchPath: [FlooContactsRoute] {
         (UserDefaults.standard.string(forKey: "flooContactsPath") ?? "").split(separator: " ").compactMap { step in
@@ -276,6 +281,7 @@ enum FlooContactsRoute: Hashable {
             case "moments": return .moments(parts[1])
             case "post": return .post(parts[1], Int(parts.count > 2 ? parts[2] : "0") ?? 0)
             case "settings" where parts.count > 2: return .settings(parts[1], parts[2])
+            case "permissions": return .permissions(parts[1])
             default: return nil
             }
         }
@@ -311,6 +317,10 @@ final class FlooContactsDemo {
     @ObservationIgnored var pushes: [ServiceID: [FeedPost]] = [:]
     @ObservationIgnored var watches: [String: [WatchInfo]] = [:]
     var following: [String: FlooFollowing] = FlooContactsDemo.start
+    /// The account's approval mode and the services set apart from it (floo agent-kernel.md
+    /// §7.3), by service: as the cloud last had them (live), the script's own otherwise.
+    var approvalMode: ApprovalMode = .open
+    var approvals: [String: ServiceApproval] = [:]
     var devices = FlooDevice.all
     var ending: FlooSignInEnding = .signedIn
     var path: [FlooContactsRoute] = FlooContactsRoute.launchPath
@@ -516,6 +526,7 @@ struct FlooContactsDestination: View {
                                 demo: demo, service: demo.service(id)!, device: device, format: format
                             )
                         }
+                    case .permissions(let id): FlooPermissionsPage(demo: demo, service: demo.service(id)!)
                     }
                 }
         }

@@ -379,6 +379,9 @@ final class FlooLive {
         watching?.cancel()
     }
 
+    /// Opens a floo link (`floo://<service>/…`) on this device, as the chat's mentions do.
+    func open(link: String) { demo.open(link: link) }
+
     /// Your reaction to a message of the conversation shown (messaging.md §3.11); nil takes
     /// it back. It shows once the conversation has it.
     func react(_ number: Int64, _ emoji: String?) {
@@ -2115,7 +2118,7 @@ final class FlooLive {
 
     /// A mention as CardUI shows it, on its corner the catalog's icon of its result's service: a view
     /// mention's rows read that service as theirs where they name none.
-    private func mention(_ mention: AnswerMention) -> Mention {
+    func mention(_ mention: AnswerMention) -> Mention {
         let conversation = mention.conversation.flatMap { place in
             Mention.Conversation.Kind(rawValue: place.kind).map { Mention.Conversation(id: place.id.description, kind: $0) }
         }

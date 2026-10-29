@@ -262,7 +262,7 @@ enum FlooFeedText {
         return day
     }
 
-    /// The symbol for what a mention points at.
+    /// The symbol for what a mention points at, where a service's album shows it small.
     static func symbol(_ kind: String) -> String {
         switch kind {
         case "contact": "person.crop.circle"
@@ -528,33 +528,18 @@ struct FlooFeedRow: View {
         }
     }
 
-    /// What its fences point at, each as Moments shows a shared link.
+    /// What its fences point at, as the chat shows them: one card of them all, a view
+    /// mention's rows as its view draws them. A tap opens a mention's link, if it has one.
     @ViewBuilder private var mentions: some View {
-        let mentions = post.blocks.compactMap { block -> AnswerMention? in
-            if case .mention(let mention) = block { mention } else { nil }
+        let mentions = post.blocks.compactMap { block -> Mention? in
+            if case .mention(let mention) = block { feed.live.mention(mention) } else { nil }
         }
-        ForEach(Array(mentions.enumerated()), id: \.offset) { _, mention in
-            let url = mention.url.flatMap(URL.init(string:))
-            Button {
-                if let url { openURL(url) }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: FlooFeedText.symbol(mention.kind))
-                        .font(.title3).foregroundStyle(.secondary)
-                        .frame(width: 44, height: 44)
-                        .background(Color.primary.opacity(0.06))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(mention.title ?? mention.source).font(.subheadline).foregroundStyle(.primary).lineLimit(2)
-                        if mention.title != nil, !mention.source.isEmpty {
-                            Text(mention.source).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(6)
-                .background(Color.flooFeedBox)
+        if !mentions.isEmpty {
+            MentionList(mentions, now: FlooClock.now) { mention in
+                guard let url = mention.url else { return }
+                if url.scheme == "floo" { feed.live.open(link: url.absoluteString) } else if url.scheme != nil { openURL(url) }
             }
-            .buttonStyle(.plain)
+            .frame(width: 256, alignment: .topLeading)
         }
     }
 
