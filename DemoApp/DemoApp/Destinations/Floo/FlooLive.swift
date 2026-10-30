@@ -1627,10 +1627,15 @@ final class FlooLive {
             reply.shown = .answer(answers.title)
             return reply
         } ?? info.replyTo.map { reply(to: $0, quote: quote, replica) }
+        let after = entry(after: info.number)
         if mine {
-            said[info.number] = demo.say(.me, text, receipt: receipt, reply: reply, at: info.createdAt.date)
+            said[info.number] = demo.placing(before: after) {
+                demo.say(.me, text, receipt: receipt, reply: reply, at: info.createdAt.date)
+            }
         } else {
-            let theirs = demo.say(.person(names[info.author.account] ?? "成员"), text, reply: reply, at: info.createdAt.date)
+            let theirs = demo.placing(before: after) {
+                demo.say(.person(names[info.author.account] ?? "成员"), text, reply: reply, at: info.createdAt.date)
+            }
             said[info.number] = theirs
             saidBy[info.author.account, default: []].append(theirs)
         }
@@ -1638,6 +1643,21 @@ final class FlooLive {
             demo.setNumber(shown, info.number)
             demo.setSentTo(shown, sentTo(info, replica))
         }
+    }
+
+    /// The demo's entry a backend message `number` shown for the first time goes before: the
+    /// first one shown after it. A whole redraw (`showAll`) meets older ones not shown yet (the
+    /// window loaded anew, an old message an open ask is in): they take their places by number,
+    /// not the bottom. Nil: none after it, it goes at the end.
+    private func entry(after number: Int64) -> Int? {
+        var next: (number: Int64, key: Int)?
+        for (shown, person) in said where shown > number && shown < next?.number ?? .max {
+            next = (shown, person.id)
+        }
+        for (shown, message) in messages where shown > number && shown < next?.number ?? .max {
+            next = (shown, message.id)
+        }
+        return next?.key
     }
 
     /// Whom a person's message in a group went to, when it @'d none of them (floo
@@ -1693,12 +1713,20 @@ final class FlooLive {
     private func showAgent(_ parts: [MessageInfo], replica: ConversationReplica) {
         guard let first = parts.first, let last = parts.last, case .agent(let id) = first.author.actor else { return }
         let owner = first.author.account
-        let message = parts.lazy.compactMap { self.messages[$0.number] }.first ?? {
-            let message = demo.begin(agent(id, of: owner), at: Self.time(first.createdAt), on: first.createdAt.date)
+        let found = parts.compactMap { self.messages[$0.number] }
+        let message = found.first ?? {
+            let message = demo.placing(before: entry(after: first.number)) {
+                demo.begin(agent(id, of: owner), at: Self.time(first.createdAt), on: first.createdAt.date)
+            }
             if owner != backend.account { agentsOf[owner, default: []].append((message, id)) }
             return message
         }()
         for info in parts { messages[info.number] = message }
+        // Parts shown apart before, one message now: the others go, or they'd show them twice.
+        for other in found where other !== message && !messages.values.contains(where: { $0 === other }) {
+            self.parts[ObjectIdentifier(other)] = nil
+            demo.remove(other)
+        }
         self.parts[ObjectIdentifier(message)] = parts.map(\.number)
         // Its fences are its words', the last part's: what a choice answers.
         message.number = last.number

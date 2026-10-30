@@ -1848,8 +1848,30 @@ final class FlooDemo {
         await live?.loadOlder()
     }
 
-    /// An entry at the end of the conversation.
+    /// Where `placing` puts what's added: the index the next entry takes.
+    @ObservationIgnored private var placeAt: Int?
+
+    /// What `body` adds (`begin`, `say`) goes before the entry `key`, in the order added; at
+    /// the end when there's none (FlooLive: a message shown later than those after it, by its
+    /// number, not at the bottom).
+    func placing<T>(before key: Int?, _ body: () -> T) -> T {
+        guard !holding, let key, let index = order[key] else { return body() }
+        placeAt = index
+        defer { placeAt = nil }
+        return body()
+    }
+
+    /// An entry at the end of the conversation, or where `placing` puts it.
     private func add(_ entry: Entry, key: Int) {
+        if let at = placeAt {
+            entries.insert((key, entry), at: at)
+            order.moved(at..<(at + 1), by: 1, count: entries.count) { entries[$0].key }
+            placeAt = at + 1
+            show(key)
+            // The one after it may go under its signature now, or open the day no more.
+            if let next = shownEntry(from: at + 1, by: 1) { show(entries[next].key) }
+            return
+        }
         entries.append((key, entry))
         order.moved((entries.count - 1)..<entries.count, by: 1, count: entries.count) { entries[$0].key }
         show(key)
