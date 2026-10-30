@@ -305,6 +305,29 @@ extension FlooContactsDemo {
         }
     }
 
+    // MARK: Name and picture
+
+    /// What the person calls `service`'s agent from now on; empty, its catalog name again
+    /// (floo docs/context-format.md §3.5). Its id stays what it is.
+    func rename(_ service: FlooService, to name: String) async {
+        guard let id = try? ServiceID(service.id) else { return }  // try?: not a name, nothing to rename
+        do {
+            try await FlooAgentLooks.shared.rename(.service(id), to: name, catalogName: service.catalogName, on: live?.server)
+        } catch {
+            show("没改成：\(error)")
+        }
+    }
+
+    /// Shows `service`'s agent by `image`; nil, its icon again.
+    func setPicture(_ image: UIImage?, of service: FlooService) async {
+        guard let id = try? ServiceID(service.id) else { return }  // try?: not a name, nothing to set
+        do {
+            try await FlooAgentLooks.shared.setPicture(image, of: .service(id), on: live?.server)
+        } catch {
+            show("没换成：\(error)")
+        }
+    }
+
     /// The policy the first mailbox brings; nil when none was chosen.
     private static func policy(_ client: FlooClient) async throws -> ApprovalPolicy? {
         for try await mailbox in client.mailbox() { return mailbox.policy }

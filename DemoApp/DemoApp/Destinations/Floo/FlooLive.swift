@@ -295,6 +295,7 @@ final class FlooLive {
         }
         Task { await loadIndex() }
         Task { await loadLibrary() }
+        if let client { Task { await FlooAgentLooks.shared.read(client) } }
         let listing = Task { await keepListing() }
         defer { listing.cancel() }
         current = backend.lab ? Stage.opens ?? .main(of: backend.account) : .main(of: backend.account)
@@ -2092,8 +2093,22 @@ final class FlooLive {
         return FlooAgent(name: "\(names[owner] ?? "别人")的\(own.name)", tint: .teal)
     }
 
+    /// An agent as the chat shows it: by what the person calls it (FlooAgentLooks), else its
+    /// service's name in the catalog, in Chinese where it has one; its colour kept once given.
     private func agent(_ id: AgentID) -> FlooAgent {
-        guard case .service(let service) = id else { return .butler }
+        let looks = FlooAgentLooks.shared
+        guard case .service(let service) = id else {
+            return looks.names["butler"].map { FlooAgent(name: $0, tint: FlooAgent.butler.tint) } ?? .butler
+        }
+        let shown = agentColors(service)
+        let summary = index?.services.first { $0.id == service }
+        let named = looks.name(of: service.rawValue)
+            ?? summary.map { $0.localized["zh-Hans"]?.name ?? $0.name }
+        return named.map { FlooAgent(name: $0, tint: shown.tint) } ?? shown
+    }
+
+    /// An agent's colour and fallback name, kept once given: known ones by their service.
+    private func agentColors(_ service: ServiceID) -> FlooAgent {
         let name = service.rawValue
         if let known = agents[name] { return known }
         let lower = name.lowercased()

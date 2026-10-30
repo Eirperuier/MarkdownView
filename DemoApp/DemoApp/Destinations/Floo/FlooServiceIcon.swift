@@ -159,8 +159,11 @@ actor FlooIconLoader {
 
     func icon(at url: URL) async -> FlooIconImage? {
         if let icon = loaded[url] { return icon }
-        // Nil: none, or not reached now; the letter stands in.
-        guard let data = await Assets.data(url.absoluteString), let icon = FlooIconImage(data: data) else { return nil }
+        // Nil: none, or not reached now; the letter stands in. A picture the person chose
+        // (FlooAgentLooks) comes as its bytes, `data:<type>;base64,…`.
+        let inline = url.scheme == "data" ? url.absoluteString.split(separator: ",", maxSplits: 1).last.flatMap { Data(base64Encoded: String($0)) } : nil
+        let fetched = inline == nil ? await Assets.data(url.absoluteString) : inline
+        guard let data = fetched, let icon = FlooIconImage(data: data) else { return nil }
         loaded[url] = icon
         return icon
     }

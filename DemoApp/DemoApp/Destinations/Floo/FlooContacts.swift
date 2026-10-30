@@ -64,7 +64,10 @@ struct FlooService: Decodable, Identifiable, Hashable {
 
     /// Its words in Chinese, each falling back to English (`Presentation.text(in:)`).
     private var chinese: Text? { presentation.localized?["zh-Hans"] }
-    var name: String { chinese?.name ?? presentation.name }
+    /// What the person calls its agent (FlooAgentLooks), else the catalog's name.
+    @MainActor var name: String { FlooAgentLooks.shared.name(of: id) ?? catalogName }
+    /// The catalog's name, in Chinese where it has one: what it goes by until renamed.
+    var catalogName: String { chinese?.name ?? presentation.name }
     var shortDescription: String? { chinese?.shortDescription ?? presentation.shortDescription }
     var description: String? { chinese?.description ?? presentation.description }
     var prompts: [String] { Array((chinese?.prompts ?? presentation.prompts ?? []).prefix(3)) }
@@ -73,8 +76,9 @@ struct FlooService: Decodable, Identifiable, Hashable {
     /// Writes, deletions and those whose effect isn't known: each asks first (PolicyKit).
     var changes: [Operation] { operations.filter { $0.effect != "read" } }
 
-    /// Its icon as the definition names it, a path on the server (``Assets``) or a URL.
-    var icon: URL? { presentation.icon.flatMap(URL.init(string:)) }
+    /// The person's picture for its agent (FlooAgentLooks), else its icon as the definition
+    /// names it, a path on the server (``Assets``) or a URL.
+    @MainActor var icon: URL? { FlooAgentLooks.shared.picture(of: id) ?? presentation.icon.flatMap(URL.init(string:)) }
     var tint: Color { presentation.color.flatMap(Color.init(hex:)) ?? .gray }
 
     /// The App's own name for a category (a UI string, localized with the App).

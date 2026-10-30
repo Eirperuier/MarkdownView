@@ -10,6 +10,7 @@
 //
 
 import AppleDeviceImages
+import PhotosUI
 import SwiftUI
 import CardModel
 import CardUI
@@ -19,7 +20,7 @@ import Wire
 
 extension FlooService {
     /// The backdrop's colour: the definition's, else the icon's most common vivid colour.
-    func backdrop() async -> Color {
+    @MainActor func backdrop() async -> Color {
         if let hex = presentation.color, let color = Color(hex: hex) { return color }
         if let url = icon, let tint = await FlooIconLoader.shared.icon(at: url)?.tint { return Color(uiColor: tint) }
         return Color(white: 0.45)
@@ -54,6 +55,9 @@ struct FlooContactPage: View {
     @State private var tint = Color(white: 0.45)
     @State private var showsAbout = false
     @State private var confirmsUnfollow = false
+    @State private var renames = false
+    @State private var newName = ""
+    @State private var picked: PhotosPickerItem?
 
     private var following: FlooFollowing { demo.following[service.id] ?? FlooFollowing() }
 
@@ -80,6 +84,26 @@ struct FlooContactPage: View {
         .task { if demo.live != nil { await demo.look(service) } }
         .task { await demo.readApprovals() }
         .sheet(isPresented: $showsAbout) { FlooAboutSheet(service: service) }
+        .alert("重命名", isPresented: $renames) {
+            TextField(service.catalogName, text: $newName)
+            Button("好") { Task { await demo.rename(service, to: newName) } }
+            if FlooAgentLooks.shared.name(of: service.id) != nil {
+                Button("恢复为“\(service.catalogName)”") { Task { await demo.rename(service, to: "") } }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("它会以新名字称呼自己，之前的对话保留原来的名字。")
+        }
+        .onChange(of: picked) { _, item in
+            guard let item else { return }
+            picked = nil
+            Task {
+                // try?: unreadable, the picture stays as it was
+                guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else { return }
+                await demo.setPicture(image, of: service)
+                tint = await service.backdrop()
+            }
+        }
         .confirmationDialog("不再关注 \(service.name)？", isPresented: $confirmsUnfollow, titleVisibility: .visible) {
             Button("不再关注", role: .destructive) {
                 if demo.live != nil {
@@ -96,11 +120,26 @@ struct FlooContactPage: View {
 
     // MARK: Poster and actions
 
+    // Its name and picture are the person's to change; its id stays (floo docs/context-format.md §3.5).
     private var poster: some View {
         VStack(spacing: 8) {
-            FlooServiceIcon(url: service.icon, name: service.name, tint: tint, size: 104)
-                .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
-            Text(service.name).font(.system(size: 30, weight: .bold, design: .rounded))
+            Menu {
+                PhotosPicker("换头像", selection: $picked, matching: .images)
+                if FlooAgentLooks.shared.picture(of: service.id) != nil {
+                    Button("恢复默认头像", role: .destructive) {
+                        Task { await demo.setPicture(nil, of: service) }
+                    }
+                }
+            } label: {
+                FlooServiceIcon(url: service.icon, name: service.name, tint: tint, size: 104)
+                    .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+            }
+            Button {
+                newName = service.name
+                renames = true
+            } label: {
+                Text(service.name).font(.system(size: 30, weight: .bold, design: .rounded)).foregroundStyle(.primary)
+            }
             HStack(spacing: 6) {
                 Circle().fill(status.color).frame(width: 7, height: 7)
                 Text(status.text).font(.subheadline).foregroundStyle(.secondary)
