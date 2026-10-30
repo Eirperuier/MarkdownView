@@ -4,11 +4,11 @@
 //
 //  Code and math blocks are edited as their source. A code block is Craft's, read and
 //  edited alike (DocCodeBox): a box with a thin border, the lines numbered in a gutter
-//  on its left and two more numbered after the last, the code beside them, its long
-//  lines running on and scrolling sideways past the gutter; while it's edited, ringed,
-//  its caret's line lit. Its language and Copy Code are in its menu: the
-//  block's (a right-click on it), the text's (a right-click in it on the Mac) and the
-//  keyboard bar's </> on a phone. A math block is written as a cell's formula
+//  on its left, the code beside them, its long lines running on and scrolling sideways
+//  past the gutter; while it's edited, ringed, its caret's line lit. Its language and
+//  Copy Code are in its menu: the block's (a right-click on it), the text's (a
+//  right-click in it on the Mac) and the keyboard bar's </> on a phone.
+//  A math block is written as a cell's formula
 //  is (DocTableFormula), its LaTeX in a panel and the formula, ringed, following on the
 //  page: on the Mac the panel is under the block (the menus' anchored panel), on a phone
 //  it's glass over the keyboard (its bar), the page scrolled to show the block above it.
@@ -743,8 +743,6 @@ struct DocCodeMetrics: Equatable {
     var numberTrailing: CGFloat { 10.5 * scale }
     var codeLeading: CGFloat { 14 * scale }
 
-    /// Lines numbered after the last: room to go on.
-    static let extraLines = 2
     static let radius: CGFloat = 6
     static let border: CGFloat = 1
     static let separator: CGFloat = 0.5
@@ -767,7 +765,7 @@ struct DocCodeMetrics: Equatable {
 
     /// The text's insets beside the gutter, inside the border.
     var insets: UIEdgeInsets {
-        UIEdgeInsets(top: edge + gap, left: codeLeading, bottom: gap + CGFloat(Self.extraLines) * pitch + edge, right: codeLeading)
+        UIEdgeInsets(top: edge + gap, left: codeLeading, bottom: gap + edge, right: codeLeading)
     }
 }
 
@@ -792,7 +790,7 @@ final class DocCodeBackdrop: UIView {
     }
 }
 
-/// A code block's gutter: its lines' numbers (and the two after them), right-aligned on
+/// A code block's gutter: its lines' numbers, right-aligned on
 /// the lines' pitch, on a fill a little lighter than the box's. It stays where it is
 /// while the code scrolls sideways.
 struct DocCodeGutter: View {
@@ -837,7 +835,7 @@ struct DocCodeBox: View {
         let code = DocCodeMetrics(font: docCodeFont)
         let ink = colors?.primary ?? .primary
         HStack(spacing: 0) {
-            DocCodeGutter(lines: text.reduce(1) { $1 == "\n" ? $0 + 1 : $0 } + DocCodeMetrics.extraLines, code: code)
+            DocCodeGutter(lines: text.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }, code: code)
             Rectangle()
                 .fill(ink.opacity(DocCodeMetrics.lineOpacity))
                 .frame(width: DocCodeMetrics.separator)
