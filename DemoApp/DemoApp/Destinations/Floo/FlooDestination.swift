@@ -1252,7 +1252,7 @@ private struct FlooRowView: View {
                 session: name.flatMap { demo.sessions[$0] }
             )
         } else if let session = name.flatMap({ demo.card($0) }) {
-            CardFrame(layout: card.layout, widens: true) { CardView(tree: session.tree) }
+            CardFrame(layout: card.layout, widens: true) { CardView(tree: session.tree).flooProgram(card: name) }
                 .overlay { FlooCardEdge(size: card.layout.size) }
         }
     }

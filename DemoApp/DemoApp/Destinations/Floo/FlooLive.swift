@@ -134,6 +134,8 @@ final class FlooLive {
     /// The oldest message shown: one older than it, loaded on scrolling up, goes before all.
     private var lowestShown: Int64?
     private var client: FlooClient?
+    /// Mini programs' cards and rows in answers (FlooProgramCards), once there's a server.
+    private var programs: FlooProgramCards?
     /// The demo's entries for the backend's messages, by number.
     private var said: [Int64: FlooDemo.Said] = [:]
     /// What you sent from here, shown at once, by its message's id until the backend has it.
@@ -1771,7 +1773,11 @@ final class FlooLive {
                         continue
                     }
                     let key = "live-\(info.number)-\(card.fence)-\(card.item)"
-                    demo.setCard(key, source: source, data: Self.value(card.data))
+                    if let program = card.program {
+                        programCards?.show(key, call: source, program: program, data: Self.value(card.data), in: demo)
+                    } else {
+                        demo.setCard(key, source: source, data: Self.value(card.data))
+                    }
                     var keys = message.fenceCards[card.fence] ?? []
                     if !keys.contains(key) {
                         keys.append(key)
@@ -2118,6 +2124,17 @@ final class FlooLive {
     private static func item(_ key: String) -> Int { Int(key.split(separator: "-").last ?? "") ?? 0 }
 
     /// A card's data as cards take it: the same values, kind for kind.
+    /// Mini programs' cards and rows in answers: made once there's a server, and drawing the
+    /// conversation again when a program they're of has been read.
+    private var programCards: FlooProgramCards? {
+        if programs == nil, let client {
+            programs = FlooProgramCards(server: client) { [weak self] in
+                if let self, let last = self.last { self.show(last) }
+            }
+        }
+        return programs
+    }
+
     private static func value(_ json: Wire.JSONValue?) -> CardValue {
         guard let json else { return .object([:]) }
         return card(json)
@@ -2175,8 +2192,10 @@ final class FlooLive {
             tags: mention.tags,
             facts: mention.facts?.map { Mention.Fact(name: $0.name, value: $0.value) },
             pieces: mention.pieces?.map { Mention.Piece(field: $0.field, component: $0.component) },
-            view: mention.view,
-            data: mention.data.map(Self.card),
+            view: mention.program.flatMap { programCards?.source(mention.view ?? "", of: $0) } ?? mention.view,
+            data: mention.data.map { data in
+                mention.program.flatMap { programCards?.data(Self.card(data), of: $0) } ?? Self.card(data)
+            },
             templates: mention.templates,
             service: service?.id.rawValue
         )
