@@ -1230,7 +1230,7 @@ private struct FlooRowView: View {
             HStack(alignment: .top, spacing: CardSize.gutter()) {
                 ForEach(lines, id: \.self) { name in
                     if let session = demo.card(name) {
-                        CardFrame(layout: layout, widens: true) { CardView(tree: session.tree) }
+                        CardFrame(layout: layout.fitted, widens: true) { CardView(tree: session.tree) }
                             .overlay { FlooCardEdge(size: layout.size) }
                     }
                 }
@@ -1252,7 +1252,7 @@ private struct FlooRowView: View {
                 session: name.flatMap { demo.sessions[$0] }
             )
         } else if let session = name.flatMap({ demo.card($0) }) {
-            CardFrame(layout: card.layout, widens: true) { CardView(tree: session.tree).flooProgram(card: name) }
+            CardFrame(layout: card.layout.fitted, widens: true) { CardView(tree: session.tree).flooProgram(card: name) }
                 .overlay { FlooCardEdge(size: card.layout.size) }
         }
     }
@@ -2132,7 +2132,7 @@ private struct FlooLiveCard: View {
 
     var body: some View {
         let drawing = !(session?.tree.roots.isEmpty ?? true)
-        CardFrame(layout: layout, widens: true) {
+        CardFrame(layout: layout.fitted, widens: true) {
             // One card view for as long as it's drawn: its own entrances bring in what the
             // source adds, and a retry's reset takes its views out at once. Swapped for the
             // request each time the tree was empty for a moment (as a line is half-written),
@@ -2492,4 +2492,10 @@ private struct FlooThingView: View {
             }
         }
     }
+}
+
+extension CardLayout {
+    /// A conversation's card: as tall as it draws, at any size. The sizes' heights are a
+    /// widget's (CardOverflow.fit, floo docs/cards.md).
+    var fitted: CardLayout { (try? CardLayout(size: size, overflow: .fit)) ?? self }
 }
