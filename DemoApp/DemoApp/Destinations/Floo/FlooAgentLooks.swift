@@ -94,3 +94,41 @@ final class FlooAgentLooks {
         }
     }
 }
+
+/// One photo from the library, as UIKit's picker gives it: `PhotosPicker` lives in the
+/// `_PhotosUI_SwiftUI` cross-import overlay, which a Mac Catalyst build doesn't always load.
+struct FlooPhotoPicker: UIViewControllerRepresentable {
+    /// The photo chosen; nil, cancelled or unreadable.
+    let chosen: @MainActor (UIImage?) -> Void
+
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: PHPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(chosen: chosen) }
+
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let chosen: @MainActor (UIImage?) -> Void
+
+        init(chosen: @escaping @MainActor (UIImage?) -> Void) { self.chosen = chosen }
+
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            guard let provider = results.first?.itemProvider, provider.canLoadObject(ofClass: UIImage.self) else {
+                Task { @MainActor in chosen(nil) }
+                return
+            }
+            let chosen = chosen
+            provider.loadObject(ofClass: UIImage.self) { object, _ in
+                let image = object as? UIImage
+                Task { @MainActor in chosen(image) }
+            }
+        }
+    }
+}

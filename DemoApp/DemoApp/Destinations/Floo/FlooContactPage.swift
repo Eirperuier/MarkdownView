@@ -10,7 +10,6 @@
 //
 
 import AppleDeviceImages
-import PhotosUI
 import SwiftUI
 import CardModel
 import CardUI
@@ -57,7 +56,7 @@ struct FlooContactPage: View {
     @State private var confirmsUnfollow = false
     @State private var renames = false
     @State private var newName = ""
-    @State private var picked: PhotosPickerItem?
+    @State private var picksPhoto = false
 
     private var following: FlooFollowing { demo.following[service.id] ?? FlooFollowing() }
 
@@ -94,15 +93,16 @@ struct FlooContactPage: View {
         } message: {
             Text("它会以新名字称呼自己，之前的对话保留原来的名字。")
         }
-        .onChange(of: picked) { _, item in
-            guard let item else { return }
-            picked = nil
-            Task {
-                // try?: unreadable, the picture stays as it was
-                guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else { return }
-                await demo.setPicture(image, of: service)
-                tint = await service.backdrop()
+        .sheet(isPresented: $picksPhoto) {
+            FlooPhotoPicker { image in
+                picksPhoto = false
+                guard let image else { return }
+                Task {
+                    await demo.setPicture(image, of: service)
+                    tint = await service.backdrop()
+                }
             }
+            .ignoresSafeArea()
         }
         .confirmationDialog("不再关注 \(service.name)？", isPresented: $confirmsUnfollow, titleVisibility: .visible) {
             Button("不再关注", role: .destructive) {
@@ -124,7 +124,7 @@ struct FlooContactPage: View {
     private var poster: some View {
         VStack(spacing: 8) {
             Menu {
-                PhotosPicker("换头像", selection: $picked, matching: .images)
+                Button("换头像") { picksPhoto = true }
                 if FlooAgentLooks.shared.picture(of: service.id) != nil {
                     Button("恢复默认头像", role: .destructive) {
                         Task { await demo.setPicture(nil, of: service) }
