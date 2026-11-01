@@ -22,7 +22,8 @@ final class FlooAgentLooks {
 
     /// What the person calls each, by the agent's id: "butler", "service:weather".
     private(set) var names: [String: String] = [:]
-    /// The person's picture for each, by the agent's id, as an address to read it from.
+    /// The person's picture for each, by the agent's id, as an address to read it from: its
+    /// hash (`media:`, FlooMedia's cache) signed in, its bytes scripted.
     private(set) var pictures: [String: URL] = [:]
 
     /// A service's agent's name as the person set it; nil, the catalog's.
@@ -39,9 +40,7 @@ final class FlooAgentLooks {
         for look in looks.agents {
             let key = look.agent.description
             if let name = look.name { names[key] = name }
-            if look.avatar != nil, let link = try? await client.agentAvatar(look.agent) {  // try?: its icon then
-                pictures[key] = Self.address(link)
-            }
+            if let avatar = look.avatar { pictures[key] = FlooIconLoader.address(avatar) }
         }
         self.names = names
         self.pictures = pictures
@@ -73,12 +72,6 @@ final class FlooAgentLooks {
         let media = try await client.upload(data, type: "image/jpeg")
         try await client.setAvatar(media.hash, of: agent)
         await read(client)
-    }
-
-    /// Where to read a picture from: its link, or its bytes as they came.
-    private static func address(_ link: MediaLink) -> URL? {
-        if let content = link.content { return URL(string: "data:\(link.media.type);base64,\(content.base64EncodedString())") }
-        return link.url.flatMap(URL.init(string:))
     }
 
     /// The middle square of `image`, at most `side` across.

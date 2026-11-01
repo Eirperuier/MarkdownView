@@ -17,6 +17,8 @@
 		F100C0DE2E00000000000038 /* ConversationKit in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000034 /* ConversationKit */; };
 		F100C0DE2E00000000000039 /* DeviceSupport in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000035 /* DeviceSupport */; };
 		F100C0DE2E00000000000061 /* LocalStore in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000062 /* LocalStore */; };
+		F100C0DE2E00000000000063 /* ContentStore in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000064 /* ContentStore */; };
+		F100C0DE2E00000000000065 /* ContentKit in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000066 /* ContentKit */; };
 		F100C0DE2E00000000000011 /* DocKit in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000012 /* DocKit */; };
 		F100C0DE2E00000000000021 /* FlooDesign in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000022 /* FlooDesign */; };
 		F100C0DE2E00000000000041 /* ChatBackgrounds in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000042 /* ChatBackgrounds */; };
@@ -50,6 +52,8 @@
 				F100C0DE2E00000000000038 /* ConversationKit in Frameworks */,
 				F100C0DE2E00000000000039 /* DeviceSupport in Frameworks */,
 				F100C0DE2E00000000000061 /* LocalStore in Frameworks */,
+				F100C0DE2E00000000000063 /* ContentStore in Frameworks */,
+				F100C0DE2E00000000000065 /* ContentKit in Frameworks */,
 				F100C0DE2E00000000000011 /* DocKit in Frameworks */,
 				F100C0DE2E00000000000021 /* FlooDesign in Frameworks */,
 				F100C0DE2E00000000000041 /* ChatBackgrounds in Frameworks */,
@@ -107,6 +111,8 @@
 				F100C0DE2E00000000000033 /* TransportKit */,
 				F100C0DE2E00000000000034 /* ConversationKit */,
 				F100C0DE2E00000000000062 /* LocalStore */,
+				F100C0DE2E00000000000064 /* ContentStore */,
+				F100C0DE2E00000000000066 /* ContentKit */,
 				F100C0DE2E00000000000035 /* DeviceSupport */,
 				F100C0DE2E00000000000022 /* FlooDesign */,
 				F100C0DE2E00000000000042 /* ChatBackgrounds */,
@@ -518,6 +524,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F100C0DE2E00000000000031 /* XCLocalSwiftPackageReference "ApplePlatform" */;
 			productName = LocalStore;
+		};
+		F100C0DE2E00000000000064 /* ContentStore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F100C0DE2E00000000000031 /* XCLocalSwiftPackageReference "ApplePlatform" */;
+			productName = ContentStore;
+		};
+		F100C0DE2E00000000000066 /* ContentKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F100C0DE2E00000000000030 /* XCLocalSwiftPackageReference "Core" */;
+			productName = ContentKit;
 		};
 		F100C0DE2E00000000000042 /* ChatBackgrounds */ = {
 			isa = XCSwiftPackageProductDependency;

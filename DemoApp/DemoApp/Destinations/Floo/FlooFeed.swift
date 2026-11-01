@@ -13,6 +13,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import CardModel
 import CardUI
+import LocalStore
 import Wire
 import TransportKit
 
@@ -30,7 +31,6 @@ final class FlooFeed {
     @ObservationIgnored private var names: [AccountID: String] = [:]
     @ObservationIgnored private var icons: [ServiceID: URL] = [:]
     @ObservationIgnored private var cards: [String: CardSession] = [:]
-    @ObservationIgnored private var pictures: [String: UIImage] = [:]
     @ObservationIgnored private var reading = false
 
     init(live: FlooLive, from: Participant? = nil) {
@@ -175,33 +175,23 @@ final class FlooFeed {
         }
     }
 
-    /// A picture of a post, loaded once; nil while it can't be.
-    func picture(_ picture: FlooFeedPicture) async -> UIImage? {
-        if let image = pictures[picture.id] { return image }
-        var data: Data?
-        switch picture.source {
-        case .posted(let post, let index):
-            guard let client = live.server, let link = try? await client.feedImage(index, of: post) else { return nil }  // try?: the placeholder stays
-            data = link.content
-            if data == nil { data = await Self.fetch(link.url.flatMap(URL.init(string:))) }
-        case .web(let url):
-            data = await Self.fetch(url)
+    /// How a post's picture is reached when the device hasn't it: through the post (it may be
+    /// someone else's, which the server gives by hash to its owner only), its link asked for
+    /// each time it's needed; the bytes are kept by their hash (FlooMedia).
+    func reach(_ index: Int, of post: Int64) -> FlooMedia.Reach {
+        let client = live.server
+        return FlooMedia.Reach(byHash: false) {
+            guard let client else { throw CancellationError() }
+            return try await client.feedImage(index, of: post)
         }
-        guard let data, let image = UIImage(data: data) else { return nil }
-        pictures[picture.id] = image
-        return image
-    }
-
-    private static func fetch(_ url: URL?) async -> Data? {
-        guard let url else { return nil }
-        return try? await URLSession.shared.data(from: url).0  // try?: the placeholder stays
     }
 }
 
 /// A picture in a post: one it was posted with, or one its words show.
 struct FlooFeedPicture: Hashable, Identifiable {
     enum Source: Hashable {
-        case posted(Int64, Int)
+        /// The post's, its index, and the picture.
+        case posted(Int64, Int, MediaRef)
         case web(URL)
     }
 
@@ -211,7 +201,7 @@ struct FlooFeedPicture: Hashable, Identifiable {
 
     var id: String {
         switch source {
-        case .posted(let post, let index): "\(post)/\(index)"
+        case .posted(let post, let index, _): "\(post)/\(index)"
         case .web(let url): url.absoluteString
         }
     }
@@ -232,7 +222,7 @@ enum FlooFeedText {
     static func pictures(of post: FeedPost) -> [FlooFeedPicture] {
         let posted = post.images.enumerated().map { index, media in
             FlooFeedPicture(
-                source: .posted(post.number, index),
+                source: .posted(post.number, index, media),
                 aspect: media.width.flatMap { width in media.height.map { CGFloat(width) / CGFloat(max(1, $0)) } }
             )
         }
@@ -685,15 +675,12 @@ struct FlooFeedPictureView: View {
     let feed: FlooFeed
     let picture: FlooFeedPicture
     /// Its side in a grid; nil alone, as wide or high as Moments shows one, in its own shape
-    /// (the picture's, once loaded, when the post didn't say).
+    /// (a square when the post didn't say).
     var side: CGFloat?
-    @State private var image: UIImage?
 
     private var size: CGSize {
         if let side { return CGSize(width: side, height: side) }
-        guard let aspect = picture.aspect ?? image.map({ $0.size.width / max(1, $0.size.height) }) else {
-            return CGSize(width: 160, height: 160)
-        }
+        guard let aspect = picture.aspect else { return CGSize(width: 160, height: 160) }
         return aspect >= 1
             ? CGSize(width: 180, height: max(80, 180 / aspect))
             : CGSize(width: max(80, 180 * aspect), height: 180)
@@ -702,13 +689,19 @@ struct FlooFeedPictureView: View {
     var body: some View {
         ZStack {
             Color.primary.opacity(0.06)
-            if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+            // Its ThumbHash, then the picture decoded at this size, from the account's cache;
+            // one from the web through the same decoded images, fetched when not among them.
+            switch picture.source {
+            case .posted(let post, let index, let media):
+                FlooMediaImage(media: media, use: ContentUse(.image, keep: .others), reach: feed.reach(index, of: post))
+            case .web(let url):
+                CardAsyncImage(url: url.absoluteString, thumbhash: nil) {
+                    try? await URLSession.shared.data(from: url).0  // try?: the placeholder stays
+                }
             }
         }
         .frame(width: size.width, height: size.height)
         .clipped()
-        .task(id: picture) { image = await feed.picture(picture) }
     }
 }
 

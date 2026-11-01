@@ -273,6 +273,12 @@ final class FlooLive {
         if let store {
             listStorage = store.conversations
             if let client { syncer = ConversationSync(remote: client, storage: store.conversations) }
+            // The account's pictures, one cache on the same store (FlooMedia).
+            if let client {
+                let folder = URL.demoSupport.appending(path: backend.folder, directoryHint: .isDirectory)
+                FlooMedia.open(account: backend.account, local: store.content,
+                               directory: folder.appending(path: "content.\(backend.account)", directoryHint: .isDirectory), client: client)
+            }
         }
         // Followed while this account is live, and no longer once it isn't.
         var following: [Task<Void, Never>] = []
@@ -1794,6 +1800,11 @@ final class FlooLive {
                     message.fenceMentions[mention.fence] = self.mention(mention)
                 case .page(let page):
                     message.fencePages[page.fence] = Self.page(page)
+                // Pictures it shows and its tools' pictures, in the words where they come (FlooImages).
+                case .image(let image) where read:
+                    words.append(FlooImage.fence([image]))
+                case .toolImages(_, let images) where !images.isEmpty:
+                    words.append(FlooImage.fence(images))
                 default:
                     break
                 }

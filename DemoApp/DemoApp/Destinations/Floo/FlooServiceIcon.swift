@@ -9,8 +9,10 @@
 //
 
 import CardUI
+import LocalStore
 import SwiftUI
 import UIKit
+import Wire
 
 /// iOS's icon shape: a continuous rounded square, its radius 22.37% of the side.
 struct FlooIconShape: InsettableShape {
@@ -49,10 +51,15 @@ struct FlooServiceIcon: View {
                     Image(uiImage: icon!.image).resizable().scaledToFit().padding(size * 0.18)
                 }
             case nil:
-                Rectangle().fill(tint.gradient)
-                Text(String(name.prefix(1)))
-                    .font(.system(size: size * 0.44, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+                // A picture of the person's on its way: its ThumbHash; else the letter.
+                if let blurred = url.flatMap(FlooIconLoader.placeholder(of:)).flatMap(CardAsyncImage.placeholder(of:)) {
+                    Image(decorative: blurred, scale: 1).resizable().scaledToFill()
+                } else {
+                    Rectangle().fill(tint.gradient)
+                    Text(String(name.prefix(1)))
+                        .font(.system(size: size * 0.44, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
             }
         }
         .frame(width: size, height: size)
@@ -152,19 +159,62 @@ struct FlooIconImage: @unchecked Sendable {
 }
 
 /// Each icon as drawn, from its bytes as ``Assets`` has them (the app's own copy of a device
-/// service's, else the server's), read once.
+/// service's, else the server's), or a picture the person chose for an agent from the account's
+/// cache (FlooMedia), read once and kept while there's room.
 actor FlooIconLoader {
     static let shared = FlooIconLoader()
-    private var loaded: [URL: FlooIconImage] = [:]
+
+    private final class Entry {
+        let icon: FlooIconImage
+        init(_ icon: FlooIconImage) { self.icon = icon }
+    }
+
+    /// Icons are small; a few hundred is every one a page shows.
+    private let loaded: NSCache<NSURL, Entry> = {
+        let cache = NSCache<NSURL, Entry>()
+        cache.countLimit = 512
+        return cache
+    }()
 
     func icon(at url: URL) async -> FlooIconImage? {
-        if let icon = loaded[url] { return icon }
+        if let entry = loaded.object(forKey: url as NSURL) { return entry.icon }
         // Nil: none, or not reached now; the letter stands in. A picture the person chose
-        // (FlooAgentLooks) comes as its bytes, `data:<type>;base64,…`.
-        let inline = url.scheme == "data" ? url.absoluteString.split(separator: ",", maxSplits: 1).last.flatMap { Data(base64Encoded: String($0)) } : nil
-        let fetched = inline == nil ? await Assets.data(url.absoluteString) : inline
+        // (FlooAgentLooks) is named by its hash (`media:`), or comes as its bytes scripted
+        // (`data:<type>;base64,…`).
+        let fetched: Data?
+        if let id = Self.hash(of: url) {
+            fetched = await FlooMedia.data(id, as: ContentUse(.icon, keep: .mine))
+        } else if url.scheme == "data" {
+            fetched = url.absoluteString.split(separator: ",", maxSplits: 1).last.flatMap { Data(base64Encoded: String($0)) }
+        } else {
+            fetched = await Assets.data(url.absoluteString)
+        }
         guard let data = fetched, let icon = FlooIconImage(data: data) else { return nil }
-        loaded[url] = icon
+        loaded.setObject(Entry(icon), forKey: url as NSURL)
         return icon
+    }
+
+    /// A picture of the server's as an icon's address: `media:<hash>`, its ThumbHash after.
+    nonisolated static func address(_ media: MediaRef) -> URL? {
+        var address = "media:\(media.hash)"
+        if let thumbhash = media.thumbhash {
+            address += "?thumbhash=" + thumbhash.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        }
+        return URL(string: address)
+    }
+
+    nonisolated static func hash(of url: URL) -> ContentHash? {
+        guard url.scheme == "media" else { return nil }
+        return try? ContentHash(url.absoluteString.dropFirst("media:".count).prefix { $0 != "?" }.description)  // try?: not one
+    }
+
+    /// The ThumbHash an icon's address carries.
+    nonisolated static func placeholder(of url: URL) -> [UInt8]? {
+        guard url.scheme == "media", let mark = url.absoluteString.range(of: "?thumbhash=") else { return nil }
+        let text = url.absoluteString[mark.upperBound...]
+            .replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let padded = text + String(repeating: "=", count: (4 - text.count % 4) % 4)
+        return Data(base64Encoded: padded).map(Array.init)
     }
 }

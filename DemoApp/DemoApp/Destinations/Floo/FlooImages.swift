@@ -10,13 +10,58 @@
 //
 
 import SwiftUI
+import CardUI
 import FlooDesign
+import Wire
 
 /// An image an agent's words show: where it is, and what it shows.
 struct FlooImage: Equatable, Identifiable {
     let url: URL
     let alt: String
     var id: String { url.absoluteString }
+
+    /// The server's picture it is (`media:<hash>?…`, an image block of a message or a tool's
+    /// result): its size and ThumbHash known before it comes, its bytes from the account's
+    /// cache (FlooMedia).
+    var media: MediaRef? { Self.media(url) }
+
+    /// A ```floo.images fence of the server's pictures: an image block, a tool's images. Each
+    /// line is its hash with what's known of it, as `media(_:)` reads it back.
+    static func fence(_ images: [MediaRef]) -> String {
+        let lines = images.map { image in
+            var address = "media:\(image.hash)?type=\(image.type)&size=\(image.size)"
+            if let width = image.width, let height = image.height { address += "&width=\(width)&height=\(height)" }
+            if let thumbhash = image.thumbhash {
+                address += "&thumbhash=" + thumbhash.base64EncodedString()
+                    .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+                    .replacingOccurrences(of: "=", with: "")
+            }
+            return address
+        }
+        return (["```floo.images"] + lines + ["```"]).joined(separator: "\n")
+    }
+
+    private static func media(_ url: URL) -> MediaRef? {
+        guard url.scheme == "media", let parts = URLComponents(string: url.absoluteString),
+              let hash = try? ContentHash(String(parts.path))  // try?: not a hash, not one
+        else { return nil }
+        var fields: [String: String] = [:]
+        for item in parts.queryItems ?? [] { fields[item.name] = item.value }
+        let thumbhash = fields["thumbhash"].flatMap { text -> Data? in
+            let plain = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+            return Data(base64Encoded: plain + String(repeating: "=", count: (4 - plain.count % 4) % 4))
+        }
+        return MediaRef(
+            hash: hash, type: fields["type"] ?? "image/jpeg", size: fields["size"].flatMap { Int64($0) } ?? 0,
+            width: fields["width"].flatMap { Int($0) }, height: fields["height"].flatMap { Int($0) }, thumbhash: thumbhash
+        )
+    }
+
+    /// Its width over its height, where it says.
+    var aspect: CGFloat? {
+        guard let media, let width = media.width, let height = media.height, width > 0, height > 0 else { return nil }
+        return CGFloat(width) / CGFloat(height)
+    }
 }
 
 extension FlooDemo {
@@ -156,8 +201,8 @@ private struct FlooImageBox: View {
     let tap: () -> Void
 
     var body: some View {
-        let picture = DocImageCache.shared.image(image.url)
-        let aspect = picture.map { $0.size.width / max($0.size.height, 1) } ?? 1
+        let picture = image.media == nil ? DocImageCache.shared.image(image.url) : nil
+        let aspect = image.aspect ?? picture.map { $0.size.width / max($0.size.height, 1) } ?? 1
         let natural = height * aspect
         Group {
             if let widest {
@@ -175,7 +220,10 @@ private struct FlooImageBox: View {
     private func box(_ picture: UIImage?, width: CGFloat) -> some View {
         ZStack {
             FlooDesignTokens.Component.MediaCard.panel
-            if let picture {
+            if let media = image.media {
+                // Its ThumbHash, then the picture, decoded at this size.
+                FlooMediaImage(media: media).frame(width: width, height: height)
+            } else if let picture {
                 Image(uiImage: picture)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -202,7 +250,9 @@ private struct FlooImageViewer: View {
         TabView(selection: Binding(get: { shown ?? start.id }, set: { shown = $0 })) {
             ForEach(images) { image in
                 Group {
-                    if let picture = DocImageCache.shared.image(image.url) {
+                    if let media = image.media {
+                        FlooMediaImage(media: media, contentMode: .fit)
+                    } else if let picture = DocImageCache.shared.image(image.url) {
                         Image(uiImage: picture).resizable().aspectRatio(contentMode: .fit)
                     } else {
                         ProgressView().tint(.white)

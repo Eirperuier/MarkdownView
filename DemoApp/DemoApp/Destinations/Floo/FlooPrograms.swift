@@ -5,7 +5,7 @@
 //  The person's mini programs (floo docs/pages.md): listed from the server, each opened as its
 //  published version, compiled here with the programs it reads, its data kept in step with
 //  the server's. Intents that only change data run here; those that call tools or a model
-//  run on the server. Photos come through the server's short links.
+//  run on the server. Photos come through the account's cache (FlooMedia).
 //
 
 import SwiftUI
@@ -14,6 +14,7 @@ import CardRuntime
 import CardSyntax
 import CardUI
 import FlooDesign
+import LocalStore
 import TransportKit
 import Wire
 
@@ -62,7 +63,7 @@ final class FlooOpenProgram: Identifiable {
     init(summary: ProgramSummary, server: FlooClient) {
         self.summary = summary
         self.server = server
-        self.host = FlooProgramHost(server: server)
+        self.host = FlooProgramHost(server: server, program: summary.id)
         store = CloudStore { [weak self] batch in self?.send(batch) }
     }
 
@@ -194,10 +195,13 @@ final class FlooOpenProgram: Identifiable {
     }
 }
 
-/// Fetches a mini program's photos (`media:<hash>`) through the server's short links, and
-/// uploads those it picks.
+/// Fetches a mini program's photos (`media:<hash>`) through the account's cache (FlooMedia),
+/// cutting their subjects out here when a view asks for `variant=cutout`, and uploads those it
+/// picks.
 struct FlooProgramHost: CardHost {
     let server: FlooClient
+    /// Whose photos they are, in the cache's usage.
+    var program: ProgramID?
 
     struct NotHere: Error {}
 
@@ -207,16 +211,19 @@ struct FlooProgramHost: CardHost {
     }
 
     func image(_ url: String) async -> Data? {
-        guard let (hash, variant) = MediaAddress.parse(url), let content = try? ContentHash(hash),
-            let link = try? await server.link(to: content, variant: variant)  // nil: the placeholder stays
-        else { return nil }
-        if let bytes = link.content { return bytes }
-        guard let address = link.url.flatMap(URL.init(string:)) else { return nil }
-        return try? await URLSession.shared.data(from: address).0  // nil: the placeholder stays
+        // try?: not a photo's address; the placeholder stays.
+        guard let (hash, variant) = MediaAddress.parse(url), let id = try? ContentHash(hash) else { return nil }
+        let use = ContentUse(.image, owner: program.map { ContentOwner(.program, $0.description) }, keep: .mine)
+        let server = server
+        // By hash; a photo that isn't the account's (a program shared with it) through its link.
+        let reach = FlooMedia.Reach { try await server.link(to: id) }
+        // A cutout is this device's own; any other version the server doesn't make: the original.
+        if variant == "cutout" { return await FlooMedia.cutout(id, as: use, reach: reach) }
+        return await FlooMedia.data(id, as: use, reach: reach)
     }
 
-    /// A picked photo, uploaded: the program's Media for it, with its subject cut out on the
-    /// device under `variants` where Vision finds one (`FlooClient.upload`).
+    /// A picked photo, uploaded whole: the program's Media for it. Its cutout, where a view
+    /// draws one, is made by the device that shows it.
     func upload(_ data: Data, type: String) async throws -> CardValue {
         let media = try await server.upload(data, type: type)
         return try JSONDecoder().decode(CardValue.self, from: JSONEncoder().encode(media))
