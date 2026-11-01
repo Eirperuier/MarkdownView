@@ -665,7 +665,8 @@ struct FlooDevicePicture: View {
     var body: some View {
         Group {
             if let product = device.product {
-                AppleDeviceImage(product, size: .small) { image in
+                // The list's image is about 60 pt, the detail's about 150: drawn larger than it is, it blurs.
+                AppleDeviceImage(product, size: side > 64 ? .large : .small) { image in
                     image.resizable().scaledToFit()
                 } placeholder: {
                     symbol
