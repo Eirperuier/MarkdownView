@@ -197,8 +197,12 @@ struct FlooDestination: View {
             inspector.close("floo")
             demo.keepPlace()
         }
-        // Where you were, kept before the app may be ended in the background.
-        .onChange(of: scenePhase) { if scenePhase != .active { demo.keepPlace() } }
+        // Where you were, kept before the app may be ended in the background; in the
+        // background no card is looked at (FlooLooking).
+        .onChange(of: scenePhase) {
+            if scenePhase != .active { demo.keepPlace() }
+            FlooLooking.shared.setAway(scenePhase == .background)
+        }
         .alert("转为话题", isPresented: Binding(get: { demo.naming != nil }, set: { if !$0 { demo.naming = nil } })) {
             TextField("话题名", text: $topicTitle)
             Button("转") {
@@ -1166,6 +1170,7 @@ private struct FlooRowView: View {
                         CardFrame(layout: layout.fitted, widens: true) { CardView(tree: session.tree) }
                             .overlay { FlooCardEdge(size: layout.size) }
                             .cardUpdates(of: session)
+                            .flooLooking(session)
                     }
                 }
             }
@@ -1189,6 +1194,7 @@ private struct FlooRowView: View {
             CardFrame(layout: card.layout.fitted, widens: true) { CardView(tree: session.tree).flooProgram(card: name) }
                 .overlay { FlooCardEdge(size: card.layout.size) }
                 .cardUpdates(of: session)
+                .flooLooking(session)
         }
     }
 
@@ -2403,6 +2409,7 @@ private struct FlooLiveCard: View {
         }
         .overlay { FlooCardEdge(size: layout.size) }
         .cardUpdates(of: session)
+        .flooLooking(session)
     }
 }
 

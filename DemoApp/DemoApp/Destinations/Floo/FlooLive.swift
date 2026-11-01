@@ -134,8 +134,14 @@ final class FlooLive {
     /// The oldest message shown: one older than it, loaded on scrolling up, goes before all.
     private var lowestShown: Int64?
     private var client: FlooClient? {
-        // The account's pictures are fetched through the client it goes by now (FlooMedia).
-        didSet { if let client { FlooMedia.use(client) } }
+        // The account's pictures are fetched through the client it goes by now (FlooMedia), and
+        // the cards looked at are told through it (FlooLooking).
+        didSet {
+            if let client {
+                FlooMedia.use(client)
+                FlooLooking.shared.use(client)
+            }
+        }
     }
     /// Mini programs' cards and rows in answers (FlooProgramCards), once there's a server.
     private var programs: FlooProgramCards?
