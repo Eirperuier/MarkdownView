@@ -381,10 +381,6 @@ struct FlooDestination: View {
 
     private var bottom: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let approval = demo.approval {
-                FlooApprovalBar(approval: approval) { demo.decide($0) }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
             if !demo.openAsks.isEmpty {
                 if demo.showsAsks {
                     FlooAskList(waiting: demo.openAsks) { demo.jump(toAsk: $0) }
@@ -474,7 +470,6 @@ struct FlooDestination: View {
         .padding(.bottom, 6)
         .animation(FlooDesignTokens.Motion.layout, value: demo.openAsks.count)
         .animation(FlooDesignTokens.Motion.layout, value: demo.showsAsks)
-        .animation(FlooDesignTokens.Motion.layout, value: demo.approval)
         .animation(FlooDesignTokens.Motion.layout, value: demo.answering)
         .animation(FlooDesignTokens.Motion.layout, value: demo.replying)
         .animation(FlooDesignTokens.Motion.layout, value: demo.queued.map(\.id))
@@ -677,85 +672,6 @@ private struct FlowLayoutRow<Content: View>: View {
     }
 }
 
-/// Something an agent wants to do on one of your devices, as that device will do it; allowed
-/// from the one in your hand whichever it runs on. Allowing is for this once; held, it offers
-/// more. What can't be undone is only ever allowed once.
-private struct FlooApprovalBar: View {
-    let approval: FlooApproval
-    let decide: (FlooDecision) -> Void
-    @State private var details = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: approval.device.contains("Mac") ? "laptopcomputer" : "iphone")
-                Text("\(approval.agent.name) 要在\(approval.place) 上")
-                Spacer(minLength: 8)
-                Button {
-                    details.toggle()
-                } label: {
-                    Text(details ? "收起" : "详情").font(.caption)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-            }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(approval.agent.tint)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(approval.action).font(.subheadline.weight(.medium))
-                ForEach(approval.details, id: \.self) { detail in
-                    Text(detail).font(.footnote).foregroundStyle(.secondary)
-                }
-            }
-            if details {
-                Text(approval.call)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                Button("不用了") { decide(.denied) }
-                    .buttonStyle(.bordered)
-                    .tint(.secondary)
-                if approval.dangerous || approval.standing.isEmpty {
-                    Button(approval.confirm) { decide(.once) }
-                        .buttonStyle(.borderedProminent)
-                        .tint(approval.dangerous ? .red : approval.agent.tint)
-                } else {
-                    Menu {
-                        Button("仅这一次") { decide(.once) }
-                        ForEach(approval.standing, id: \.self) { choice in
-                            Button(choice) { decide(.always(choice)) }
-                        }
-                    } label: {
-                        Text(approval.confirm)
-                    } primaryAction: {
-                        decide(.once)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(approval.agent.tint)
-                }
-            }
-            .controlSize(.small)
-            if let hint = approval.dangerous || approval.standing.isEmpty
-                ? nil : "长按「\(approval.confirm)」可以以后都允许"
-            {
-                Text(hint)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(approval.agent.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .animation(FlooDesignTokens.Motion.layout, value: details)
-    }
-}
 
 // MARK: - Rows
 
@@ -1526,11 +1442,22 @@ private struct FlooAskView: View {
     /// until you do.
     @State private var filled: [Int: [String]] = [:]
 
+    /// Toggled: the call itself, under what it does.
+    @State private var details = false
+    /// A secret item's way picked (密码 / 邮件验证码) and what's typed, never shown back.
+    @State private var way: [Int: Int] = [:]
+
     var body: some View {
-        if card.state == .open {
-            open
-        } else {
-            folded
+        VStack(alignment: .center, spacing: 6) {
+            // What the system asks has its line in the conversation: who wants what where.
+            if let line = card.line {
+                Text(line).font(.caption).foregroundStyle(.secondary)
+            }
+            if card.state == .open {
+                open
+            } else {
+                folded
+            }
         }
     }
 
@@ -1549,6 +1476,29 @@ private struct FlooAskView: View {
             if let meta {
                 Text(meta).font(.caption).foregroundStyle(.secondary)
             }
+            // What it does, as the code writes it; the agent's why, marked as its words.
+            if !card.about.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(card.about, id: \.self) { Text($0).font(.footnote) }
+                }
+            }
+            if let why = card.why {
+                Text("\(card.agent.name)说：\(why)").font(.caption).italic().foregroundStyle(.secondary)
+            }
+            if let call = card.call {
+                Button(details ? "收起" : "详情") { details.toggle() }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                if details {
+                    Text(call)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
             if card.closes == .vote {
                 tallies
             } else {
@@ -1558,6 +1508,20 @@ private struct FlooAskView: View {
             }
             if let progress {
                 Text(progress).font(.caption).foregroundStyle(.secondary)
+            }
+            // The device on it, or you: where it stands.
+            switch card.stage {
+            case .working(let doing)?:
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text(doing)
+                }
+                .font(.caption)
+                .foregroundStyle(card.agent.tint)
+            case .failed(let why)?:
+                Label(why, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.red)
+            case .engaged?, nil:
+                EmptyView()
             }
             if card.youEnd {
                 HStack {
@@ -1593,21 +1557,32 @@ private struct FlooAskView: View {
     }
 
     private var title: String {
-        card.items.count == 1 ? card.items[0].title : "\(card.agent.name)问了 \(card.items.count) 件"
+        card.items.count == 1 || card.line != nil ? card.items[0].title : "\(card.agent.name)问了 \(card.items.count) 件"
     }
 
     /// Where it stands, as the chip up top says it.
     private var status: String {
+        switch card.stage {
+        case .working?: return "进行中"
+        case .engaged(let doing)?: return doing
+        case .failed?: return "没成功"
+        case nil: break
+        }
+        if card.items.count > 1, card.items.last?.answer == nil, card.items.dropLast().allSatisfy({ $0.answer != nil }) {
+            return "还要一步"
+        }
+        if case .step? = card.items.first?.form { return "等你做" }
         switch card.closes {
-        case .vote: "投票中 · \(card.answeredCount)/\(card.askees.count)"
-        case .each, .first: "已答 \(card.answeredCount)/\(card.askees.count)"
-        case .one: card.asksYou ? "等你答" : "等\(card.askees.first ?? "")答"
+        case .vote: return "投票中 · \(card.answeredCount)/\(card.askees.count)"
+        case .each, .first: return "已答 \(card.answeredCount)/\(card.askees.count)"
+        case .one: return card.asksYou ? "等你答" : "等\(card.askees.first ?? "")答"
         }
     }
 
     /// Whom it asks when not you alone, what for, until when.
     private var meta: String? {
         var parts: [String] = []
+        if let place = card.place { parts.append(place) }
         if let errand = card.errand { parts.append("为「\(errand)」") }
         if !card.asksYou || card.askees.count > 1 {
             let whom = card.askees.count > 3 ? "大家" : card.askees.joined(separator: "、")
@@ -1688,6 +1663,7 @@ private struct FlooAskView: View {
 
     /// What came of it, folded: your answer, a vote's tally, how many answered.
     private var outcome: String? {
+        if let done = card.done { return done }
         if card.closes == .vote, case .choose(let options, _, _)? = card.items.first?.form {
             let tally = options.enumerated().map { index, option in
                 "\(option.label) \(card.replies.filter { $0.picked.contains(index) }.count)"
@@ -1717,7 +1693,7 @@ private struct FlooAskView: View {
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 if card.items.count > 1 {
-                    Text(item.question).font(.subheadline)
+                    Text(item.question).font(card.line == nil ? .subheadline : .footnote)
                 }
                 form(item, at: index)
             }
@@ -1806,7 +1782,120 @@ private struct FlooAskView: View {
                 .tint(card.agent.tint)
                 .controlSize(.small)
                 .disabled(values.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty })
+        case .secret(let fields, let ways, let sealedTo, let submit):
+            // Secrets go sealed to the device that uses them: typed here, never shown back,
+            // never the agent's (floo interaction.md §4.2).
+            let picked = way[index] ?? 0
+            let values = filled[index] ?? fields.map(\.guess)
+            VStack(alignment: .leading, spacing: 6) {
+                if !ways.isEmpty {
+                    Picker("", selection: Binding(get: { picked }, set: { way[index] = $0 })) {
+                        ForEach(Array(ways.enumerated()), id: \.offset) { place, name in Text(name).tag(place) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+                ForEach(Array(fields.enumerated()), id: \.offset) { place, field in
+                    HStack(spacing: 8) {
+                        Label(field.label, systemImage: Self.fieldIcon(field.kind))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 110, alignment: .leading)
+                        Group {
+                            if field.kind == .secret {
+                                SecureField(field.autofill ?? field.label, text: binding(index, place, fields))
+                            } else {
+                                TextField(field.autofill ?? field.label, text: binding(index, place, fields))
+                            }
+                        }
+                        .font(.footnote.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(card.agent.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        if let autofill = field.autofill {
+                            Text(autofill).font(.caption2).foregroundStyle(.blue)
+                        }
+                    }
+                }
+                Label("只交给 \(sealedTo)，\(card.agent.name)看不到", systemImage: "lock.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+            }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button("先不") { demo.answerAsk(card.id, item: index, .step(.skip)) }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                Button(submit) { demo.answerAsk(card.id, item: index, .secrets(way: picked, values)) }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(card.agent.tint)
+            }
+            .controlSize(.small)
+        case .decision(let go, let no, let standing, let dangerous):
+            // You sign it, on the device in your hand; held, it allows from now on.
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button(no) { demo.answerAsk(card.id, item: index, .decide(go: false, standing: nil)) }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                if standing.isEmpty {
+                    Button(go) { demo.answerAsk(card.id, item: index, .decide(go: true, standing: nil)) }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                        .tint(dangerous ? .red : card.agent.tint)
+                } else {
+                    Menu {
+                        Button("仅这一次") { demo.answerAsk(card.id, item: index, .decide(go: true, standing: nil)) }
+                        ForEach(standing, id: \.self) { choice in
+                            Button(choice) { demo.answerAsk(card.id, item: index, .decide(go: true, standing: choice)) }
+                        }
+                    } label: {
+                        Text(go)
+                    } primaryAction: {
+                        demo.answerAsk(card.id, item: index, .decide(go: true, standing: nil))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(card.agent.tint)
+                }
+            }
+            .controlSize(.small)
+            if !standing.isEmpty {
+                Text("长按「\(go)」可以以后都允许")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        case .step(let what, let open, let done):
+            // Yours to do, on that device; once you're on it the clock stops.
+            let engaged = if case .engaged? = card.stage { true } else { false }
+            Text(engaged ? "\(card.agent.name)在等，不会动它" : what)
+                .font(.footnote)
+                .foregroundStyle(engaged ? .secondary : .primary)
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button("跳过") { demo.answerAsk(card.id, item: index, .step(.skip)) }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                Button(engaged ? done : open) { demo.answerAsk(card.id, item: index, .step(engaged ? .done : .open)) }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(card.agent.tint)
+            }
+            .controlSize(.small)
         }
+    }
+
+    /// What's typed into field `place` of item `index`, the guesses until then.
+    private func binding(_ index: Int, _ place: Int, _ fields: [FlooAskItem.Field]) -> Binding<String> {
+        Binding(
+            get: { (filled[index] ?? fields.map(\.guess))[place] },
+            set: { value in
+                var typed = filled[index] ?? fields.map(\.guess)
+                typed[place] = value
+                filled[index] = typed
+            })
     }
 
     private static func fieldIcon(_ kind: FlooAskItem.Field.Kind) -> String {
@@ -1817,6 +1906,8 @@ private struct FlooAskView: View {
         case .time: "clock"
         case .place: "mappin"
         case .person: "person"
+        case .file: "paperclip"
+        case .secret: "key"
         }
     }
 }
@@ -2431,6 +2522,9 @@ extension FlooRow {
                     return sum + 90
                 case .confirm: return sum + 100
                 case .fill(let fields): return sum + 40 + fields.count * 30
+                case .secret(let fields, let ways, _, _): return sum + 70 + fields.count * 34 + (ways.isEmpty ? 0 : 34)
+                case .decision: return sum + 70
+                case .step: return sum + 80
                 }
             })
         }

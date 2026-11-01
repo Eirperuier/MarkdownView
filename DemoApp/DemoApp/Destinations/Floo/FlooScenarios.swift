@@ -42,7 +42,7 @@ enum FlooShots {
 enum FlooScenario: Int, CaseIterable, Identifiable {
     // Live goes first in the menu; the scripted ones keep their numbers (`-flooScenario N`).
     case live = 99, slowWork = 0, interjection, waitingOnYou, catchingUp, group, answerWithCards, pushes, research, longAnswer, errands,
-        onDevice, askingSeveral
+        onDevice, askingSeveral, systemAsks
 
     nonisolated var id: Int { rawValue }
 
@@ -61,6 +61,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         case .errands: "手上几件事：随时交代，各自回来"
         case .onDevice: "本机：动你设备上的东西，先问你"
         case .askingSeveral: "群里问大家：投票、收齐、只问一人"
+        case .systemAsks: "系统要你的：批准、权限、登录、验证"
         }
     }
 
@@ -80,6 +81,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         case .errands: try await Self.errands(m)
         case .onDevice: try await Self.onDevice(m)
         case .askingSeveral: try await Self.askingSeveral(m)
+        case .systemAsks: try await Self.systemAsks(m)
         }
     }
 
@@ -202,7 +204,8 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         )
         m.step(add, Self.decided(added))
         m.finishWork(add, added.allowed ? "在日历里建了「牙医」" : "没建：你没允许")
-        try await m.stream(add, added.allowed ? "记好了：周六 9:00 牙医，8:00 提醒你。" : "好，没记。换个时间再跟我说。")
+        // Said after the card: below it.
+        try await m.stream(m.begin(.butler, at: "10:12"), added.allowed ? "记好了：周六 9:00 牙医，8:00 提醒你。" : "好，没记。换个时间再跟我说。")
         m.mark(ask, .answered)
 
         try await m.wait(1500)
@@ -233,7 +236,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         )
         m.step(remove, Self.decided(removed))
         m.finishWork(remove, removed.allowed ? "删了下周三的周会" : "没删：你没确认")
-        try await m.stream(remove, removed.allowed ? "删了，只删了下周三这一次。" : "好，没删。周会还在。")
+        try await m.stream(m.begin(.butler, at: "10:15"), removed.allowed ? "删了，只删了下周三这一次。" : "好，没删。周会还在。")
         m.mark(drop, .answered)
 
         try await m.wait(1500)
@@ -265,7 +268,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         )
         m.step(mail, Self.decided(sent))
         m.finishWork(mail, sent.allowed ? "在 MacBook 上发给了王医生" : "没发：你没允许")
-        try await m.stream(mail, sent.allowed ? "发了，附件是 9 月的体检报告。" : "好，没发。")
+        try await m.stream(m.begin(.butler, at: "10:18"), sent.allowed ? "发了，附件是 9 月的体检报告。" : "好，没发。")
         m.mark(send, .answered)
     }
 
@@ -423,6 +426,138 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         let told = m.begin(.butler, at: "19:46")
         try await m.stream(told, "都齐了：火锅 3 票，订好 12 点 4 位；小林 11:50 到，小王 12:10，阿珍和你 12 点。")
         m.mark(mine, .answered)
+    }
+
+    // MARK: What the system asks
+
+    /// What the system asks of you on the butler's behalf, each a card in the conversation
+    /// with its line (floo interaction.md §5.2, §5.3, §9): allowing a new calendar event; a
+    /// permission only the Mac's own window gives, done there while the card waits; signing
+    /// in to a site, the password sealed to the Mac's browser and a code asked midway on the
+    /// same card; a site wanting your location; a check only a person passes. Where each
+    /// stands is on its card; done, each folds to a line.
+    private static func systemAsks(_ m: FlooDemo) async throws {
+        m.reset(title: "管家")
+        m.time("10:12")
+        let asked = try await m.type("把周四的牙医放进日历，再看看 x.com 的私信里有没有诊所的回复")
+        try await m.wait(400)
+        m.mark(asked, .read)
+
+        let add = m.begin(.butler, at: "10:12")
+        try await m.stream(add, "先把牙医放进日历。")
+        _ = try await m.approve(
+            FlooApproval(
+                agent: .butler, device: "MacBook Pro", action: "新建日程",
+                details: ["「洁牙 · 仁安口腔」周四 10/22 15:30–16:30", "日历「个人」，提前 10 分钟提醒"],
+                call: """
+                    calendar.create_event
+                    {"title": "洁牙 · 仁安口腔", "start": "2026-10-22T15:30+08:00", "duration_minutes": 60}
+                    """,
+                elsewhere: true,
+                standing: ["以后新建日程都允许"]),
+            for: add, autoAfter: 3500, deciding: .once)
+
+        let read = m.begin(.butler, at: "10:13")
+        try await m.stream(read, "放好了。再看周四上午有没有冲突，要先让 floo 读 Mac 上的日历。")
+        var permission = FlooAskCard(
+            id: "calendar", agent: .butler,
+            items: [
+                FlooAskItem(
+                    title: "允许读日历", question: "允许读日历",
+                    form: .step(what: "要在 Mac 的系统窗里点「允许」：只读，不会改动或删除日程。", open: "在 Mac 上打开 →", done: "做完了"))
+            ],
+            state: .open)
+        permission.line = "管家 想读你 Mac 上的日历"
+        permission.place = "MacBook Pro · 为管家"
+        permission.why = "想看周四上午有没有冲突"
+        m.ask(read, permission)
+        let onMac = Task { @MainActor in
+            try await m.wait(3000)
+            m.answerAsk("calendar", item: 0, .step(.open))
+            m.stage("calendar", .engaged("在 Mac 上进行中"))
+            try await m.wait(3000)
+            m.answerAsk("calendar", item: 0, .step(.done))
+        }
+        _ = try await m.awaitAnswer("calendar", item: 0, autoAfter: 20000, auto: .step(.done))
+        onMac.cancel()
+        m.complete("calendar", "已允许 · MacBook Pro")
+
+        let mail = m.begin(.butler, at: "10:14")
+        try await m.stream(mail, "周四上午没冲突。私信要先登录 x.com。")
+        var signIn = FlooAskCard(
+            id: "x", agent: .butler,
+            items: [
+                FlooAskItem(
+                    title: "登录 x.com", question: "登录 x.com",
+                    form: .secret(
+                        fields: [
+                            FlooAskItem.Field(label: "账号", kind: .text, guess: "eirperuier", autofill: "钥匙串"),
+                            FlooAskItem.Field(label: "密码", kind: .secret, guess: "hunter2hunter2", autofill: "钥匙串"),
+                        ],
+                        ways: ["密码", "邮件验证码"], sealedTo: "MacBook Pro 上的浏览器", submit: "登录"))
+            ],
+            state: .open)
+        signIn.line = "管家 想在你的 Mac 上登录 x.com"
+        signIn.place = "🌐 x.com · MacBook Pro · 浏览器"
+        signIn.why = "要看你的私信"
+        m.ask(mail, signIn)
+        _ = try await m.awaitAnswer("x", item: 0, autoAfter: 4000, auto: .secrets(way: 0, []))
+        m.stage("x", .working("提交中…"))
+        try await m.wait(2000)
+        // A code, midway: the same card grows by one thing.
+        m.grow("x", FlooAskItem(
+            title: "验证码", question: "已提交 · x.com 发了验证码到 ••••@proton.me",
+            form: .secret(
+                fields: [FlooAskItem.Field(label: "验证码", kind: .secret, guess: "", autofill: "从邮件填")],
+                ways: [], sealedTo: "MacBook Pro 上的浏览器", submit: "继续")))
+        _ = try await m.awaitAnswer("x", item: 1, autoAfter: 4000, auto: .secrets(way: 0, []))
+        m.stage("x", .working("核对中…"))
+        try await m.wait(1500)
+        m.complete("x", "已登录 x.com · @eirperuier · MacBook Pro")
+
+        let near = m.begin(.butler, at: "10:16")
+        try await m.stream(near, "诊所回了：周四 15:30 照常。顺手查一下离你最近的那家门店。")
+        var location = FlooAskCard(
+            id: "where", agent: .butler,
+            items: [
+                FlooAskItem(
+                    title: "maps.google.com 用位置", question: "允许 maps.google.com 用位置",
+                    form: .decision(go: "允许一次", no: "不允许", standing: ["总是允许这个网站"], dangerous: false))
+            ],
+            state: .open)
+        location.line = "maps.google.com 想知道你的位置"
+        location.place = "🌐 maps.google.com · MacBook Pro · 管家的标签页"
+        location.about = ["这个网站要你的大概位置。"]
+        location.why = "要找离你最近的门店"
+        m.ask(near, location)
+        let placed = try await m.awaitAnswer("where", item: 0, autoAfter: 4000, auto: .decide(go: true, standing: nil))
+        m.complete("where", placed.text == "不允许" ? "没允许" : "\(placed.text)了")
+
+        let booking = m.begin(.butler, at: "10:17")
+        try await m.stream(booking, "最近的在淮海路。订号的页面要人机验证，我过不去。")
+        var check = FlooAskCard(
+            id: "captcha", agent: .butler,
+            items: [
+                FlooAskItem(
+                    title: "请你过一下验证", question: "请你过一下验证",
+                    form: .step(
+                        what: "在 FlooBrowser 里打开这一页，做完点「做完了」。", open: "在 Mac 上打开 →", done: "做完了"))
+            ],
+            state: .open)
+        check.line = "tickets.example.com 要人机验证"
+        check.place = "🌐 tickets.example.com · MacBook Pro · 管家的标签页"
+        m.ask(booking, check)
+        let human = Task { @MainActor in
+            try await m.wait(3000)
+            m.answerAsk("captcha", item: 0, .step(.open))
+            try await m.wait(3000)
+            m.answerAsk("captcha", item: 0, .step(.done))
+        }
+        _ = try await m.awaitAnswer("captcha", item: 0, autoAfter: 20000, auto: .step(.done))
+        human.cancel()
+        m.complete("captcha", "做完了")
+        let done = m.begin(.butler, at: "10:18")
+        try await m.stream(done, "订好了：周四 15:30 淮海路店，确认短信发到你手机了。")
     }
 
     // MARK: Waiting on you
