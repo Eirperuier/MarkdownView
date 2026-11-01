@@ -503,7 +503,7 @@ extension FlooContactsDemo {
     }
 
     /// What a person does to meet `requirements`, as one phrase; nil for none.
-    private static func needs(_ requirements: [Requirement]) -> String? {
+    static func needs(_ requirements: [Requirement]) -> String? {
         var said: [String] = []
         for requirement in requirements {
             let phrase: String? = switch requirement.kind {
@@ -578,7 +578,7 @@ extension FlooContactsDemo {
         return FlooPush(at: post.at.date, text: words, card: card, mention: mention)
     }
 
-    private static func ago(_ date: Date) -> String {
+    static func ago(_ date: Date) -> String {
         let minutes = Int(FlooClock.now.timeIntervalSince(date) / 60)
         if minutes < 60 { return "\(max(1, minutes)) 分钟前" }
         if minutes < 24 * 60 { return "\(minutes / 60) 小时前" }

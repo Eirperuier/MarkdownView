@@ -54,6 +54,7 @@ struct FlooDestination: View {
     @State private var topicTitle = ""
     /// The zones to pick the person's from, from the account menu.
     @State private var picksZone = false
+    @State private var showsDevices = FlooDevicesDestination.launches
     @FocusState private var composerFocused: Bool
     /// The window's inspector, where the person's mini programs open.
     @Environment(WindowInspector.self) private var inspector
@@ -175,6 +176,9 @@ struct FlooDestination: View {
         .sheet(isPresented: $demo.showsServices) {
             if let live = demo.live { FlooContactsDestination(live: live) }
         }
+        .sheet(isPresented: $showsDevices) {
+            if let live = demo.live { FlooDevicesDestination(live: live) }
+        }
         .sheet(isPresented: $demo.showsMembers) {
             if let live = demo.live { FlooMembersView(live: live) }
         }
@@ -281,6 +285,7 @@ struct FlooDestination: View {
                             Image(systemName: "globe")
                         }
                     }
+                    Button("设备", systemImage: "laptopcomputer.and.iphone") { showsDevices = true }
                     Button("退出登录", role: .destructive) {
                         Task {
                             try? await account.auth.signOut()  // try?: the kept session may be gone already
