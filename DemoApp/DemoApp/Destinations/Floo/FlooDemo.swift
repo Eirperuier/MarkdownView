@@ -1694,6 +1694,8 @@ final class FlooDemo {
             live.answer(ask: card.id, item: index, text: text, filled: fields.map(\.guess))
         case (.own, .choose):
             answering = FlooAnsweringItem(agent: card.agent, question: item.question, ask: card.id, item: index)
+        case (.step(let pick), .step):
+            live.step(ask: card.id, pick)
         default:
             return
         }

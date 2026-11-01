@@ -144,6 +144,11 @@ final class FlooLive {
     /// What you sent from here, shown at once, by its message's id until the backend has it.
     private var outgoing: [MessageID: FlooDemo.Said] = [:]
     private var messages: [Int64: FlooDemo.Message] = [:]
+    /// Where each ask a call made shows, as it was first placed (`placement`).
+    private var placed: [AskID: Int64] = [:]
+    /// The account's devices by name, read once (`deviceName`).
+    private var deviceNames: [DeviceID: String] = [:]
+    private var readingDevices = false
     /// The topics and comments hung on the shown conversation's messages, by number.
     private var hung: [Int64: [FlooPlace]] = [:]
     /// The agents with messages here, and each message being written's agent: who's writing.
@@ -400,6 +405,21 @@ final class FlooLive {
         guard let client, let current, let id = AskID(ask) else { return }
         Task {
             do { try await client.vote(picked, on: id, in: current) } catch { demo.catchUp("投票没成：\(error)") }
+        }
+    }
+
+    /// Where you stand on a step a call asked of you (floo interaction.md §5.3): taken on,
+    /// done, or skipped; no message. The device waiting on it goes on.
+    func step(ask: String, _ pick: FlooStepPick) {
+        guard let client, let current, let id = AskID(ask) else { return }
+        let step: StepAnswer =
+            switch pick {
+            case .open: .engaged
+            case .done: .completed
+            case .skip: .skipped
+            }
+        Task {
+            do { try await client.answer(PersonAnswer(step: step), to: id, in: current) } catch { demo.catchUp("没送到：\(error)") }
         }
     }
 
@@ -1457,8 +1477,8 @@ final class FlooLive {
         var cards: [ObjectIdentifier: (message: FlooDemo.Message, cards: [FlooAskCard])] = [:]
         for message in messages.values { cards[ObjectIdentifier(message)] = (message, []) }
         for ask in replica.asks.values.sorted(by: { $0.pts < $1.pts }) {
-            guard let number = ask.message, let message = messages[number], let id = ask.agent.actor.agent,
-                let card = card(ask, agent(id), replica)
+            guard let id = ask.agent.actor.agent, let number = ask.message ?? placement(of: ask, agent(id)),
+                let message = messages[number], let card = card(ask, agent(id), replica)
             else { continue }
             cards[ObjectIdentifier(message), default: (message, [])].cards.append(card)
         }
@@ -1480,6 +1500,51 @@ final class FlooLive {
         }
     }
 
+    /// Where what a call asks you shows, having no message of its own (floo interaction.md
+    /// §7.2): on its agent's last message here as it was asked, else the last message.
+    private func placement(of ask: AskInfo, _ agent: FlooAgent) -> Int64? {
+        guard ask.operation != nil else { return nil }
+        if let placed = placed[ask.id] { return placed }
+        let number = messages.filter { $0.value.agent == agent }.keys.max() ?? messages.keys.max()
+        placed[ask.id] = number
+        return number
+    }
+
+    /// The devices' names, read once, for where a call asks you to do something.
+    private func deviceName(_ id: DeviceID?) -> String? {
+        guard let id else { return nil }
+        if deviceNames.isEmpty, !readingDevices, let client {
+            readingDevices = true
+            Task {
+                let list = try? await client.devices()  // try?: unnamed until read again
+                deviceNames = Dictionary(list?.devices.map { ($0.id, $0.name) } ?? [], uniquingKeysWith: { a, _ in a })
+                readingDevices = false
+            }
+        }
+        return deviceNames[id]
+    }
+
+    /// What a call running on a device asks you midway (floo interaction.md §5.3): a step
+    /// you do there — its line says who wants it, where; what its code says of it; where
+    /// it stands — taken on, done or skipped, no message.
+    private func systemCard(_ ask: AskInfo, _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
+        guard case .step(let what)? = ask.items.first?.form, let title = ask.title else { return nil }
+        let reply = ask.replies.first?.step
+        let done = reply == .skipped ? "跳过了" : "做完了"
+        let item = FlooAskItem(
+            title: title, question: title, form: .step(what: what, open: "我来做", done: "做完了"),
+            answer: reply.map { _ in done })
+        var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
+        let device = deviceName(ask.device)
+        card.line = "\(agent.name) 要你\(device.map { "在\($0)上" } ?? "")做一步"
+        card.place = device.map { "\($0) · 为\(agent.name)" }
+        card.about = ask.about
+        card.why = ask.why
+        if state == .open, ask.engaged { card.stage = .engaged("你在做") }
+        if state == .answered { card.done = done }
+        return card
+    }
+
     /// An ask as its card shows it; a question in a message's words, once its block is in.
     private func card(_ ask: AskInfo, _ agent: FlooAgent, _ replica: ConversationReplica) -> FlooAskCard? {
         let state: FlooAskCard.State =
@@ -1491,6 +1556,7 @@ final class FlooLive {
             case .withdrawn, .replaced: .withdrawn
             case .expired: .expired
             }
+        if ask.operation != nil { return systemCard(ask, agent, state: state) }
         // Answered: what the answering message says.
         func said(_ number: Int64) -> String {
             replica.blocks(of: number).compactMap { if case .text(let text) = $0.content { text } else { nil } }
@@ -1562,6 +1628,8 @@ final class FlooLive {
             .confirm(effect: effect, yes: "好", no: "先不要")
         case .fill(let fields):
             .fill(fields: fields.map { FlooAskItem.Field(label: $0.label, kind: Self.kind($0.kind), guess: $0.guess.map(Self.words) ?? "") })
+        case .step(let what):
+            .step(what: what, open: "我来做", done: "做完了")
         case .unknown:
             .fill(fields: [])
         }
