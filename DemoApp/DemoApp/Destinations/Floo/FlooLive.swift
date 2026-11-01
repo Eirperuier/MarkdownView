@@ -1789,7 +1789,7 @@ final class FlooLive {
                     if let program = card.program {
                         programCards?.show(key, call: source, program: program, data: Self.value(card.data), in: demo)
                     } else {
-                        demo.setCard(key, source: source, data: Self.value(card.data))
+                        demo.setCard(key, source: source, live: card.live, values: card.data, data: Self.value(card.data))
                     }
                     var keys = message.fenceCards[card.fence] ?? []
                     if !keys.contains(key) {

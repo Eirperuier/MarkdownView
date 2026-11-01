@@ -1249,6 +1249,7 @@ private struct FlooRowView: View {
                     if let session = demo.card(name) {
                         CardFrame(layout: layout.fitted, widens: true) { CardView(tree: session.tree) }
                             .overlay { FlooCardEdge(size: layout.size) }
+                            .cardUpdates(of: session)
                     }
                 }
             }
@@ -1271,6 +1272,7 @@ private struct FlooRowView: View {
         } else if let session = name.flatMap({ demo.card($0) }) {
             CardFrame(layout: card.layout.fitted, widens: true) { CardView(tree: session.tree).flooProgram(card: name) }
                 .overlay { FlooCardEdge(size: card.layout.size) }
+                .cardUpdates(of: session)
         }
     }
 
@@ -2141,7 +2143,8 @@ private struct FlooDrawnCard: View {
 /// A card the backend draws, in its frame from the start: the frame is the size its fence
 /// names, so nothing moves as it comes. It's drawn as it's written: the first of its views
 /// takes the place of what it will show, and the rest come in after it. One that finished
-/// with nothing to show keeps the request.
+/// with nothing to show keeps the request. One that keeps updating says under it when its
+/// version came (floo docs/cards.md §5.2).
 private struct FlooLiveCard: View {
     let request: String
     let layout: CardLayout
@@ -2170,6 +2173,7 @@ private struct FlooLiveCard: View {
             .animation(FlooDesignTokens.Motion.layout, value: drawing)
         }
         .overlay { FlooCardEdge(size: layout.size) }
+        .cardUpdates(of: session)
     }
 }
 

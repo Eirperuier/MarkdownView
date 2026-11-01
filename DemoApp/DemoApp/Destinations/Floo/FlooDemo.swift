@@ -1409,7 +1409,18 @@ final class FlooDemo {
     /// A card the backend sent, whole: compiled here from its source, shown in its fence's place.
     /// One drawn here as it was written takes what's left of it and is finished.
     /// `data`: read only when the card is new here.
-    func setCard(_ key: String, source: String?, data: @autoclosure () -> CardValue) {
+    /// One that keeps updating (floo docs/cards.md §5.2) has its `live` version, and `values`, the
+    /// use's values as the card runtime writes them; its message rewritten a version on, the
+    /// version is applied to the session showing it, so the card keeps its views, their state
+    /// and its transitions; an older one, or the same, changes nothing.
+    func setCard(
+        _ key: String, source: String?, live: AnswerCard.Live? = nil, values: Wire.JSONValue? = nil,
+        data: @autoclosure () -> CardValue
+    ) {
+        if let live, let session = sessions[key], session.use == live.id {
+            session.apply(live, values: values)
+            return
+        }
         if let session = sessions[key], let given = drafted.removeValue(forKey: key) {
             if let source, source.hasPrefix(given.source) {
                 session.append(source.dropFirst(given.source.count))
@@ -1418,12 +1429,15 @@ final class FlooDemo {
                 if let source { session.append(source) }
             }
             session.finish()
+            if let live { session.apply(live, values: values) }
             return
         }
-        guard sessions[key] == nil else { return }
-        let session = CardSession(data: data())
+        // Another use in its place is a new card.
+        guard sessions[key] == nil || live != nil else { return }
+        let session = live == nil ? CardSession(data: data()) : CardSession()
         if let source { session.append(source) }
         session.finish()
+        if let live { session.apply(live, values: values) }
         sessions[key] = session
         versions[key, default: 0] += 1
         showCard(key)
