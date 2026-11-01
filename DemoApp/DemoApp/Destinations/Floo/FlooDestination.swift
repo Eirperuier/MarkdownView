@@ -41,17 +41,13 @@ struct FlooDestination: View {
     @State private var scenario = FlooDestination.launchScenario ?? .live
     @State private var playing: Task<Void, Never>?
     @State private var scrolling = false
-    @State private var fromBottom: CGFloat = 0
-    /// Where the content ends: TiledView's own content size is a fixed, far larger space.
-    @State private var contentEnd: CGFloat = 0
-    @State private var visibleHeight: CGFloat = 0
+    /// Where the list is, as it scrolls: not drawn, so a frame of scrolling doesn't make the
+    /// page again.
+    @State private var listPlace = FlooListPlace()
     /// The message being written and how far down the list it starts, until its start has
     /// reached the top.
     @State private var head: (id: String, y: CGFloat)?
-    #if DEBUG
-    /// The list's offsets, for `-flooScrollSweep` (FlooScrollSweep).
-    @State private var sweepReader = TiledViewReader<String>()
-    #endif
+    @Environment(\.scenePhase) private var scenePhase
     /// The chat's background, by its names (ChatBackground's "Aurora" "Green"); "plain": the page's own.
     @AppStorage("flooChatBackground") private var backgroundName = "plain"
     /// A topic's name as you type it.
@@ -84,25 +80,27 @@ struct FlooDestination: View {
             .heightEstimate { row, width in
                 row.estimatedHeight(width: width)
             }
-            #if DEBUG
-            .reader(FlooScrollSweep.speed == nil ? nil : sweepReader)
-            #endif
+            .reader(demo.reader)
             .itemBackground({ $0.bubble?.run }) { run, geometry in
                 FlooBubbleBackground(run: run, state: demo.bubbleState(run), geometry: geometry, demo: demo)
             }
             .itemContextMenu { [demo] row in FlooMessageMenu.menu(for: row, demo: demo) }
-            // Following is yours to leave: only scrolling by hand changes it.
-            .onTiledScrollGeometryChange { geometry in
-                fromBottom = geometry.pointsFromBottom
-                contentEnd = geometry.contentOffset.y + geometry.visibleSize.height + geometry.pointsFromBottom
-                visibleHeight = geometry.visibleSize.height
-                if scrolling { demo.following = geometry.pointsFromBottom < 80 }
+            // Following is yours to leave: only scrolling by hand changes it. Set only when it
+            // changes: the page draws by it, and this runs every frame of a scroll.
+            .onTiledScrollGeometryChange { [listPlace] geometry in
+                listPlace.fromBottom = geometry.pointsFromBottom
+                listPlace.contentEnd = geometry.contentOffset.y + geometry.visibleSize.height + geometry.pointsFromBottom
+                listPlace.visibleHeight = geometry.visibleSize.height
+                let near = geometry.pointsFromBottom < 80
+                if scrolling, demo.following != near { demo.following = near }
             }
             .onTiledScrollPhaseChange { old, phase in
                 let byHand = old == .interacting || old == .decelerating
                 scrolling = phase == .interacting || phase == .decelerating
-                if byHand, !scrolling, fromBottom < 80 { demo.following = true }
+                if byHand, !scrolling, listPlace.fromBottom < 80, !demo.following { demo.following = true }
             }
+            // Dragging the list puts the keyboard away, as a chat does.
+            .scrollDismissesKeyboard(.immediately)
             .overlay(alignment: .bottomTrailing) {
                 if !demo.following {
                     Button {
@@ -120,17 +118,17 @@ struct FlooDestination: View {
                 }
             }
             #if DEBUG
-            .task { if let speed = FlooScrollSweep.speed { await FlooScrollSweep.run(sweepReader, speed: speed) } }
+            .task { if let speed = FlooScrollSweep.speed { await FlooScrollSweep.run(demo.reader, speed: speed) } }
             #endif
             .onChange(of: demo.speaking) {
-                head = demo.speaking.map { ($0, contentEnd) }
+                head = demo.speaking.map { ($0, listPlace.contentEnd) }
             }
             // Following the newest, until a message too long for the screen has its start at
             // the top: from there you read it at your pace, and it goes on writing below.
             // The newest is at the end: something opened or closed above it isn't followed.
             .onChange(of: demo.lastRow) {
                 guard demo.following else { return }
-                if let head, contentEnd - head.y > visibleHeight - 60 {
+                if let head, listPlace.contentEnd - head.y > listPlace.visibleHeight - 60 {
                     self.head = nil
                     demo.following = false
                     demo.scrollPosition.scrollTo(id: head.id, anchor: .top, animated: true)
@@ -191,7 +189,12 @@ struct FlooDestination: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
             if !inspector.isPresented { inspector.spare = width - Self.rowsWidth }
         }
-        .onDisappear { inspector.close("floo") }
+        .onDisappear {
+            inspector.close("floo")
+            demo.keepPlace()
+        }
+        // Where you were, kept before the app may be ended in the background.
+        .onChange(of: scenePhase) { if scenePhase != .active { demo.keepPlace() } }
         .alert("转为话题", isPresented: Binding(get: { demo.naming != nil }, set: { if !$0 { demo.naming = nil } })) {
             TextField("话题名", text: $topicTitle)
             Button("转") {
@@ -482,6 +485,15 @@ struct FlooDestination: View {
             try? await scenario.play(demo)
         }
     }
+}
+
+/// Where the list is, as it scrolls (FlooDestination): read when something changes, never
+/// drawn.
+private final class FlooListPlace {
+    var fromBottom: CGFloat = 0
+    /// Where the content ends: TiledView's own content size is a fixed, far larger space.
+    var contentEnd: CGFloat = 0
+    var visibleHeight: CGFloat = 0
 }
 
 // MARK: - Bottom parts

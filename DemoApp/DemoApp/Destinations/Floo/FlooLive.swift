@@ -944,12 +944,14 @@ final class FlooLive {
     /// How a call's operation is shown: from its service's detail, read the first time one
     /// of its calls is shown (shown again then).
     private func operation(_ tool: ToolID) -> Operation? {
-        guard let detail = details[tool.service] else {
+        // A capability's tool (files, shell: docs/devices.md §3) has no service detail.
+        guard let service = tool.service else { return nil }
+        guard let detail = details[service] else {
             // The other calls of its service wait for this read, not one each.
-            guard describing.insert(tool.service).inserted else { return nil }
+            guard describing.insert(service).inserted else { return nil }
             Task {
-                defer { describing.remove(tool.service) }
-                guard await detail(tool.service) != nil, let last else { return }
+                defer { describing.remove(service) }
+                guard await detail(service) != nil, let last else { return }
                 show(last)
             }
             return nil
@@ -1130,6 +1132,10 @@ final class FlooLive {
         guard let client else { return nil }
         do {
             return try JSONDecoder().decode(Doc.self, from: try await client.driveFile(path).content)
+        } catch is CancellationError {
+            return nil  // whoever asked has gone (a card's link scrolled away): nothing to say
+        } catch let error as URLError where error.code == .cancelled {
+            return nil
         } catch {
             demo.catchUp("页面没读到（\(path)）：\(error)")
             return nil

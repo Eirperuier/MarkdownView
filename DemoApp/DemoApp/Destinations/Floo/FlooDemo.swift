@@ -608,6 +608,8 @@ final class FlooDemo {
     /// The last row: following the newest follows it.
     private(set) var lastRow: FlooRow?
     var scrollPosition = TiledScrollPosition(autoScrollsToBottomOnAppend: true, scrollsToBottomOnReplace: true)
+    /// The list's rows where they are on screen: where you were, to come back to.
+    @ObservationIgnored let reader = TiledViewReader<String>()
     private(set) var title = ""
     /// Who is doing what right now, in the order they started.
     private(set) var presence: [(agent: FlooAgent, doing: String)] = []
@@ -705,6 +707,7 @@ final class FlooDemo {
     // MARK: Script
 
     func reset(title: String) {
+        keepPlace()
         // The script waiting on it is cancelled; what it gets back is never used.
         let cancelled = Said(id: -1, speaker: .me, text: "", receipt: nil)
         for wait in choiceWaits.values { wait.resume(returning: (FlooOption(label: ""), cancelled)) }
@@ -1467,6 +1470,7 @@ final class FlooDemo {
             filling = false
             list.reset(entries.flatMap { shownRows[$0.key] ?? [] })
             showLast()
+            openWhereLeft()
         } else if animated {
             withAnimation(FlooDesignTokens.Motion.layout) { for key in keys { remake(key) } }
         } else {
@@ -1708,6 +1712,46 @@ final class FlooDemo {
         decision = nil
         approval = nil
         continuation.resume(returning: decided)
+    }
+
+    /// Where each of the backend's conversations was left, by its id: [the number of the
+    /// message at the top, which of its rows, how far below the top that row's top was].
+    private static let leftKey = "flooConversationsLeft"
+
+    /// Keeps where you are in the backend's conversation, to open it there again, as Telegram
+    /// does (gone to another, the page closed, the app put away): the message at the top by its
+    /// number, which outlives the rows' ids. At the newest, nothing is kept: it opens at its end.
+    func keepPlace() {
+        guard isLive, let place, !list.items.isEmpty else { return }
+        var left = UserDefaults.standard.dictionary(forKey: Self.leftKey) as? [String: [Double]] ?? [:]
+        left[place.id] = following ? nil : whereRead()
+        UserDefaults.standard.set(left, forKey: Self.leftKey)
+    }
+
+    /// The first row at the top that's of a message of the backend's (a day's line isn't).
+    private func whereRead() -> [Double]? {
+        guard let top = reader.topVisibleItem(), let first = list.items.firstIndex(where: { $0.id == top.id }),
+              let at = list.items[first...].firstIndex(where: { number(of: $0) != nil }),
+              let number = number(of: list.items[at])
+        else { return nil }
+        var offset = top.offset
+        if at != first, let from = reader.frame(forItem: top.id), let to = reader.frame(forItem: list.items[at].id) {
+            offset += to.minY - from.minY
+        }
+        let row = list.items[..<at].reversed().prefix { self.number(of: $0) == number }.count
+        return [Double(number), Double(row), offset]
+    }
+
+    /// A conversation filled anew opens where it was left, if that's among what's shown;
+    /// otherwise at its end.
+    private func openWhereLeft() {
+        guard isLive, let place, let left = (UserDefaults.standard.dictionary(forKey: Self.leftKey) as? [String: [Double]])?[place.id],
+              left.count == 3
+        else { return }
+        let rows = list.items.filter { number(of: $0) == Int64(left[0]) }
+        guard let row = rows.isEmpty ? nil : rows[min(Int(left[1]), rows.count - 1)] else { return }
+        following = false
+        scrollPosition.scrollTo(id: row.id, anchor: .top, offset: left[2], animated: false)
     }
 
     /// Opens the conversation where it was last read rather than at its end.
