@@ -26,8 +26,8 @@ import Wire
 
 @MainActor
 enum FlooMedia {
-    /// The signed-in account's cache.
-    private static var opened: (account: AccountID, store: ContentStore)?
+    /// The signed-in account's cache, and the client it fetches through.
+    private static var opened: (account: AccountID, store: ContentStore, client: CurrentClient)?
     /// Photos Vision found no subject in this launch: the original is their cutout.
     private static var noSubject: Set<ContentID> = []
     /// Cutouts being made, so a photo drawn twice at once is cut out once.
@@ -35,14 +35,62 @@ enum FlooMedia {
 
     static var store: ContentStore? { opened?.store }
 
+    /// The client the account goes by now.
+    static var client: FlooClient? { opened?.client.client }
+
+    /// A picture a conversation's message or tool shows: by hash, the account's own; else
+    /// through the conversation, which gives its members what its messages hold.
+    nonisolated static func reach(_ id: ContentID, in conversation: ConversationID) -> Reach {
+        Reach {
+            guard let client = await FlooMedia.client else { throw CancellationError() }
+            return try await client.link(to: id, in: conversation)
+        }
+    }
+
     /// Opens `account`'s cache on its device store, its files in `directory`, fetching
     /// through `client`. The same account again keeps the one open.
     static func open(account: AccountID, local: LocalContent, directory: URL, client: FlooClient) {
-        guard opened?.account != account else { return }
+        if let opened, opened.account == account {
+            opened.client.client = client
+            return
+        }
         noSubject = []
+        let current = CurrentClient(client)
         // try?: a cache that won't open leaves pictures fetched each time, as before.
-        opened = (try? ContentStore(local: local, directory: directory, fetcher: FlooContentFetcher(client: client)))
-            .map { (account, $0) }
+        opened = (try? ContentStore(local: local, directory: directory, fetcher: current)).map { (account, $0, current) }
+    }
+
+    /// The account's client changed (this device registered anew): the cache fetches through
+    /// the new one from now on.
+    static func use(_ client: FlooClient) {
+        opened?.client.client = client
+    }
+
+    /// The cache's fetcher: FlooContentFetcher on whichever client the account goes by now.
+    final class CurrentClient: ContentFetcher, @unchecked Sendable {
+        // SAFETY: `current` is only read and written under `lock`.
+        private let lock = NSLock()
+        private var current: FlooClient
+
+        init(_ client: FlooClient) { current = client }
+
+        var client: FlooClient {
+            get { lock.withLock { current } }
+            set { lock.withLock { current = newValue } }
+        }
+
+        private var fetcher: FlooContentFetcher { FlooContentFetcher(client: client) }
+
+        func bytes(of id: ContentID) async throws -> Data { try await fetcher.bytes(of: id) }
+        func links(for ids: [ContentID]) async throws -> [ContentLink] { try await fetcher.links(for: ids) }
+        func read(_ link: ContentLink, from offset: Int64) async throws -> ContentBody { try await fetcher.read(link, from: offset) }
+        func variant(_ variant: Variant, of id: ContentID) async throws -> (id: ContentID, size: Int64)? {
+            try await fetcher.variant(variant, of: id)
+        }
+        func ref(_ path: String, ifNot version: String?) async throws -> ContentRef? { try await fetcher.ref(path, ifNot: version) }
+        func folder(_ path: String, ifNot version: String?) async throws -> ContentFolder? {
+            try await fetcher.folder(path, ifNot: version)
+        }
     }
 
     /// How a picture is reached when this device hasn't it: by hash from the server, which

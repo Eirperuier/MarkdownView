@@ -27,9 +27,9 @@ struct FlooImage: Equatable, Identifiable {
 
     /// A ```floo.images fence of the server's pictures: an image block, a tool's images. Each
     /// line is its hash with what's known of it, as `media(_:)` reads it back.
-    static func fence(_ images: [MediaRef]) -> String {
+    static func fence(_ images: [MediaRef], in conversation: ConversationID) -> String {
         let lines = images.map { image in
-            var address = "media:\(image.hash)?type=\(image.type)&size=\(image.size)"
+            var address = "media:\(image.hash)?type=\(image.type)&size=\(image.size)&conversation=\(conversation)"
             if let width = image.width, let height = image.height { address += "&width=\(width)&height=\(height)" }
             if let thumbhash = image.thumbhash {
                 address += "&thumbhash=" + thumbhash.base64EncodedString()
@@ -55,6 +55,20 @@ struct FlooImage: Equatable, Identifiable {
             hash: hash, type: fields["type"] ?? "image/jpeg", size: fields["size"].flatMap { Int64($0) } ?? 0,
             width: fields["width"].flatMap { Int($0) }, height: fields["height"].flatMap { Int($0) }, thumbhash: thumbhash
         )
+    }
+
+    /// The conversation whose message or tool shows it: what reaches it when it isn't the
+    /// account's own.
+    var conversation: ConversationID? {
+        guard url.scheme == "media" else { return nil }
+        return URLComponents(string: url.absoluteString)?.queryItems?.first { $0.name == "conversation" }?.value
+            .flatMap(ConversationID.init)
+    }
+
+    /// How its bytes are reached: by hash, then through its conversation.
+    var reach: FlooMedia.Reach {
+        guard let media, let conversation else { return FlooMedia.Reach() }
+        return FlooMedia.reach(media.hash, in: conversation)
     }
 
     /// Its width over its height, where it says.
@@ -222,7 +236,7 @@ private struct FlooImageBox: View {
             FlooDesignTokens.Component.MediaCard.panel
             if let media = image.media {
                 // Its ThumbHash, then the picture, decoded at this size.
-                FlooMediaImage(media: media).frame(width: width, height: height)
+                FlooMediaImage(media: media, reach: image.reach).frame(width: width, height: height)
             } else if let picture {
                 Image(uiImage: picture)
                     .resizable()
@@ -251,7 +265,7 @@ private struct FlooImageViewer: View {
             ForEach(images) { image in
                 Group {
                     if let media = image.media {
-                        FlooMediaImage(media: media, contentMode: .fit)
+                        FlooMediaImage(media: media, reach: image.reach, contentMode: .fit)
                     } else if let picture = DocImageCache.shared.image(image.url) {
                         Image(uiImage: picture).resizable().aspectRatio(contentMode: .fit)
                     } else {

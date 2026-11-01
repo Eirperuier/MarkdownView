@@ -133,7 +133,10 @@ final class FlooLive {
     private var store: LocalStore?
     /// The oldest message shown: one older than it, loaded on scrolling up, goes before all.
     private var lowestShown: Int64?
-    private var client: FlooClient?
+    private var client: FlooClient? {
+        // The account's pictures are fetched through the client it goes by now (FlooMedia).
+        didSet { if let client { FlooMedia.use(client) } }
+    }
     /// Mini programs' cards and rows in answers (FlooProgramCards), once there's a server.
     private var programs: FlooProgramCards?
     /// The demo's entries for the backend's messages, by number.
@@ -1802,9 +1805,9 @@ final class FlooLive {
                     message.fencePages[page.fence] = Self.page(page)
                 // Pictures it shows and its tools' pictures, in the words where they come (FlooImages).
                 case .image(let image) where read:
-                    words.append(FlooImage.fence([image]))
+                    words.append(FlooImage.fence([image], in: replica.id))
                 case .toolImages(_, let images) where !images.isEmpty:
-                    words.append(FlooImage.fence(images))
+                    words.append(FlooImage.fence(images, in: replica.id))
                 default:
                     break
                 }
