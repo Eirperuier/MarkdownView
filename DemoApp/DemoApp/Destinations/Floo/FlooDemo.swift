@@ -419,7 +419,42 @@ struct FlooAskCard: Hashable, Identifiable {
     let agent: FlooAgent
     var items: [FlooAskItem]
     var state: State
-    enum State { case open, answered, withdrawn, expired }
+    /// Asking several, ended before all answered: its until passed, or you ended it.
+    enum State { case open, answered, withdrawn, expired, closed }
+    /// When it is through, asking several (floo interaction.md §5.4): whoever answers
+    /// first, each of them, or a vote — a tap, no message.
+    var closes: Closes = .one
+    enum Closes { case one, first, each, vote }
+    /// Whom it asks, by name, you as "我"; empty: you alone.
+    var askees: [String] = []
+    /// Each one's answer so far: who (nil in an anonymous vote), the options picked, what
+    /// they said.
+    var replies: [Reply] = []
+    struct Reply: Hashable {
+        var who: String?
+        var picked: [Int] = []
+        var said: String?
+    }
+    /// Whether it asks you: in a group it may ask someone else.
+    var asksYou = true
+    /// Whether you may end it early: it is your agent's (a vote).
+    var youEnd = false
+    /// When it stops waiting, as it reads: "周五 20:00".
+    var until: String?
+    /// The thing in hand it is for.
+    var errand: String?
+
+    static let you = "我"
+
+    /// Whether it still waits on you: asked, and you haven't answered or voted.
+    var waitsOnYou: Bool {
+        guard state == .open, asksYou else { return false }
+        if closes == .vote { return !replies.contains { $0.who == Self.you } }
+        return items.contains { $0.answer == nil }
+    }
+
+    /// How many of those asked have answered (or voted).
+    var answeredCount: Int { Set(replies.compactMap(\.who)).intersection(askees).count }
 }
 
 /// How an ask's item gets answered, by you or by the script answering for you.
@@ -430,6 +465,8 @@ enum FlooAnswerPick {
     /// In your own words: the item's `own` is typed out over the composer, then sent.
     case own
     case confirm(Bool)
+    /// A vote: the options picked; voting again replaces it.
+    case vote([Int])
     /// Its guesses are right as they are.
     case fill
     /// Its fields as you filled them in, in order.
@@ -1532,6 +1569,10 @@ final class FlooDemo {
     /// Your answer to an item: a message of yours quoting it, and the card closes when every
     /// item is answered.
     func answerAsk(_ id: String, item index: Int, _ pick: FlooAnswerPick) {
+        if case .vote(let picked) = pick {
+            vote(id, picked)
+            return
+        }
         guard let message = askMessage(id), let ci = message.asks.firstIndex(where: { $0.id == id }),
               message.asks[ci].state == .open,
               message.asks[ci].items.indices.contains(index), message.asks[ci].items[index].answer == nil
@@ -1603,9 +1644,65 @@ final class FlooDemo {
     private func finishAnswer(_ id: String, item index: Int, _ value: String) {
         guard let message = askMessage(id), let ci = message.asks.firstIndex(where: { $0.id == id }) else { return }
         message.asks[ci].items[index].answer = value
-        if message.asks[ci].items.allSatisfy({ $0.answer != nil }) { message.asks[ci].state = .answered }
+        if message.asks[ci].closes == .one {
+            if message.asks[ci].items.allSatisfy({ $0.answer != nil }) { message.asks[ci].state = .answered }
+        } else {
+            // Asking several, yours is one of theirs.
+            tally(id, who: FlooAskCard.you, said: value)
+        }
         let said = say(.me, value, receipt: .read, reply: FlooReply(message.agent, .answer(message.asks[ci].items[index].title), row: "m\(message.id)#sig", bubble: Self.leadRun(message.id)))
         askWaits.removeValue(forKey: "\(id)#\(index)")?.resume(returning: said)
+    }
+
+    /// Your vote on a question asking several (floo interaction.md §5.5): a tap, no
+    /// message; voting again replaces it. Live, the backend's tally comes back.
+    func vote(_ id: String, _ picked: [Int]) {
+        guard let message = askMessage(id), let card = message.asks.first(where: { $0.id == id }),
+              card.state == .open, card.closes == .vote, card.asksYou, !picked.isEmpty
+        else { return }
+        if let live {
+            live.vote(ask: id, picked: picked)
+            return
+        }
+        tally(id, who: FlooAskCard.you, picked: picked)
+    }
+
+    /// One's answer or vote on a question asking several, as the script has them: theirs
+    /// replaces any before; once all those asked have, it is answered — at once when the
+    /// first answer is enough.
+    func tally(_ id: String, who: String?, picked: [Int] = [], said: String? = nil) {
+        guard let message = askMessage(id), let ci = message.asks.firstIndex(where: { $0.id == id }),
+              message.asks[ci].state == .open
+        else { return }
+        if let who { message.asks[ci].replies.removeAll { $0.who == who } }
+        message.asks[ci].replies.append(FlooAskCard.Reply(who: who, picked: picked, said: said))
+        let card = message.asks[ci]
+        if card.closes == .one {
+            // Asked of one other: theirs is the answer.
+            message.asks[ci].items[0].answer = said ?? ""
+            message.asks[ci].state = .answered
+        } else if card.closes == .first || card.answeredCount >= card.askees.count {
+            message.asks[ci].state = .answered
+        }
+        show(message.id)
+    }
+
+    /// Whether question `id` still waits on you: the script answers for you if so.
+    func waitsOnYou(_ id: String) -> Bool {
+        askMessage(id)?.asks.first { $0.id == id }?.waitsOnYou ?? false
+    }
+
+    /// Ends a question asking several before all have answered: only yours (§5.5).
+    func endAsk(_ id: String) {
+        guard let message = askMessage(id), let ci = message.asks.firstIndex(where: { $0.id == id }),
+              message.asks[ci].state == .open, message.asks[ci].youEnd
+        else { return }
+        if let live {
+            live.closeAsk(id)
+            return
+        }
+        message.asks[ci].state = .closed
+        show(message.id)
     }
 
     /// The ask is taken back: the card stays, struck through, and nothing waits on it.
@@ -2033,7 +2130,7 @@ final class FlooDemo {
             if let errand { all.insert(errand, at: place(id, among: all.map(\.id))) }
             errands = all
         }
-        let open = gone ? [] : message.asks.filter { $0.state == .open }
+        let open = gone ? [] : message.asks.filter(\.waitsOnYou)
         if openAsks.filter({ $0.message == id }).map(\.card) != open {
             var all = openAsks.filter { $0.message != id }
             all.insert(contentsOf: open.map { (message: id, card: $0) }, at: place(id, among: all.map(\.message)))

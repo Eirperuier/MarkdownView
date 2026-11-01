@@ -394,6 +394,23 @@ final class FlooLive {
     /// Opens a floo link (`floo://<service>/…`) on this device, as the chat's mentions do.
     func open(link: String) { demo.open(link: link) }
 
+    /// Your vote on a question asking several (floo interaction.md §5.5): a tap, no message;
+    /// the tally shows once the conversation has it.
+    func vote(ask: String, picked: [Int]) {
+        guard let client, let current, let id = AskID(ask) else { return }
+        Task {
+            do { try await client.vote(picked, on: id, in: current) } catch { demo.catchUp("投票没成：\(error)") }
+        }
+    }
+
+    /// Ends a question asking several before all have answered: yours alone (§5.5).
+    func closeAsk(_ ask: String) {
+        guard let client, let current, let id = AskID(ask) else { return }
+        Task {
+            do { try await client.closeAsk(id, in: current) } catch { demo.catchUp("结束没成：\(error)") }
+        }
+    }
+
     /// Your reaction to a message of the conversation shown (messaging.md §3.11); nil takes
     /// it back. It shows once the conversation has it.
     func react(_ number: Int64, _ emoji: String?) {
@@ -1468,8 +1485,9 @@ final class FlooLive {
         let state: FlooAskCard.State =
             switch ask.status {
             case .open: .open
-            // Asking several, ended before all answered (interaction.md §5.4): done.
-            case .answered, .closed: .answered
+            case .answered: .answered
+            // Asking several, ended before all answered (interaction.md §5.4).
+            case .closed: .closed
             case .withdrawn, .replaced: .withdrawn
             case .expired: .expired
             }
@@ -1486,16 +1504,43 @@ final class FlooLive {
                 }).first
             else { return nil }
             let words = blocks.compactMap { if case .text(let text) = $0.content { text } else { nil } }.joined(separator: "\n")
+            let me = Participant.person(backend.account)
+            // Asking several (interaction.md §5.4): your answer is among theirs.
+            let mine = ask.replies.first { $0.by == me }
             let item = FlooAskItem(
                 title: title, question: Self.asking(title, in: words), form: Self.form(question.form),
-                answer: ask.answer.map(said)
+                answer: ask.closes == .one ? ask.answer.map(said) : mine?.message.map(said)
             )
-            return FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
+            var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
+            card.closes =
+                switch ask.closes {
+                case .one: .one
+                case .first: .first
+                case .each: .each
+                case .vote: .vote
+                }
+            card.askees = ask.askees.map(askee)
+            card.replies = ask.replies.map { reply in
+                FlooAskCard.Reply(
+                    who: reply.by.map(askee), picked: reply.picked ?? [],
+                    said: reply.message.map(said) ?? reply.filled.map { $0.map(Self.words).joined(separator: "，") })
+            }
+            card.asksYou = ask.asks(me)
+            card.youEnd = ask.agent.account == backend.account && (ask.closes == .vote || ask.closes == .each)
+            if ask.closes == .one, let to = ask.to, to != me { card.askees = [askee(to)] }
+            card.until = ask.until.map { $0.at.date.formatted(.dateTime.month().day().hour().minute()) }
+            return card
         }
         let items = ask.items.map { item in
             FlooAskItem(title: item.title, question: item.question, form: Self.form(item.form), answer: item.answer.map(said))
         }
         return FlooAskCard(id: ask.id.description, agent: agent, items: items, state: state)
+    }
+
+    /// Whom a question asks, by name: you as "我", the others as the conversation names them.
+    private func askee(_ participant: Participant) -> String {
+        if let id = participant.actor.agent { return agent(id, of: participant.account).name }
+        return participant.account == backend.account ? FlooAskCard.you : names[participant.account] ?? "成员"
     }
 
     /// The sentence a `floo.ask` fence follows in `words`: what it asks; its title if none.

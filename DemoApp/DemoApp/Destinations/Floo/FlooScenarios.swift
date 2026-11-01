@@ -6,15 +6,43 @@
 //
 
 import Foundation
+import UIKit
 import CardModel
 import CardUI
 import Wire
+
+/// `-flooShots <folder>`: while a scene plays, the window every `-flooShotEvery` seconds
+/// (3 if not given) as 01.png, 02.png … there, up to 40 — a look at a scene where the
+/// screen can't be recorded.
+@MainActor
+enum FlooShots {
+    static func start() {
+        guard let folder = UserDefaults.standard.string(forKey: "flooShots") else { return }
+        let given = UserDefaults.standard.double(forKey: "flooShotEvery")
+        let every = given > 0 ? given : 3
+        Task { @MainActor in
+            for shot in 1...40 {
+                guard (try? await Task.sleep(for: .seconds(every))) != nil else { return }  // cancelled: no more
+                draw(to: "\(folder)/\(shot < 10 ? "0" : "")\(shot).png")
+            }
+        }
+    }
+
+    private static func draw(to file: String) {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        guard let window = windows.first(where: \.isKeyWindow) ?? windows.first else { return }
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        try? image.pngData()?.write(to: URL(filePath: file))  // try?: a look, nothing depends on it
+    }
+}
 
 @MainActor
 enum FlooScenario: Int, CaseIterable, Identifiable {
     // Live goes first in the menu; the scripted ones keep their numbers (`-flooScenario N`).
     case live = 99, slowWork = 0, interjection, waitingOnYou, catchingUp, group, answerWithCards, pushes, research, longAnswer, errands,
-        onDevice
+        onDevice, askingSeveral
 
     nonisolated var id: Int { rawValue }
 
@@ -32,10 +60,12 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         case .longAnswer: "长回答：从头读，它在下面接着写"
         case .errands: "手上几件事：随时交代，各自回来"
         case .onDevice: "本机：动你设备上的东西，先问你"
+        case .askingSeveral: "群里问大家：投票、收齐、只问一人"
         }
     }
 
     func play(_ m: FlooDemo) async throws {
+        FlooShots.start()
         switch self {
         case .live: try await FlooLive.play(m)
         case .slowWork: try await Self.slowWork(m)
@@ -49,6 +79,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         case .longAnswer: try await Self.longAnswer(m)
         case .errands: try await Self.errands(m)
         case .onDevice: try await Self.onDevice(m)
+        case .askingSeveral: try await Self.askingSeveral(m)
         }
     }
 
@@ -301,6 +332,97 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         let reply = m.begin(.butler, at: "21:42")
         try await m.stream(reply, "好，明早 7 点发第一份。")
         m.mark(picked.said, .answered)
+    }
+
+    // MARK: Asking several
+
+    /// In a group the butler asks everyone (floo interaction.md §5.4, §5.5): a vote, each a
+    /// tap and no message, its bars moving as they come in; a time from each, their answers
+    /// their messages, the card counting them in; and one asked of 小林 alone, which you see
+    /// but don't answer. Each folds to one line once it's done.
+    private static func askingSeveral(_ m: FlooDemo) async throws {
+        let all = [FlooAskCard.you, "小林", "小王", "阿珍"]
+        m.reset(title: "周末小分队")
+        m.time("19:40")
+        m.say(.person("小林"), "周六中午一起吃饭吧")
+        try await m.wait(800)
+        let asked = try await m.type("@管家 帮我们投个票定地方，再问问大家几点到")
+        try await m.wait(400)
+        m.mark(asked, .read)
+
+        let vote = m.begin(.butler, at: "19:41")
+        try await m.stream(vote, "周六中午吃什么？", finishing: false)
+        var card = FlooAskCard(
+            id: "vote", agent: .butler,
+            items: [
+                FlooAskItem(
+                    title: "周六去哪吃", question: "周六中午吃什么？",
+                    form: .choose(
+                        options: [FlooOption(label: "🍲 火锅"), FlooOption(label: "🍢 烧烤"), FlooOption(label: "🍜 面馆")],
+                        multiple: false, own: nil))
+            ],
+            state: .open)
+        card.closes = .vote
+        card.askees = all
+        card.youEnd = true
+        card.until = "周五 20:00"
+        m.ask(vote, card)
+        try await m.stream(vote, "周五晚 8 点截止，我按票多的订。")
+        try await m.wait(1200)
+        m.tally("vote", who: "小林", picked: [0])
+        try await m.wait(900)
+        m.tally("vote", who: "阿珍", picked: [1])
+
+        let when = m.begin(.butler, at: "19:42")
+        try await m.stream(when, "位子先按 12 点占着。大家大概几点到？", finishing: false)
+        var arrival = FlooAskCard(
+            id: "when", agent: .butler,
+            items: [
+                FlooAskItem(
+                    title: "几点到", question: "大家大概几点到？",
+                    form: .fill(fields: [FlooAskItem.Field(label: "你大概几点到", kind: .time, guess: "12:00")]))
+            ],
+            state: .open)
+        arrival.closes = .each
+        arrival.askees = all
+        arrival.youEnd = true
+        m.ask(when, arrival)
+        try await m.stream(when, "收齐了我一起说。")
+        try await m.wait(1000)
+        m.say(.person("小林"), "11:50")
+        m.tally("when", who: "小林", said: "11:50")
+        try await m.wait(900)
+        m.say(.person("小王"), "12:10，停车要点时间")
+        m.tally("when", who: "小王", said: "12:10")
+
+        let cake = m.begin(.butler, at: "19:43")
+        try await m.stream(cake, "小林，你说过要给阿珍过生日，蛋糕要我一起订吗？")
+        var forLin = FlooAskCard(
+            id: "cake", agent: .butler,
+            items: [
+                FlooAskItem(
+                    title: "订蛋糕", question: "蛋糕要我一起订吗？",
+                    form: .confirm(effect: "订一个 6 寸的，周六 12 点送到店里", yes: "订", no: "不用"))
+            ],
+            state: .open)
+        forLin.askees = ["小林"]
+        forLin.asksYou = false
+        m.ask(cake, forLin)
+
+        // Yours, if you don't: the script votes and answers for you.
+        try await m.wait(6000)
+        if m.waitsOnYou("vote") { m.vote("vote", [0]) }
+        try await m.wait(800)
+        m.tally("vote", who: "小王", picked: [0])
+        let mine = try await m.awaitAnswer("when", item: 0, autoAfter: 3000, auto: .fill)
+        try await m.wait(900)
+        m.say(.person("阿珍"), "12:00")
+        m.tally("when", who: "阿珍", said: "12:00")
+        m.tally("cake", who: "小林", said: "订")
+        try await m.wait(600)
+        let told = m.begin(.butler, at: "19:46")
+        try await m.stream(told, "都齐了：火锅 3 票，订好 12 点 4 位；小林 11:50 到，小王 12:10，阿珍和你 12 点。")
+        m.mark(mine, .answered)
     }
 
     // MARK: Waiting on you

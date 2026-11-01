@@ -1513,8 +1513,10 @@ private struct FlooOptions: View {
     }
 }
 
-/// An agent's ask on the message that asked it: its items answered one at a time, the card
-/// and the entry over the composer turning answered together.
+/// An agent's question on the message that asked it (floo interaction.md §7.2): its title
+/// and where it stands up top, whom it asks and until when under it, then how to answer;
+/// asking several, who has answered so far — a vote as live tallies, tapped, no message.
+/// Done, it folds to one line where it was.
 private struct FlooAskView: View {
     let card: FlooAskCard
     let demo: FlooDemo
@@ -1525,47 +1527,182 @@ private struct FlooAskView: View {
     @State private var filled: [Int: [String]] = [:]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                Text("\(card.agent.name) \(state)")
-                if card.items.count > 1 {
-                    Text("· \(card.items.count) 项")
+        if card.state == .open {
+            open
+        } else {
+            folded
+        }
+    }
+
+    private var open: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+                Text(status)
+                    .font(.caption2.weight(.medium))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(card.agent.tint.opacity(0.14), in: Capsule())
+                    .foregroundStyle(card.agent.tint)
+            }
+            if let meta {
+                Text(meta).font(.caption).foregroundStyle(.secondary)
+            }
+            if card.closes == .vote {
+                tallies
+            } else {
+                ForEach(Array(card.items.enumerated()), id: \.offset) { index, item in
+                    self.item(item, at: index)
                 }
             }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(card.state == .open ? card.agent.tint : .secondary)
-            ForEach(Array(card.items.enumerated()), id: \.offset) { index, item in
-                self.item(item, at: index)
+            if let progress {
+                Text(progress).font(.caption).foregroundStyle(.secondary)
+            }
+            if card.youEnd {
+                HStack {
+                    Spacer()
+                    Button(card.closes == .vote ? "结束投票" : "不等了") { demo.endAsk(card.id) }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
+                }
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            card.state == .answered ? Color(uiColor: .secondarySystemBackground) : card.agent.tint.opacity(0.08),
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-        )
+        .background(card.agent.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(card.agent.tint.opacity(0.35)))
+    }
+
+    /// Done: one line where it was, with what came of it.
+    private var folded: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).foregroundStyle(card.state == .answered ? Color.green : .secondary)
+            Text(title).fontWeight(.medium)
+            if let outcome {
+                Text("·").foregroundStyle(.tertiary)
+                Text(outcome).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .font(.footnote)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var title: String {
+        card.items.count == 1 ? card.items[0].title : "\(card.agent.name)问了 \(card.items.count) 件"
+    }
+
+    /// Where it stands, as the chip up top says it.
+    private var status: String {
+        switch card.closes {
+        case .vote: "投票中 · \(card.answeredCount)/\(card.askees.count)"
+        case .each, .first: "已答 \(card.answeredCount)/\(card.askees.count)"
+        case .one: card.asksYou ? "等你答" : "等\(card.askees.first ?? "")答"
+        }
+    }
+
+    /// Whom it asks when not you alone, what for, until when.
+    private var meta: String? {
+        var parts: [String] = []
+        if let errand = card.errand { parts.append("为「\(errand)」") }
+        if !card.asksYou || card.askees.count > 1 {
+            let whom = card.askees.count > 3 ? "大家" : card.askees.joined(separator: "、")
+            parts.append(card.closes == .first ? "问\(whom)，谁先答都行" : "问\(whom)")
+        }
+        if let until = card.until { parts.append("\(until) 截止") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Asking several, not a vote: who answered what, who hasn't yet.
+    private var progress: String? {
+        guard card.closes == .each || card.closes == .first else { return nil }
+        let answered = card.replies.compactMap { reply in reply.who.map { "\($0) \(reply.said ?? "")" } }
+        let missing = card.askees.filter { who in !card.replies.contains { $0.who == who } }
+        let left = missing.isEmpty ? [] : ["还没答：" + missing.joined(separator: "、")]
+        let all = answered + left
+        return all.isEmpty ? nil : all.joined(separator: " · ")
+    }
+
+    /// A vote: each option a bar as long as its share, the voters on it (none named in an
+    /// anonymous one), yours checked; tapping one is your vote. Under them, who hasn't.
+    private var tallies: some View {
+        let options: [FlooOption] = if case .choose(let options, _, _)? = card.items.first?.form { options } else { [] }
+        let total = max(card.replies.count, 1)
+        let mine = Set(card.replies.first { $0.who == FlooAskCard.you }?.picked ?? [])
+        let missing = card.askees.filter { who in !card.replies.contains { $0.who == who } }
+        return VStack(alignment: .leading, spacing: 5) {
+            ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                let voters = card.replies.filter { $0.picked.contains(index) }
+                Button {
+                    demo.answerAsk(card.id, item: 0, .vote([index]))
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(option.label + (mine.contains(index) ? " ✓" : ""))
+                            .fontWeight(mine.contains(index) ? .semibold : .regular)
+                        Spacer(minLength: 6)
+                        Text(voters.isEmpty ? "0" : "\(voters.count) · " + voters.compactMap(\.who).joined(separator: " "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .font(.footnote)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(alignment: .leading) {
+                        GeometryReader { size in
+                            card.agent.tint.opacity(0.16)
+                                .frame(width: size.size.width * CGFloat(voters.count) / CGFloat(total))
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(mine.contains(index) ? card.agent.tint : Color.primary.opacity(0.15),
+                                          lineWidth: mine.contains(index) ? 1.5 : 1))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!card.asksYou)
+            }
+            if !missing.isEmpty {
+                Text("还没投：" + missing.joined(separator: "、"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var icon: String {
         switch card.state {
         case .open: "hourglass"
-        case .answered: "checkmark"
-        case .withdrawn: "xmark"
-        case .expired: "clock"
+        case .answered: "checkmark.circle.fill"
+        case .withdrawn: "xmark.circle"
+        case .expired, .closed: "clock"
         }
     }
 
-    private var state: String {
+    /// What came of it, folded: your answer, a vote's tally, how many answered.
+    private var outcome: String? {
+        if card.closes == .vote, case .choose(let options, _, _)? = card.items.first?.form {
+            let tally = options.enumerated().map { index, option in
+                "\(option.label) \(card.replies.filter { $0.picked.contains(index) }.count)"
+            }.joined(separator: " · ")
+            return tally + (card.state == .answered ? " · 都投了" : " · 已结束")
+        }
         switch card.state {
-        case .open: "在问你"
-        case .answered: "已答"
-        case .withdrawn: "已撤回"
-        case .expired: "过期了"
+        case .withdrawn: return "已撤回"
+        case .expired: return "过期了，没答"
+        case .closed: return "\(card.answeredCount)/\(card.askees.count) 答了 · 已结束"
+        case .answered, .open:
+            if card.closes != .one { return "\(card.answeredCount)/\(card.askees.count) 答了" }
+            return card.items.compactMap(\.answer).joined(separator: "；")
         }
     }
-
-    private var dead: Bool { card.state == .withdrawn || card.state == .expired }
 
     @ViewBuilder
     private func item(_ item: FlooAskItem, at index: Int) -> some View {
@@ -1573,15 +1710,16 @@ private struct FlooAskView: View {
             Label("你答了：\(answer)", systemImage: "checkmark.circle.fill")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        } else if !card.asksYou {
+            Text("只有\(card.askees.joined(separator: "、"))能答")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                Text(item.question)
-                    .font(.subheadline)
-                    .strikethrough(dead)
-                    .foregroundStyle(dead ? .secondary : .primary)
-                if card.state == .open {
-                    form(item, at: index)
+                if card.items.count > 1 {
+                    Text(item.question).font(.subheadline)
                 }
+                form(item, at: index)
             }
         }
     }
@@ -2279,6 +2417,11 @@ extension FlooRow {
         case .topics(let topics):
             return 8 + CGFloat(topics.count) * 30
         case .ask(let card):
+            // Done, one line; a vote, a bar an option.
+            if card.state != .open { return 40 }
+            if card.closes == .vote, case .choose(let options, _, _)? = card.items.first?.form {
+                return 100 + CGFloat(options.count) * 40
+            }
             return 60 + CGFloat(card.items.reduce(0) { sum, item in
                 if item.answer != nil { return sum + 24 }
                 switch item.form {
