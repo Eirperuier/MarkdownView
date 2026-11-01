@@ -549,6 +549,10 @@ extension FlooContactsDemo {
         let what: String = switch watch.source {
         case .hook(let event): "有变化时就知道（\(event)）"
         case .polls(let tool, let every): "每 \(every >= 3600 ? "\(every / 3600) 小时" : "\(max(1, every / 60)) 分钟")看一次 \(tool)"
+        case .updates(_, let view, let every, let event):
+            if let event { "让卡片 \(view) 随着\(event)更新" }
+            else if let every { "每 \(every >= 3600 ? "\(every / 3600) 小时" : "\(max(1, every / 60)) 分钟")更新一次卡片 \(view)" }
+            else { "随时更新卡片 \(view)" }
         }
         let until = watch.until.map { "，到 \(FlooDay.label($0.at.date)) 为止" } ?? ""
         return FlooDoing(text: watch.why ?? watch.name ?? watch.id, asked: what + until)
