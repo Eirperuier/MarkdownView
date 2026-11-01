@@ -1468,7 +1468,8 @@ final class FlooLive {
         let state: FlooAskCard.State =
             switch ask.status {
             case .open: .open
-            case .answered: .answered
+            // Asking several, ended before all answered (interaction.md §5.4): done.
+            case .answered, .closed: .answered
             case .withdrawn, .replaced: .withdrawn
             case .expired: .expired
             }
