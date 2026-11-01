@@ -1740,7 +1740,7 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         }
         guard design != nil || look.isHeaderColumn else { return bodyFont }
         let weight: Font.Weight = look.isHeaderColumn ? .bold : .regular
-        return .markdownScaled(.system(.body, design: design ?? .default).weight(weight), .body, weight: weight, design: design ?? .default)
+        return .system(.body, design: design ?? .default).weight(weight)
     }
 
     /// A body cell's text as a tag, when the host gives it a colour: tinted on a light

@@ -14,8 +14,8 @@ import DocKit
 import MarkdownView
 
 enum DocTypography {
-    /// The selectable path's fonts: body text, headings by level, inline code (each at
-    /// MarkdownView's scale, MarkdownTextScale: on the Mac, Craft's size).
+    /// The selectable path's fonts: body text, headings by level, inline code, at the text
+    /// styles' own sizes.
     static let fonts = MarkdownPlatformTypography(
         body: .init(.body),
         headings: [

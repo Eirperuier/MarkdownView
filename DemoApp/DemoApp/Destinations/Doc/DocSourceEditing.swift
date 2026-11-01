@@ -707,9 +707,8 @@ struct DocSourceField: UIViewRepresentable {
     }
 }
 
-/// The document's code font: Craft's, monospaced at 0.86 of the body text (13 points
-/// beside the Mac's 15).
-let docCodeFont = UIFont.monospacedSystemFont(ofSize: (MarkdownTextScale.size(of: .body) * 0.86).rounded(),
+/// The document's code font: Craft's, monospaced at 0.86 of the body text.
+let docCodeFont = UIFont.monospacedSystemFont(ofSize: (UIFont.preferredFont(forTextStyle: .body).pointSize * 0.86).rounded(),
                                               weight: .regular)
 
 /// Craft's code block, measured on its Mac app (code at 13 points), scaled with the font.
@@ -1018,7 +1017,7 @@ struct DocMathPanel: View {
     }
 
     /// The LaTeX's font: the body text's size, monospaced.
-    private static let latexFont = UIFont.monospacedSystemFont(ofSize: MarkdownTextScale.size(of: .body), weight: .regular)
+    private static let latexFont = UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
 
     private var content: some View {
         VStack(spacing: Tokens.Space.sm) {

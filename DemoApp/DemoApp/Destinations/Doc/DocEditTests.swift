@@ -3380,7 +3380,7 @@ final class DocEditTests {
             if blocks.isSelecting { blocks.endSelecting() } else { blocks.clear() }
         }
         if DocBlockController.usesHandles {
-            await test("on the Mac the page's text reads at Craft's size: body 1.16 times, headings 1.24 times the text styles") {
+            await test("on the Mac the page's text is the text styles' own size, body and headings") {
                 @MainActor func renderedFont(_ prefix: String) throws -> UIFont {
                     let block = try self.block(prefix)
                     let view = try self.expectValue(self.editor.textView(for: block.id), "no text view for \(prefix)")
@@ -3391,32 +3391,13 @@ final class DocEditTests {
                 let paragraph = try self.block("Loading older")
                 await show(paragraph.id)
                 let body = try renderedFont("Loading older").pointSize
-                let expected = UIFont.preferredFont(forTextStyle: .body).pointSize * 1.16
+                let expected = UIFont.preferredFont(forTextStyle: .body).pointSize
                 try self.expect(abs(body - expected) < 0.01, "body \(body), wanted \(expected)")
                 let heading = try self.block("第 1 节")
                 await show(heading.id)
                 let size = try renderedFont("第 1 节").pointSize
-                let wanted = UIFont.preferredFont(forTextStyle: .title2).pointSize * 1.24
+                let wanted = UIFont.preferredFont(forTextStyle: .title2).pointSize
                 try self.expect(abs(size - wanted) < 0.01, "heading \(size), wanted \(wanted)")
-            }
-            await test("on the Mac MarkdownView's own text is Craft's size too: its font group's and the selectable path's") {
-                struct Unscaled: MarkdownFontGroup {
-                    var body: Font { .body }
-                    var h2: Font { .title2 }
-                }
-                @MainActor func height(_ view: some View) -> CGFloat {
-                    UIHostingController(rootView: view).sizeThatFits(in: CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)).height
-                }
-                // One line taller by what the scale adds to its line (a heading's padding stays).
-                for (text, style) in [("One line of body text", UIFont.TextStyle.body), ("## One heading", .title2)] {
-                    let (scaled, plain) = (height(MarkdownView(text)), height(MarkdownView(text).fontGroup(Unscaled())))
-                    let font = UIFont.preferredFont(forTextStyle: style)
-                    let grows = font.withSize(MarkdownTextScale.size(of: style)).lineHeight - font.lineHeight
-                    try self.expect(abs((scaled - plain) - grows) < 1.5, "\(text): \(scaled) high, \(plain) at the text style, wanted \(grows) more")
-                }
-                let standard = MarkdownPlatformTypography.standard
-                try self.expect(standard.body.scale == 1.16 && standard.headings[0].scale == 1.24 && standard.headings[3].scale == 1.16,
-                                "the selectable path's scales: \(standard.body.scale), \(standard.headings.map(\.scale))")
             }
             await test("blocks selected next to each other are highlighted each on its own, a little around their text") {
                 let nested = try self.block("嵌套列表的缩进")

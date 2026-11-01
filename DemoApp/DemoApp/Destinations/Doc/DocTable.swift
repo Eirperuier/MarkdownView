@@ -994,7 +994,7 @@ struct DocTableCellField: UIViewRepresentable {
 
     /// MarkdownView's table fonts: the header is SF Compact subheadline, bold; the body is the
     /// page's body (DocTypography).
-    static let bodyFont = UIFont.preferredFont(forTextStyle: .body).withSize(MarkdownTextScale.size(of: .body))
+    static let bodyFont = UIFont.preferredFont(forTextStyle: .body)
     static let headerFont: UIFont = {
         let size = UIFont.preferredFont(forTextStyle: .subheadline).pointSize
         guard let compact = UIFont(name: "SFCompactText-Bold", size: size) else {

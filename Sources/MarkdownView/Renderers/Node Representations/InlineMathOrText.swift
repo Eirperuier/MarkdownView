@@ -282,14 +282,11 @@ struct InlineTextWithMath: View {
         case .caption:    style = .caption1
         case .caption2:   style = .caption2
         case .footnote:   style = .footnote
-        case .body:       style = .body
-        default:
-            // A font MarkdownView scaled (MarkdownTextScale) is no text style: body text, scaled.
-            return UIFont.preferredFont(forTextStyle: .body).xHeight * MarkdownTextScale.body
+        default:          style = .body
         }
         return UIFont.preferredFont(forTextStyle: style).xHeight
         #else
-        return NSFont.preferredFont(forTextStyle: .body).xHeight * MarkdownTextScale.body
+        return NSFont.preferredFont(forTextStyle: .body).xHeight
         #endif
     }
 }
@@ -507,14 +504,11 @@ private struct InlineMathRevealToken: View {
         case .caption:    style = .caption1
         case .caption2:   style = .caption2
         case .footnote:   style = .footnote
-        case .body:       style = .body
-        default:
-            // A font MarkdownView scaled (MarkdownTextScale) is no text style: body text, scaled.
-            return UIFont.preferredFont(forTextStyle: .body).xHeight * MarkdownTextScale.body
+        default:          style = .body
         }
         return UIFont.preferredFont(forTextStyle: style).xHeight
         #else
-        return NSFont.preferredFont(forTextStyle: .body).xHeight * MarkdownTextScale.body
+        return NSFont.preferredFont(forTextStyle: .body).xHeight
         #endif
     }
 }

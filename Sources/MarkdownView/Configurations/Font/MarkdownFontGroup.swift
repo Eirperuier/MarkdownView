@@ -28,36 +28,35 @@ public protocol MarkdownFontGroup {
     var displayMath: Font { get }
 }
 func sfCompactFont(forTextStyle style: UIFont.TextStyle, weight: String = "Regular") -> UIFont {
-    let baseSize = UIFont.preferredFont(forTextStyle: style).pointSize * MarkdownTextScale.factor(for: style)
+    let baseSize = UIFont.preferredFont(forTextStyle: style).pointSize
     guard let baseFont = UIFont(name: "SFCompactText-\(weight)", size: baseSize) else {
-        return UIFont.preferredFont(forTextStyle: style).withSize(baseSize)
+        return UIFont.preferredFont(forTextStyle: style)
     }
     return UIFontMetrics(forTextStyle: style).scaledFont(for: baseFont)
 }
 
-/// The text styles at MarkdownView's scale (MarkdownTextScale).
 extension MarkdownFontGroup {
-    public var h1: Font { .markdownScaled(.title, .title1) }
-    public var h2: Font { .markdownScaled(.title2, .title2) }
-    public var h3: Font { .markdownScaled(.title3, .title3) }
-    public var h4: Font { .markdownScaled(.headline, .headline, weight: .semibold) }
-    public var h5: Font { .markdownScaled(.headline, .headline, weight: .semibold) }
-    public var h6: Font { .markdownScaled(Font.headline.weight(.regular), .headline) }
+    public var h1: Font { Font.title }
+    public var h2: Font { Font.title2 }
+    public var h3: Font { Font.title3 }
+    public var h4: Font { Font.headline }
+    public var h5: Font { Font.headline }
+    public var h6: Font { Font.headline.weight(.regular) }
     
     // Normal text
-    public var body: Font { .markdownScaled(.body, .body) }
+    public var body: Font { Font.body }
     
     // Blocks
-    public var codeBlock: Font { .markdownScaled(Font.system(.caption, design: .monospaced), .caption1, design: .monospaced) }
-    public var blockQuote: Font { .markdownScaled(Font.system(.body, design: .serif), .body, design: .serif) }
+    public var codeBlock: Font { Font.system(.caption, design: .monospaced) }
+    public var blockQuote: Font { Font.system(.body, design: .serif) }
     
     // Tables
     public var tableHeader: Font { Font(sfCompactFont(forTextStyle: .subheadline)).weight(.bold) }
-    public var tableBody: Font { .markdownScaled(.body, .body) }
+    public var tableBody: Font { Font.body }
     
     // Math
-    public var inlineMath: Font { .markdownScaled(.body, .body) }
-    public var displayMath: Font { .markdownScaled(.body, .body) }
+    public var inlineMath: Font { Font.body }
+    public var displayMath: Font { Font.body }
 }
 
 // MARK: - Environment Values

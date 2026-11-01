@@ -18,18 +18,15 @@ public struct MarkdownPlatformTypography: Hashable, Sendable {
     public struct Style: Hashable, Sendable {
         public var textStyle: PlatformFont.TextStyle
         public var weight: PlatformFont.Weight
-        /// Times the text style's size; by default MarkdownView's (MarkdownTextScale).
-        public var scale: CGFloat
         /// The text style's own line height: iOS's body font keeps its leading (17 pt on a
         /// 22 pt line). False: the font's alone, the line SwiftUI's Text gives it.
         public var keepsTextStyleLeading = true
         /// The system font's design (serif, rounded, monospaced); nil, the default.
         public var design: Font.Design?
 
-        public init(_ textStyle: PlatformFont.TextStyle, weight: PlatformFont.Weight = .regular, scale: CGFloat? = nil) {
+        public init(_ textStyle: PlatformFont.TextStyle, weight: PlatformFont.Weight = .regular) {
             self.textStyle = textStyle
             self.weight = weight
-            self.scale = scale ?? MarkdownTextScale.factor(for: textStyle)
         }
     }
 
@@ -120,16 +117,14 @@ extension MarkdownPlatformTypography.Style {
         #if canImport(UIKit)
         let traits = dynamicTypeSize.map { UITraitCollection(preferredContentSizeCategory: $0.uiContentSizeCategory) }
         let preferred = UIFont.preferredFont(forTextStyle: textStyle, compatibleWith: traits)
-        let size = preferred.pointSize * scale
-        if monospaced { return .monospacedSystemFont(ofSize: size, weight: weight) }
-        guard weight == .regular, keepsTextStyleLeading else { return .systemFont(ofSize: size, weight: weight) }
-        return scale == 1 ? preferred : preferred.withSize(size)
+        if monospaced { return .monospacedSystemFont(ofSize: preferred.pointSize, weight: weight) }
+        guard weight == .regular, keepsTextStyleLeading else { return .systemFont(ofSize: preferred.pointSize, weight: weight) }
+        return preferred
         #else
         let preferred = NSFont.preferredFont(forTextStyle: textStyle)
-        let size = preferred.pointSize * scale
-        if monospaced { return .monospacedSystemFont(ofSize: size, weight: weight) }
-        guard weight == .regular, keepsTextStyleLeading else { return .systemFont(ofSize: size, weight: weight) }
-        return scale == 1 ? preferred : NSFont(descriptor: preferred.fontDescriptor, size: size) ?? preferred
+        if monospaced { return .monospacedSystemFont(ofSize: preferred.pointSize, weight: weight) }
+        guard weight == .regular, keepsTextStyleLeading else { return .systemFont(ofSize: preferred.pointSize, weight: weight) }
+        return preferred
         #endif
     }
 }
