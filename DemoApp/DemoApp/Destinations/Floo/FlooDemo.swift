@@ -399,8 +399,9 @@ struct FlooAskItem: Hashable {
         case fill(fields: [Field])
         /// Secrets for the device that does it — a password, a code (floo interaction.md
         /// §4.2): sealed to `sealedTo`, never the agent's; `ways` to pick from first
-        /// (密码 / 邮件验证码), `submit` what sending them does.
-        case secret(fields: [Field], ways: [String], sealedTo: String, submit: String)
+        /// (密码 / 邮件验证码), `submit` what sending them does. `keep`, where the asker
+        /// offers 「在我的所有设备上保持登录」 (floo browser.md §6.5): its default; nil, not offered.
+        case secret(fields: [Field], ways: [String], sealedTo: String, submit: String, keep: Bool? = nil)
         /// A decision you sign, its buttons as the system words them: `go` the one that goes
         /// ahead, `standing` what you may allow from now on behind a long press of it;
         /// `dangerous` can't be undone, asked every time.
@@ -522,8 +523,9 @@ enum FlooAnswerPick {
     case filled([String])
     /// A decision: the button pressed, or a standing choice from its long press.
     case decide(go: Bool, standing: String?)
-    /// Secrets, in order, by the way picked; sealed, they never show.
-    case secrets(way: Int, [String])
+    /// Secrets, in order, by the way picked; sealed, they never show. `keep`: kept signed in
+    /// on all your devices, where the form offered it.
+    case secrets(way: Int, [String], keep: Bool? = nil)
     /// A step: on it now (`open`), through, or skipped.
     case step(FlooStepPick)
 }
@@ -1652,7 +1654,7 @@ final class FlooDemo {
             value = values.joined(separator: "，")
         case (.decide(let go, let standing), .decision(let goLabel, let no, _, _)):
             value = go ? standing ?? goLabel : no
-        case (.secrets(let way, _), .secret(_, let ways, let sealedTo, _)):
+        case (.secrets(let way, _, _), .secret(_, let ways, let sealedTo, _, _)):
             // Sealed: what was typed never shows, nor reaches the agent.
             value = (ways.indices.contains(way) ? ways[way] + " · " : "") + "已交给 \(sealedTo)"
         case (.step(.open), .step):
@@ -1705,8 +1707,8 @@ final class FlooDemo {
             live.step(ask: card.id, pick)
         case (.decide(let go, let standing), .decision):
             live.decide(ask: card.id, go: go, standing: standing)
-        case (.secrets(_, let values), .secret):
-            live.submit(ask: card.id, values: values)
+        case (.secrets(_, let values, let keep), .secret):
+            live.submit(ask: card.id, values: values, keep: keep)
         case (.step(.skip), .secret):
             live.decline(ask: card.id)
         default:

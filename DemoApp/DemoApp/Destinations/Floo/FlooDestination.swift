@@ -55,6 +55,7 @@ struct FlooDestination: View {
     /// The zones to pick the person's from, from the account menu.
     @State private var picksZone = false
     @State private var showsDevices = FlooDevicesDestination.launches
+    @State private var showsSites = FlooSitesDestination.launches
     @FocusState private var composerFocused: Bool
     /// The window's inspector, where the person's mini programs open.
     @Environment(WindowInspector.self) private var inspector
@@ -179,6 +180,9 @@ struct FlooDestination: View {
         .sheet(isPresented: $showsDevices) {
             if let live = demo.live { FlooDevicesDestination(live: live) }
         }
+        .sheet(isPresented: $showsSites) {
+            if let live = demo.live { FlooSitesDestination(live: live) }
+        }
         .sheet(isPresented: $demo.showsMembers) {
             if let live = demo.live { FlooMembersView(live: live) }
         }
@@ -290,6 +294,7 @@ struct FlooDestination: View {
                         }
                     }
                     Button("设备", systemImage: "laptopcomputer.and.iphone") { showsDevices = true }
+                    Button("网站登录", systemImage: "person.badge.key") { showsSites = true }
                     Button("退出登录", role: .destructive) {
                         Task {
                             try? await account.auth.signOut()  // try?: the kept session may be gone already
@@ -1455,6 +1460,8 @@ private struct FlooAskView: View {
     @State private var details = false
     /// A secret item's way picked (密码 / 邮件验证码) and what's typed, never shown back.
     @State private var way: [Int: Int] = [:]
+    /// A secret form's 「在我的所有设备上保持登录」 as you set it, by item; unset, the form's default.
+    @State private var kept: [Int: Bool] = [:]
 
     var body: some View {
         VStack(alignment: .center, spacing: 6) {
@@ -1797,7 +1804,7 @@ private struct FlooAskView: View {
                 .tint(card.agent.tint)
                 .controlSize(.small)
                 .disabled(values.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty })
-        case .secret(let fields, let ways, let sealedTo, let submit):
+        case .secret(let fields, let ways, let sealedTo, let submit, let keep):
             // Secrets go sealed to the device that uses them: typed here, never shown back,
             // never the agent's (floo interaction.md §4.2).
             let picked = way[index] ?? 0
@@ -1833,6 +1840,15 @@ private struct FlooAskView: View {
                         }
                     }
                 }
+                // Offered by the asker (floo browser.md §6.5): ticked unless it's a bank or a payment.
+                if let keep {
+                    Toggle(isOn: Binding(get: { kept[index] ?? keep }, set: { kept[index] = $0 })) {
+                        Label("在我的所有设备上保持登录", systemImage: "laptopcomputer.and.iphone")
+                            .font(.caption)
+                    }
+                    .controlSize(.mini)
+                    .tint(card.agent.tint)
+                }
                 Label("只交给 \(sealedTo)，\(card.agent.name)看不到", systemImage: "lock.fill")
                     .font(.caption2)
                     .foregroundStyle(.green)
@@ -1849,7 +1865,8 @@ private struct FlooAskView: View {
                 .buttonBorderShape(.capsule)
                 Button(submit) {
                     filled[index] = nil
-                    demo.answerAsk(card.id, item: index, .secrets(way: picked, values))
+                    demo.answerAsk(card.id, item: index, .secrets(way: picked, values, keep: keep.map { kept[index] ?? $0 }))
+                    kept[index] = nil
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
@@ -2575,7 +2592,8 @@ extension FlooRow {
                     return sum + 90
                 case .confirm: return sum + 100
                 case .fill(let fields): return sum + 40 + fields.count * 30
-                case .secret(let fields, let ways, _, _): return sum + 70 + fields.count * 34 + (ways.isEmpty ? 0 : 34)
+                case .secret(let fields, let ways, _, _, let keep):
+                    return sum + 70 + fields.count * 34 + (ways.isEmpty ? 0 : 34) + (keep == nil ? 0 : 28)
                 case .decision: return sum + 70
                 case .step: return sum + 80
                 }

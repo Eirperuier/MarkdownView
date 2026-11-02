@@ -454,14 +454,20 @@ final class FlooLive {
     /// keys: sealed here to the device the call runs on and signed by this one; the server
     /// carries it unopened, the agent never has it. Nothing of it is kept or written out; if it
     /// doesn't go, the card says why and you type again.
-    func submit(ask: String, values: [String]) {
+    /// `keep`: kept signed in on all your devices, where the form offered it (browser.md §6.5),
+    /// signed in the envelope beside the values.
+    func submit(ask: String, values: [String], keep: Bool?) {
         guard let client, let current, let id = AskID(ask), let shown = secrets[id],
-              case .secret(let fields)? = shown.items.first?.form, fields.count == values.count
+              case .secret(let fields, let offered)? = shown.items.first?.form, fields.count == values.count
         else { return }
         let byKey = Dictionary(zip(fields.map(\.key), values), uniquingKeysWith: { first, _ in first })
         stage(id, .working("提交中…"))
         Task {
-            do { try await client.submit(shown, values: byKey, in: current) } catch { stage(id, .failed(String(describing: error))) }
+            do {
+                try await client.submit(shown, values: byKey, keep: offered == nil ? nil : keep ?? offered, in: current)
+            } catch {
+                stage(id, .failed(String(describing: error)))
+            }
         }
     }
 
@@ -1594,7 +1600,7 @@ final class FlooLive {
     /// it stands — taken on, done or skipped, no message.
     private func systemCard(_ ask: AskInfo, _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
         if case .decision(let options)? = ask.items.first?.form { return decisionCard(ask, options, agent, state: state) }
-        if case .secret(let fields)? = ask.items.first?.form { return secretCard(ask, fields, agent, state: state) }
+        if case .secret(let fields, let keep)? = ask.items.first?.form { return secretCard(ask, fields, keep: keep, agent, state: state) }
         guard case .step(let what)? = ask.items.first?.form, let title = ask.title else { return nil }
         let reply = ask.replies.first?.step
         let done = reply == .skipped ? "跳过了" : "做完了"
@@ -1640,17 +1646,20 @@ final class FlooLive {
     /// origin the browser's core found leads, then the rest its code wrote, the agent's why as
     /// its. The fields take the system's autofill; what's typed is sealed to that device
     /// (`submit`). Answered, it folds to where it went, or that you didn't.
-    private func secretCard(_ ask: AskInfo, _ fields: [SecretField], _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
+    /// Offered, 「在我的所有设备上保持登录」 shows under the fields, ticked as `keep` says; kept,
+    /// the folded line says so, as the envelope signed it.
+    private func secretCard(_ ask: AskInfo, _ fields: [SecretField], keep: Bool?, _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
         guard let title = ask.title ?? ask.items.first?.title, !fields.isEmpty else { return nil }
         secrets[ask.id] = ask
         let device = deviceName(ask.executor)
         let given = ask.replies.first?.secret.map { $0.body.sealed != nil }
-        let outcome = given.map { $0 ? "已交给 \(device ?? "那台设备")" : "已取消" }
+        let kept = ask.replies.first?.secret?.body.keep == true
+        let outcome = given.map { $0 ? "已交给 \(device ?? "那台设备")" + (kept ? " · 所有设备" : "") : "已取消" }
         let item = FlooAskItem(
             title: title, question: title,
             form: .secret(
                 fields: fields.map(Self.field), ways: [],
-                sealedTo: "\(device ?? "那台设备") 上的浏览器", submit: "登录"),
+                sealedTo: "\(device ?? "那台设备") 上的浏览器", submit: "登录", keep: keep),
             answer: outcome)
         var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
         card.line = "\(agent.name) 想\(device.map { "在你的 \($0) 上" } ?? "")\(title)"
@@ -1798,8 +1807,8 @@ final class FlooLive {
             } else {
                 .fill(fields: [])
             }
-        case .secret(let fields):
-            .secret(fields: fields.map(Self.field), ways: [], sealedTo: "那台设备", submit: "登录")
+        case .secret(let fields, let keep):
+            .secret(fields: fields.map(Self.field), ways: [], sealedTo: "那台设备", submit: "登录", keep: keep)
         case .unknown:
             .fill(fields: [])
         }
