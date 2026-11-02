@@ -153,6 +153,9 @@ final class FlooLive {
     /// Where each ask a call made shows, having no message of its own: a row of its agent's,
     /// opened as it came (`home`).
     private var homes: [AskID: FlooDemo.Message] = [:]
+    /// The decisions a call asked, as their cards last showed them: what your choice is signed
+    /// on (`decide`).
+    private var decisions: [AskID: AskInfo] = [:]
     /// The account's devices by name, read once (`deviceName`).
     private var deviceNames: [DeviceID: String] = [:]
     private var readingDevices = false
@@ -427,6 +430,19 @@ final class FlooLive {
             }
         Task {
             do { try await client.answer(PersonAnswer(step: step), to: id, in: current) } catch { demo.catchUp("没送到：\(error)") }
+        }
+    }
+
+    /// Your decision on what a call asked (floo interaction.md §4.2): the option the card's
+    /// button stands for (`buttons`), signed on this device for the ask as its card showed it;
+    /// no message. The device waiting on it checks the signature itself.
+    func decide(ask: String, go: Bool, standing: String?) {
+        guard let client, let current, let id = AskID(ask), let shown = decisions[id],
+              case .decision(let options)? = shown.items.first?.form, let buttons = Self.buttons(options)
+        else { return }
+        let option = !go ? buttons.no : standing.flatMap { label in buttons.aside.first { $0.label == label } } ?? buttons.go
+        Task {
+            do { try await client.decide(shown, choosing: option.key, in: current) } catch { demo.catchUp("没送到：\(error)") }
         }
     }
 
@@ -1543,6 +1559,7 @@ final class FlooLive {
     /// you do there — its line says who wants it, where; what its code says of it; where
     /// it stands — taken on, done or skipped, no message.
     private func systemCard(_ ask: AskInfo, _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
+        if case .decision(let options)? = ask.items.first?.form { return decisionCard(ask, options, agent, state: state) }
         guard case .step(let what)? = ask.items.first?.form, let title = ask.title else { return nil }
         let reply = ask.replies.first?.step
         let done = reply == .skipped ? "跳过了" : "做完了"
@@ -1558,6 +1575,40 @@ final class FlooLive {
         if state == .open, ask.engaged { card.stage = .engaged("你在做") }
         if state == .answered { card.done = done }
         return card
+    }
+
+    /// What a call running on a device asks you to decide (floo interaction.md §4.1, §5.3): a
+    /// site's permission the agent asked about. Its line says who wants what, on which device;
+    /// what the code says of it, the agent's why as its; the asker's buttons, the standing ones
+    /// behind a long press (`buttons`), a dangerous one red. Your choice is signed here
+    /// (`decide`); answered, it folds to what you chose.
+    private func decisionCard(_ ask: AskInfo, _ options: [ConsentOption], _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
+        guard let title = ask.title ?? ask.items.first?.title, let buttons = Self.buttons(options) else { return nil }
+        decisions[ask.id] = ask
+        let chosen = ask.replies.first?.decision.flatMap { consent in options.first { $0.key == consent.body.choice } }
+        let item = FlooAskItem(
+            title: title, question: title,
+            form: .decision(go: buttons.go.label, no: buttons.no.label, standing: buttons.aside.map(\.label), dangerous: buttons.go.danger),
+            answer: chosen?.label)
+        var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
+        let device = deviceName(ask.device)
+        card.line = "\(agent.name) 想\(device.map { "在你的 \($0) 上" } ?? "")\(title)"
+        card.place = device.map { "\($0) · 为\(agent.name)" }
+        card.about = ask.about
+        card.why = ask.why
+        if state == .answered, let chosen { card.done = [chosen.label, device].compactMap { $0 }.joined(separator: " · ") }
+        return card
+    }
+
+    /// A decision's options as its card draws them (floo interaction.md §4.1): the first that
+    /// isn't standing goes ahead, the last other one declines; the standing ones (and any
+    /// more) wait behind a long press of the first. Nil with fewer than two.
+    static func buttons(_ options: [ConsentOption]) -> (go: ConsentOption, no: ConsentOption, aside: [ConsentOption])? {
+        let now = options.filter { !$0.standing }
+        guard let go = now.first ?? options.first,
+              let no = now.count > 1 ? now.last : options.last(where: { $0 != go })
+        else { return nil }
+        return (go, no, options.filter { $0 != go && $0 != no })
     }
 
     /// An ask as its card shows it; a question in a message's words, once its block is in.
@@ -1645,6 +1696,12 @@ final class FlooLive {
             .fill(fields: fields.map { FlooAskItem.Field(label: $0.label, kind: Self.kind($0.kind), guess: $0.guess.map(Self.words) ?? "") })
         case .step(let what):
             .step(what: what, open: "我来做", done: "做完了")
+        case .decision(let options):
+            if let buttons = Self.buttons(options) {
+                .decision(go: buttons.go.label, no: buttons.no.label, standing: buttons.aside.map(\.label), dangerous: buttons.go.danger)
+            } else {
+                .fill(fields: [])
+            }
         case .unknown:
             .fill(fields: [])
         }

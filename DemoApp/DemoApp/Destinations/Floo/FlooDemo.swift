@@ -1696,6 +1696,8 @@ final class FlooDemo {
             answering = FlooAnsweringItem(agent: card.agent, question: item.question, ask: card.id, item: index)
         case (.step(let pick), .step):
             live.step(ask: card.id, pick)
+        case (.decide(let go, let standing), .decision):
+            live.decide(ask: card.id, go: go, standing: standing)
         default:
             return
         }
