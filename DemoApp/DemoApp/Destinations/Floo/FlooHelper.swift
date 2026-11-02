@@ -186,6 +186,25 @@ enum FlooHelper {
         return target.found.map { ($0._0.title, $0._0.text) }
     }
 
+    /// The picture a floo link points to (a photo, `floo://photos/…`), no larger than
+    /// `longest` pixels on its longer side, as this Mac's service that has it makes it; nil
+    /// when none here has it, or it isn't serving. It never leaves this Mac: read off the
+    /// socket, drawn here.
+    static func picture(at link: String, longest: Int) async -> Data? {
+        /// What it answers: the bytes and their type, or `{}`.
+        struct Picture: Decodable {
+            let image: String?
+            let type: String?
+        }
+        guard let request = try? JSONSerialization.data(withJSONObject: ["picture": link, "longest": longest] as [String: Any]),  // try?: a string and a number always encode
+              let reply = await ask(request),
+              let picture = try? JSONDecoder().decode(Picture.self, from: reply),  // try?: unreadable, not here
+              let encoded = picture.image,
+              let data = Data(base64Encoded: encoded), !data.isEmpty
+        else { return nil }
+        return data
+    }
+
     /// One request over its socket, `<home>/helper.sock`: a JSON line out, a JSON line back.
     private static func ask(_ request: Data) async -> Data? {
         let path = home.appending(path: "helper.sock").path

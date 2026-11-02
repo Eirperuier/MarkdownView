@@ -720,6 +720,9 @@ private struct FlooRowView: View {
             .environment(\.openURL, OpenURLAction { [demo] in Self.open($0, demo: demo) })
             // What a mention's row of a topic, group or page shows of it, as this device has it.
             .environment(\.cardItems, demo.live.map { live in CardItems { await live.item($0) } })
+            // A card's pictures: a floo link's from this device's own service, a server's
+            // photo through the account's cache.
+            .environment(\.cardHost, FlooChatHost(media: demo.live?.server.map { FlooProgramHost(server: $0) }))
             .frame(maxWidth: 720)
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)

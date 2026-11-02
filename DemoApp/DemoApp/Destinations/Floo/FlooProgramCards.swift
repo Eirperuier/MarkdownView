@@ -100,5 +100,9 @@ extension View {
     func flooProgram(card key: String?) -> some View {
         let program = key.flatMap(FlooProgramCards.program(of:))
         return environment(\.miniProgram, program?.mini).environment(\.cloudStore, program?.store)
+            // Its photos as the program's, in the account's cache.
+            .transformEnvironment(\.cardHost) { host in
+                if let program { host = FlooChatHost(media: program.host) }
+            }
     }
 }
