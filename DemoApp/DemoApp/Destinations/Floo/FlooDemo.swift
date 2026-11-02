@@ -417,6 +417,10 @@ struct FlooAskItem: Hashable {
         enum Kind { case text, number, date, time, place, person, file, secret }
         /// Where a value comes from when you don't type it: "钥匙串", "从邮件填".
         var autofill: String?
+        /// What the system's autofill offers for it (a secret form's field): the account,
+        /// its password, a code a site sent.
+        var content: Content?
+        enum Content { case username, email, password, newPassword, code }
     }
 
     /// A short name, for the quote the answer carries: "修复方向".
@@ -464,6 +468,9 @@ struct FlooAskCard: Hashable, Identifiable {
     var line: String?
     /// Where it happens and for whom: "📅 日历 · MacBook Pro · 为管家".
     var place: String?
+    /// Where it happens, as the code that does it found it — a sign-in's origin, not the
+    /// agent's words: shown before all else.
+    var origin: String?
     /// What it does, as the code that does it writes it.
     var about: [String] = []
     /// The agent's words on why, marked as its.
@@ -1698,6 +1705,10 @@ final class FlooDemo {
             live.step(ask: card.id, pick)
         case (.decide(let go, let standing), .decision):
             live.decide(ask: card.id, go: go, standing: standing)
+        case (.secrets(_, let values), .secret):
+            live.submit(ask: card.id, values: values)
+        case (.step(.skip), .secret):
+            live.decline(ask: card.id)
         default:
             return
         }

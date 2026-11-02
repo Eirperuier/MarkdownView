@@ -156,6 +156,10 @@ final class FlooLive {
     /// The decisions a call asked, as their cards last showed them: what your choice is signed
     /// on (`decide`).
     private var decisions: [AskID: AskInfo] = [:]
+    /// The secret forms a call asked, as their cards last showed them: what the values are
+    /// sealed for (`submit`); and where each you sent stands on its card till it's answered.
+    private var secrets: [AskID: AskInfo] = [:]
+    private var sending: [AskID: FlooAskCard.Stage] = [:]
     /// The account's devices by name, read once (`deviceName`).
     private var deviceNames: [DeviceID: String] = [:]
     private var readingDevices = false
@@ -444,6 +448,36 @@ final class FlooLive {
         Task {
             do { try await client.decide(shown, choosing: option.key, in: current) } catch { demo.catchUp("没送到：\(error)") }
         }
+    }
+
+    /// What you typed into a secret form (floo interaction.md §4.2 封给执行方), by its fields'
+    /// keys: sealed here to the device the call runs on and signed by this one; the server
+    /// carries it unopened, the agent never has it. Nothing of it is kept or written out; if it
+    /// doesn't go, the card says why and you type again.
+    func submit(ask: String, values: [String]) {
+        guard let client, let current, let id = AskID(ask), let shown = secrets[id],
+              case .secret(let fields)? = shown.items.first?.form, fields.count == values.count
+        else { return }
+        let byKey = Dictionary(zip(fields.map(\.key), values), uniquingKeysWith: { first, _ in first })
+        stage(id, .working("提交中…"))
+        Task {
+            do { try await client.submit(shown, values: byKey, in: current) } catch { stage(id, .failed(String(describing: error))) }
+        }
+    }
+
+    /// You won't fill in a secret form: declined, signed here, nothing sealed.
+    func decline(ask: String) {
+        guard let client, let current, let id = AskID(ask), let shown = secrets[id] else { return }
+        stage(id, .working("取消中…"))
+        Task {
+            do { try await client.decline(shown, in: current) } catch { stage(id, .failed(String(describing: error))) }
+        }
+    }
+
+    /// Where a secret form you answered stands, on its card now and as it's drawn again.
+    private func stage(_ id: AskID, _ stage: FlooAskCard.Stage) {
+        sending[id] = stage
+        demo.stage(id.description, stage)
     }
 
     /// Ends a question asking several before all have answered: yours alone (§5.5).
@@ -1560,6 +1594,7 @@ final class FlooLive {
     /// it stands — taken on, done or skipped, no message.
     private func systemCard(_ ask: AskInfo, _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
         if case .decision(let options)? = ask.items.first?.form { return decisionCard(ask, options, agent, state: state) }
+        if case .secret(let fields)? = ask.items.first?.form { return secretCard(ask, fields, agent, state: state) }
         guard case .step(let what)? = ask.items.first?.form, let title = ask.title else { return nil }
         let reply = ask.replies.first?.step
         let done = reply == .skipped ? "跳过了" : "做完了"
@@ -1598,6 +1633,67 @@ final class FlooLive {
         card.why = ask.why
         if state == .answered, let chosen { card.done = [chosen.label, device].compactMap { $0 }.joined(separator: " · ") }
         return card
+    }
+
+    /// What only the device a call runs on may know (floo interaction.md §4.1–§4.3, §7.2): a
+    /// site's account and password, a code. Its line says who wants to sign in where; the
+    /// origin the browser's core found leads, then the rest its code wrote, the agent's why as
+    /// its. The fields take the system's autofill; what's typed is sealed to that device
+    /// (`submit`). Answered, it folds to where it went, or that you didn't.
+    private func secretCard(_ ask: AskInfo, _ fields: [SecretField], _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
+        guard let title = ask.title ?? ask.items.first?.title, !fields.isEmpty else { return nil }
+        secrets[ask.id] = ask
+        let device = deviceName(ask.executor)
+        let given = ask.replies.first?.secret.map { $0.body.sealed != nil }
+        let outcome = given.map { $0 ? "已交给 \(device ?? "那台设备")" : "已取消" }
+        let item = FlooAskItem(
+            title: title, question: title,
+            form: .secret(
+                fields: fields.map(Self.field), ways: [],
+                sealedTo: "\(device ?? "那台设备") 上的浏览器", submit: "登录"),
+            answer: outcome)
+        var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
+        card.line = "\(agent.name) 想\(device.map { "在你的 \($0) 上" } ?? "")\(title)"
+        card.place = device.map { "\($0) · 浏览器 · 为\(agent.name)" }
+        card.origin = ask.about.first
+        card.about = Array(ask.about.dropFirst())
+        card.why = ask.why
+        if state == .open, given == nil { card.stage = sending[ask.id] } else { sending[ask.id] = nil }
+        if state == .answered { card.done = outcome }
+        return card
+    }
+
+    /// A secret form's field as its card types it: a password hidden, a code by the number
+    /// pad; the system's autofill offered by the asker's hint, else by its kind.
+    private static func field(_ field: SecretField) -> FlooAskItem.Field {
+        let hinted: FlooAskItem.Field.Content? =
+            switch field.autofill {
+            case "username": .username
+            case "email": .email
+            case "current-password", "password": .password
+            case "new-password": .newPassword
+            case "one-time-code": .code
+            default: nil
+            }
+        let content: FlooAskItem.Field.Content? =
+            hinted
+            ?? {
+                switch field.kind {
+                case .username: .username
+                case .email: .email
+                case .password: .password
+                case .code: .code
+                case .text: nil
+                }
+            }()
+        let kind: FlooAskItem.Field.Kind =
+            switch field.kind {
+            case .password: .secret
+            case .code: .number
+            case .username: .person
+            case .email, .text: .text
+            }
+        return FlooAskItem.Field(label: field.label, kind: kind, guess: "", autofill: nil, content: content)
     }
 
     /// A decision's options as its card draws them (floo interaction.md §4.1): the first that
@@ -1702,6 +1798,8 @@ final class FlooLive {
             } else {
                 .fill(fields: [])
             }
+        case .secret(let fields):
+            .secret(fields: fields.map(Self.field), ways: [], sealedTo: "那台设备", submit: "登录")
         case .unknown:
             .fill(fields: [])
         }

@@ -1485,6 +1485,12 @@ private struct FlooAskView: View {
             if let meta {
                 Text(meta).font(.caption).foregroundStyle(.secondary)
             }
+            // Where, as the code found it (a sign-in's origin), before anything else it says.
+            if let origin = card.origin {
+                Label(origin, systemImage: "globe")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+            }
             // What it does, as the code writes it; the agent's why, marked as its words.
             if !card.about.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
@@ -1817,6 +1823,7 @@ private struct FlooAskView: View {
                                 TextField(field.autofill ?? field.label, text: binding(index, place, fields))
                             }
                         }
+                        .autofilled(field.content)
                         .font(.footnote.weight(.medium))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
@@ -1830,17 +1837,27 @@ private struct FlooAskView: View {
                     .font(.caption2)
                     .foregroundStyle(.green)
             }
+            // Handed on, what was typed goes from here: if it doesn't go through, it's typed again.
+            let sending = if case .working? = card.stage { true } else { false }
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                Button("先不") { demo.answerAsk(card.id, item: index, .step(.skip)) }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                Button(submit) { demo.answerAsk(card.id, item: index, .secrets(way: picked, values)) }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(card.agent.tint)
+                Button("取消") {
+                    filled[index] = nil
+                    demo.answerAsk(card.id, item: index, .step(.skip))
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                Button(submit) {
+                    filled[index] = nil
+                    demo.answerAsk(card.id, item: index, .secrets(way: picked, values))
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .tint(card.agent.tint)
+                .disabled(values.contains { $0.isEmpty })
             }
             .controlSize(.small)
+            .disabled(sending)
         case .decision(let go, let no, let standing, let dangerous):
             // You sign it, on the device in your hand; held, it allows from now on.
             HStack(spacing: 8) {
@@ -1918,6 +1935,32 @@ private struct FlooAskView: View {
         case .file: "paperclip"
         case .secret: "key"
         }
+    }
+}
+
+private extension View {
+    /// A secret field as the system's autofill knows it: the account, its password, a code a
+    /// site sent (the number pad where there is one); typed as it is, never corrected.
+    func autofilled(_ content: FlooAskItem.Field.Content?) -> some View {
+        let type: UITextContentType? =
+            switch content {
+            case .username?: .username
+            case .email?: .emailAddress
+            case .password?: .password
+            case .newPassword?: .newPassword
+            case .code?: .oneTimeCode
+            case nil: nil
+            }
+        let keyboard: UIKeyboardType =
+            switch content {
+            case .code?: .numberPad
+            case .email?: .emailAddress
+            default: .default
+            }
+        return textContentType(type)
+            .keyboardType(keyboard)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
     }
 }
 
