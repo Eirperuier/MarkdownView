@@ -41,7 +41,14 @@ final class FlooSitesDemo {
     }
 
     func load() async {
-        guard let client = live.server else { return }
+        // Opened as the app starts (-flooSites), the page can come before the sign-in to the
+        // server; it waits for it rather than staying empty.
+        var server = live.server
+        for _ in 0..<100 where server == nil {
+            try? await Task.sleep(for: .milliseconds(200))  // try?: cancelled with the page, nothing to load
+            server = live.server
+        }
+        guard let client = server else { return }
         do {
             sites = try await client.sessionSites()
             loaded = true
