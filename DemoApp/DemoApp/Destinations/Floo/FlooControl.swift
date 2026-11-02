@@ -89,6 +89,11 @@ enum FlooControl {
         case ("POST", "/answer"): return answer(demo, body)
         case ("POST", "/open"): return await open(body)
         case ("GET", "/shot"): return shot()
+        #if targetEnvironment(macCatalyst)
+            case ("GET", "/panel"): return .json(["steps": FlooStepPanel.opened])
+            case ("POST", "/panel"):
+                return FlooStepPanel.drive(body) ? .json(["ok": true]) : .error("no step window for that ask", status: 404)
+        #endif
         default: return .error("no such endpoint", status: 404)
         }
     }

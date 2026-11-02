@@ -91,6 +91,7 @@
 				38A580AC2CC8D6D9001EDFCA /* Frameworks */,
 				38A580AD2CC8D6D9001EDFCA /* Resources */,
 				F100C0DE2E000000000000A1 /* Embed Floo Helper */,
+				F100C0DE2E000000000000A2 /* Embed Engine Panel */,
 			);
 			buildRules = (
 			);
@@ -197,6 +198,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/zsh;
 			shellScript = "exec \"$SRCROOT/embed-helper.sh\"\n";
+		};
+		F100C0DE2E000000000000A2 /* Embed Engine Panel */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed Engine Panel";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/zsh;
+			shellScript = "exec \"$SRCROOT/embed-panel.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -356,6 +376,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
+				"OTHER_CODE_SIGN_FLAGS[sdk=macosx*]" = "--identifier dev.floo.app";
 				PRODUCT_BUNDLE_IDENTIFIER = com.liyanan2004.DemoApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
@@ -400,6 +421,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
+				"OTHER_CODE_SIGN_FLAGS[sdk=macosx*]" = "--identifier dev.floo.app";
 				PRODUCT_BUNDLE_IDENTIFIER = com.liyanan2004.DemoApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;

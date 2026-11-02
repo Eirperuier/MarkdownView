@@ -160,6 +160,9 @@ final class FlooLive {
     /// sealed for (`submit`); and where each you sent stands on its card till it's answered.
     private var secrets: [AskID: AskInfo] = [:]
     private var sending: [AskID: FlooAskCard.Stage] = [:]
+    /// The steps open now whose page this Mac's browser engine lent to this app, as their
+    /// cards last showed them: 我来做 opens it in a window here (FlooStepPanel).
+    private var pages: [AskID: AskInfo] = [:]
     /// The account's devices by name, read once (`deviceName`).
     private var deviceNames: [DeviceID: String] = [:]
     private var readingDevices = false
@@ -432,6 +435,18 @@ final class FlooLive {
             case .done: .completed
             case .skip: .skipped
             }
+        #if targetEnvironment(macCatalyst)
+            // On the Mac with the step's page: taken on, it opens here, just that page; done
+            // or skipped on the card, its window goes and the page goes back to the agent.
+            if pick == .open, let shown = pages[id], case .step(let what, let tab?)? = shown.items.first?.form {
+                let title = [shown.about.last, shown.title].compactMap { $0 }.joined(separator: " · ")
+                _ = FlooStepPanel.open(ask: ask, tab: tab.engineTab, title: title, instruction: what) { [weak self] ended in
+                    self?.step(ask: ask, ended == "completed" ? .done : .skip)
+                }
+            } else if pick != .open {
+                FlooStepPanel.close(ask: ask)
+            }
+        #endif
         Task {
             do { try await client.answer(PersonAnswer(step: step), to: id, in: current) } catch { demo.catchUp("没送到：\(error)") }
         }
@@ -1597,6 +1612,15 @@ final class FlooLive {
         return home
     }
 
+    #if targetEnvironment(macCatalyst)
+        /// Whether `device` is this Mac: the device its Floo Helper registered for this
+        /// account, which runs the browser here (FlooHelper.device).
+        private func onThisMac(_ device: DeviceID?) -> Bool {
+            guard let device, let here = FlooHelper.device(of: backend.account).flatMap(DeviceID.init) else { return false }
+            return device == here
+        }
+    #endif
+
     /// The devices' names, read once, for where a call asks you to do something.
     private func deviceName(_ id: DeviceID?) -> String? {
         guard let id else { return nil }
@@ -1617,7 +1641,16 @@ final class FlooLive {
     private func systemCard(_ ask: AskInfo, _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
         if case .decision(let options)? = ask.items.first?.form { return decisionCard(ask, options, agent, state: state) }
         if case .secret(let fields, let keep)? = ask.items.first?.form { return secretCard(ask, fields, keep: keep, agent, state: state) }
-        guard case .step(let what)? = ask.items.first?.form, let title = ask.title else { return nil }
+        guard case .step(let what, let tab)? = ask.items.first?.form, let title = ask.title else { return nil }
+        #if targetEnvironment(macCatalyst)
+            // A page lent to this app, on this Mac: kept while the step is open; once it isn't
+            // (answered anywhere, taken back), its window here goes.
+            if state == .open, tab != nil, onThisMac(ask.device), FlooStepPanel.available {
+                pages[ask.id] = ask
+            } else if pages.removeValue(forKey: ask.id) != nil {
+                FlooStepPanel.close(ask: ask.id.description)
+            }
+        #endif
         let reply = ask.replies.first?.step
         let done = reply == .skipped ? "跳过了" : "做完了"
         let item = FlooAskItem(
@@ -1815,7 +1848,7 @@ final class FlooLive {
             .confirm(effect: effect, yes: "好", no: "先不要")
         case .fill(let fields):
             .fill(fields: fields.map { FlooAskItem.Field(label: $0.label, kind: Self.kind($0.kind), guess: $0.guess.map(Self.words) ?? "") })
-        case .step(let what):
+        case .step(let what, _):
             .step(what: what, open: "我来做", done: "做完了")
         case .decision(let options):
             if let buttons = Self.buttons(options) {

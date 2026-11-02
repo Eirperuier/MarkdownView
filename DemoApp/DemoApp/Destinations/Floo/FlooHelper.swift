@@ -23,8 +23,10 @@ enum FlooHelper {
     /// Where it is in the app (embed-helper.sh puts it there).
     static let app = Bundle.main.bundleURL.appending(path: "Contents/Library/LoginItems/Floo Helper.app", directoryHint: .isDirectory)
 
-    /// Its home, as it has it: ~/.floo/node.
-    static let home = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".floo/node", directoryHint: .isDirectory)
+    /// Its home, as it has it: ~/.floo/node, or `FLOO_NODE_HOME` as it reads it too (a lab's
+    /// stage Mac on this Mac keeps its own).
+    static let home = ProcessInfo.processInfo.environment["FLOO_NODE_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+        ?? URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".floo/node", directoryHint: .isDirectory)
 
     enum State: Equatable {
         /// Not signed in, or as another account.

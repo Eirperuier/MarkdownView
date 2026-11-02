@@ -71,6 +71,19 @@ curl -s -X POST $B/open -d '{"page":"sites"}'   # 网站登录; devices: 设备;
 The account menu's sheets, as its buttons open them; it answers once the sheet is in. Offline (a
 scene) the sheets open empty.
 
+## `GET /panel`, `POST /panel` (Mac)
+
+```sh
+curl -s $B/panel        # {"steps":[{"ask":"<id>","window":<window number>,"page":"ready"}]}
+curl -s -X POST $B/panel -d '{"ask":"<id>","click":[200,120]}'   # a click in the page, in its points
+curl -s -X POST $B/panel -d '{"ask":"<id>","type":"floo"}'       # typed, a key per character
+curl -s -X POST $B/panel -d '{"ask":"<id>","close":true}'        # the close button: skipped
+```
+The windows a step's 我来做 opened on this Mac (FlooStepPanel.swift), each showing the engine page
+its step is on; `page` is `connecting`, `ready`, `unavailable: …` or `handedBack`. A click and
+typing are AppKit events sent to that window, the path a person's take; `window` is its number
+for `screencapture -l`. 404: no window for that ask.
+
 ## `GET /shot`
 
 ```sh
