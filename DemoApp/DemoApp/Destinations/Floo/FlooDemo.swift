@@ -2306,9 +2306,9 @@ final class FlooDemo {
             }
             return rows
         case .message(let message):
-            // A message is there once it has something: its first step of work or words, or
-            // (the backend's) once it's being written.
-            guard message.process != nil || !message.blocks.isEmpty || !message.work.isEmpty
+            // A message is there once it has something: its first step of work or words, what
+            // it asks, or (the backend's) once it's being written.
+            guard message.process != nil || !message.blocks.isEmpty || !message.work.isEmpty || !message.asks.isEmpty
                 || (message.number != nil && message.streaming)
             else { return [] }
             var rows: [FlooRow] = []

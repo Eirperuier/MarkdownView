@@ -150,8 +150,9 @@ final class FlooLive {
     /// What you sent from here, shown at once, by its message's id until the backend has it.
     private var outgoing: [MessageID: FlooDemo.Said] = [:]
     private var messages: [Int64: FlooDemo.Message] = [:]
-    /// Where each ask a call made shows, as it was first placed (`placement`).
-    private var placed: [AskID: Int64] = [:]
+    /// Where each ask a call made shows, having no message of its own: a row of its agent's,
+    /// opened as it came (`home`).
+    private var homes: [AskID: FlooDemo.Message] = [:]
     /// The account's devices by name, read once (`deviceName`).
     private var deviceNames: [DeviceID: String] = [:]
     private var readingDevices = false
@@ -1482,10 +1483,18 @@ final class FlooLive {
         // Every message shown, so one whose asks are gone has none.
         var cards: [ObjectIdentifier: (message: FlooDemo.Message, cards: [FlooAskCard])] = [:]
         for message in messages.values { cards[ObjectIdentifier(message)] = (message, []) }
+        for home in homes.values { cards[ObjectIdentifier(home)] = (home, []) }
         for ask in replica.asks.values.sorted(by: { $0.pts < $1.pts }) {
-            guard let id = ask.agent.actor.agent, let number = ask.message ?? placement(of: ask, agent(id)),
-                let message = messages[number], let card = card(ask, agent(id), replica)
-            else { continue }
+            guard let id = ask.agent.actor.agent, let card = card(ask, agent(id), replica) else { continue }
+            let message: FlooDemo.Message
+            if let number = ask.message {
+                guard let shown = messages[number] else { continue }
+                message = shown
+            } else if ask.operation != nil {
+                message = home(of: ask, agent(id))
+            } else {
+                continue
+            }
             cards[ObjectIdentifier(message), default: (message, [])].cards.append(card)
         }
         for (message, asks) in cards.values { demo.setAsks(message, asks) }
@@ -1507,13 +1516,13 @@ final class FlooLive {
     }
 
     /// Where what a call asks you shows, having no message of its own (floo interaction.md
-    /// §7.2): on its agent's last message here as it was asked, else the last message.
-    private func placement(of ask: AskInfo, _ agent: FlooAgent) -> Int64? {
-        guard ask.operation != nil else { return nil }
-        if let placed = placed[ask.id] { return placed }
-        let number = messages.filter { $0.value.agent == agent }.keys.max() ?? messages.keys.max()
-        placed[ask.id] = number
-        return number
+    /// §7.2): a row of its agent's, opened at the end as it came — after what set the call off.
+    private func home(of ask: AskInfo, _ agent: FlooAgent) -> FlooDemo.Message {
+        if let home = homes[ask.id] { return home }
+        let now = Timestamp.now
+        let home = demo.begin(agent, at: Self.time(now), on: now.date)
+        homes[ask.id] = home
+        return home
     }
 
     /// The devices' names, read once, for where a call asks you to do something.
