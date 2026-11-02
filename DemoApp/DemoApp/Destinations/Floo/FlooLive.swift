@@ -480,6 +480,17 @@ final class FlooLive {
         }
     }
 
+    /// What a call's ask was drawn from, by its id (FlooControl): a decision's options with
+    /// their keys, a secret form's fields with theirs; nil for another kind or one not shown.
+    func asked(_ ask: String) -> (options: [ConsentOption]?, fields: [SecretField]?) {
+        guard let id = AskID(ask) else { return (nil, nil) }
+        var options: [ConsentOption]?
+        var fields: [SecretField]?
+        if case .decision(let given)? = decisions[id]?.items.first?.form { options = given }
+        if case .secret(let given, _)? = secrets[id]?.items.first?.form { fields = given }
+        return (options, fields)
+    }
+
     /// Where a secret form you answered stands, on its card now and as it's drawn again.
     private func stage(_ id: AskID, _ stage: FlooAskCard.Stage) {
         sending[id] = stage
@@ -892,17 +903,22 @@ final class FlooLive {
 
     // MARK: Sending
 
-    func send(_ text: String, replyTo: Int64? = nil) {
-        guard let session else { return }
+    /// What it gives back: the message's number once the backend took it, nil if it didn't
+    /// (FlooControl waits on it; the composer doesn't).
+    @discardableResult
+    func send(_ text: String, replyTo: Int64? = nil) -> Task<Int64?, Never>? {
+        guard let session else { return nil }
         // try?: one that doesn't go shows so in the conversation, to send again.
         let send = zoned(MessageSend(id: .generate(), text: text, replyTo: replyTo))
-        Task {
+        return Task {
+            let accepted = try? await session.send(send)
             // A reply to a thread made a topic goes into the topic (floo messaging.md
             // §3.13.6): it's shown there.
-            if let accepted = try? await session.send(send), let went = accepted.conversation, went != current {
+            if let went = accepted?.conversation, went != current {
                 demo.openThread = nil
                 open(place(went))
             }
+            return accepted?.number
         }
     }
 

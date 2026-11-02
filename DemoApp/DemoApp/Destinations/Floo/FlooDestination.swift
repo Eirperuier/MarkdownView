@@ -233,6 +233,16 @@ struct FlooDestination: View {
             Text("这台设备上找不到它。")
         }
         .task { play() }
+        #if DEBUG
+        // A test's control (`-flooControl <port>`, CONTROL.md): it drives the page shown, and
+        // opens the account menu's sheets as the menu does.
+        .onAppear { FlooControl.attach(demo) }
+        .onReceive(NotificationCenter.default.publisher(for: FlooControl.opens)) { note in
+            let page = note.object as? String
+            showsSites = page == "sites"
+            showsDevices = page == "devices"
+        }
+        #endif
     }
 
     // MARK: Toolbar

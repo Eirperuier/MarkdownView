@@ -724,6 +724,8 @@ final class FlooDemo {
 
     /// What's in the conversation, in order, each by its key (its message's or said's id).
     @ObservationIgnored private var entries: [(key: Int, entry: Entry)] = []
+    /// The same, read by FlooControl.
+    var shownEntries: [Entry] { entries.map(\.entry) }
     /// Where each entry is in `entries`, by its key.
     @ObservationIgnored private var order = TiledPositions<Int>()
     /// Each entry's rows in the list, by its key; none while it shows nothing.
@@ -1350,20 +1352,23 @@ final class FlooDemo {
         live?.chooseCards(model)
     }
 
-    /// Sends what's typed to the backend.
-    func sendDraft() {
+    /// Sends what's typed to the backend. What it gives back: the message's number once the
+    /// backend took it (FlooControl waits on it); none answering an ask in your own words.
+    @discardableResult
+    func sendDraft() -> Task<Int64?, Never>? {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let live, !text.isEmpty else { return }
+        guard let live, !text.isEmpty else { return nil }
         draft = ""
         following = true
         // Answering an ask's item in your own words: what you send is its answer.
         if let answering, let ask = answering.ask {
             self.answering = nil
             live.answer(ask: ask, item: answering.item, text: text)
-            return
+            return nil
         }
-        live.send(text, replyTo: replying?.number)
+        let sent = live.send(text, replyTo: replying?.number)
         replying = nil
+        return sent
     }
 
     /// Starts a reply to a message of the backend's: it shows over the composer, which takes
