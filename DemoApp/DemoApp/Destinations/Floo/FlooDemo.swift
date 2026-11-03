@@ -1934,6 +1934,8 @@ final class FlooDemo {
             // Asking several, yours is one of theirs.
             tally(id, who: FlooAskCard.you, said: value)
         }
+        // Folded where it was asked, as it now stands.
+        show(message.id)
         let said = say(.me, value, receipt: .read, reply: FlooReply(message.agent, .answer(message.asks[ci].items[index].title), row: "m\(message.id)#sig", bubble: Self.leadRun(message.id)))
         askWaits.removeValue(forKey: "\(id)#\(index)")?.resume(returning: said)
     }
