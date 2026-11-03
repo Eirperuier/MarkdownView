@@ -392,7 +392,10 @@ enum FlooControl {
         if hasSecrets { whole.secrets = [:] }
         whole.values.merge(values) { _, given in given }
         whole.secrets.merge(secrets) { _, given in given }
-        for control in item.current(group: item.group(nil)) where control.mustAnswer {
+        // A request of ways (floo interaction.md §4.5): the way given is the one answered.
+        let way = item.group(whole.values[item.groups?.id ?? ""].flatMap { if case .choice(let p, _) = $0 { p } else { nil } })
+        whole.secrets = whole.secrets.filter { id, _ in item.current(group: way).contains { $0.id == id } }
+        for control in item.current(group: way) where control.mustAnswer {
             switch control.kind {
             case .secret: if whole.secrets[control.id] == nil { return .failure(ControlError("missing value for \(control.id)")) }
             case .choice, .decision, .step:
