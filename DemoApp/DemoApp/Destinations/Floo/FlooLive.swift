@@ -2205,7 +2205,9 @@ final class FlooLive {
                     }
                     let key = "live-\(info.number)-\(card.fence)-\(card.item)"
                     if let program = card.program {
-                        programCards?.show(key, call: source, program: program, data: Self.value(card.data), in: demo)
+                        programCards?.show(
+                            key, call: source, program: program, live: card.live, values: card.data,
+                            data: Self.value(card.data), in: demo)
                     } else {
                         demo.setCard(key, source: source, live: card.live, values: card.data, data: Self.value(card.data))
                     }

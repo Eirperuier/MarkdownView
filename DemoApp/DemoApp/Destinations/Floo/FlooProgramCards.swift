@@ -48,9 +48,20 @@ final class FlooProgramCards {
     }
 
     /// Shows card `key` of `program` in `demo`, once the program is read, and keeps its data
-    /// the program's.
-    func show(_ key: String, call: String, program: AnswerCard.Program, data: CardValue, in demo: FlooDemo) {
+    /// the program's. One the server keeps up to date (`live`, floo docs/cards.md §5.2) reads
+    /// its values by name and takes each version as it comes (`values`), as any card that
+    /// keeps updating: the server works them out from the program's data as it's written,
+    /// so this device reads none of it for the card.
+    func show(
+        _ key: String, call: String, program: AnswerCard.Program, live: AnswerCard.Live? = nil,
+        values: Wire.JSONValue? = nil, data: CardValue, in demo: FlooDemo
+    ) {
         guard let source = source(call, of: program) else { return }
+        if let live {
+            demo.setCard(key, source: source, live: live, values: values, data: data)
+            Self.shown[key] = programs[program.id]
+            return
+        }
         let fresh = demo.sessions[key] == nil
         demo.setCard(key, source: source, data: self.data(data, of: program))
         Self.shown[key] = programs[program.id]
