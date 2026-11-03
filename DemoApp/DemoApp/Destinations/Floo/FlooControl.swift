@@ -348,7 +348,11 @@ enum FlooControl {
         let byID = Dictionary(item.controls.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let hasSecrets = item.controls.contains { if case .secret = $0.kind { true } else { false } }
         // The forms before controls, by their keys.
-        if body["values"] == nil || (hasSecrets && body["secrets"] == nil && (body["values"] as? [String: String]) != nil) {
+        let secretNames = Set(item.controls.flatMap { control -> [String] in
+            if case .secret(let field, _) = control.kind { [control.id, field.label] } else { [] }
+        })
+        let secretsAlone = (body["values"] as? [String: String]).map { !$0.isEmpty && Set($0.keys).isSubset(of: secretNames) } ?? false
+        if body["values"] == nil || (hasSecrets && body["secrets"] == nil && secretsAlone) {
             if let legacy = legacyPick(body, item, card) { return legacy }
         }
         var values: [String: FlooValue] = [:]
