@@ -176,8 +176,8 @@ enum FlooControl {
                 ?? fields.map { ["key": $0.label, "label": $0.label, "kind": "\($0.kind)", "autofill": orNull($0.autofill)] as [String: Any] }
             if !ways.isEmpty { out["ways"] = ways }
             if let keep { out["keep"] = keep }
-        case .scan(_, let sha256, let width, let height, let scale, let keep):
-            out["kind"] = "scan"
+        case .view(_, let sha256, let width, let height, let scale, let keep):
+            out["kind"] = "view"
             out["sha256"] = sha256
             out["width"] = width
             out["height"] = height
@@ -268,8 +268,8 @@ enum FlooControl {
                 ordered.append(value)
             }
             pick = .secrets(way: body["way"] as? Int ?? 0, ordered, keep: body["keep"] as? Bool)
-        case .scan:
-            // Cancelled, or its keep turned: nothing else is the person's to say on a scan.
+        case .view:
+            // Cancelled, or its keep turned: nothing else is the person's to say on a view.
             if body["cancel"] as? Bool == true || decline {
                 pick = .step(.skip)
             } else if let on = body["keep"] as? Bool {

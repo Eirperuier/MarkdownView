@@ -1604,7 +1604,7 @@ private struct FlooAskView: View {
             return "还要一步"
         }
         if case .step? = card.items.first?.form { return "等你做" }
-        if case .scan? = card.items.first?.form { return "等你扫码" }
+        if case .view? = card.items.first?.form { return "等你看" }
         switch card.closes {
         case .vote: return "投票中 · \(card.answeredCount)/\(card.askees.count)"
         case .each, .first: return "已答 \(card.answeredCount)/\(card.askees.count)"
@@ -1886,30 +1886,25 @@ private struct FlooAskView: View {
             }
             .controlSize(.small)
             .disabled(sending)
-        case .scan(let png, let sha256, let width, let height, let scale, let keep):
-            // The page's own code, as crisp as the page drew it: whole pixels, scaled up by a
-            // whole multiple, on white (floo interaction.md §4.1 scan).
-            let side = Self.scanSide(width: width, height: height, scale: scale)
-            VStack(alignment: .center, spacing: 6) {
-                Group {
-                    if let image = UIImage(data: png) {
-                        Image(uiImage: image)
-                            .interpolation(.none)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                    } else {
-                        ProgressView()
-                    }
+        case .view(let png, let sha256, let width, let height, let scale, let keep):
+            // The page's own pixels, as crisp as the page drew them: a whole multiple, nearest
+            // neighbour, on white — a QR code still scans (floo interaction.md §4.1 view).
+            let drawn = Self.viewSide(width: width, height: height, scale: scale)
+            Group {
+                if let image = UIImage(data: png) {
+                    Image(uiImage: image)
+                        .interpolation(drawn.whole ? .none : .medium)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    ProgressView()
                 }
-                .frame(width: side.width, height: side.height)
-                .padding(10)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
-                .id(sha256)
-                Text("用手机扫码，登录后这里会自动完成")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+            .frame(width: drawn.size.width, height: drawn.size.height)
+            .padding(10)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
+            .id(sha256)
             .frame(maxWidth: .infinity)
             // Offered by the asker (floo browser.md §6.5): ticked unless it's a bank or a payment;
             // turned, it is signed here and put on the ask.
@@ -1990,17 +1985,18 @@ private struct FlooAskView: View {
         }
     }
 
-    /// How big a scan's code is drawn: its size on the page (pixels over `scale`), times the
-    /// largest whole multiple that keeps it within 240 points — at least 200 where a whole
-    /// multiple can't reach it, so a small code still reads from a phone.
-    static func scanSide(width: Int, height: Int, scale: Double) -> CGSize {
-        let w = max(Double(width) / max(scale, 1), 1)
-        let h = max(Double(height) / max(scale, 1), 1)
+    /// How big a view's part is drawn: its size on the page (pixels over `scale`), times the
+    /// largest whole multiple that keeps it within 300 points — at least 200 for a small one
+    /// (a QR code still reads from a phone); one wider than 300 is drawn smaller, smoothed.
+    static func viewSide(width: Int, height: Int, scale: Double) -> (size: CGSize, whole: Bool) {
+        let w = max(Double(width) / max(scale, 0.01), 1)
+        let h = max(Double(height) / max(scale, 0.01), 1)
         let longest = max(w, h)
-        var times = max((240 / longest).rounded(.down), 1)
+        var times = max((300 / longest).rounded(.down), 1)
         if longest * times < 200 { times = 200 / longest }
-        if longest * times > 240 { times = 240 / longest }
-        return CGSize(width: w * times, height: h * times)
+        if longest * times > 300 { times = 300 / longest }
+        // A whole multiple of the page's own size: nearest neighbour keeps the edges sharp.
+        return (CGSize(width: w * times, height: h * times), times == times.rounded())
     }
 
     /// What's typed into field `place` of item `index`, the guesses until then.
@@ -2669,7 +2665,7 @@ extension FlooRow {
                     return sum + 70 + fields.count * 34 + (ways.isEmpty ? 0 : 34) + (keep == nil ? 0 : 28)
                 case .decision: return sum + 70
                 case .step: return sum + 80
-                case .scan(_, _, _, _, _, let keep): return sum + 330 + (keep == nil ? 0 : 28)
+                case .view(_, _, _, _, _, let keep): return sum + 300 + (keep == nil ? 0 : 28)
                 }
             })
         }
