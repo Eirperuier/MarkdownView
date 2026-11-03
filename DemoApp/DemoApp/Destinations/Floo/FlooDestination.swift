@@ -1784,17 +1784,6 @@ private struct FlooAskView: View {
                             tint: card.agent.tint, demo: demo) { option, _ in
                     demo.answerAsk(card.id, item: index, .submit([control.id: .choice([option])]))
                 }
-                // Their own words are their message: written over the composer.
-                if own != nil {
-                    Button {
-                        demo.answerAsk(card.id, item: index, .own)
-                    } label: {
-                        Label("其他…", systemImage: "pencil")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .controlSize(.small)
-                }
             } else {
                 let picked = picks(index, control) ?? []
                 if multiple {

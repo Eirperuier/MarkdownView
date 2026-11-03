@@ -402,9 +402,9 @@ struct FlooControlModel: Hashable, Identifiable {
     var kind: Kind
 
     enum Kind: Hashable {
-        /// Pick one or more; `own`, where they may write their own: in a request answered on
-        /// a tap it is what the script types out over the composer ("" live), elsewhere a box
-        /// on the card. `groups`: its options are the request's variants (密码 / 邮件验证码).
+        /// Pick one or more; `own`, where they may write their own: a box on the card, sent
+        /// with its 提交 (§3.3), and what the script types out over the composer ("" live).
+        /// `groups`: its options are the request's variants (密码 / 邮件验证码).
         case choice(options: [FlooOption], multiple: Bool = false, own: String? = nil, groups: Bool = false)
         /// A detail to type or pick, the asker's guess filled in.
         case field(FlooField)
@@ -489,7 +489,8 @@ struct FlooViewFrame: Hashable {
 
 /// How a request is sent, from its controls (floo interaction.md §3.3), never written apart.
 enum FlooSubmit {
-    /// One control to answer, decided by a tap (one pick, a decision, a step): its own buttons.
+    /// One control to answer, decided by a tap (one pick without their own words, a decision,
+    /// a step): its own buttons.
     case tap
     /// Anything to fill: one 提交 (and 不做了).
     case button
@@ -555,7 +556,8 @@ struct FlooRequest: Hashable {
         guard let only = answering.first else { return .asker }
         guard answering.count == 1 else { return .button }
         switch only.kind {
-        case .choice(_, let multiple, _, let groups): return multiple || groups ? .button : .tap
+        // Their own words are typed on the card, so only a pick that can't be written goes on a tap.
+        case .choice(_, let multiple, let own, let groups): return multiple || groups || own != nil ? .button : .tap
         case .decision, .step: return .tap
         default: return .button
         }
