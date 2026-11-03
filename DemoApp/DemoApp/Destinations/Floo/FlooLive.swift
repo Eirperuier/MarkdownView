@@ -153,16 +153,11 @@ final class FlooLive {
     /// Where each ask a call made shows, having no message of its own: a row of its agent's,
     /// opened as it came (`home`).
     private var homes: [AskID: FlooDemo.Message] = [:]
-    /// The decisions a call asked, as their cards last showed them: what your choice is signed
-    /// on (`decide`).
-    private var decisions: [AskID: AskInfo] = [:]
-    /// The secret forms a call asked, as their cards last showed them: what the values are
-    /// sealed for (`submit`); and where each you sent stands on its card till it's answered.
-    private var secrets: [AskID: AskInfo] = [:]
-    private var sending: [AskID: FlooAskCard.Stage] = [:]
-    /// The views a call asked, as their cards last showed them: what 取消 and the keep toggle
-    /// act on (floo interaction.md §4.1 view).
-    private var views: [AskID: AskInfo] = [:]
+    /// What calls asked, as their cards last showed them: what an answer is signed on and
+    /// its secrets sealed for (`respond`); and where each you sent stands on its card till
+    /// it's answered, with the revision it answered.
+    private var shown: [AskID: AskInfo] = [:]
+    private var sending: [AskID: (stage: FlooAskCard.Stage, revision: Int)] = [:]
     /// The steps open now whose page this Mac's browser engine lent to this app, as their
     /// cards last showed them: 我来做 opens it in a window here (FlooStepPanel).
     private var pages: [AskID: AskInfo] = [:]
@@ -428,111 +423,95 @@ final class FlooLive {
         }
     }
 
-    /// Where you stand on a step a call asked of you (floo interaction.md §5.3): taken on,
-    /// done, or skipped; no message. The device waiting on it goes on.
-    func step(ask: String, _ pick: FlooStepPick) {
+    /// You take on a step a call asked of you (floo interaction.md §3.2 engaged): no answer
+    /// yet, the clock stops. On the Mac with the step's page it opens here, just that page;
+    /// done or skipped there, that is the step's answer.
+    func take(ask: String) {
         guard let client, let current, let id = AskID(ask) else { return }
-        let step: StepAnswer =
-            switch pick {
-            case .open: .engaged
-            case .done: .completed
-            case .skip: .skipped
-            }
         #if targetEnvironment(macCatalyst)
-            // On the Mac with the step's page: taken on, it opens here, just that page; done
-            // or skipped on the card, its window goes and the page goes back to the agent.
-            if pick == .open, let shown = pages[id], case .step(let what, let tab?)? = shown.items.first?.form {
-                let title = [shown.about.last, shown.title].compactMap { $0 }.joined(separator: " · ")
+            if let page = pages[id], let step = page.controls.first(where: { if case .step(_, _?) = $0.kind { true } else { false } }),
+               case .step(let what, let tab?) = step.kind
+            {
+                let title = [page.about.last, page.title].compactMap { $0 }.joined(separator: " · ")
                 _ = FlooStepPanel.open(ask: ask, tab: tab.engineTab, title: title, instruction: what) { [weak self] ended in
-                    self?.step(ask: ask, ended == "completed" ? .done : .skip)
+                    self?.respond(ask: ask, values: [step.id: .step(ended == "completed" ? .done : .skip)], secrets: [:])
                 }
-            } else if pick != .open {
-                FlooStepPanel.close(ask: ask)
             }
         #endif
         Task {
-            do { try await client.answer(PersonAnswer(step: step), to: id, in: current) } catch { demo.catchUp("没送到：\(error)") }
+            do { try await client.answer(PersonAnswer(step: .engaged), to: id, in: current) } catch { demo.catchUp("没送到：\(error)") }
         }
     }
 
-    /// Your decision on what a call asked (floo interaction.md §4.2): the option the card's
-    /// button stands for (`buttons`), signed on this device for the ask as its card showed it;
-    /// no message. The device waiting on it checks the signature itself.
-    func decide(ask: String, go: Bool, standing: String?) {
-        guard let client, let current, let id = AskID(ask), let shown = decisions[id],
-              case .decision(let options)? = shown.items.first?.form, let buttons = Self.buttons(options)
-        else { return }
-        let option = !go ? buttons.no : standing.flatMap { label in buttons.aside.first { $0.label == label } } ?? buttons.go
-        Task {
-            do { try await client.decide(shown, choosing: option.key, in: current) } catch { demo.catchUp("没送到：\(error)") }
-        }
-    }
-
-    /// What you typed into a secret form (floo interaction.md §4.2 封给执行方), by its fields'
-    /// keys: sealed here to the device the call runs on and signed by this one; the server
-    /// carries it unopened, the agent never has it. Nothing of it is kept or written out; if it
-    /// doesn't go, the card says why and you type again.
-    /// `keep`: kept signed in on all your devices, where the form offered it (browser.md §6.5),
-    /// signed in the envelope beside the values.
-    func submit(ask: String, values: [String], keep: Bool?) {
-        guard let client, let current, let id = AskID(ask), let shown = secrets[id],
-              case .secret(let fields, let offered)? = shown.items.first?.form, fields.count == values.count
-        else { return }
-        let byKey = Dictionary(zip(fields.map(\.key), values), uniquingKeysWith: { first, _ in first })
-        stage(id, .working("提交中…"))
+    /// Your answer to what a call asked (floo interaction.md §5): the values by control id,
+    /// as the card's controls take them, and the secrets sealed here to the device the call
+    /// runs on — the whole signed by this one, one answer (`FlooClient.answer`); no message.
+    /// The device waiting on it checks it itself; the agent never has a secret. Nothing typed
+    /// is kept or written out; if it doesn't go, the card says why and you type again.
+    func respond(ask: String, values: [String: FlooValue], secrets: [String: String]) {
+        guard let client, let current, let id = AskID(ask), let asked = shown[id] else { return }
+        let given = Self.wire(values, asked.controls)
+        #if targetEnvironment(macCatalyst)
+            // A step answered on the card: its window here goes, the page back to the agent.
+            if given.values.contains(where: { if case .step = $0 { true } else { false } }) { FlooStepPanel.close(ask: ask) }
+        #endif
+        stage(id, .working("提交中…"), asked.revision)
         Task {
             do {
-                try await client.submit(shown, values: byKey, keep: offered == nil ? nil : keep ?? offered, in: current)
+                try await client.answer(asked, values: given, secrets: secrets, in: current)
             } catch {
-                stage(id, .failed(String(describing: error)))
+                stage(id, .failed(String(describing: error)), asked.revision)
             }
         }
     }
 
-    /// You won't fill in a secret form: declined, signed here, nothing sealed.
+    /// 不做了: declined, signed here, nothing given (a step skipped, a view cancelled).
     func decline(ask: String) {
-        guard let client, let current, let id = AskID(ask), let shown = secrets[id] else { return }
-        stage(id, .working("取消中…"))
+        guard let client, let current, let id = AskID(ask), let asked = shown[id] else { return }
+        #if targetEnvironment(macCatalyst)
+            FlooStepPanel.close(ask: ask)
+        #endif
+        stage(id, .working("取消中…"), asked.revision)
         Task {
-            do { try await client.decline(shown, in: current) } catch { stage(id, .failed(String(describing: error))) }
-        }
-    }
-
-    /// You cancel a view of a page (floo interaction.md §4.1 view): the step skipped, no
-    /// message; the device stops waiting for the page and the agent hears it was cancelled.
-    func cancelView(ask: String) {
-        guard let client, let current, let id = AskID(ask), views[id] != nil else { return }
-        stage(id, .working("取消中…"))
-        Task {
-            do { try await client.answer(PersonAnswer(step: .skipped), to: id, in: current) } catch {
-                stage(id, .failed(String(describing: error)))
+            do { try await client.answer(asked, declined: true, in: current) } catch {
+                stage(id, .failed(String(describing: error)), asked.revision)
             }
         }
     }
 
-    /// You turn a view's 「在我的所有设备上保持登录」: your choice, signed here over the view as
-    /// its card shows it, put on the open ask; the card shows it as the server has it next.
-    func keep(ask: String, _ on: Bool) {
-        guard let client, let current, let id = AskID(ask), let shown = views[id] else { return }
+    /// A toggle turned on a request with nothing to send (floo interaction.md §5.4): signed
+    /// here, put on the open request without answering it; the card shows it as the server
+    /// has it next.
+    func turn(ask: String, _ control: String, _ on: Bool) {
+        guard let client, let current, let id = AskID(ask), let asked = shown[id] else { return }
         Task {
-            do { try await client.keep(shown, on, in: current) } catch { demo.catchUp("没送到：\(error)") }
+            do { try await client.turn(asked, values: [control: .toggle(on)], in: current) } catch { demo.catchUp("没送到：\(error)") }
         }
     }
 
-    /// What a call's ask was drawn from, by its id (FlooControl): a decision's options with
-    /// their keys, a secret form's fields with theirs; nil for another kind or one not shown.
-    func asked(_ ask: String) -> (options: [ConsentOption]?, fields: [SecretField]?) {
-        guard let id = AskID(ask) else { return (nil, nil) }
-        var options: [ConsentOption]?
-        var fields: [SecretField]?
-        if case .decision(let given)? = decisions[id]?.items.first?.form { options = given }
-        if case .secret(let given, _)? = secrets[id]?.items.first?.form { fields = given }
-        return (options, fields)
+    /// The card's values as `controls` take them on the wire: a field's words read as its kind
+    /// (a date a day, a time a clock), a step's state; none for a control it doesn't have.
+    static func wire(_ values: [String: FlooValue], _ controls: [AskControl]) -> [String: ControlValue] {
+        var given: [String: ControlValue] = [:]
+        for control in controls {
+            guard let value = values[control.id] else { continue }
+            let wire: ControlValue? =
+                switch (control.kind, value) {
+                case (.choice, .choice(let picked, let own)): .choice(picked: picked, own: own)
+                case (.field(let kind, _), .text(let words)): .field(AskValue.text(words).read(as: kind))
+                case (.decision, .key(let key)): .key(key)
+                case (.step, .step(let step)): .step(step == .done ? .completed : step == .skip ? .skipped : .engaged)
+                case (.toggle, .toggle(let on)): .toggle(on)
+                default: nil
+                }
+            if let wire = wire.flatMap(control.read) { given[control.id] = wire }
+        }
+        return given
     }
 
-    /// Where a secret form you answered stands, on its card now and as it's drawn again.
-    private func stage(_ id: AskID, _ stage: FlooAskCard.Stage) {
-        sending[id] = stage
+    /// Where a request you answered stands, on its card now and as it's drawn again.
+    private func stage(_ id: AskID, _ stage: FlooAskCard.Stage, _ revision: Int) {
+        sending[id] = (stage, revision)
         demo.stage(id.description, stage)
     }
 
@@ -979,26 +958,44 @@ final class FlooLive {
         Task { _ = try? await session.send(zoned) }  // try?: as `send`
     }
 
-    /// Your answer to an item of an agent's ask: a message of yours answering it, with what you
-    /// picked, whether you went ahead, or what you filled in. A question in a message's words is
-    /// answered at its fence; an older ask by its id.
-    func answer(ask: String, item: Int, text: String, picked: [Int]? = nil, confirmed: Bool? = nil, filled: [String]? = nil) {
+    /// Your answer to a request of an agent's: a message of yours answering it — `text` its
+    /// words, `values` by control id (none: your own words). A request that is exactly one
+    /// of the shapes questions had is answered with that shape's shorthand (picked, confirmed,
+    /// filled), which every server reads; any other with its values (floo interaction.md
+    /// §5.1). A question in a message's words is answered at its fence; an older ask by its id.
+    func answer(ask: String, item: Int, text: String, values: [String: FlooValue] = [:]) {
         guard let session, let id = AskID(ask) else { return }
         Task {
-            let send: MessageSend
             let asked = await session.replica.asks[id]
-            // What was typed, as each field takes it: a date field's words a day, a time field's a clock.
-            let kinds: [AskField.Kind] =
-                if let form = asked?.items.indices.contains(item) == true ? asked?.items[item].form : nil,
-                    case .fill(let fields) = form { fields.map(\.kind) } else { [] }
-            let filled = filled?.enumerated().map { place, words in
-                AskValue.text(words).read(as: kinds.indices.contains(place) ? kinds[place] : .text)
+            let controls: [AskControl] =
+                if let asked, asked.items.indices.contains(item), asked.items.count > 1 { asked.items[item].form.controls }
+                else { asked?.controls ?? [] }
+            let given = values.isEmpty ? [:] : Self.wire(values, controls)
+            var picked: [Int]?
+            var confirmed: Bool?
+            var filled: [AskValue]?
+            var rest: [String: ControlValue]?
+            switch given.isEmpty ? nil : AskForm(controls: controls) {
+            case .choose?:
+                if case .choice(let picks, _)? = given[controls[0].id] { picked = picks }
+            case .confirm?:
+                if case .choice(let picks, _)? = given[controls[1].id] { confirmed = picks == [0] }
+            case .fill?:
+                filled = controls.map { control in
+                    if case .field(let value)? = given[control.id] { value } else { .text("") }
+                }
+            case nil where !given.isEmpty:
+                rest = given
+            default:
+                break
             }
+            let send: MessageSend
             if let asked, let message = asked.message, let fence = asked.fence {
                 send = MessageSend(
                     id: .generate(),
                     text: text,
-                    choosing: FenceAnswer(message: message, fence: fence, picked: picked, confirmed: confirmed, filled: filled)
+                    choosing: FenceAnswer(
+                        message: message, fence: fence, picked: picked, confirmed: confirmed, filled: filled, values: rest)
                 )
             } else {
                 send = MessageSend(
@@ -1659,130 +1656,174 @@ final class FlooLive {
         return deviceNames[id]
     }
 
-    /// What a call running on a device asks you midway (floo interaction.md §5.3): a step
-    /// you do there — its line says who wants it, where; what its code says of it; where
-    /// it stands — taken on, done or skipped, no message.
+    /// What a call running on a device asks you midway (floo interaction.md §6.3), drawn from
+    /// its controls (§4) — no card per purpose: its line says who wants what where, the
+    /// origin the browser's core found leads where it has secrets or a view, then what its
+    /// code says of it and the agent's why as its; its controls in order; where it stands
+    /// (what you sent, the line its device writes); answered, it folds to its outcome or
+    /// what you gave.
     private func systemCard(_ ask: AskInfo, _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
-        if case .decision(let options)? = ask.items.first?.form { return decisionCard(ask, options, agent, state: state) }
-        if case .secret(let fields, let keep)? = ask.items.first?.form { return secretCard(ask, fields, keep: keep, agent, state: state) }
-        if case .view(let image, let keep, let note)? = ask.items.first?.form {
-            return viewCard(ask, image, keep: keep, note: note, agent, state: state)
-        }
-        guard case .step(let what, let tab)? = ask.items.first?.form, let title = ask.title else { return nil }
+        guard let title = ask.title ?? ask.items.first?.title, !ask.controls.isEmpty else { return nil }
+        shown[ask.id] = ask
+        let kinds = Set(ask.controls.map(\.type))
         #if targetEnvironment(macCatalyst)
             // A page lent to this app, on this Mac: kept while the step is open; once it isn't
             // (answered anywhere, taken back), its window here goes.
-            if state == .open, tab != nil, onThisMac(ask.device), FlooStepPanel.available {
+            let lent = ask.controls.contains { if case .step(_, _?) = $0.kind { true } else { false } }
+            if state == .open, lent, onThisMac(ask.device), FlooStepPanel.available {
                 pages[ask.id] = ask
             } else if pages.removeValue(forKey: ask.id) != nil {
                 FlooStepPanel.close(ask: ask.id.description)
             }
         #endif
-        let reply = ask.replies.first?.step
-        let done = reply == .skipped ? "跳过了" : "做完了"
-        let item = FlooAskItem(
-            title: title, question: title, form: .step(what: what, open: "我来做", done: "做完了"),
-            answer: reply.map { _ in done })
-        var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
         let device = deviceName(ask.device)
-        card.line = "\(agent.name) 要你\(device.map { "在\($0)上" } ?? "")做一步"
-        card.place = device.map { "\($0) · 为\(agent.name)" }
-        card.about = ask.about
+        let controls = ask.controls.map(Self.control)
+        var request = FlooRequest(title: title, question: title, controls: controls)
+        request.from = min(ask.from, controls.count)
+        let reply = ask.replies.first
+        let outcome = Self.outcome(ask, reply, upTo: controls.count, device: device, executor: deviceName(ask.executor))
+        if request.from > 0 {
+            let earlier = Self.outcome(ask, reply, upTo: request.from, device: nil, executor: deviceName(ask.executor))
+            request.earlier = [earlier ?? "已交"]
+        }
+        // Answered for this revision: what you gave, until it's closed.
+        let answered = reply.map { Self.revision(of: $0) >= ask.revision } ?? false
+        if answered { request.answer = outcome ?? "已交" }
+        var card = FlooAskCard(id: ask.id.description, agent: agent, items: [request], state: state)
+        let on = device.map { "在你的 \($0) 上" } ?? ""
+        card.line =
+            if kinds.contains("secret") || kinds.contains("decision") { "\(agent.name) 想\(on)\(title)" }
+            else if kinds.contains("step") { "\(agent.name) 要你\(device.map { "在\($0)上" } ?? "")做一步" }
+            else if kinds.contains("view") { "\(agent.name) 想让你看一下\(device.map { "你的 \($0) 上的" } ?? "")网页" }
+            else { "\(agent.name) 想\(on)\(title)" }
+        let browser = kinds.contains("secret") || kinds.contains("view")
+        card.place = device.map { browser ? "\($0) · 浏览器 · 为\(agent.name)" : "\($0) · 为\(agent.name)" }
+        card.device = device
+        if kinds.contains("secret") { card.sealedTo = "\(deviceName(ask.executor) ?? "那台设备") 上的浏览器" }
+        if browser {
+            card.origin = ask.about.first
+            card.about = Array(ask.about.dropFirst())
+        } else {
+            card.about = ask.about
+        }
         card.why = ask.why
-        if state == .open, ask.engaged { card.stage = .engaged("你在做") }
-        if state == .answered { card.done = done }
-        return card
-    }
-
-    /// What a call running on a device asks you to decide (floo interaction.md §4.1, §5.3): a
-    /// site's permission the agent asked about. Its line says who wants what, on which device;
-    /// what the code says of it, the agent's why as its; the asker's buttons, the standing ones
-    /// behind a long press (`buttons`), a dangerous one red. Your choice is signed here
-    /// (`decide`); answered, it folds to what you chose.
-    private func decisionCard(_ ask: AskInfo, _ options: [ConsentOption], _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
-        guard let title = ask.title ?? ask.items.first?.title, let buttons = Self.buttons(options) else { return nil }
-        decisions[ask.id] = ask
-        let chosen = ask.replies.first?.decision.flatMap { consent in options.first { $0.key == consent.body.choice } }
-        let item = FlooAskItem(
-            title: title, question: title,
-            form: .decision(go: buttons.go.label, no: buttons.no.label, standing: buttons.aside.map(\.label), dangerous: buttons.go.danger),
-            answer: chosen?.label)
-        var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
-        let device = deviceName(ask.device)
-        card.line = "\(agent.name) 想\(device.map { "在你的 \($0) 上" } ?? "")\(title)"
-        card.place = device.map { "\($0) · 为\(agent.name)" }
-        card.about = ask.about
-        card.why = ask.why
-        if state == .answered, let chosen { card.done = [chosen.label, device].compactMap { $0 }.joined(separator: " · ") }
-        return card
-    }
-
-    /// What only the device a call runs on may know (floo interaction.md §4.1–§4.3, §7.2): a
-    /// site's account and password, a code. Its line says who wants to sign in where; the
-    /// origin the browser's core found leads, then the rest its code wrote, the agent's why as
-    /// its. The fields take the system's autofill; what's typed is sealed to that device
-    /// (`submit`). Answered, it folds to where it went, or that you didn't.
-    /// Offered, 「在我的所有设备上保持登录」 shows under the fields, ticked as `keep` says; kept,
-    /// the folded line says so, as the envelope signed it.
-    private func secretCard(_ ask: AskInfo, _ fields: [SecretField], keep: Bool?, _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
-        guard let title = ask.title ?? ask.items.first?.title, !fields.isEmpty else { return nil }
-        secrets[ask.id] = ask
-        let device = deviceName(ask.executor)
-        let given = ask.replies.first?.secret.map { $0.body.sealed != nil }
-        let kept = ask.replies.first?.secret?.body.keep == true
-        let outcome = given.map { $0 ? "已交给 \(device ?? "那台设备")" + (kept ? " · 所有设备" : "") : "已取消" }
-        let item = FlooAskItem(
-            title: title, question: title,
-            form: .secret(
-                fields: fields.map(Self.field), ways: [],
-                sealedTo: "\(device ?? "那台设备") 上的浏览器", submit: "登录", keep: keep),
-            answer: outcome)
-        var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
-        card.line = "\(agent.name) 想\(device.map { "在你的 \($0) 上" } ?? "")\(title)"
-        card.place = device.map { "\($0) · 浏览器 · 为\(agent.name)" }
-        card.origin = ask.about.first
-        card.about = Array(ask.about.dropFirst())
-        card.why = ask.why
-        if state == .open, given == nil { card.stage = sending[ask.id] } else { sending[ask.id] = nil }
+        if state == .open {
+            if let sent = sending[ask.id], !answered, sent.revision == ask.revision {
+                card.stage = sent.stage
+            } else {
+                sending[ask.id] = nil
+                if let progress = ask.progress { card.stage = .working(progress) }
+                else if ask.engaged, !answered { card.stage = .engaged("你在做") }
+            }
+        } else {
+            sending[ask.id] = nil
+        }
         if state == .answered { card.done = outcome }
         return card
     }
 
-    /// A live part of a page on a device a call runs on, shown to you (floo interaction.md §4.1
-    /// view, §7.2): a QR code to scan, a picture, a total. Titled as its agent asked
-    /// (「扫码登录 x.com」) or 「看一下 <host>」; its line says whose and where; the origin the
-    /// browser's core found leads, the agent's why as its; the part itself, as the page shows it
-    /// now — a new frame comes as a change of the ask. Nothing to type: its agent ends it, and the
-    /// card folds to the note it closed it with (「已登录」); 取消 skips it. Offered, 「在我的所有
-    /// 设备上保持登录」 shows as the server has it.
-    private func viewCard(
-        _ ask: AskInfo, _ image: ViewImage, keep: Bool?, note: String?, _ agent: FlooAgent, state: FlooAskCard.State
-    ) -> FlooAskCard? {
-        guard let title = ask.title ?? ask.items.first?.title else { return nil }
-        views[ask.id] = ask
-        let device = deviceName(ask.device)
-        let origin = ask.about.first
-        let step = ask.replies.first?.step
-        let outcome = step.map { $0 == .completed ? (note ?? "已看完") + (device.map { " · \($0)" } ?? "") : "已取消" }
-        let item = FlooAskItem(
-            title: title, question: title,
-            form: .view(png: image.png, sha256: image.sha256, width: image.width, height: image.height, scale: image.scale, keep: keep),
-            answer: outcome)
-        var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
-        card.line = "\(agent.name) 想让你看一下\(device.map { "你的 \($0) 上的" } ?? "")网页"
-        card.place = device.map { "\($0) · 浏览器 · 为\(agent.name)" }
-        card.origin = origin
-        card.about = Array(ask.about.dropFirst())
-        card.why = ask.why
-        if state == .open, step == nil { card.stage = sending[ask.id] } else { sending[ask.id] = nil }
-        if state == .answered { card.done = outcome }
-        return card
+    /// The revision an answer was given for: its signed envelope's; an old form's, the first.
+    private static func revision(of reply: AskReply) -> Int {
+        reply.signed?.body.revision ?? 1
     }
 
-    /// A secret form's field as its card types it: a password hidden, a code by the number
-    /// pad; the system's autofill offered by the asker's hint, else by its kind.
-    private static func field(_ field: SecretField) -> FlooAskItem.Field {
-        let hinted: FlooAskItem.Field.Content? =
+    /// What came of a request, folded (floo interaction.md §3.4): its asker's outcome where
+    /// it gave one (「已登录」); else the answer read through the first `upTo` controls — the
+    /// picks' words, what was typed, the button pressed, a step's state, a ticked toggle's
+    /// words, secrets only that they went to `executor` — and where it happened. 已取消 where
+    /// it was declined.
+    private static func outcome(_ ask: AskInfo, _ reply: AskReply?, upTo: Int, device: String?, executor: String?) -> String? {
+        let place = device.map { [$0] } ?? []
+        if let outcome = ask.outcome, upTo == ask.controls.count { return ([outcome] + place).joined(separator: " · ") }
+        guard let reply else { return nil }
+        let controls = ask.controls.prefix(upTo)
+        var values = reply.values ?? reply.signed?.body.values ?? [:]
+        var sealed = reply.signed?.body.sealed != nil
+        var declined = reply.signed?.body.declined == true
+        // An answer of the forms before controls, read as values.
+        if let step = reply.step, let control = controls.first(where: { if case .step = $0.kind { true } else { false } }) {
+            values[control.id] = .step(step)
+        }
+        if let step = reply.step, step == .skipped, !controls.contains(where: { if case .step = $0.kind { true } else { false } }) {
+            declined = true
+        }
+        if let choice = reply.decision?.body.choice, let control = controls.first(where: { if case .decision = $0.kind { true } else { false } }) {
+            values[control.id] = .key(choice)
+        }
+        if let envelope = reply.secret?.body {
+            sealed = envelope.sealed != nil
+            if envelope.sealed == nil { declined = true }
+            if let keep = envelope.keep, let control = controls.first(where: { if case .toggle(_, AskControl.keepSignedIn?) = $0.kind { true } else { false } }) {
+                values[control.id] = .toggle(keep)
+            }
+        }
+        if declined { return "已取消" }
+        var parts: [String] = []
+        for control in controls {
+            // On the wire a key, a step and a field's words are all words: read through the control.
+            let value = values[control.id].flatMap(control.read) ?? values[control.id]
+            switch (control.kind, value) {
+            case (.choice(let options, _, _, _), .choice(let picked, let own)?):
+                let words = picked.filter(options.indices.contains).map { options[$0].label } + (own.map { [$0] } ?? [])
+                if !words.isEmpty { parts.append(words.joined(separator: "、")) }
+            case (.field, .field(let value)?):
+                let words = Self.words(value)
+                parts.append(control.label.map { "\($0)：\(words)" } ?? words)
+            case (.secret, _):
+                if sealed, !parts.contains(where: { $0.hasPrefix("已交给") }) { parts.append("已交给 \(executor ?? "那台设备")") }
+            case (.decision(let options), .key(let key)?):
+                if let option = options.first(where: { $0.key == key }) { parts.append(option.label) }
+            case (.step, .step(let step)?):
+                if step != .engaged { parts.append(step == .skipped ? "跳过了" : "做完了") }
+            case (.toggle(_, let effect), .toggle(true)?):
+                parts.append(effect == AskControl.keepSignedIn ? "所有设备" : control.label ?? "")
+            default: break
+            }
+        }
+        if parts.isEmpty, controls.contains(where: { if case .view = $0.kind { true } else { false } }) { parts = ["已看完"] }
+        if parts.isEmpty { return nil }
+        if !parts.contains(where: { $0.hasPrefix("已交给") }) { parts += place }
+        return parts.joined(separator: " · ")
+    }
+
+    /// A control as the card draws it (floo interaction.md §4.3): a secret typed as its kind
+    /// and offered the system's autofill as the asker hinted; a decision's options with their
+    /// keys; 「保持登录」 in its own words.
+    static func control(_ control: AskControl) -> FlooControlModel {
+        let kind: FlooControlModel.Kind =
+            switch control.kind {
+            case .choice(let options, let multiple, let own, let groups):
+                .choice(
+                    options: options.map { FlooOption(label: $0.label, send: $0.send, detail: $0.detail, image: $0.image) },
+                    multiple: multiple, own: own && !groups ? "" : nil, groups: groups)
+            case .field(let kind, let guess):
+                .field(FlooField(label: control.label ?? "", kind: Self.kind(kind), guess: guess.map(Self.words) ?? ""))
+            case .secret(let kind, let autofill):
+                .secret(
+                    Self.field(SecretField(key: control.id, label: control.label ?? "", kind: kind, autofill: autofill)),
+                    kind: kind.rawValue)
+            case .decision(let options):
+                .decision(options.map { FlooDecisionOption(key: $0.key, label: $0.label, standing: $0.standing, danger: $0.danger) })
+            case .step(let what, _):
+                .step(what: what)
+            case .view(let image, _):
+                .view(FlooViewFrame(png: image.png, sha256: image.sha256, width: image.width, height: image.height, scale: image.scale))
+            case .toggle(let value, let effect):
+                .toggle(value: value, keep: effect == AskControl.keepSignedIn)
+            case .say(let text): .say(text)
+            case .link(let url): .link(url: url)
+            case .image(let url): .image(url: url)
+            case .unknown(let type, _): .unknown(type: type)
+            }
+        var label = control.label
+        if case .toggle(_, AskControl.keepSignedIn?) = control.kind, label == nil { label = "在我的所有设备上保持登录" }
+        return FlooControlModel(id: control.id, label: label, required: control.required ?? true, group: control.group, kind: kind)
+    }
+
+    /// A secret as its card types it: a password hidden, a code by the number pad; the
+    /// system's autofill offered by the asker's hint, else by its kind.
+    private static func field(_ field: SecretField) -> FlooField {
+        let hinted: FlooField.Content? =
             switch field.autofill {
             case "username": .username
             case "email": .email
@@ -1791,7 +1832,7 @@ final class FlooLive {
             case "one-time-code": .code
             default: nil
             }
-        let content: FlooAskItem.Field.Content? =
+        let content: FlooField.Content? =
             hinted
             ?? {
                 switch field.kind {
@@ -1802,25 +1843,14 @@ final class FlooLive {
                 case .text: nil
                 }
             }()
-        let kind: FlooAskItem.Field.Kind =
+        let kind: FlooField.Kind =
             switch field.kind {
             case .password: .secret
             case .code: .number
             case .username: .person
             case .email, .text: .text
             }
-        return FlooAskItem.Field(label: field.label, kind: kind, guess: "", autofill: nil, content: content)
-    }
-
-    /// A decision's options as its card draws them (floo interaction.md §4.1): the first that
-    /// isn't standing goes ahead, the last other one declines; the standing ones (and any
-    /// more) wait behind a long press of the first. Nil with fewer than two.
-    static func buttons(_ options: [ConsentOption]) -> (go: ConsentOption, no: ConsentOption, aside: [ConsentOption])? {
-        let now = options.filter { !$0.standing }
-        guard let go = now.first ?? options.first,
-              let no = now.count > 1 ? now.last : options.last(where: { $0 != go })
-        else { return nil }
-        return (go, no, options.filter { $0 != go && $0 != no })
+        return FlooField(label: field.label, kind: kind, guess: "", autofill: nil, content: content)
     }
 
     /// An ask as its card shows it; a question in a message's words, once its block is in.
@@ -1851,8 +1881,8 @@ final class FlooLive {
             let me = Participant.person(backend.account)
             // Asking several (interaction.md §5.4): your answer is among theirs.
             let mine = ask.replies.first { $0.by == me }
-            let item = FlooAskItem(
-                title: title, question: Self.asking(title, in: words), form: Self.form(question.form),
+            let item = FlooRequest(
+                title: title, question: Self.asking(title, in: words), controls: (ask.controls.isEmpty ? question.form.controls : ask.controls).map(Self.control),
                 answer: ask.closes == .one ? ask.answer.map(said) : mine?.message.map(said)
             )
             var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
@@ -1876,7 +1906,9 @@ final class FlooLive {
             return card
         }
         let items = ask.items.map { item in
-            FlooAskItem(title: item.title, question: item.question, form: Self.form(item.form), answer: item.answer.map(said))
+            FlooRequest(
+                title: item.title, question: item.question, controls: item.form.controls.map(Self.control),
+                answer: item.answer.map(said))
         }
         return FlooAskCard(id: ask.id.description, agent: agent, items: items, state: state)
     }
@@ -1892,35 +1924,6 @@ final class FlooLive {
         guard let fence = words.firstRange(of: "```floo.ask \(title)") else { return title }
         let before = words[..<fence.lowerBound].split(separator: "\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         return before.map { $0.trimmingCharacters(in: .whitespaces) } ?? title
-    }
-
-    private static func form(_ form: AskForm) -> FlooAskItem.Form {
-        switch form {
-        case .choose(let options, let multiple, let own):
-            .choose(
-                options: options.map { FlooOption(label: $0.label, send: $0.send, detail: $0.detail, image: $0.image) },
-                multiple: multiple,
-                own: own ? "" : nil
-            )
-        case .confirm(let effect):
-            .confirm(effect: effect, yes: "好", no: "先不要")
-        case .fill(let fields):
-            .fill(fields: fields.map { FlooAskItem.Field(label: $0.label, kind: Self.kind($0.kind), guess: $0.guess.map(Self.words) ?? "") })
-        case .step(let what, _):
-            .step(what: what, open: "我来做", done: "做完了")
-        case .decision(let options):
-            if let buttons = Self.buttons(options) {
-                .decision(go: buttons.go.label, no: buttons.no.label, standing: buttons.aside.map(\.label), dangerous: buttons.go.danger)
-            } else {
-                .fill(fields: [])
-            }
-        case .secret(let fields, let keep):
-            .secret(fields: fields.map(Self.field), ways: [], sealedTo: "那台设备", submit: "登录", keep: keep)
-        case .view(let image, let keep, _):
-            .view(png: image.png, sha256: image.sha256, width: image.width, height: image.height, scale: image.scale, keep: keep)
-        case .unknown:
-            .fill(fields: [])
-        }
     }
 
     /// A commitment as the message shows it (floo docs/time.md §8): what happened to it, its rule
@@ -1965,7 +1968,7 @@ final class FlooLive {
         }
     }
 
-    private static func kind(_ kind: AskField.Kind) -> FlooAskItem.Field.Kind {
+    private static func kind(_ kind: AskField.Kind) -> FlooField.Kind {
         switch kind {
         case .text: .text
         case .number: .number

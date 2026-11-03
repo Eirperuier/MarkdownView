@@ -1460,18 +1460,14 @@ private struct FlooOptions: View {
 private struct FlooAskView: View {
     let card: FlooAskCard
     let demo: FlooDemo
-    /// Toggled options of a choose(multiple:) item, before "好了" sends them.
-    @State private var picked: [Int: Set<Int>] = [:]
-    /// A fill item's fields as you've typed them, before "好了" sends them; the agent's guesses
-    /// until you do.
-    @State private var filled: [Int: [String]] = [:]
+    /// What's picked, pressed, turned on the card before it is sent, by "request/control".
+    @State private var values: [String: FlooValue] = [:]
+    /// What's typed into its fields and secrets (never shown back once sent), and a choice's
+    /// own words, by "request/control"; the guesses until then.
+    @State private var typed: [String: String] = [:]
 
     /// Toggled: the call itself, under what it does.
     @State private var details = false
-    /// A secret item's way picked (密码 / 邮件验证码) and what's typed, never shown back.
-    @State private var way: [Int: Int] = [:]
-    /// A secret form's 「在我的所有设备上保持登录」 as you set it, by item; unset, the form's default.
-    @State private var kept: [Int: Bool] = [:]
 
     var body: some View {
         VStack(alignment: .center, spacing: 6) {
@@ -1516,6 +1512,14 @@ private struct FlooAskView: View {
             }
             if let why = card.why {
                 Text("\(card.agent.name)说：\(why)").font(.caption).italic().foregroundStyle(.secondary)
+            }
+            // Secrets go sealed to the device that uses them: said up top (§8.2).
+            if let sealedTo = card.sealedTo, card.items.contains(where: { item in
+                item.controls.contains { if case .secret = $0.kind { true } else { false } }
+            }) {
+                Label("填进 \(sealedTo)，\(card.agent.name)看不到", systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
             }
             if let call = card.call {
                 Button(details ? "收起" : "详情") { details.toggle() }
@@ -1600,11 +1604,12 @@ private struct FlooAskView: View {
         case .failed?: return "没成功"
         case nil: break
         }
-        if card.items.count > 1, card.items.last?.answer == nil, card.items.dropLast().allSatisfy({ $0.answer != nil }) {
-            return "还要一步"
+        if card.items.contains(where: { $0.from > 0 && $0.answer == nil }) { return "还要一步" }
+        if let first = card.items.first, card.items.count == 1 {
+            let now = first.current(group: first.group(nil))
+            if now.contains(where: { if case .step = $0.kind { true } else { false } }) { return "等你做" }
+            if first.submit() == .asker, now.contains(where: { if case .view = $0.kind { true } else { false } }) { return "等你看" }
         }
-        if case .step? = card.items.first?.form { return "等你做" }
-        if case .view? = card.items.first?.form { return "等你看" }
         switch card.closes {
         case .vote: return "投票中 · \(card.answeredCount)/\(card.askees.count)"
         case .each, .first: return "已答 \(card.answeredCount)/\(card.askees.count)"
@@ -1638,7 +1643,7 @@ private struct FlooAskView: View {
     /// A vote: each option a bar as long as its share, the voters on it (none named in an
     /// anonymous one), yours checked; tapping one is your vote. Under them, who hasn't.
     private var tallies: some View {
-        let options: [FlooOption] = if case .choose(let options, _, _)? = card.items.first?.form { options } else { [] }
+        let options = card.items.first?.choiceOptions ?? []
         let total = max(card.replies.count, 1)
         let mine = Set(card.replies.first { $0.who == FlooAskCard.you }?.picked ?? [])
         let missing = card.askees.filter { who in !card.replies.contains { $0.who == who } }
@@ -1697,7 +1702,7 @@ private struct FlooAskView: View {
     /// What came of it, folded: your answer, a vote's tally, how many answered.
     private var outcome: String? {
         if let done = card.done { return done }
-        if card.closes == .vote, case .choose(let options, _, _)? = card.items.first?.form {
+        if card.closes == .vote, let options = card.items.first?.choiceOptions {
             let tally = options.enumerated().map { index, option in
                 "\(option.label) \(card.replies.filter { $0.picked.contains(index) }.count)"
             }.joined(separator: " · ")
@@ -1714,7 +1719,7 @@ private struct FlooAskView: View {
     }
 
     @ViewBuilder
-    private func item(_ item: FlooAskItem, at index: Int) -> some View {
+    private func item(_ item: FlooRequest, at index: Int) -> some View {
         if let answer = item.answer {
             Label("你答了：\(answer)", systemImage: "checkmark.circle.fill")
                 .font(.footnote)
@@ -1723,45 +1728,63 @@ private struct FlooAskView: View {
             Text("只有\(card.askees.joined(separator: "、"))能答")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        } else if item.unknown {
+            // A control this build can't draw: the whole card is answered where it can be —
+            // an answer signs all it shows, so none of it is drawn here (§8.4).
+            Label(
+                card.answersAreMessages ? "用话回答，或更新 App" : "到 \(card.device ?? "那台设备") 上答",
+                systemImage: "arrow.up.forward.app"
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
         } else {
+            let group = item.group(picks(index, item.groups))
+            let submit = item.submit(group: group)
             VStack(alignment: .leading, spacing: 8) {
                 if card.items.count > 1 {
                     Text(item.question).font(card.line == nil ? .subheadline : .footnote)
                 }
-                form(item, at: index)
+                // Sent before it grew: folded above what it asks now (§4.5).
+                ForEach(Array(item.earlier.enumerated()), id: \.offset) { _, sent in
+                    Label(sent, systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let groups = item.groups, item.from == 0 { control(groups, item, at: index, submit) }
+                ForEach(item.current(group: group).filter { $0 != item.groups }) { control in
+                    self.control(control, item, at: index, submit)
+                }
+                footer(item, at: index, submit, group: group)
             }
         }
     }
 
+    /// One control, drawn the one way its kind is (floo interaction.md §4.3): what it does
+    /// when touched follows how the request is sent — a tap that decides it sends it; else
+    /// it's kept here until 提交.
     @ViewBuilder
-    private func form(_ item: FlooAskItem, at index: Int) -> some View {
-        switch item.form {
-        case .choose(let options, let multiple, let own):
-            if multiple {
-                FlowLayoutRow {
-                    ForEach(Array(options.enumerated()), id: \.offset) { option, o in
-                        let on = picked[index, default: []].contains(option)
-                        Button(o.label) {
-                            picked[index, default: []] = picked[index, default: []].symmetricDifference([option])
-                        }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .tint(on ? card.agent.tint : .secondary)
-                    }
-                    Button("好了") {
-                        demo.answerAsk(card.id, item: index, .options(Array(picked[index, default: []])))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(card.agent.tint)
-                    .disabled(picked[index, default: []].isEmpty)
+    private func control(_ control: FlooControlModel, _ item: FlooRequest, at index: Int, _ submit: FlooSubmit) -> some View {
+        let key = Self.key(index, control.id)
+        switch control.kind {
+        case .choice(let options, let multiple, let own, let groups):
+            if let label = control.label, !groups {
+                Text(label).font(.caption).foregroundStyle(.secondary)
+            }
+            if groups {
+                // The variants (密码 / 邮件验证码): only the picked one's controls show.
+                Picker("", selection: Binding(
+                    get: { picks(index, control)?.first ?? 0 },
+                    set: { values[key] = .choice([$0]) })) {
+                    ForEach(Array(options.enumerated()), id: \.offset) { place, option in Text(option.label).tag(place) }
                 }
-                .controlSize(.small)
-            } else {
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            } else if submit == .tap {
                 FlooOptions(choices: options.map { FlooChoice(option: $0, tappable: true) },
                             tint: card.agent.tint, demo: demo) { option, _ in
-                    demo.answerAsk(card.id, item: index, .option(option))
+                    demo.answerAsk(card.id, item: index, .submit([control.id: .choice([option])]))
                 }
+                // Their own words are their message: written over the composer.
                 if own != nil {
                     Button {
                         demo.answerAsk(card.id, item: index, .own)
@@ -1772,126 +1795,79 @@ private struct FlooAskView: View {
                     .foregroundStyle(.secondary)
                     .controlSize(.small)
                 }
-            }
-        case .confirm(let effect, let yes, let no):
-            Text(effect).font(.footnote).foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                Button(yes) { demo.answerAsk(card.id, item: index, .confirm(true)) }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(card.agent.tint)
-                Button(no) { demo.answerAsk(card.id, item: index, .confirm(false)) }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-            }
-            .controlSize(.small)
-        case .fill(let fields):
-            let values = filled[index] ?? fields.map(\.guess)
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(fields.enumerated()), id: \.offset) { place, field in
-                    HStack(spacing: 8) {
-                        Label(field.label, systemImage: Self.fieldIcon(field.kind))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 110, alignment: .leading)
-                        TextField(field.label, text: Binding(
-                            get: { values[place] },
-                            set: { value in
-                                var typed = filled[index] ?? fields.map(\.guess)
-                                typed[place] = value
-                                filled[index] = typed
+            } else {
+                let picked = picks(index, control) ?? []
+                if multiple {
+                    FlowLayoutRow {
+                        ForEach(Array(options.enumerated()), id: \.offset) { place, option in
+                            Button(option.label) {
+                                values[key] = .choice(Array(Set(picked).symmetricDifference([place])).sorted())
                             }
-                        ))
-                        .font(.footnote.weight(.medium))
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
+                            .tint(picked.contains(place) ? card.agent.tint : .secondary)
+                        }
+                    }
+                    .controlSize(.small)
+                } else {
+                    FlooOptions(choices: options.map { FlooChoice(option: $0, tappable: true) }, chosen: picked.first,
+                                tint: card.agent.tint, demo: demo) { option, _ in
+                        values[key] = .choice([option])
+                        typed[key] = nil
+                    }
+                }
+                if own != nil {
+                    TextField("其他…", text: Binding(
+                        get: { typed[key] ?? "" },
+                        set: { words in
+                            typed[key] = words
+                            if !words.isEmpty, !multiple { values[key] = nil }
+                        }))
+                        .font(.footnote)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .background(card.agent.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
                 }
             }
-            Button("好了") { demo.answerAsk(card.id, item: index, .filled(values)) }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .tint(card.agent.tint)
-                .controlSize(.small)
-                .disabled(values.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty })
-        case .secret(let fields, let ways, let sealedTo, let submit, let keep):
-            // Secrets go sealed to the device that uses them: typed here, never shown back,
-            // never the agent's (floo interaction.md §4.2).
-            let picked = way[index] ?? 0
-            let values = filled[index] ?? fields.map(\.guess)
-            VStack(alignment: .leading, spacing: 6) {
-                if !ways.isEmpty {
-                    Picker("", selection: Binding(get: { picked }, set: { way[index] = $0 })) {
-                        ForEach(Array(ways.enumerated()), id: \.offset) { place, name in Text(name).tag(place) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                }
-                ForEach(Array(fields.enumerated()), id: \.offset) { place, field in
-                    HStack(spacing: 8) {
-                        Label(field.label, systemImage: Self.fieldIcon(field.kind))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 110, alignment: .leading)
-                        Group {
-                            if field.kind == .secret {
-                                SecureField(field.autofill ?? field.label, text: binding(index, place, fields))
-                            } else {
-                                TextField(field.autofill ?? field.label, text: binding(index, place, fields))
-                            }
-                        }
-                        .autofilled(field.content)
-                        .font(.footnote.weight(.medium))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(card.agent.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        if let autofill = field.autofill {
-                            Text(autofill).font(.caption2).foregroundStyle(.blue)
-                        }
-                    }
-                }
-                // Offered by the asker (floo browser.md §6.5): ticked unless it's a bank or a payment.
-                if let keep {
-                    Toggle(isOn: Binding(get: { kept[index] ?? keep }, set: { kept[index] = $0 })) {
-                        Label("在我的所有设备上保持登录", systemImage: "laptopcomputer.and.iphone")
-                            .font(.caption)
-                    }
-                    .controlSize(.mini)
-                    .tint(card.agent.tint)
-                }
-                Label("只交给 \(sealedTo)，\(card.agent.name)看不到", systemImage: "lock.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.green)
+        case .field(let field):
+            fieldRow(field, key: key, secret: false)
+        case .secret(let field, _):
+            // Typed here, never shown back, sealed to the device that uses it (§5.5).
+            fieldRow(field, key: key, secret: field.kind == .secret)
+        case .decision(let options):
+            if let buttons = FlooDecisionOption.buttons(options) {
+                decision(control, buttons, at: index, submit)
             }
-            // Handed on, what was typed goes from here: if it doesn't go through, it's typed again.
-            let sending = if case .working? = card.stage { true } else { false }
+        case .step(let what, let open, let done):
+            // Yours to do, on that device; once you're on it the clock stops.
+            let engaged = if case .engaged? = card.stage { true } else { false }
+            let chosen = if case .step(let step)? = values[key] { step } else { nil as FlooStepPick? }
+            Text(engaged ? "\(card.agent.name)在等，不会动它" : what)
+                .font(.footnote)
+                .foregroundStyle(engaged ? .secondary : .primary)
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                Button("取消") {
-                    filled[index] = nil
-                    demo.answerAsk(card.id, item: index, .step(.skip))
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                Button(submit) {
-                    filled[index] = nil
-                    demo.answerAsk(card.id, item: index, .secrets(way: picked, values, keep: keep.map { kept[index] ?? $0 }))
-                    kept[index] = nil
+                Button(chosen == .skip ? "跳过 ✓" : "跳过") { pickStep(control, .skip, at: index, submit) }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                Button(engaged ? (chosen == .done ? "\(done) ✓" : done) : open) {
+                    if engaged {
+                        pickStep(control, .done, at: index, submit)
+                    } else {
+                        demo.answerAsk(card.id, item: index, .step(.open))
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
                 .tint(card.agent.tint)
-                .disabled(values.contains { $0.isEmpty })
             }
             .controlSize(.small)
-            .disabled(sending)
-        case .view(let png, let sha256, let width, let height, let scale, let keep):
+        case .view(let frame):
             // The page's own pixels, as crisp as the page drew them: a whole multiple, nearest
-            // neighbour, on white — a QR code still scans (floo interaction.md §4.1 view).
-            let drawn = Self.viewSide(width: width, height: height, scale: scale)
+            // neighbour, on white — a QR code still scans; a new frame as the page changes it.
+            let drawn = Self.viewSide(width: frame.width, height: frame.height, scale: frame.scale)
             Group {
-                if let image = UIImage(data: png) {
+                if let image = UIImage(data: frame.png) {
                     Image(uiImage: image)
                         .interpolation(drawn.whole ? .none : .medium)
                         .resizable()
@@ -1904,86 +1880,226 @@ private struct FlooAskView: View {
             .padding(10)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
-            .id(sha256)
+            .id(frame.sha256)
             .frame(maxWidth: .infinity)
-            // Offered by the asker (floo browser.md §6.5): ticked unless it's a bank or a payment;
-            // turned, it is signed here and put on the ask.
-            if let keep {
-                Toggle(isOn: Binding(
-                    get: { kept[index] ?? keep },
-                    set: { on in
-                        kept[index] = on
-                        demo.answerAsk(card.id, item: index, .keep(on))
-                    })) {
-                    Label("在我的所有设备上保持登录", systemImage: "laptopcomputer.and.iphone")
-                        .font(.caption)
-                }
-                .controlSize(.mini)
-                .tint(card.agent.tint)
+        case .toggle(let value, let keep):
+            // Sent with the answer; with nothing to send, turned it is signed and put on the
+            // request at once (§5.4). 「保持登录」: ticked unless it's a bank or a payment.
+            Toggle(isOn: Binding(
+                get: { if case .toggle(let on)? = values[key] { on } else { value } },
+                set: { on in
+                    values[key] = .toggle(on)
+                    if submit == .asker { demo.answerAsk(card.id, item: index, .turn(control.id, on)) }
+                })) {
+                Label(control.label ?? "", systemImage: keep ? "laptopcomputer.and.iphone" : "checkmark.square")
+                    .font(.caption)
             }
-            let cancelling = if case .working? = card.stage { true } else { false }
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                Button("取消") { demo.answerAsk(card.id, item: index, .step(.skip)) }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    .disabled(cancelling)
+            .controlSize(.mini)
+            .tint(card.agent.tint)
+        case .say(let text):
+            Text(text).font(.footnote).foregroundStyle(.secondary)
+        case .link(let url):
+            if let link = URL(string: url) {
+                Link(destination: link) { Label(control.label ?? url, systemImage: "link") }
+                    .font(.footnote)
             }
-            .controlSize(.small)
-        case .decision(let go, let no, let standing, let dangerous):
-            // You sign it, on the device in your hand; held, it allows from now on.
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                Button(no) { demo.answerAsk(card.id, item: index, .decide(go: false, standing: nil)) }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                if standing.isEmpty {
-                    Button(go) { demo.answerAsk(card.id, item: index, .decide(go: true, standing: nil)) }
-                        .buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.capsule)
-                        .tint(dangerous ? .red : card.agent.tint)
-                } else {
-                    Menu {
-                        Button("仅这一次") { demo.answerAsk(card.id, item: index, .decide(go: true, standing: nil)) }
-                        ForEach(standing, id: \.self) { choice in
-                            Button(choice) { demo.answerAsk(card.id, item: index, .decide(go: true, standing: choice)) }
-                        }
-                    } label: {
-                        Text(go)
-                    } primaryAction: {
-                        demo.answerAsk(card.id, item: index, .decide(go: true, standing: nil))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(card.agent.tint)
-                }
+        case .image(let url):
+            AsyncImage(url: URL(string: url)) { image in
+                image.resizable().aspectRatio(contentMode: .fit)
+            } placeholder: {
+                ProgressView()
             }
-            .controlSize(.small)
-            if !standing.isEmpty {
-                Text("长按「\(go)」可以以后都允许")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-        case .step(let what, let open, let done):
-            // Yours to do, on that device; once you're on it the clock stops.
-            let engaged = if case .engaged? = card.stage { true } else { false }
-            Text(engaged ? "\(card.agent.name)在等，不会动它" : what)
-                .font(.footnote)
-                .foregroundStyle(engaged ? .secondary : .primary)
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                Button("跳过") { demo.answerAsk(card.id, item: index, .step(.skip)) }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                Button(engaged ? done : open) { demo.answerAsk(card.id, item: index, .step(engaged ? .done : .open)) }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(card.agent.tint)
-            }
-            .controlSize(.small)
+            .frame(maxWidth: .infinity, maxHeight: 220)
+        case .unknown:
+            EmptyView()
         }
     }
+
+    /// A field or a secret: its label, the box (a password hidden; the system's autofill
+    /// offered as the asker hinted), where its value comes from when not typed.
+    private func fieldRow(_ field: FlooField, key: String, secret: Bool) -> some View {
+        HStack(spacing: 8) {
+            Label(field.label, systemImage: Self.fieldIcon(field.kind))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 110, alignment: .leading)
+            let text = Binding(get: { typed[key] ?? field.guess }, set: { typed[key] = $0 })
+            Group {
+                if secret {
+                    SecureField(field.autofill ?? field.label, text: text)
+                } else {
+                    TextField(field.autofill ?? field.label, text: text)
+                }
+            }
+            .autofilled(field.content)
+            .font(.footnote.weight(.medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(card.agent.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            if let autofill = field.autofill {
+                Text(autofill).font(.caption2).foregroundStyle(.blue)
+            }
+        }
+    }
+
+    /// A decision's buttons: the one that declines, the one that goes ahead (red where it
+    /// can't be undone), the standing ones behind its long press. Alone, a press sends it,
+    /// signed; among others it is kept until 提交, checked.
+    @ViewBuilder
+    private func decision(
+        _ control: FlooControlModel, _ buttons: (go: FlooDecisionOption, no: FlooDecisionOption, aside: [FlooDecisionOption]),
+        at index: Int, _ submit: FlooSubmit
+    ) -> some View {
+        let key = Self.key(index, control.id)
+        let chosen = if case .key(let picked)? = values[key] { picked } else { nil as String? }
+        let pick: (FlooDecisionOption) -> Void = { option in
+            if submit == .tap {
+                demo.answerAsk(card.id, item: index, .submit([control.id: .key(option.key)]))
+            } else {
+                values[key] = .key(option.key)
+            }
+        }
+        let mark: (FlooDecisionOption) -> String = { $0.key == chosen ? "\($0.label) ✓" : $0.label }
+        if let label = control.label { Text(label).font(.caption).foregroundStyle(.secondary) }
+        HStack(spacing: 8) {
+            Spacer(minLength: 0)
+            Button(mark(buttons.no)) { pick(buttons.no) }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .tint(buttons.no.danger ? .red : nil)
+            if buttons.aside.isEmpty {
+                Button(mark(buttons.go)) { pick(buttons.go) }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(buttons.go.danger ? .red : card.agent.tint)
+            } else {
+                Menu {
+                    Button("仅这一次") { pick(buttons.go) }
+                    ForEach(buttons.aside, id: \.self) { option in
+                        Button(option.label) { pick(option) }
+                    }
+                } label: {
+                    Text(buttons.aside.contains { $0.key == chosen } ? "\(buttons.aside.first { $0.key == chosen }!.label) ✓" : mark(buttons.go))
+                } primaryAction: {
+                    pick(buttons.go)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .tint(buttons.go.danger ? .red : card.agent.tint)
+            }
+        }
+        .controlSize(.small)
+        if !buttons.aside.isEmpty {
+            Text("长按「\(buttons.go.label)」可以以后都允许")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    /// A step's 做完了 / 跳过: alone, the answer; among others, kept until 提交.
+    private func pickStep(_ control: FlooControlModel, _ step: FlooStepPick, at index: Int, _ submit: FlooSubmit) {
+        if submit == .tap {
+            demo.answerAsk(card.id, item: index, .submit([control.id: .step(step)]))
+        } else {
+            values[Self.key(index, control.id)] = .step(step)
+        }
+    }
+
+    /// The card's foot, as the controls make it (§3.3): nothing where a tap decides; 提交
+    /// (grey till what must be answered is) and, for the system's, 不做了; only 不做了 where
+    /// its asker closes it.
+    @ViewBuilder
+    private func footer(_ item: FlooRequest, at index: Int, _ submit: FlooSubmit, group: String?) -> some View {
+        // Handed on, what was typed goes from here: if it doesn't go through, it's typed again.
+        let sending = if case .working? = card.stage { true } else { false }
+        switch submit {
+        case .tap:
+            EmptyView()
+        case .button:
+            let given = gathered(item, at: index, group: group)
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                if !card.answersAreMessages {
+                    Button("不做了") {
+                        clear(index)
+                        demo.answerAsk(card.id, item: index, .decline)
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                }
+                Button(item.submitLabel) {
+                    clear(index)
+                    demo.answerAsk(card.id, item: index, .submit(given.values, secrets: given.secrets))
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .tint(card.agent.tint)
+                .disabled(!given.whole)
+            }
+            .controlSize(.small)
+            .disabled(sending)
+        case .asker:
+            if !card.answersAreMessages {
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    Button("不做了") { demo.answerAsk(card.id, item: index, .decline) }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .disabled(sending)
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    /// What the card holds of a request now: each control's value — what was typed, else
+    /// the guess; a toggle as turned, else its default — secrets apart; `whole` once every
+    /// control that must be answered is.
+    private func gathered(_ item: FlooRequest, at index: Int, group: String?) -> (values: [String: FlooValue], secrets: [String: String], whole: Bool) {
+        var given: [String: FlooValue] = [:]
+        var secrets: [String: String] = [:]
+        var whole = true
+        if let groups = item.groups, item.from == 0 { given[groups.id] = .choice(picks(index, groups) ?? [0]) }
+        for control in item.current(group: group) where control != item.groups {
+            let key = Self.key(index, control.id)
+            switch control.kind {
+            case .choice:
+                let own = typed[key].flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+                let picked = picks(index, control) ?? []
+                if !picked.isEmpty || own != nil { given[control.id] = .choice(picked, own: own) }
+            case .field(let field):
+                let words = typed[key] ?? field.guess
+                if !words.trimmingCharacters(in: .whitespaces).isEmpty { given[control.id] = .text(words) }
+            case .secret(let field, _):
+                let words = typed[key] ?? field.guess
+                if !words.isEmpty { secrets[control.id] = words }
+            case .decision, .step:
+                if let value = values[key] { given[control.id] = value }
+            case .toggle(let value, _):
+                given[control.id] = values[key] ?? .toggle(value)
+            default: break
+            }
+            if control.mustAnswer {
+                if case .secret = control.kind { whole = whole && secrets[control.id] != nil } else { whole = whole && given[control.id] != nil }
+            }
+        }
+        return (given, secrets, whole)
+    }
+
+    private func clear(_ index: Int) {
+        let prefix = "\(index)/"
+        typed = typed.filter { !$0.key.hasPrefix(prefix) }
+        values = values.filter { !$0.key.hasPrefix(prefix) }
+    }
+
+    /// The picks of a choice so far: nil before any.
+    private func picks(_ index: Int, _ control: FlooControlModel?) -> [Int]? {
+        guard let control, case .choice(let picked, _)? = values[Self.key(index, control.id)] else { return nil }
+        return picked
+    }
+
+    private static func key(_ index: Int, _ control: String) -> String { "\(index)/\(control)" }
 
     /// How big a view's part is drawn: its size on the page (pixels over `scale`), times the
     /// largest whole multiple that keeps it within 300 points — at least 200 for a small one
@@ -1999,18 +2115,7 @@ private struct FlooAskView: View {
         return (CGSize(width: w * times, height: h * times), times == times.rounded())
     }
 
-    /// What's typed into field `place` of item `index`, the guesses until then.
-    private func binding(_ index: Int, _ place: Int, _ fields: [FlooAskItem.Field]) -> Binding<String> {
-        Binding(
-            get: { (filled[index] ?? fields.map(\.guess))[place] },
-            set: { value in
-                var typed = filled[index] ?? fields.map(\.guess)
-                typed[place] = value
-                filled[index] = typed
-            })
-    }
-
-    private static func fieldIcon(_ kind: FlooAskItem.Field.Kind) -> String {
+    private static func fieldIcon(_ kind: FlooField.Kind) -> String {
         switch kind {
         case .text: "textformat"
         case .number: "number"
@@ -2027,7 +2132,7 @@ private struct FlooAskView: View {
 private extension View {
     /// A secret field as the system's autofill knows it: the account, its password, a code a
     /// site sent (the number pad where there is one); typed as it is, never corrected.
-    func autofilled(_ content: FlooAskItem.Field.Content?) -> some View {
+    func autofilled(_ content: FlooField.Content?) -> some View {
         let type: UITextContentType? =
             switch content {
             case .username?: .username
@@ -2649,23 +2754,31 @@ extension FlooRow {
         case .ask(let card):
             // Done, one line; a vote, a bar an option.
             if card.state != .open { return 40 }
-            if card.closes == .vote, case .choose(let options, _, _)? = card.items.first?.form {
+            if card.closes == .vote, let options = card.items.first?.choiceOptions {
                 return 100 + CGFloat(options.count) * 40
             }
             return 60 + CGFloat(card.items.reduce(0) { sum, item in
                 if item.answer != nil { return sum + 24 }
-                switch item.form {
-                case .choose(let options, _, _):
-                    if options.contains(where: { $0.image != nil || $0.from != nil }) { return sum + 250 }
-                    if options.contains(where: { $0.detail != nil }) { return sum + 46 + options.count * 56 }
-                    return sum + 90
-                case .confirm: return sum + 100
-                case .fill(let fields): return sum + 40 + fields.count * 30
-                case .secret(let fields, let ways, _, _, let keep):
-                    return sum + 70 + fields.count * 34 + (ways.isEmpty ? 0 : 34) + (keep == nil ? 0 : 28)
-                case .decision: return sum + 70
-                case .step: return sum + 80
-                case .view(_, _, _, _, _, let keep): return sum + 300 + (keep == nil ? 0 : 28)
+                // A control at a time, as the card draws it; the foot where there is one.
+                let now = item.current(group: item.group(nil))
+                let foot = item.submit() == .tap ? 0 : 40
+                return sum + foot + item.earlier.count * 20 + now.reduce(0) { sum, control in
+                    switch control.kind {
+                    case .choice(let options, _, _, let groups):
+                        if groups { return sum + 34 }
+                        if options.contains(where: { $0.image != nil || $0.from != nil }) { return sum + 250 }
+                        if options.contains(where: { $0.detail != nil }) { return sum + 20 + options.count * 56 }
+                        return sum + 60
+                    case .field, .secret: return sum + 34
+                    case .decision(let options): return sum + (options.contains(where: \.standing) ? 54 : 36)
+                    case .step: return sum + 70
+                    case .view(let frame): return sum + 20 + Int(FlooAskView.viewSide(width: frame.width, height: frame.height, scale: frame.scale).size.height)
+                    case .toggle: return sum + 28
+                    case .say(let text): return sum + 20 + text.count / 30 * 16
+                    case .link: return sum + 22
+                    case .image: return sum + 220
+                    case .unknown: return sum + 24
+                    }
                 }
             })
         }

@@ -387,61 +387,261 @@ struct FlooChoice: Hashable {
     let tappable: Bool
 }
 
-/// Something an agent asks without stopping: the card rides on the message that asked, the
-/// agent goes on, and it stays until answered, withdrawn, or expired.
-struct FlooAskItem: Hashable {
-    enum Form: Hashable {
-        /// Pick one or more; `own` is what the script types when "其他…" is the answer.
-        case choose(options: [FlooOption], multiple: Bool, own: String?)
-        /// Whether to do what `effect` says will happen.
-        case confirm(effect: String, yes: String, no: String)
-        /// A few things to fill in, each with the agent's guess.
-        case fill(fields: [Field])
-        /// Secrets for the device that does it — a password, a code (floo interaction.md
-        /// §4.2): sealed to `sealedTo`, never the agent's; `ways` to pick from first
-        /// (密码 / 邮件验证码), `submit` what sending them does. `keep`, where the asker
-        /// offers 「在我的所有设备上保持登录」 (floo browser.md §6.5): its default; nil, not offered.
-        case secret(fields: [Field], ways: [String], sealedTo: String, submit: String, keep: Bool? = nil)
-        /// A decision you sign, its buttons as the system words them: `go` the one that goes
-        /// ahead, `standing` what you may allow from now on behind a long press of it;
-        /// `dangerous` can't be undone, asked every time.
-        case decision(go: String, no: String, standing: [String], dangerous: Bool)
-        /// Something to do on a device yourself: what, and `open` the button that takes you
-        /// there; once you're on it, `done` says you are through.
-        case step(what: String, open: String, done: String)
-        /// A live part of a web page shown to you (floo interaction.md §4.1 view): a QR code to
-        /// scan, a picture, a total — as that device captured it, a PNG `width` × `height` pixels
-        /// at `scale` pixels per point of the page, named by `sha256`, a new one as the page
-        /// changes it — and `keep`, where the asker offers 「在我的所有设备上保持登录」: its value
-        /// now; nil, not offered. Nothing is typed: its agent ends it, or you cancel it.
-        case view(png: Data, sha256: String, width: Int, height: Int, scale: Double, keep: Bool?)
+/// One part of a request (floo interaction.md §4): a request is a header and a list of these,
+/// drawn in order by one card. A control is a part, not a purpose — a sign-in is two secrets
+/// and a toggle, a picture code a view and a field. Its `id` is what its value goes by.
+struct FlooControlModel: Hashable, Identifiable {
+    let id: String
+    /// What the person sees by it: a choice's question, a toggle's words, a link's.
+    var label: String?
+    /// Whether it must be answered before the request is sent (answered kinds only).
+    var required = true
+    /// The variant it belongs to where a choice with `groups` picks one (§4.5): shown and
+    /// sent only when that group is picked.
+    var group: String?
+    var kind: Kind
+
+    enum Kind: Hashable {
+        /// Pick one or more; `own`, where they may write their own: in a request answered on
+        /// a tap it is what the script types out over the composer ("" live), elsewhere a box
+        /// on the card. `groups`: its options are the request's variants (密码 / 邮件验证码).
+        case choice(options: [FlooOption], multiple: Bool = false, own: String? = nil, groups: Bool = false)
+        /// A detail to type or pick, the asker's guess filled in.
+        case field(FlooField)
+        /// What only the device that does it may know — a password, a code: sealed to it,
+        /// never the agent's. `kind` as the wire names it (password, email, code…).
+        case secret(FlooField, kind: String)
+        /// The asker's buttons, signed here (§4.3): the first that isn't standing goes ahead,
+        /// the standing ones behind its long press, a dangerous one red.
+        case decision([FlooDecisionOption])
+        /// Something to do on that device: `open` the button that takes it on, `done` the one
+        /// that says it's through.
+        case step(what: String, open: String = "我来做", done: String = "做完了")
+        /// A live part of a web page, as its device captured it; a new frame as it changes.
+        case view(FlooViewFrame)
+        /// A tick, `value` its default; `keep`, it is 「在我的所有设备上保持登录」.
+        case toggle(value: Bool, keep: Bool = false)
+        case say(String)
+        case link(url: String)
+        case image(url: String)
+        /// A kind this build doesn't know: the whole card is answered elsewhere (§8.4).
+        case unknown(type: String)
     }
 
-    struct Field: Hashable {
-        let label: String
-        let kind: Kind
-        var guess: String
-        enum Kind { case text, number, date, time, place, person, file, secret }
-        /// Where a value comes from when you don't type it: "钥匙串", "从邮件填".
-        var autofill: String?
-        /// What the system's autofill offers for it (a secret form's field): the account,
-        /// its password, a code a site sent.
-        var content: Content?
-        enum Content { case username, email, password, newPassword, code }
+    /// Whether the person answers it (§3.3): a choice, a field, a secret, a decision, a step.
+    var answered: Bool {
+        switch kind {
+        case .choice, .field, .secret, .decision, .step: true
+        case .view, .toggle, .say, .link, .image, .unknown: false
+        }
     }
 
+    var mustAnswer: Bool { answered && required }
+
+    /// The words of 「在我的所有设备上保持登录」 as a control.
+    static func keep(_ on: Bool, id: String = "keep") -> FlooControlModel {
+        FlooControlModel(id: id, label: "在我的所有设备上保持登录", kind: .toggle(value: on, keep: true))
+    }
+}
+
+/// A field as a card types it.
+struct FlooField: Hashable {
+    let label: String
+    let kind: Kind
+    var guess: String
+    enum Kind { case text, number, date, time, place, person, file, secret }
+    /// Where a value comes from when you don't type it: "钥匙串", "从邮件填".
+    var autofill: String?
+    /// What the system's autofill offers for it (a secret): the account, its password, a code.
+    var content: Content?
+    enum Content { case username, email, password, newPassword, code }
+}
+
+/// One of a decision's buttons: `key` what is signed, `label` what you see; `standing` lasts
+/// beyond this once, `danger` can't be undone.
+struct FlooDecisionOption: Hashable {
+    let key: String
+    let label: String
+    var standing = false
+    var danger = false
+
+    /// How a card draws them: the first that isn't standing goes ahead, the last other one
+    /// declines; the standing ones (and any more) wait behind a long press of the first. Nil
+    /// with fewer than two.
+    static func buttons(_ options: [FlooDecisionOption]) -> (go: Self, no: Self, aside: [Self])? {
+        let now = options.filter { !$0.standing }
+        guard let go = now.first ?? options.first,
+              let no = now.count > 1 ? now.last : options.last(where: { $0 != go })
+        else { return nil }
+        return (go, no, options.filter { $0 != go && $0 != no })
+    }
+}
+
+/// A view's frame: a PNG `width` × `height` pixels at `scale` pixels per point of the page,
+/// named by `sha256`.
+struct FlooViewFrame: Hashable {
+    let png: Data
+    let sha256: String
+    let width: Int
+    let height: Int
+    let scale: Double
+}
+
+/// How a request is sent, from its controls (floo interaction.md §3.3), never written apart.
+enum FlooSubmit {
+    /// One control to answer, decided by a tap (one pick, a decision, a step): its own buttons.
+    case tap
+    /// Anything to fill: one 提交 (and 不做了).
+    case button
+    /// Nothing to answer (a view, a toggle, words): its asker closes it; 不做了.
+    case asker
+}
+
+/// A value given on a card, by control id; a secret's never among them.
+enum FlooValue: Hashable {
+    case choice([Int], own: String? = nil)
+    case text(String)
+    case key(String)
+    case step(FlooStepPick)
+    case toggle(Bool)
+}
+
+/// One request (floo interaction.md §3): what it's called, its words, its controls in order.
+/// The card's header (who, where, why) is its card's; an agent's older ask may hold several.
+/// Grown midway (§4.5), the controls before `from` were sent before: folded to `earlier`.
+struct FlooRequest: Hashable {
     /// A short name, for the quote the answer carries: "修复方向".
     let title: String
     let question: String
-    let form: Form
+    var controls: [FlooControlModel]
+    var from = 0
+    /// What was sent of the controls before `from`, a line each time.
+    var earlier: [String] = []
+    /// The words of its 提交.
+    var submitLabel = "提交"
     /// nil while it's still open.
     var answer: String?
+
+    init(title: String, question: String, controls: [FlooControlModel], answer: String? = nil) {
+        self.title = title
+        self.question = question
+        self.controls = controls
+        self.answer = answer
+    }
+
+    /// Whether some control is one this build doesn't know.
+    var unknown: Bool { controls.contains { if case .unknown = $0.kind { true } else { false } } }
+
+    /// The choice whose options are the variants, if there is one.
+    var groups: FlooControlModel? {
+        controls.first { if case .choice(_, _, _, true) = $0.kind { true } else { false } }
+    }
+
+    /// The group picked: `picked` of the groups choice, its first option before that.
+    func group(_ picked: [Int]?) -> String? {
+        guard let groups, case .choice(let options, _, _, _) = groups.kind, !options.isEmpty else { return nil }
+        let index = picked?.first.flatMap { options.indices.contains($0) ? $0 : nil } ?? 0
+        return options[index].label
+    }
+
+    /// The controls to answer now: from `from`, those of the picked group.
+    func current(group: String?) -> [FlooControlModel] {
+        controls.dropFirst(from).filter { $0.group == nil || $0.group == group }
+    }
+
+    /// How it is sent (§3.3).
+    func submit(group: String? = nil) -> FlooSubmit {
+        let answering = current(group: group ?? self.group(nil)).filter(\.answered)
+        guard let only = answering.first else { return .asker }
+        guard answering.count == 1 else { return .button }
+        switch only.kind {
+        case .choice(_, let multiple, _, let groups): return multiple || groups ? .button : .tap
+        case .decision, .step: return .tap
+        default: return .button
+        }
+    }
+
+    /// The options of its first choice (a vote's).
+    var choiceOptions: [FlooOption] {
+        for control in controls { if case .choice(let options, _, _, _) = control.kind { return options } }
+        return []
+    }
+
+    /// What a pick of the script's, or a tap's, gives each control now; nil if it gives none.
+    func resolve(_ pick: FlooAnswerPick) -> (values: [String: FlooValue], secrets: [String: String])? {
+        let now = current(group: group(nil))
+        let choice = now.first { if case .choice(_, _, _, false) = $0.kind { true } else { false } }
+        switch pick {
+        case .submit(let values, let secrets): return (values, secrets)
+        case .option(let index): return choice.map { ([$0.id: .choice([index])], [:]) }
+        case .options(let picked): return choice.map { ([$0.id: .choice(picked.sorted())], [:]) }
+        case .confirm(let yes): return choice.map { ([$0.id: .choice([yes ? 0 : 1])], [:]) }
+        case .decide(let go, let standing):
+            for control in now {
+                guard case .decision(let options) = control.kind, let buttons = FlooDecisionOption.buttons(options) else { continue }
+                let option = !go ? buttons.no : standing.flatMap { label in buttons.aside.first { $0.label == label } } ?? buttons.go
+                return ([control.id: .key(option.key)], [:])
+            }
+            return nil
+        case .step(let step) where step != .open:
+            return now.first { if case .step = $0.kind { true } else { false } }.map { ([$0.id: .step(step)], [:]) }
+        case .guesses:
+            var values: [String: FlooValue] = [:]
+            var secrets: [String: String] = [:]
+            if let groups { values[groups.id] = .choice([0]) }
+            for control in now {
+                switch control.kind {
+                case .choice(_, _, _, false): values[control.id] = .choice([0])
+                case .field(let field): values[control.id] = .text(field.guess)
+                case .secret(let field, _): secrets[control.id] = field.guess
+                case .decision(let options): FlooDecisionOption.buttons(options).map { values[control.id] = .key($0.go.key) }
+                case .step: values[control.id] = .step(.done)
+                case .toggle(let on, _): values[control.id] = .toggle(on)
+                default: break
+                }
+            }
+            return (values, secrets)
+        default: return nil
+        }
+    }
+
+    /// The answer in a line (§3.4): the picks' words, what was typed, the button pressed, a
+    /// step's state, a ticked toggle's words; secrets only that they went to `sealedTo`. A
+    /// pick or a decision alone is its words alone.
+    func said(_ values: [String: FlooValue], _ secrets: [String: String], sealedTo: String?, separator: String = " · ") -> String {
+        var parts: [String] = []
+        var sealed = false
+        for control in controls.dropFirst(from) {
+            switch (control.kind, values[control.id]) {
+            case (.choice(let options, _, _, _), .choice(let picked, let own)?):
+                var words = picked.filter(options.indices.contains).map { options[$0].send ?? options[$0].label }
+                if let own, !own.isEmpty { words.append(own) }
+                guard !words.isEmpty else { continue }
+                let joined = words.joined(separator: "、")
+                parts.append(control.label.map { "\($0)：\(joined)" } ?? joined)
+            case (.field(let field), .text(let words)?):
+                parts.append(field.label.isEmpty ? words : "\(field.label)：\(words)")
+            case (.secret, _):
+                guard !sealed, secrets[control.id]?.isEmpty == false else { continue }
+                sealed = true
+                parts.append("已交给 \(sealedTo ?? "那台设备")")
+            case (.decision(let options), .key(let key)?):
+                if let option = options.first(where: { $0.key == key }) { parts.append(option.label) }
+            case (.step(_, _, let done), .step(let step)?):
+                parts.append(step == .skip ? "跳过了" : done)
+            case (.toggle, .toggle(true)?):
+                if let label = control.label { parts.append(label) }
+            default: break
+            }
+        }
+        return parts.joined(separator: separator)
+    }
 }
 
 struct FlooAskCard: Hashable, Identifiable {
     let id: String
     let agent: FlooAgent
-    var items: [FlooAskItem]
+    var items: [FlooRequest]
     var state: State
     /// Asking several, ended before all answered: its until passed, or you ended it.
     enum State { case open, answered, withdrawn, expired, closed }
@@ -475,6 +675,10 @@ struct FlooAskCard: Hashable, Identifiable {
     var line: String?
     /// Where it happens and for whom: "📅 日历 · MacBook Pro · 为管家".
     var place: String?
+    /// The device it is on, by name: where a card this build can't draw is answered.
+    var device: String?
+    /// Where its secrets go, sealed: "MacBook Pro 上的浏览器"; said up top when it has any.
+    var sealedTo: String?
     /// Where it happens, as the code that does it found it — a sign-in's origin, not the
     /// agent's words: shown before all else.
     var origin: String?
@@ -489,7 +693,7 @@ struct FlooAskCard: Hashable, Identifiable {
     enum Stage: Hashable {
         /// You're doing it, on that device: the clock stops.
         case engaged(String)
-        /// The device is on it: "提交中…".
+        /// The device is on it: "提交中…", or the line it wrote (`progress`).
         case working(String)
         /// It didn't go through, and why; it may be tried again.
         case failed(String)
@@ -513,29 +717,31 @@ struct FlooAskCard: Hashable, Identifiable {
     var answeredCount: Int { Set(replies.compactMap(\.who)).intersection(askees).count }
 }
 
-/// How an ask's item gets answered, by you or by the script answering for you.
+/// How a request gets answered, by you or by the script answering for you: what is given
+/// once resolved against its controls (`FlooRequest.resolve`) is sent whole, one answer.
 enum FlooAnswerPick {
+    /// The card's 提交, or a tap that decides it: values by control id, secrets apart.
+    case submit([String: FlooValue], secrets: [String: String] = [:])
+    /// One option of its choice.
     case option(Int)
-    /// Several of a choose(multiple:) item.
+    /// Several of a multiple choice.
     case options([Int])
-    /// In your own words: the item's `own` is typed out over the composer, then sent.
+    /// In your own words: the choice's `own` is typed out over the composer, then sent.
     case own
+    /// A 好 / 先不 choice.
     case confirm(Bool)
     /// A vote: the options picked; voting again replaces it.
     case vote([Int])
-    /// Its guesses are right as they are.
-    case fill
-    /// Its fields as you filled them in, in order.
-    case filled([String])
     /// A decision: the button pressed, or a standing choice from its long press.
     case decide(go: Bool, standing: String?)
-    /// Secrets, in order, by the way picked; sealed, they never show. `keep`: kept signed in
-    /// on all your devices, where the form offered it.
-    case secrets(way: Int, [String], keep: Bool? = nil)
-    /// A step: on it now (`open`), through, or skipped. A view skipped is cancelled.
+    /// A step: taken on (`open`, not an answer), through, or skipped.
     case step(FlooStepPick)
-    /// A view's 「在我的所有设备上保持登录」 turned, without answering it.
-    case keep(Bool)
+    /// As it stands: guesses, defaults, the first option, the button that goes ahead.
+    case guesses
+    /// 不做了.
+    case decline
+    /// A toggle turned while it is open (§5.4), without answering it.
+    case turn(String, Bool)
 }
 
 enum FlooStepPick { case open, done, skip }
@@ -1635,8 +1841,9 @@ final class FlooDemo {
         return said
     }
 
-    /// Your answer to an item: a message of yours quoting it, and the card closes when every
-    /// item is answered.
+    /// Your answer to a request: resolved against its controls, sent whole — a message of
+    /// yours quoting it for an agent's question, to the device for the system's; the card
+    /// closes when every request on it is answered.
     func answerAsk(_ id: String, item index: Int, _ pick: FlooAnswerPick) {
         if case .vote(let picked) = pick {
             vote(id, picked)
@@ -1646,95 +1853,65 @@ final class FlooDemo {
               message.asks[ci].state == .open,
               message.asks[ci].items.indices.contains(index), message.asks[ci].items[index].answer == nil
         else { return }
-        let item = message.asks[ci].items[index]
+        let card = message.asks[ci]
+        let request = card.items[index]
         if let live {
-            answerLive(live, message.asks[ci], item, at: index, pick)
+            answerLive(live, card, request, at: index, pick)
             return
         }
-        let value: String
-        switch (pick, item.form) {
-        case (.option(let i), .choose(let options, _, _)) where options.indices.contains(i):
-            value = options[i].send ?? options[i].label
-        case (.options(let picked), .choose(let options, _, _)):
-            value = picked.sorted().compactMap { options.indices.contains($0) ? options[$0].send ?? options[$0].label : nil }
-                .joined(separator: "、")
-            guard !value.isEmpty else { return }
-        case (.confirm(let yes), .confirm(_, let y, let n)):
-            value = yes ? y : n
-        case (.fill, .fill(let fields)):
-            value = fields.map(\.guess).joined(separator: "，")
-        case (.filled(let values), .fill):
-            value = values.joined(separator: "，")
-        case (.decide(let go, let standing), .decision(let goLabel, let no, _, _)):
-            value = go ? standing ?? goLabel : no
-        case (.secrets(let way, _, _), .secret(_, let ways, let sealedTo, _, _)):
-            // Sealed: what was typed never shows, nor reaches the agent.
-            value = (ways.indices.contains(way) ? ways[way] + " · " : "") + "已交给 \(sealedTo)"
-        case (.step(.open), .step):
+        switch pick {
+        case .step(.open):
             stage(id, .engaged("你在做"))
+        case .turn:
+            // Kept on the card; the script reads it when it ends the request.
             return
-        case (.step(.skip), .secret):
-            value = "先不"
-        case (.step(.skip), .view):
-            value = "已取消"
-        case (.keep, .view):
-            return
-        case (.step(let pick), .step(_, _, let done)):
-            value = pick == .skip ? "跳过了" : done
-        case (.own, .choose(_, _, let own)):
-            guard let own else { return }
-            answering = FlooAnsweringItem(agent: message.asks[ci].agent, question: item.question)
+        case .decline:
+            finishAnswer(id, item: index, "不做了")
+        case .own:
+            guard let choice = request.current(group: request.group(nil)).first(where: {
+                if case .choice(_, _, _?, false) = $0.kind { true } else { false }
+            }), case .choice(_, _, let own?, _) = choice.kind else { return }
+            answering = FlooAnsweringItem(agent: card.agent, question: request.question)
             Task {
                 try? await typeOut(own)  // try?: cut short, it's sent as far as it got
                 // Reset meanwhile: the script waiting on it is gone.
-                guard answering == FlooAnsweringItem(agent: message.asks[ci].agent, question: item.question) else { return }
+                guard answering == FlooAnsweringItem(agent: card.agent, question: request.question) else { return }
                 answering = nil
                 finishAnswer(id, item: index, own)
             }
-            return
         default:
-            return
+            guard let (values, secrets) = request.resolve(pick) else { return }
+            let said = request.said(values, secrets, sealedTo: card.sealedTo)
+            guard !said.isEmpty || !secrets.isEmpty else { return }
+            finishAnswer(id, item: index, said)
         }
-        finishAnswer(id, item: index, value)
     }
 
-    /// An answer to the backend's ask: sent as your message answering its item, and the card
-    /// changes as the backend has it once it comes back; in your own words, typed in the
-    /// composer first.
-    private func answerLive(_ live: FlooLive, _ card: FlooAskCard, _ item: FlooAskItem, at index: Int, _ pick: FlooAnswerPick) {
-        switch (pick, item.form) {
-        case (.option(let i), .choose(let options, _, _)) where options.indices.contains(i):
-            live.answer(ask: card.id, item: index, text: options[i].send ?? options[i].label, picked: [i])
-        case (.options(let picked), .choose(let options, _, _)):
-            let picked = picked.sorted().filter(options.indices.contains)
-            guard !picked.isEmpty else { return }
-            let text = picked.map { options[$0].send ?? options[$0].label }.joined(separator: "、")
-            live.answer(ask: card.id, item: index, text: text, picked: picked)
-        case (.confirm(let yes), .confirm(_, let y, let n)):
-            live.answer(ask: card.id, item: index, text: yes ? y : n, confirmed: yes)
-        case (.filled(let values), .fill(let fields)):
-            let text = zip(fields, values).map { "\($0.label)：\($1)" }.joined(separator: "\n")
-            live.answer(ask: card.id, item: index, text: text, filled: values)
-        case (.fill, .fill(let fields)):
-            let text = fields.map { "\($0.label)：\($0.guess)" }.joined(separator: "\n")
-            live.answer(ask: card.id, item: index, text: text, filled: fields.map(\.guess))
-        case (.own, .choose):
-            answering = FlooAnsweringItem(agent: card.agent, question: item.question, ask: card.id, item: index)
-        case (.step(let pick), .step):
-            live.step(ask: card.id, pick)
-        case (.decide(let go, let standing), .decision):
-            live.decide(ask: card.id, go: go, standing: standing)
-        case (.secrets(_, let values, let keep), .secret):
-            live.submit(ask: card.id, values: values, keep: keep)
-        case (.step(.skip), .secret):
+    /// An answer to the backend's request: an agent's question as your message answering it
+    /// (in your own words, typed in the composer first); the system's through the one signed
+    /// answer (FlooLive.respond). The card changes as the backend has it once it comes back.
+    private func answerLive(_ live: FlooLive, _ card: FlooAskCard, _ request: FlooRequest, at index: Int, _ pick: FlooAnswerPick) {
+        switch pick {
+        case .vote: return
+        case .own:
+            answering = FlooAnsweringItem(agent: card.agent, question: request.question, ask: card.id, item: index)
+            return
+        case .step(.open):
+            live.take(ask: card.id)
+        case .turn(let control, let on):
+            live.turn(ask: card.id, control, on)
+            return
+        case .decline:
             live.decline(ask: card.id)
-        case (.step(.skip), .view):
-            live.cancelView(ask: card.id)
-        case (.keep(let on), .view):
-            live.keep(ask: card.id, on)
-            return
         default:
-            return
+            guard let (values, secrets) = request.resolve(pick) else { return }
+            if card.answersAreMessages {
+                let text = request.said(values, [:], sealedTo: nil, separator: "\n")
+                guard !text.isEmpty else { return }
+                live.answer(ask: card.id, item: index, text: text, values: values)
+            } else {
+                live.respond(ask: card.id, values: values, secrets: secrets)
+            }
         }
         following = true
     }
@@ -1919,11 +2096,19 @@ final class FlooDemo {
         var card = FlooAskCard(
             id: id, agent: approval.agent,
             items: [
-                FlooAskItem(
+                FlooRequest(
                     title: approval.action, question: approval.action,
-                    form: .decision(
-                        go: approval.confirm, no: "不用了", standing: approval.dangerous ? [] : approval.standing,
-                        dangerous: approval.dangerous))
+                    controls: [
+                        FlooControlModel(
+                            id: "0",
+                            kind: .decision(
+                                [
+                                    FlooDecisionOption(key: "once", label: approval.confirm, danger: approval.dangerous),
+                                    FlooDecisionOption(key: "no", label: "不用了"),
+                                ] + (approval.dangerous ? [] : approval.standing).map {
+                                    FlooDecisionOption(key: $0, label: $0, standing: true)
+                                }))
+                    ])
             ],
             state: .open)
         card.line = "\(approval.agent.name) 想在\(approval.place)上\(approval.action)"
@@ -1957,10 +2142,19 @@ final class FlooDemo {
         show(message.id)
     }
 
-    /// It needs one thing more — a code the site sent: an item more on the same card.
-    func grow(_ id: String, _ item: FlooAskItem) {
-        guard let message = askMessage(id), let ci = message.asks.firstIndex(where: { $0.id == id }) else { return }
-        message.asks[ci].items.append(item)
+    /// It needs one thing more — a code the site sent (floo interaction.md §4.5): the same
+    /// request grows by `controls`, what was sent before folded above them, and is answered
+    /// again on the same card.
+    func grow(_ id: String, _ controls: [FlooControlModel]) {
+        guard let message = askMessage(id), let ci = message.asks.firstIndex(where: { $0.id == id }),
+              let last = message.asks[ci].items.indices.last
+        else { return }
+        var request = message.asks[ci].items[last]
+        if let sent = request.answer { request.earlier.append(sent) }
+        request.from = request.controls.count
+        request.controls += controls
+        request.answer = nil
+        message.asks[ci].items[last] = request
         message.asks[ci].stage = nil
         show(message.id)
     }

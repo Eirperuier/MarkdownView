@@ -7,6 +7,7 @@
 
 import Foundation
 import UIKit
+import CoreImage
 import CardModel
 import CardUI
 import Wire
@@ -42,7 +43,7 @@ enum FlooShots {
 enum FlooScenario: Int, CaseIterable, Identifiable {
     // Live goes first in the menu; the scripted ones keep their numbers (`-flooScenario N`).
     case live = 99, slowWork = 0, interjection, waitingOnYou, catchingUp, group, answerWithCards, pushes, research, longAnswer, errands,
-        onDevice, askingSeveral, systemAsks
+        onDevice, askingSeveral, systemAsks, composed
 
     nonisolated var id: Int { rawValue }
 
@@ -62,6 +63,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         case .onDevice: "本机：动你设备上的东西，先问你"
         case .askingSeveral: "群里问大家：投票、收齐、只问一人"
         case .systemAsks: "系统要你的：批准、权限、登录、验证"
+        case .composed: "拼起来的：选座、验证码、确认订单、登录、扫码"
         }
     }
 
@@ -82,6 +84,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         case .onDevice: try await Self.onDevice(m)
         case .askingSeveral: try await Self.askingSeveral(m)
         case .systemAsks: try await Self.systemAsks(m)
+        case .composed: try await Self.composed(m)
         }
     }
 
@@ -358,11 +361,11 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         var card = FlooAskCard(
             id: "vote", agent: .butler,
             items: [
-                FlooAskItem(
+                FlooRequest(
                     title: "周六去哪吃", question: "周六中午吃什么？",
-                    form: .choose(
-                        options: [FlooOption(label: "🍲 火锅"), FlooOption(label: "🍢 烧烤"), FlooOption(label: "🍜 面馆")],
-                        multiple: false, own: nil))
+                    controls: [
+                        .choice("0", [FlooOption(label: "🍲 火锅"), FlooOption(label: "🍢 烧烤"), FlooOption(label: "🍜 面馆")])
+                    ])
             ],
             state: .open)
         card.closes = .vote
@@ -381,9 +384,9 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         var arrival = FlooAskCard(
             id: "when", agent: .butler,
             items: [
-                FlooAskItem(
+                FlooRequest(
                     title: "几点到", question: "大家大概几点到？",
-                    form: .fill(fields: [FlooAskItem.Field(label: "你大概几点到", kind: .time, guess: "12:00")]))
+                    controls: [.field("0", FlooField(label: "你大概几点到", kind: .time, guess: "12:00"))])
             ],
             state: .open)
         arrival.closes = .each
@@ -403,9 +406,9 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         var forLin = FlooAskCard(
             id: "cake", agent: .butler,
             items: [
-                FlooAskItem(
+                FlooRequest(
                     title: "订蛋糕", question: "蛋糕要我一起订吗？",
-                    form: .confirm(effect: "订一个 6 寸的，周六 12 点送到店里", yes: "订", no: "不用"))
+                    controls: .confirm("订一个 6 寸的，周六 12 点送到店里", yes: "订", no: "不用"))
             ],
             state: .open)
         forLin.askees = ["小林"]
@@ -417,7 +420,7 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         if m.waitsOnYou("vote") { m.vote("vote", [0]) }
         try await m.wait(800)
         m.tally("vote", who: "小王", picked: [0])
-        let mine = try await m.awaitAnswer("when", item: 0, autoAfter: 3000, auto: .fill)
+        let mine = try await m.awaitAnswer("when", item: 0, autoAfter: 3000, auto: .guesses)
         try await m.wait(900)
         m.say(.person("阿珍"), "12:00")
         m.tally("when", who: "阿珍", said: "12:00")
@@ -462,9 +465,11 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         var permission = FlooAskCard(
             id: "calendar", agent: .butler,
             items: [
-                FlooAskItem(
+                FlooRequest(
                     title: "允许读日历", question: "允许读日历",
-                    form: .step(what: "要在 Mac 的系统窗里点「允许」：只读，不会改动或删除日程。", open: "在 Mac 上打开 →", done: "做完了"))
+                    controls: [
+                        .step("0", what: "要在 Mac 的系统窗里点「允许」：只读，不会改动或删除日程。", open: "在 Mac 上打开 →")
+                    ])
             ],
             state: .open)
         permission.line = "管家 想读你 Mac 上的日历"
@@ -487,30 +492,33 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         var signIn = FlooAskCard(
             id: "x", agent: .butler,
             items: [
-                FlooAskItem(
+                FlooRequest(
                     title: "登录 x.com", question: "登录 x.com",
-                    form: .secret(
-                        fields: [
-                            FlooAskItem.Field(label: "账号", kind: .text, guess: "eirperuier", autofill: "钥匙串"),
-                            FlooAskItem.Field(label: "密码", kind: .secret, guess: "hunter2hunter2", autofill: "钥匙串"),
-                        ],
-                        ways: ["密码", "邮件验证码"], sealedTo: "MacBook Pro 上的浏览器", submit: "登录"))
+                    controls: [
+                        // The ways in, each its own secrets (floo interaction.md §4.5 分组).
+                        .groups("way", ["密码", "邮件验证码"]),
+                        .secret("username", FlooField(label: "账号", kind: .text, guess: "eirperuier", autofill: "钥匙串", content: .username), kind: "username", group: "密码"),
+                        .secret("password", FlooField(label: "密码", kind: .secret, guess: "hunter2hunter2", autofill: "钥匙串", content: .password), kind: "password", group: "密码"),
+                        .secret("email", FlooField(label: "邮箱", kind: .text, guess: "eirperuier@proton.me", content: .email), kind: "email", group: "邮件验证码"),
+                        .keep(true),
+                    ]
+                ).submitting("登录")
             ],
             state: .open)
         signIn.line = "管家 想在你的 Mac 上登录 x.com"
         signIn.place = "🌐 x.com · MacBook Pro · 浏览器"
+        signIn.sealedTo = "MacBook Pro 上的浏览器"
         signIn.why = "要看你的私信"
         m.ask(mail, signIn)
-        _ = try await m.awaitAnswer("x", item: 0, autoAfter: 4000, auto: .secrets(way: 0, []))
+        _ = try await m.awaitAnswer("x", item: 0, autoAfter: 4000, auto: .guesses)
         m.stage("x", .working("提交中…"))
         try await m.wait(2000)
         // A code, midway: the same card grows by one thing.
-        m.grow("x", FlooAskItem(
-            title: "验证码", question: "已提交 · x.com 发了验证码到 ••••@proton.me",
-            form: .secret(
-                fields: [FlooAskItem.Field(label: "验证码", kind: .secret, guess: "", autofill: "从邮件填")],
-                ways: [], sealedTo: "MacBook Pro 上的浏览器", submit: "继续")))
-        _ = try await m.awaitAnswer("x", item: 1, autoAfter: 4000, auto: .secrets(way: 0, []))
+        m.grow("x", [
+            .say("said", "x.com 发了验证码到 ••••@proton.me"),
+            .secret("code", FlooField(label: "验证码", kind: .number, guess: "482913", autofill: "从邮件填", content: .code), kind: "code"),
+        ])
+        _ = try await m.awaitAnswer("x", item: 0, autoAfter: 4000, auto: .guesses)
         m.stage("x", .working("核对中…"))
         try await m.wait(1500)
         m.complete("x", "已登录 x.com · @eirperuier · MacBook Pro")
@@ -520,9 +528,15 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         var location = FlooAskCard(
             id: "where", agent: .butler,
             items: [
-                FlooAskItem(
+                FlooRequest(
                     title: "maps.google.com 用位置", question: "允许 maps.google.com 用位置",
-                    form: .decision(go: "允许一次", no: "不允许", standing: ["总是允许这个网站"], dangerous: false))
+                    controls: [
+                        .decision("0", [
+                            FlooDecisionOption(key: "once", label: "允许一次"),
+                            FlooDecisionOption(key: "always", label: "总是允许这个网站", standing: true),
+                            FlooDecisionOption(key: "deny", label: "不允许"),
+                        ])
+                    ])
             ],
             state: .open)
         location.line = "maps.google.com 想知道你的位置"
@@ -538,10 +552,9 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         var check = FlooAskCard(
             id: "captcha", agent: .butler,
             items: [
-                FlooAskItem(
+                FlooRequest(
                     title: "请你过一下验证", question: "请你过一下验证",
-                    form: .step(
-                        what: "在 FlooBrowser 里打开这一页，做完点「做完了」。", open: "在 Mac 上打开 →", done: "做完了"))
+                    controls: [.step("0", what: "在 FlooBrowser 里打开这一页，做完点「做完了」。", open: "在 Mac 上打开 →")])
             ],
             state: .open)
         check.line = "tickets.example.com 要人机验证"
@@ -560,6 +573,222 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         try await m.stream(done, "订好了：周四 15:30 淮海路店，确认短信发到你手机了。")
     }
 
+    // MARK: Composed
+
+    /// Requests made of controls the old forms couldn't hold (floo interaction.md §4.4), one
+    /// card each, drawn the one way: a seat and how many (a choice and a field, 提交); a
+    /// picture code (the page's picture and a box, 提交); an order to confirm (its total and
+    /// a decision, a tap — red, it can't be undone); a sign-in (two secrets and 「保持登录」,
+    /// 提交, sealed to the Mac); a sign-in by scanning (the page's code and 「保持登录」,
+    /// closed by its agent). Each stays open a while, then is answered and folds.
+    private static func composed(_ m: FlooDemo) async throws {
+        m.reset(title: "管家")
+        m.time("09:30")
+        let asked = try await m.type("帮我订周六去苏州的高铁，用 12306 的账号下单")
+        try await m.wait(400)
+        m.mark(asked, .read)
+
+        let seat = m.begin(.butler, at: "09:30")
+        try await m.stream(seat, "G7315 两种座位都有票，坐哪种、几个人？", finishing: false)
+        m.ask(seat, FlooAskCard(
+            id: "seat", agent: .butler,
+            items: [
+                FlooRequest(
+                    title: "订座", question: "坐哪种、几个人？",
+                    controls: [
+                        .choice(
+                            "seat", [FlooOption(label: "🚄 二等座", detail: "¥553"), FlooOption(label: "💺 一等座", detail: "¥933")],
+                            label: "席别"),
+                        .field("n", FlooField(label: "人数", kind: .number, guess: "2")),
+                    ])
+            ],
+            state: .open))
+        try await m.stream(seat, "选好我就去下单。")
+        let picked = try await m.awaitAnswer("seat", item: 0, autoAfter: 7000, auto: .guesses)
+        m.mark(picked, .answered)
+
+        let code = m.begin(.butler, at: "09:31")
+        try await m.stream(code, "登录 12306 要先输图片里的验证码。")
+        var captcha = FlooAskCard(
+            id: "captcha", agent: .butler,
+            items: [
+                FlooRequest(
+                    title: "输入验证码", question: "输入验证码",
+                    controls: [
+                        .view("0", Self.frame(Self.captcha("K7R4P"))),
+                        .say("hint", "验证码在图里，不区分大小写"),
+                        .field("1", FlooField(label: "验证码", kind: .text, guess: "")),
+                    ])
+            ],
+            state: .open)
+        captcha.line = "管家 想在你的 MacBook Pro 上输入验证码"
+        captcha.place = "MacBook Pro · 浏览器 · 为管家"
+        captcha.device = "MacBook Pro"
+        captcha.origin = "kyfw.12306.cn"
+        captcha.why = "登录要验证码"
+        m.ask(code, captcha)
+        _ = try await m.awaitAnswer("captcha", item: 0, autoAfter: 7000, auto: .submit(["1": .text("K7R4P")]))
+        m.stage("captcha", .working("填进页面…"))
+        try await m.wait(1500)
+        m.complete("captcha", "已填 · 验证码对了")
+
+        let signIn = m.begin(.butler, at: "09:32")
+        try await m.stream(signIn, "再登录你的 12306 账号。")
+        var password = FlooAskCard(
+            id: "signin", agent: .butler,
+            items: [
+                FlooRequest(
+                    title: "登录 12306", question: "登录 12306",
+                    controls: [
+                        .secret("@12", FlooField(label: "账号", kind: .text, guess: "eirperuier", autofill: "钥匙串", content: .username), kind: "username"),
+                        .secret("@14", FlooField(label: "密码", kind: .secret, guess: "hunter2hunter2", autofill: "钥匙串", content: .password), kind: "password"),
+                        .keep(true),
+                    ]
+                ).submitting("登录")
+            ],
+            state: .open)
+        password.line = "管家 想在你的 MacBook Pro 上登录 12306"
+        password.place = "MacBook Pro · 浏览器 · 为管家"
+        password.device = "MacBook Pro"
+        password.sealedTo = "MacBook Pro 上的浏览器"
+        password.origin = "kyfw.12306.cn"
+        password.why = "下单要登录"
+        m.ask(signIn, password)
+        _ = try await m.awaitAnswer("signin", item: 0, autoAfter: 7000, auto: .guesses)
+        m.stage("signin", .working("提交中…"))
+        try await m.wait(1500)
+        m.complete("signin", "已登录 12306 · 在所有设备上保持登录")
+
+        let order = m.begin(.butler, at: "09:33")
+        try await m.stream(order, "订单填好了，付款前你看一眼合计。")
+        var confirm = FlooAskCard(
+            id: "order", agent: .butler,
+            items: [
+                FlooRequest(
+                    title: "确认订单", question: "确认订单",
+                    controls: [
+                        .view("total", Self.frame(Self.total())),
+                        .decision("go", [
+                            FlooDecisionOption(key: "order", label: "确认下单", danger: true),
+                            FlooDecisionOption(key: "no", label: "不要"),
+                        ]),
+                    ])
+            ],
+            state: .open)
+        confirm.line = "管家 想在你的 MacBook Pro 上确认订单"
+        confirm.place = "MacBook Pro · 浏览器 · 为管家"
+        confirm.device = "MacBook Pro"
+        confirm.origin = "kyfw.12306.cn"
+        confirm.about = ["下单后付款，退票要手续费"]
+        m.ask(order, confirm)
+        let decided = try await m.awaitAnswer("order", item: 0, autoAfter: 7000, auto: .decide(go: true, standing: nil))
+        m.complete("order", decided.text == "不要" ? "没下单" : "已下单 · ¥1,106")
+
+        let scan = m.begin(.butler, at: "09:34")
+        try await m.stream(scan, "顺手把 bilibili 登上，回头给你找车上看的。用手机扫一下：")
+        var qr = FlooAskCard(
+            id: "scan", agent: .butler,
+            items: [
+                FlooRequest(
+                    title: "扫码登录 bilibili", question: "扫码登录 bilibili",
+                    controls: [
+                        .view("0", Self.frame(Self.qr("https://passport.bilibili.com/h5-app/passport/login/scan?qrcode_key=floo-demo"))),
+                        .keep(true),
+                    ])
+            ],
+            state: .open)
+        qr.line = "管家 想让你看一下你的 MacBook Pro 上的网页"
+        qr.place = "MacBook Pro · 浏览器 · 为管家"
+        qr.device = "MacBook Pro"
+        qr.origin = "passport.bilibili.com"
+        qr.why = "用 bilibili App 扫码"
+        m.ask(scan, qr)
+        // Nothing to send: its agent ends it once the page says you're in.
+        try await m.wait(8000)
+        m.complete("scan", "已登录 · 在所有设备上保持登录 · MacBook Pro")
+        let done = m.begin(.butler, at: "09:35")
+        try await m.stream(done, "都好了：G7315 二等座两张已下单，bilibili 也登上了。")
+    }
+
+    /// A frame as a device captures a part of a page: PNG pixels at the screen's scale.
+    private static func frame(_ image: UIImage) -> FlooViewFrame {
+        let png = image.pngData() ?? Data()
+        let digest = png.reduce(into: UInt64(1469598103934665603)) { $0 = ($0 ^ UInt64($1)) &* 1099511628211 }
+        return FlooViewFrame(
+            png: png, sha256: String(digest, radix: 16),
+            width: Int(image.size.width * image.scale), height: Int(image.size.height * image.scale), scale: image.scale)
+    }
+
+    private static func render(_ size: CGSize, _ draw: (CGContext) -> Void) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        return UIGraphicsImageRenderer(size: size, format: format).image { draw($0.cgContext) }
+    }
+
+    /// A picture code as a site draws one: letters askew over noise.
+    private static func captcha(_ code: String) -> UIImage {
+        render(CGSize(width: 150, height: 50)) { context in
+            UIColor(red: 0.93, green: 0.95, blue: 0.9, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 150, height: 50))
+            var seed: UInt32 = 7
+            func next() -> CGFloat {
+                seed = seed &* 1103515245 &+ 12345
+                return CGFloat(seed % 1000) / 1000
+            }
+            for _ in 0..<6 {
+                UIColor(hue: next(), saturation: 0.5, brightness: 0.6, alpha: 0.6).setStroke()
+                let path = UIBezierPath()
+                path.move(to: CGPoint(x: 0, y: next() * 50))
+                path.addCurve(to: CGPoint(x: 150, y: next() * 50), controlPoint1: CGPoint(x: 50, y: next() * 50), controlPoint2: CGPoint(x: 100, y: next() * 50))
+                path.lineWidth = 1.2
+                path.stroke()
+            }
+            for (index, letter) in code.enumerated() {
+                context.saveGState()
+                context.translateBy(x: 14 + CGFloat(index) * 26, y: 10 + next() * 8)
+                context.rotate(by: (next() - 0.5) * 0.6)
+                NSAttributedString(string: String(letter), attributes: [
+                    .font: UIFont.systemFont(ofSize: 26, weight: .heavy),
+                    .foregroundColor: UIColor(hue: next(), saturation: 0.7, brightness: 0.45, alpha: 1),
+                ]).draw(at: .zero)
+                context.restoreGState()
+            }
+        }
+    }
+
+    /// An order's total as the page shows it.
+    private static func total() -> UIImage {
+        render(CGSize(width: 260, height: 112)) { _ in
+            UIColor.white.setFill()
+            UIRectFill(CGRect(x: 0, y: 0, width: 260, height: 112))
+            let rows = [("G7315 上海虹桥 → 苏州", "周六 08:12"), ("二等座 × 2", "¥1,106"), ("服务费", "¥0")]
+            for (index, row) in rows.enumerated() {
+                let y = CGFloat(10 + index * 22)
+                NSAttributedString(string: row.0, attributes: [.font: UIFont.systemFont(ofSize: 13), .foregroundColor: UIColor.darkGray])
+                    .draw(at: CGPoint(x: 12, y: y))
+                let right = NSAttributedString(string: row.1, attributes: [.font: UIFont.systemFont(ofSize: 13), .foregroundColor: UIColor.darkGray])
+                right.draw(at: CGPoint(x: 248 - right.size().width, y: y))
+            }
+            UIColor.lightGray.setFill()
+            UIRectFill(CGRect(x: 12, y: 78, width: 236, height: 0.5))
+            NSAttributedString(string: "合计", attributes: [.font: UIFont.boldSystemFont(ofSize: 15), .foregroundColor: UIColor.black])
+                .draw(at: CGPoint(x: 12, y: 84))
+            let sum = NSAttributedString(string: "¥1,106.00", attributes: [.font: UIFont.boldSystemFont(ofSize: 17), .foregroundColor: UIColor(red: 0.9, green: 0.3, blue: 0.1, alpha: 1)])
+            sum.draw(at: CGPoint(x: 248 - sum.size().width, y: 82))
+        }
+    }
+
+    /// A QR code of `text`, a module a pixel at the page's scale.
+    private static func qr(_ text: String) -> UIImage {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return UIImage() }
+        filter.setValue(Data(text.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 4, y: 4)),
+              let cg = CIContext().createCGImage(output, from: output.extent)
+        else { return UIImage() }
+        return UIImage(cgImage: cg, scale: 2, orientation: .up)
+    }
+
     // MARK: Waiting on you
 
     /// #517 要你决定的修复方向：选哪种做法，或者自己写。
@@ -567,17 +796,18 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
         id: "a517",
         agent: .butler,
         items: [
-            FlooAskItem(
+            FlooRequest(
                 title: "修复方向",
                 question: "#517 要按最后一条消息排序，选哪种做法？",
-                form: .choose(
-                    options: [
-                        FlooOption(label: "方案 1：加一列", detail: "会话表加 last_message_at，线上跑一次迁移；列表最快"),
-                        FlooOption(label: "方案 2：查询时算", detail: "不改表结构，每次取会话时算最新消息；会话很多时慢一点"),
-                    ],
-                    multiple: false,
-                    own: "先在测试库跑一遍迁移，没问题再说"
-                )
+                controls: [
+                    .choice(
+                        "0",
+                        [
+                            FlooOption(label: "方案 1：加一列", detail: "会话表加 last_message_at，线上跑一次迁移；列表最快"),
+                            FlooOption(label: "方案 2：查询时算", detail: "不改表结构，每次取会话时算最新消息；会话很多时慢一点"),
+                        ],
+                        own: "先在测试库跑一遍迁移，没问题再说")
+                ]
             ),
         ],
         state: .open
@@ -617,10 +847,10 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
             id: "a482",
             agent: .butler,
             items: [
-                FlooAskItem(
+                FlooRequest(
                     title: "合并 #482",
                     question: "#482 的 PR 要我合进 main 吗？",
-                    form: .confirm(effect: "会合进 main 并关掉 #482；CI 已经全过", yes: "合并", no: "先别")
+                    controls: .confirm("会合进 main 并关掉 #482；CI 已经全过", yes: "合并", no: "先别")
                 ),
             ],
             state: .open
@@ -752,19 +982,19 @@ enum FlooScenario: Int, CaseIterable, Identifiable {
             id: "seat",
             agent: .butler,
             items: [
-                FlooAskItem(
+                FlooRequest(
                     title: "盯票信息",
                     question: "按这样盯？",
-                    form: .fill(fields: [
-                        FlooAskItem.Field(label: "乘车人", kind: .person, guess: "你、阿岚"),
-                        FlooAskItem.Field(label: "席别", kind: .text, guess: "二等座"),
-                        FlooAskItem.Field(label: "最晚到苏州", kind: .time, guess: "10:30"),
-                    ])
+                    controls: [
+                        .field("0", FlooField(label: "乘车人", kind: .person, guess: "你、阿岚")),
+                        .field("1", FlooField(label: "席别", kind: .text, guess: "二等座")),
+                        .field("2", FlooField(label: "最晚到苏州", kind: .time, guess: "10:30")),
+                    ]
                 ),
             ],
             state: .open
         ))
-        let confirmed = try await m.awaitAnswer("seat", item: 0, autoAfter: 5000, auto: .fill)
+        let confirmed = try await m.awaitAnswer("seat", item: 0, autoAfter: 5000, auto: .guesses)
         let reply = m.begin(.butler, at: "20:18")
         try await m.stream(reply, "好，盯着了：G7315 二等座两张，一有票就在群里说。")
         m.mark(confirmed, .answered)
@@ -1402,4 +1632,57 @@ enum FlooDemoMentions {
             quote: "4B 会议室 · 和 Mia、Tom 等 5 人"
         ),
     ]
+}
+
+/// The controls the scenarios write, as they read.
+extension FlooControlModel {
+    static func choice(_ id: String, _ options: [FlooOption], label: String? = nil, multiple: Bool = false, own: String? = nil) -> Self {
+        FlooControlModel(id: id, label: label, kind: .choice(options: options, multiple: multiple, own: own))
+    }
+
+    /// The variants a request offers (§4.5): the controls with their `group` show as picked.
+    static func groups(_ id: String, _ names: [String]) -> Self {
+        FlooControlModel(id: id, kind: .choice(options: names.map { FlooOption(label: $0) }, groups: true))
+    }
+
+    static func field(_ id: String, _ field: FlooField) -> Self {
+        FlooControlModel(id: id, label: field.label, kind: .field(field))
+    }
+
+    static func secret(_ id: String, _ field: FlooField, kind: String, group: String? = nil) -> Self {
+        FlooControlModel(id: id, label: field.label, group: group, kind: .secret(field, kind: kind))
+    }
+
+    static func decision(_ id: String, _ options: [FlooDecisionOption]) -> Self {
+        FlooControlModel(id: id, kind: .decision(options))
+    }
+
+    static func step(_ id: String, what: String, open: String = "我来做", done: String = "做完了") -> Self {
+        FlooControlModel(id: id, kind: .step(what: what, open: open, done: done))
+    }
+
+    static func view(_ id: String, _ frame: FlooViewFrame) -> Self {
+        FlooControlModel(id: id, kind: .view(frame))
+    }
+
+    static func say(_ id: String, _ text: String) -> Self {
+        FlooControlModel(id: id, kind: .say(text))
+    }
+}
+
+extension [FlooControlModel] {
+    /// What a 好 / 先不 question was (floo interaction.md §4.4): what will happen, then a
+    /// choice of going ahead (`yes`) or not, no words of their own.
+    static func confirm(_ effect: String, yes: String = "好", no: String = "先不") -> Self {
+        [.say("0", effect), .choice("1", [FlooOption(label: yes), FlooOption(label: no)])]
+    }
+}
+
+extension FlooRequest {
+    /// The same, its 提交 in other words ("登录").
+    func submitting(_ label: String) -> Self {
+        var request = self
+        request.submitLabel = label
+        return request
+    }
 }
