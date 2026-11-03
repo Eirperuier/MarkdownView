@@ -36,7 +36,9 @@ curl -s $B/state
 `messages`: the last 30 shown, text as stored (number null for a scene's). `asks`: every card on
 the messages shown. `kind` is `step`, `decision` (`options: [{key, label, standing}]`, `dangerous`),
 `secret` (`fields: [{key, label, kind, autofill}]`, `keep` the form's default, `ways`), `choose`
-(`options`, keys are indexes), `confirm` (`effect`) or `fill` (`fields` with `guess`). `status`:
+(`options`, keys are indexes), `confirm` (`effect`), `fill` (`fields` with `guess`) or `scan` (a
+sign-in by scanning, floo interaction.md §4.1: `sha256` of the code's frame shown now, its `width`
+and `height` in pixels and `scale`, `keep` as the server has it or null when not offered). `status`:
 open, answered, withdrawn, expired, closed. A card of several items also has `items`. Live, keys are
 the backend's; in a scene they're the labels.
 
@@ -55,6 +57,8 @@ curl -s -X POST $B/answer -d '{"ask":"<id>","choice":"<option key or label>"}'  
 curl -s -X POST $B/answer -d '{"ask":"<id>","decline":true}'                              # decision or secret
 curl -s -X POST $B/answer -d '{"ask":"<id>","step":"engaged"}'       # or completed, skipped
 curl -s -X POST $B/answer -d '{"ask":"<id>","values":{"username":"…","password":"…"},"keep":false}'  # secret
+curl -s -X POST $B/answer -d '{"ask":"<id>","cancel":true}'          # scan: cancelled
+curl -s -X POST $B/answer -d '{"ask":"<id>","keep":false}'           # scan: keep turned, signed here
 curl -s -X POST $B/answer -d '{"ask":"<id>","picked":[0]}'            # choose (a vote too)
 curl -s -X POST $B/answer -d '{"ask":"<id>","confirmed":true}'        # confirm
 curl -s -X POST $B/answer -d '{"ask":"<id>","filled":["…","…"]}'      # fill; true takes the guesses

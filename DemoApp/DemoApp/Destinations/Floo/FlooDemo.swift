@@ -409,6 +409,12 @@ struct FlooAskItem: Hashable {
         /// Something to do on a device yourself: what, and `open` the button that takes you
         /// there; once you're on it, `done` says you are through.
         case step(what: String, open: String, done: String)
+        /// A sign-in by scanning the code a page shows (floo interaction.md §4.1 scan): the
+        /// code as that device captured it — a PNG `width` × `height` pixels at `scale` pixels
+        /// per point of the page, named by `sha256`, a new one as the page refreshes it — and
+        /// `keep`, where the asker offers 「在我的所有设备上保持登录」: its value now; nil, not
+        /// offered. Nothing is typed: the device sees the page sign in and ends it.
+        case scan(png: Data, sha256: String, width: Int, height: Int, scale: Double, keep: Bool?)
     }
 
     struct Field: Hashable {
@@ -526,8 +532,10 @@ enum FlooAnswerPick {
     /// Secrets, in order, by the way picked; sealed, they never show. `keep`: kept signed in
     /// on all your devices, where the form offered it.
     case secrets(way: Int, [String], keep: Bool? = nil)
-    /// A step: on it now (`open`), through, or skipped.
+    /// A step: on it now (`open`), through, or skipped. A scan skipped is cancelled.
     case step(FlooStepPick)
+    /// A scan's 「在我的所有设备上保持登录」 turned, without answering it.
+    case keep(Bool)
 }
 
 enum FlooStepPick { case open, done, skip }
@@ -1667,6 +1675,10 @@ final class FlooDemo {
             return
         case (.step(.skip), .secret):
             value = "先不"
+        case (.step(.skip), .scan):
+            value = "已取消"
+        case (.keep, .scan):
+            return
         case (.step(let pick), .step(_, _, let done)):
             value = pick == .skip ? "跳过了" : done
         case (.own, .choose(_, _, let own)):
@@ -1716,6 +1728,11 @@ final class FlooDemo {
             live.submit(ask: card.id, values: values, keep: keep)
         case (.step(.skip), .secret):
             live.decline(ask: card.id)
+        case (.step(.skip), .scan):
+            live.cancelScan(ask: card.id)
+        case (.keep(let on), .scan):
+            live.keep(ask: card.id, on)
+            return
         default:
             return
         }

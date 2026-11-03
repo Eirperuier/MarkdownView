@@ -160,6 +160,9 @@ final class FlooLive {
     /// sealed for (`submit`); and where each you sent stands on its card till it's answered.
     private var secrets: [AskID: AskInfo] = [:]
     private var sending: [AskID: FlooAskCard.Stage] = [:]
+    /// The scans a call asked, as their cards last showed them: what 取消 and the keep toggle
+    /// act on (floo interaction.md §4.1 scan).
+    private var scans: [AskID: AskInfo] = [:]
     /// The steps open now whose page this Mac's browser engine lent to this app, as their
     /// cards last showed them: 我来做 opens it in a window here (FlooStepPanel).
     private var pages: [AskID: AskInfo] = [:]
@@ -492,6 +495,27 @@ final class FlooLive {
         stage(id, .working("取消中…"))
         Task {
             do { try await client.decline(shown, in: current) } catch { stage(id, .failed(String(describing: error))) }
+        }
+    }
+
+    /// You cancel a sign-in by scanning (floo interaction.md §4.1 scan): the step skipped, no
+    /// message; the device stops waiting for the page and the agent hears it was cancelled.
+    func cancelScan(ask: String) {
+        guard let client, let current, let id = AskID(ask), scans[id] != nil else { return }
+        stage(id, .working("取消中…"))
+        Task {
+            do { try await client.answer(PersonAnswer(step: .skipped), to: id, in: current) } catch {
+                stage(id, .failed(String(describing: error)))
+            }
+        }
+    }
+
+    /// You turn a scan's 「在我的所有设备上保持登录」: your choice, signed here over the scan as
+    /// its card shows it, put on the open ask; the card shows it as the server has it next.
+    func keep(ask: String, _ on: Bool) {
+        guard let client, let current, let id = AskID(ask), let shown = scans[id] else { return }
+        Task {
+            do { try await client.keep(shown, on, in: current) } catch { demo.catchUp("没送到：\(error)") }
         }
     }
 
@@ -1641,6 +1665,7 @@ final class FlooLive {
     private func systemCard(_ ask: AskInfo, _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
         if case .decision(let options)? = ask.items.first?.form { return decisionCard(ask, options, agent, state: state) }
         if case .secret(let fields, let keep)? = ask.items.first?.form { return secretCard(ask, fields, keep: keep, agent, state: state) }
+        if case .scan(let image, let keep)? = ask.items.first?.form { return scanCard(ask, image, keep: keep, agent, state: state) }
         guard case .step(let what, let tab)? = ask.items.first?.form, let title = ask.title else { return nil }
         #if targetEnvironment(macCatalyst)
             // A page lent to this app, on this Mac: kept while the step is open; once it isn't
@@ -1717,6 +1742,35 @@ final class FlooLive {
         card.about = Array(ask.about.dropFirst())
         card.why = ask.why
         if state == .open, given == nil { card.stage = sending[ask.id] } else { sending[ask.id] = nil }
+        if state == .answered { card.done = outcome }
+        return card
+    }
+
+    /// A sign-in by scanning the code a page shows on a device a call runs on (floo
+    /// interaction.md §4.1 scan, §7.2): its line says who wants to sign in where; the origin
+    /// the browser's core found leads, the agent's why as its; the code itself, as the page shows
+    /// it now — a new frame comes as a change of the ask. Nothing to type: you scan it with your
+    /// phone, the device sees the page sign in and answers it; 取消 skips it. Offered, 「在我的
+    /// 所有设备上保持登录」 shows as the server has it. Answered, it folds to 已登录 <host>, or 已取消.
+    private func scanCard(_ ask: AskInfo, _ image: ScanImage, keep: Bool?, _ agent: FlooAgent, state: FlooAskCard.State) -> FlooAskCard? {
+        guard let title = ask.title ?? ask.items.first?.title else { return nil }
+        scans[ask.id] = ask
+        let device = deviceName(ask.device)
+        let origin = ask.about.first
+        let host = origin.flatMap { URL(string: $0)?.host() } ?? origin ?? ""
+        let step = ask.replies.first?.step
+        let outcome = step.map { $0 == .completed ? "已登录 \(host)" + (device.map { " · \($0)" } ?? "") : "已取消" }
+        let item = FlooAskItem(
+            title: title, question: title,
+            form: .scan(png: image.png, sha256: image.sha256, width: image.width, height: image.height, scale: image.scale, keep: keep),
+            answer: outcome)
+        var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
+        card.line = "\(agent.name) 想\(device.map { "在你的 \($0) 上" } ?? "")扫码登录"
+        card.place = device.map { "\($0) · 浏览器 · 为\(agent.name)" }
+        card.origin = origin
+        card.about = Array(ask.about.dropFirst())
+        card.why = ask.why
+        if state == .open, step == nil { card.stage = sending[ask.id] } else { sending[ask.id] = nil }
         if state == .answered { card.done = outcome }
         return card
     }
@@ -1858,6 +1912,8 @@ final class FlooLive {
             }
         case .secret(let fields, let keep):
             .secret(fields: fields.map(Self.field), ways: [], sealedTo: "那台设备", submit: "登录", keep: keep)
+        case .scan(let image, let keep):
+            .scan(png: image.png, sha256: image.sha256, width: image.width, height: image.height, scale: image.scale, keep: keep)
         case .unknown:
             .fill(fields: [])
         }

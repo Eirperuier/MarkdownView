@@ -1604,6 +1604,7 @@ private struct FlooAskView: View {
             return "还要一步"
         }
         if case .step? = card.items.first?.form { return "等你做" }
+        if case .scan? = card.items.first?.form { return "等你扫码" }
         switch card.closes {
         case .vote: return "投票中 · \(card.answeredCount)/\(card.askees.count)"
         case .each, .first: return "已答 \(card.answeredCount)/\(card.askees.count)"
@@ -1885,6 +1886,55 @@ private struct FlooAskView: View {
             }
             .controlSize(.small)
             .disabled(sending)
+        case .scan(let png, let sha256, let width, let height, let scale, let keep):
+            // The page's own code, as crisp as the page drew it: whole pixels, scaled up by a
+            // whole multiple, on white (floo interaction.md §4.1 scan).
+            let side = Self.scanSide(width: width, height: height, scale: scale)
+            VStack(alignment: .center, spacing: 6) {
+                Group {
+                    if let image = UIImage(data: png) {
+                        Image(uiImage: image)
+                            .interpolation(.none)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .frame(width: side.width, height: side.height)
+                .padding(10)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
+                .id(sha256)
+                Text("用手机扫码，登录后这里会自动完成")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            // Offered by the asker (floo browser.md §6.5): ticked unless it's a bank or a payment;
+            // turned, it is signed here and put on the ask.
+            if let keep {
+                Toggle(isOn: Binding(
+                    get: { kept[index] ?? keep },
+                    set: { on in
+                        kept[index] = on
+                        demo.answerAsk(card.id, item: index, .keep(on))
+                    })) {
+                    Label("在我的所有设备上保持登录", systemImage: "laptopcomputer.and.iphone")
+                        .font(.caption)
+                }
+                .controlSize(.mini)
+                .tint(card.agent.tint)
+            }
+            let cancelling = if case .working? = card.stage { true } else { false }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button("取消") { demo.answerAsk(card.id, item: index, .step(.skip)) }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .disabled(cancelling)
+            }
+            .controlSize(.small)
         case .decision(let go, let no, let standing, let dangerous):
             // You sign it, on the device in your hand; held, it allows from now on.
             HStack(spacing: 8) {
@@ -1938,6 +1988,19 @@ private struct FlooAskView: View {
             }
             .controlSize(.small)
         }
+    }
+
+    /// How big a scan's code is drawn: its size on the page (pixels over `scale`), times the
+    /// largest whole multiple that keeps it within 240 points — at least 200 where a whole
+    /// multiple can't reach it, so a small code still reads from a phone.
+    static func scanSide(width: Int, height: Int, scale: Double) -> CGSize {
+        let w = max(Double(width) / max(scale, 1), 1)
+        let h = max(Double(height) / max(scale, 1), 1)
+        let longest = max(w, h)
+        var times = max((240 / longest).rounded(.down), 1)
+        if longest * times < 200 { times = 200 / longest }
+        if longest * times > 240 { times = 240 / longest }
+        return CGSize(width: w * times, height: h * times)
     }
 
     /// What's typed into field `place` of item `index`, the guesses until then.
@@ -2606,6 +2669,7 @@ extension FlooRow {
                     return sum + 70 + fields.count * 34 + (ways.isEmpty ? 0 : 34) + (keep == nil ? 0 : 28)
                 case .decision: return sum + 70
                 case .step: return sum + 80
+                case .scan(_, _, _, _, _, let keep): return sum + 330 + (keep == nil ? 0 : 28)
                 }
             })
         }
