@@ -966,9 +966,19 @@ final class FlooLive {
     func answer(ask: String, item: Int, text: String, values: [String: FlooValue] = [:]) {
         guard let session, let id = AskID(ask) else { return }
         Task {
-            let asked = await session.replica.asks[id]
+            let replica = await session.replica
+            let asked = replica.asks[id]
+            // A question in a message's words: its controls are in its question block
+            // (floo interaction.md §6.1), the ask itself has none.
+            var question: [AskControl] = []
+            if let asked, let message = asked.message, let fence = asked.fence {
+                question = replica.blocks(of: message).lazy.compactMap { block -> [AskControl]? in
+                    if case .question(let question) = block.content, question.fence == fence { question.controls } else { nil }
+                }.first ?? []
+            }
             let controls: [AskControl] =
                 if let asked, asked.items.indices.contains(item), asked.items.count > 1 { asked.items[item].form.controls }
+                else if !question.isEmpty { question }
                 else { asked?.controls ?? [] }
             let given = values.isEmpty ? [:] : Self.wire(values, controls)
             var picked: [Int]?
@@ -1882,7 +1892,7 @@ final class FlooLive {
             // Asking several (interaction.md §5.4): your answer is among theirs.
             let mine = ask.replies.first { $0.by == me }
             let item = FlooRequest(
-                title: title, question: Self.asking(title, in: words), controls: (ask.controls.isEmpty ? question.form.controls : ask.controls).map(Self.control),
+                title: title, question: Self.asking(title, in: words), controls: (ask.controls.isEmpty ? question.controls : ask.controls).map(Self.control),
                 answer: ask.closes == .one ? ask.answer.map(said) : mine?.message.map(said)
             )
             var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
