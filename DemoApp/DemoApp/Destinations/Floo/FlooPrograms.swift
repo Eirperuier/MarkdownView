@@ -115,7 +115,7 @@ final class FlooOpenProgram: Identifiable {
     }
 
     private static func module(_ files: ProgramSourceFiles) -> ModuleSource {
-        ModuleSource(files: Dictionary(files.files.map { ($0.path, $0.text) }, uniquingKeysWith: { first, _ in first }))
+        ModuleSource(program: Dictionary(files.files.map { ($0.path, $0.text) }, uniquingKeysWith: { first, _ in first }))
     }
 
     private func load(_ program: ProgramSummary, from: String?) async {

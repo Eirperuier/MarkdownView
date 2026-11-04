@@ -95,7 +95,7 @@ final class FlooProgramCards {
                 await open.open(among: all)
                 let files = try await server.source(of: program.id)
                 modules[program.id] = ModuleSource(
-                    files: Dictionary(files.files.map { ($0.path, $0.text) }, uniquingKeysWith: { first, _ in first }))
+                    program: Dictionary(files.files.map { ($0.path, $0.text) }, uniquingKeysWith: { first, _ in first }))
                 programs[program.id] = open
                 refresh()
             } catch {
