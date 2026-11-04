@@ -1836,7 +1836,9 @@ final class FlooLive {
             case .step(let what, _):
                 .step(what: what)
             case .view(let image, _):
-                .view(FlooViewFrame(png: image.png, sha256: image.sha256, width: image.width, height: image.height, scale: image.scale))
+                .view(FlooViewFrame(
+                    png: image.png, sha256: image.sha256, width: image.width, height: image.height, scale: image.scale,
+                    state: image.state.flatMap { FlooViewState(rawValue: $0.rawValue) }, cover: image.cover))
             case .toggle(let value, let effect):
                 .toggle(value: value, keep: effect == AskControl.keepSignedIn)
             case .say(let text): .say(text)

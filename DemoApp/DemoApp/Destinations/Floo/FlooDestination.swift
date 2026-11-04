@@ -1872,10 +1872,31 @@ private struct FlooAskView: View {
             }
             // No frame yet (a model's view, its device still taking it): room for one.
             .frame(width: frame.png.isEmpty ? 160 : drawn.size.width, height: frame.png.isEmpty ? 80 : drawn.size.height)
+            // Not the part as it is now: covered, its last frame faded under what covers it; gone,
+            // no frame at all — never a frame that looks live and isn't.
+            .opacity(frame.state == nil ? 1 : frame.state == .covered ? 0.18 : 0)
+            .overlay {
+                if let state = frame.state {
+                    VStack(spacing: 4) {
+                        Image(systemName: state == .covered ? "rectangle.on.rectangle.slash" : "eye.slash")
+                            .font(.title3)
+                        Text(state == .covered ? "页面上有东西挡住了这一块" : "这一块已不在页面上")
+                            .font(.footnote.weight(.medium))
+                        if state == .covered {
+                            Text(frame.cover.map { "「\($0)」，正在处理" } ?? "正在处理")
+                                .font(.caption2)
+                                .lineLimit(2)
+                        }
+                    }
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Color.black.opacity(0.62))
+                    .padding(8)
+                }
+            }
             .padding(10)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
-            .id(frame.sha256)
+            .id(frame.sha256 + (frame.state?.rawValue ?? ""))
             .frame(maxWidth: .infinity)
         case .toggle(let value, let keep):
             // Sent with the answer; with nothing to send, turned it is signed and put on the

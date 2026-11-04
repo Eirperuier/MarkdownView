@@ -210,6 +210,8 @@ enum FlooControl {
             out["width"] = frame.width
             out["height"] = frame.height
             out["scale"] = frame.scale
+            out["state"] = frame.state?.rawValue ?? "shown"
+            out["cover"] = orNull(frame.cover)
         case .toggle(let value, let keep):
             out["type"] = "toggle"
             out["value"] = value

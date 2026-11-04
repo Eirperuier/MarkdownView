@@ -478,13 +478,21 @@ struct FlooDecisionOption: Hashable {
 }
 
 /// A view's frame: a PNG `width` × `height` pixels at `scale` pixels per point of the page,
-/// named by `sha256`.
+/// named by `sha256`. Only for looking (人 2026-11-04「我不需要用户交互网页」). `state`: when the
+/// frame is not the part as it is now — something on the page lies over it (`cover` says what)
+/// while its agent deals with it, or it is no longer on the page (floo interaction.md §4.3 view).
 struct FlooViewFrame: Hashable {
     let png: Data
     let sha256: String
     let width: Int
     let height: Int
     let scale: Double
+    var state: FlooViewState? = nil
+    var cover: String? = nil
+}
+
+enum FlooViewState: String, Hashable {
+    case covered, gone
 }
 
 /// How a request is sent, from its controls (floo interaction.md §3.3), never written apart.
