@@ -681,6 +681,9 @@ struct FlooAskCard: Hashable, Identifiable {
     var device: String?
     /// Where its secrets go, sealed: "MacBook Pro 上的浏览器"; said up top when it has any.
     var sealedTo: String?
+    /// A model's question's secret: the service it is kept for, as its key, sealed to the
+    /// cloud (floo interaction.md §6.1); said up top.
+    var storesIn: String?
     /// Where it happens, as the code that does it found it — a sign-in's origin, not the
     /// agent's words: shown before all else.
     var origin: String?
@@ -1908,9 +1911,12 @@ final class FlooDemo {
         default:
             guard let (values, secrets) = request.resolve(pick) else { return }
             if card.answersAreMessages {
+                // A secret is never words: given, it says so (floo interaction.md §6.1).
                 let text = request.said(values, [:], sealedTo: nil, separator: "\n")
-                guard !text.isEmpty else { return }
-                live.answer(ask: card.id, item: index, text: text, values: values)
+                guard !text.isEmpty || !secrets.isEmpty else { return }
+                live.answer(
+                    ask: card.id, item: index, text: [text, secrets.isEmpty ? "" : "已提供"].filter { !$0.isEmpty }.joined(separator: "\n"),
+                    values: values, secrets: secrets)
             } else {
                 live.respond(ask: card.id, values: values, secrets: secrets)
             }

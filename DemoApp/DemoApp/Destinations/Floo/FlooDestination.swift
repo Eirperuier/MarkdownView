@@ -1521,6 +1521,11 @@ private struct FlooAskView: View {
                     .font(.caption)
                     .foregroundStyle(.green)
             }
+            if let store = card.storesIn {
+                Label("交给 \(store)：存成它的钥匙，\(card.agent.name)看不到", systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
             if let call = card.call {
                 Button(details ? "收起" : "详情") { details.toggle() }
                     .font(.caption)
@@ -1865,7 +1870,8 @@ private struct FlooAskView: View {
                     ProgressView()
                 }
             }
-            .frame(width: drawn.size.width, height: drawn.size.height)
+            // No frame yet (a model's view, its device still taking it): room for one.
+            .frame(width: frame.png.isEmpty ? 160 : drawn.size.width, height: frame.png.isEmpty ? 80 : drawn.size.height)
             .padding(10)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))

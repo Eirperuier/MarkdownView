@@ -428,6 +428,12 @@ final class FlooLive {
     /// done or skipped there, that is the step's answer.
     func take(ask: String) {
         guard let client, let current, let id = AskID(ask) else { return }
+        // A model's question (floo interaction.md §6.1): taking its step on is yours to know,
+        // here; done or skipped is your answer.
+        guard shown[id] != nil || pages[id] != nil else {
+            stage(id, .engaged("在做"), 1)
+            return
+        }
         #if targetEnvironment(macCatalyst)
             if let page = pages[id], let step = page.controls.first(where: { if case .step(_, _?) = $0.kind { true } else { false } }),
                case .step(let what, let tab?) = step.kind
@@ -963,7 +969,11 @@ final class FlooLive {
     /// of the shapes questions had is answered with that shape's shorthand (picked, confirmed,
     /// filled), which every server reads; any other with its values (floo interaction.md
     /// §5.1). A question in a message's words is answered at its fence; an older ask by its id.
-    func answer(ask: String, item: Int, text: String, values: [String: FlooValue] = [:]) {
+    ///
+    /// A question holding a decision or a secret (floo interaction.md §6.1) is answered
+    /// signed here, whole, its secrets sealed to the cloud, which keeps each as the key of the
+    /// service its control names (`FlooClient.fenceAnswer`); the words never hold a secret.
+    func answer(ask: String, item: Int, text: String, values: [String: FlooValue] = [:], secrets: [String: String] = [:]) {
         guard let session, let id = AskID(ask) else { return }
         Task {
             let replica = await session.replica
@@ -981,6 +991,15 @@ final class FlooLive {
                 else if !question.isEmpty { question }
                 else { asked?.controls ?? [] }
             let given = values.isEmpty ? [:] : Self.wire(values, controls)
+            if let asked, asked.message != nil, let client, controls.contains(where: FlooClient.signs) || !secrets.isEmpty {
+                do {
+                    let choosing = try await client.fenceAnswer(question: asked, controls: controls, values: given, secrets: secrets)
+                    _ = try await session.send(zoned(MessageSend(id: .generate(), text: text, choosing: choosing)))
+                } catch {
+                    demo.catchUp("没送到：\(error)")
+                }
+                return
+            }
             var picked: [Int]?
             var confirmed: Bool?
             var filled: [AskValue]?
@@ -1874,7 +1893,8 @@ final class FlooLive {
             case .withdrawn, .replaced: .withdrawn
             case .expired: .expired
             }
-        if ask.operation != nil { return systemCard(ask, agent, state: state) }
+        // A model's question an operation feeds (its view, floo interaction.md §6.1) stays a question.
+        if ask.operation != nil, ask.fence == nil { return systemCard(ask, agent, state: state) }
         // Answered: what the answering message says.
         func said(_ number: Int64) -> String {
             replica.blocks(of: number).compactMap { if case .text(let text) = $0.content { text } else { nil } }
@@ -1891,11 +1911,24 @@ final class FlooLive {
             let me = Participant.person(backend.account)
             // Asking several (interaction.md §5.4): your answer is among theirs.
             let mine = ask.replies.first { $0.by == me }
+            // Where each goes or comes from (floo interaction.md §6.1): a step on the device it
+            // names, a view of that device's page — its frames on the ask, not the message.
+            let controls = (ask.controls.isEmpty ? question.controls : ask.controls).map { control -> FlooControlModel in
+                var model = Self.control(control)
+                if let device = control.device, model.label == nil {
+                    let name = deviceName(device) ?? "那台设备"
+                    if case .step = control.kind { model.label = "在\(name)上做" }
+                    if case .view = control.kind { model.label = "\(name)浏览器里的这一块" }
+                }
+                return model
+            }
             let item = FlooRequest(
-                title: title, question: Self.asking(title, in: words), controls: (ask.controls.isEmpty ? question.controls : ask.controls).map(Self.control),
+                title: title, question: Self.asking(title, in: words), controls: controls,
                 answer: ask.closes == .one ? ask.answer.map(said) : mine?.message.map(said)
             )
             var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
+            // A secret goes to the service it is stored for, sealed to the cloud (§6.1).
+            card.storesIn = question.controls.lazy.compactMap(\.store).first
             card.closes =
                 switch ask.closes {
                 case .one: .one
