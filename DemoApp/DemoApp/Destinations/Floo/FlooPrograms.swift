@@ -58,7 +58,14 @@ final class FlooOpenProgram: Identifiable {
     nonisolated var id: ProgramID { summary.id }
 
     /// A page's runtime: its lists make each row as it's drawn, and screens, sheets and tabs what they show when shown.
-    static let runtime = CardRuntime(formatting: .foundation, lazy: true)
+    /// Made with the cards' catalog, which is compiled at launch: made first off the main
+    /// actor (`prepared()`), the app doesn't stop while it is.
+    nonisolated static let runtime = CardRuntime(formatting: .foundation, lazy: true)
+
+    /// Once the runtime is made, the catalog compiled with it, waited for off the main actor.
+    nonisolated static func prepared() async {
+        await Task.detached(priority: .userInitiated) { _ = runtime }.value
+    }
 
     init(summary: ProgramSummary, server: FlooClient) {
         self.summary = summary

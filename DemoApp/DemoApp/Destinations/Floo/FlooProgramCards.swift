@@ -91,6 +91,7 @@ final class FlooProgramCards {
             do {
                 let all = try await server.programs().programs.filter { $0.version > 0 }
                 guard let summary = all.first(where: { $0.id == program.id }) else { return }
+                await FlooOpenProgram.prepared()
                 let open = FlooOpenProgram(summary: summary, server: server)
                 await open.open(among: all)
                 let files = try await server.source(of: program.id)
