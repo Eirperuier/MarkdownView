@@ -51,8 +51,7 @@ renderer. Each ask has `controls` and `submit`:
 Control types: `choice` (`options: [{key, label}]`, keys are indexes; `multiple`, `own`, `groups`
 for the request's variants), `field` (`label`, `kind`, `guess`), `secret` (`label`, `kind`,
 `autofill`), `decision` (`options: [{key, label, standing, danger}]`), `step` (`what`), `view` (the
-frame shown now: `sha256`, `width` and `height` in pixels, `scale`; `interactive` when you tap and
-type on it, `POST /input`), `toggle` (`value`, `effect:
+frame shown now: `sha256`, `width` and `height` in pixels, `scale`), `toggle` (`value`, `effect:
 "keep-signed-in"`), `say` (`text`), `link` / `image` (`url`); one this build doesn't know has
 `unknown: true` (the card says 到 device-N 上答). Every control may have `label`, `group`;
 `required` is whether it must be answered. `submit` is how the request is sent (§3.3): `tap` (one
@@ -111,21 +110,6 @@ curl -s -X POST $B/answer -d '{"ask":"<id>","filled":["…","…"]}'      # fill
 `item` (default 0) picks an item of a card with several. `{"ok":true}` means the card's answer
 path took it, as a tap would; whether it went shows in `/state` (`stage`, `answered`). Errors:
 `{"error":"…"}` with 400/404/409 (no such ask, not open, no such control or choice, a missing value).
-
-## `POST /input`
-
-What you do on an interactive view (floo interaction.md §4.3 view), as the card sends it
-(`FlooViewPad` → `FlooDemo.inputView` → `FlooLive.input` → `FlooClient.input`), in order:
-
-```sh
-curl -s -X POST $B/input -d '{"ask":"<id>","control":"0","tap":[120,96]}'   # at a pixel of the frame shown
-curl -s -X POST $B/input -d '{"ask":"<id>","at":[60,48]}'                    # in points of the frame as drawn
-curl -s -X POST $B/input -d '{"ask":"<id>","text":"floo"}'                   # where the page's focus is in it
-curl -s -X POST $B/input -d '{"ask":"<id>","key":"Enter"}'                   # or Backspace, Tab
-```
-`control` defaults to the card's first interactive view. In `/state` such a view has
-`"interactive": true`. `{"ok":true}` means it went on its way; the new frame shows in `/state`
-(`sha256`) as the device captures it. Bodies are never logged.
 
 ## `POST /open`
 
