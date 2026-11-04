@@ -93,6 +93,7 @@ enum FlooControl {
         case ("GET", "/state"): return state(demo)
         case ("POST", "/send"): return await send(demo, body)
         case ("POST", "/answer"): return answer(demo, body)
+        case ("POST", "/input"): return input(demo, body)
         case ("POST", "/open"): return await open(body)
         case ("GET", "/shot"): return shot()
         #if targetEnvironment(macCatalyst)
@@ -204,8 +205,9 @@ enum FlooControl {
         case .step(let what, _, _):
             out["type"] = "step"
             out["what"] = what
-        case .view(let frame):
+        case .view(let frame, let interactive):
             out["type"] = "view"
+            if interactive { out["interactive"] = true }
             out["sha256"] = frame.sha256
             out["width"] = frame.width
             out["height"] = frame.height
@@ -275,7 +277,7 @@ enum FlooControl {
             if let groups = item.groups, case .choice(let options, _, _, _) = groups.kind { out["ways"] = options.map(\.label) }
         }
         if let view = controls.lazy.compactMap({ control -> FlooViewFrame? in
-            if case .view(let frame) = control.kind { frame } else { nil }
+            if case .view(let frame, _) = control.kind { frame } else { nil }
         }).first, secrets.isEmpty, !controls.contains(where: \.answered) {
             out["kind"] = "view"
             out["sha256"] = view.sha256
@@ -340,6 +342,39 @@ enum FlooControl {
         case .failure(let error): return .error(error.message)
         case .success(let picks): for pick in picks { demo.answerAsk(id, item: index, pick) }
         }
+        return .json(["ok": true])
+    }
+
+    /// What you do on an interactive view (floo interaction.md §4.3 view), as its card sends it
+    /// (`FlooViewPad`): `{"ask", "control", "tap": [x, y]}` at a pixel of the frame shown, or
+    /// `"at": [x, y]` in points of the frame as drawn (the card's tap, mapped as it maps one);
+    /// `"text"`; `"key"`: Enter, Backspace or Tab. Never logged.
+    private static func input(_ demo: FlooDemo, _ body: [String: Any]) -> ControlResponse {
+        guard let id = body["ask"] as? String else { return .error("ask is required") }
+        guard let card = demo.shownEntries.lazy.compactMap({ entry -> FlooAskCard? in
+            if case .message(let message) = entry { message.asks.first { $0.id == id } } else { nil }
+        }).first else { return .error("no such ask shown", status: 404) }
+        guard card.state == .open else { return .error("not open: \(card.state)", status: 409) }
+        let controls = card.items.flatMap(\.controls)
+        let named = body["control"] as? String
+        guard let view = controls.first(where: { control in
+            guard case .view(_, true) = control.kind else { return false }
+            return named == nil || control.id == named
+        }), case .view(let frame, _) = view.kind else { return .error("no interactive view of that id", status: 404) }
+        let action: FlooViewAction
+        if let tap = body["tap"] as? [Double], tap.count == 2 {
+            action = .tap(x: tap[0], y: tap[1])
+        } else if let at = body["at"] as? [Double], at.count == 2 {
+            let drawn = FlooViewPad.drawn(frame)
+            action = FlooViewPad.pixel(CGPoint(x: at[0], y: at[1]), drawn: drawn, frame: frame)
+        } else if let text = body["text"] as? String, !text.isEmpty {
+            action = .text(text)
+        } else if let key = body["key"] as? String, ["Enter", "Backspace", "Tab"].contains(key) {
+            action = .key(key)
+        } else {
+            return .error("give tap: [x, y], at: [x, y], text or key (Enter, Backspace, Tab)")
+        }
+        demo.inputView(id, control: view.id, action, frame: frame.sha256)
         return .json(["ok": true])
     }
 
