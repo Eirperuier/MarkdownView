@@ -17,7 +17,8 @@ struct DemoAppApp: App {
     init() {
         prewarmMarkdownMathRenderer()
         // The cards' view packages as this build last compiled them, before any is asked for.
-        Catalog.keepCompiled(in: .cachesDirectory.appending(path: "compiled-views", directoryHint: .isDirectory))
+        Catalog.keepCompiled(in: .cachesDirectory.appending(
+            path: "\(Bundle.main.bundleIdentifier ?? "DemoApp")/compiled-views", directoryHint: .isDirectory))
         DocMediaLayout.prewarm()
         TrackpadScrollMomentum.install()
         // `==highlight==` and `:circle[…]` pen marks, on as the app does at launch.
