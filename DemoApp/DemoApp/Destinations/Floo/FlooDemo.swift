@@ -418,8 +418,7 @@ struct FlooControlModel: Hashable, Identifiable {
         /// that says it's through.
         case step(what: String, open: String = "我来做", done: String = "做完了")
         /// A live part of a web page, as its device captured it; a new frame as it changes.
-        /// `interactive`: you tap and type on it, each put into that part of the page there.
-        case view(FlooViewFrame, interactive: Bool = false)
+        case view(FlooViewFrame)
         /// A tick, `value` its default; `keep`, it is 「在我的所有设备上保持登录」.
         case toggle(value: Bool, keep: Bool = false)
         case say(String)
@@ -479,22 +478,21 @@ struct FlooDecisionOption: Hashable {
 }
 
 /// A view's frame: a PNG `width` × `height` pixels at `scale` pixels per point of the page,
-/// named by `sha256`.
+/// named by `sha256`. Only for looking (人 2026-11-04「我不需要用户交互网页」). `state`: when the
+/// frame is not the part as it is now — something on the page lies over it (`cover` says what)
+/// while its agent deals with it, or it is no longer on the page (floo interaction.md §4.3 view).
 struct FlooViewFrame: Hashable {
     let png: Data
     let sha256: String
     let width: Int
     let height: Int
     let scale: Double
+    var state: FlooViewState? = nil
+    var cover: String? = nil
 }
 
-/// What you did on an interactive view (floo interaction.md §4.3 view): a tap at a pixel of its
-/// frame, words typed, or Enter, Backspace, Tab — each put into that part of the page on the
-/// device the call runs on, which captures it again at once.
-enum FlooViewAction: Hashable {
-    case tap(x: Double, y: Double)
-    case text(String)
-    case key(String)
+enum FlooViewState: String, Hashable {
+    case covered, gone
 }
 
 /// How a request is sent, from its controls (floo interaction.md §3.3), never written apart.
@@ -1956,17 +1954,6 @@ final class FlooDemo {
         show(message.id)
         let said = say(.me, value, receipt: .read, reply: FlooReply(message.agent, .answer(message.asks[ci].items[index].title), row: "m\(message.id)#sig", bubble: Self.leadRun(message.id)))
         askWaits.removeValue(forKey: "\(id)#\(index)")?.resume(returning: said)
-    }
-
-    /// What you did on interactive view `control` of request `id` (floo interaction.md §4.3
-    /// view), on the frame `frame` shows: to the device the call runs on, in the order you did
-    /// it; the new frame comes as the request changes. Only an open request that asks you;
-    /// a scene's has no page behind it.
-    func inputView(_ id: String, control: String, _ action: FlooViewAction, frame: String?) {
-        guard let message = askMessage(id), let card = message.asks.first(where: { $0.id == id }),
-              card.state == .open, card.asksYou, let live
-        else { return }
-        live.input(ask: id, control: control, action, frame: frame)
     }
 
     /// Your vote on a question asking several (floo interaction.md §5.5): a tap, no

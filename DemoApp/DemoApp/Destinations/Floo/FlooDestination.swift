@@ -1856,15 +1856,7 @@ private struct FlooAskView: View {
                 .tint(card.agent.tint)
             }
             .controlSize(.small)
-        case .view(let frame, let interactive) where interactive && card.state == .open && !frame.png.isEmpty:
-            // Yours to tap and type on (floo interaction.md §4.3 view): each goes into that part of
-            // the page on its device, and the frame after it comes back.
-            let drawn = Self.viewSide(width: frame.width, height: frame.height, scale: frame.scale)
-            FlooViewPad(frame: frame, size: drawn.size, whole: drawn.whole, tint: card.agent.tint) { action in
-                demo.inputView(card.id, control: control.id, action, frame: frame.sha256)
-            }
-            .frame(maxWidth: .infinity)
-        case .view(let frame, _):
+        case .view(let frame):
             // The page's own pixels, as crisp as the page drew them: a whole multiple, nearest
             // neighbour, on white — a QR code still scans; a new frame as the page changes it.
             let drawn = Self.viewSide(width: frame.width, height: frame.height, scale: frame.scale)
@@ -1880,10 +1872,31 @@ private struct FlooAskView: View {
             }
             // No frame yet (a model's view, its device still taking it): room for one.
             .frame(width: frame.png.isEmpty ? 160 : drawn.size.width, height: frame.png.isEmpty ? 80 : drawn.size.height)
+            // Not the part as it is now: covered, its last frame faded under what covers it; gone,
+            // no frame at all — never a frame that looks live and isn't.
+            .opacity(frame.state == nil ? 1 : frame.state == .covered ? 0.18 : 0)
+            .overlay {
+                if let state = frame.state {
+                    VStack(spacing: 4) {
+                        Image(systemName: state == .covered ? "rectangle.on.rectangle.slash" : "eye.slash")
+                            .font(.title3)
+                        Text(state == .covered ? "页面上有东西挡住了这一块" : "这一块已不在页面上")
+                            .font(.footnote.weight(.medium))
+                        if state == .covered {
+                            Text(frame.cover.map { "「\($0)」，正在处理" } ?? "正在处理")
+                                .font(.caption2)
+                                .lineLimit(2)
+                        }
+                    }
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Color.black.opacity(0.62))
+                    .padding(8)
+                }
+            }
             .padding(10)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
-            .id(frame.sha256)
+            .id(frame.sha256 + (frame.state?.rawValue ?? ""))
             .frame(maxWidth: .infinity)
         case .toggle(let value, let keep):
             // Sent with the answer; with nothing to send, turned it is signed and put on the
@@ -2775,9 +2788,7 @@ extension FlooRow {
                     case .field, .secret: return sum + 34
                     case .decision(let options): return sum + (options.contains(where: \.standing) ? 54 : 36)
                     case .step: return sum + 70
-                    case .view(let frame, let interactive):
-                        return sum + 20 + (interactive ? 40 : 0)
-                            + Int(FlooAskView.viewSide(width: frame.width, height: frame.height, scale: frame.scale).size.height)
+                    case .view(let frame): return sum + 20 + Int(FlooAskView.viewSide(width: frame.width, height: frame.height, scale: frame.scale).size.height)
                     case .toggle: return sum + 28
                     case .say(let text): return sum + 20 + text.count / 30 * 16
                     case .link: return sum + 22
@@ -3015,96 +3026,4 @@ extension CardLayout {
     /// A conversation's card: as tall as it draws, at any size. The sizes' heights are a
     /// widget's (CardOverflow.fit, floo docs/cards.md).
     var fitted: CardLayout { (try? CardLayout(size: size, overflow: .fit)) ?? self }
-}
-
-/// An interactive view on a card (floo interaction.md §4.3 view): the page's part as its device
-/// last drew it, drawn as a view always is; a tap on it is a tap at that pixel of the frame, which
-/// the device puts on the page in the same place. Below it one line to type in: what you type goes
-/// where the page's focus is in that part (tap its box first), deleting is Backspace, Return is
-/// Enter, Tab is Tab. A ring shows where you last tapped until the next frame comes.
-struct FlooViewPad: View {
-    let frame: FlooViewFrame
-    /// How big it is drawn, in points (FlooAskView.viewSide).
-    let size: CGSize
-    let whole: Bool
-    let tint: Color
-    let send: (FlooViewAction) -> Void
-    @State private var typed = ""
-    /// What was typed is cleared after Return without sending its deletion.
-    @State private var clearing = false
-    @State private var tapped: (at: CGPoint, frame: String)?
-
-    /// A tap at `at`, in points of the frame drawn `drawn` big, as a tap at that pixel of it.
-    static func pixel(_ at: CGPoint, drawn: CGSize, frame: FlooViewFrame) -> FlooViewAction {
-        .tap(
-            x: min(max(at.x / max(drawn.width, 1), 0), 1) * Double(frame.width),
-            y: min(max(at.y / max(drawn.height, 1), 0), 1) * Double(frame.height))
-    }
-
-    /// How big `frame` is drawn on a card.
-    static func drawn(_ frame: FlooViewFrame) -> CGSize {
-        FlooAskView.viewSide(width: frame.width, height: frame.height, scale: frame.scale).size
-    }
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Group {
-                if let image = UIImage(data: frame.png) {
-                    Image(uiImage: image)
-                        .interpolation(whole ? .none : .medium)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                } else {
-                    ProgressView()
-                }
-            }
-            .frame(width: size.width, height: size.height)
-            .overlay(alignment: .topLeading) {
-                if let tapped, tapped.frame == frame.sha256 {
-                    Circle()
-                        .strokeBorder(tint, lineWidth: 2)
-                        .frame(width: 22, height: 22)
-                        .position(tapped.at)
-                        .allowsHitTesting(false)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture(coordinateSpace: .local) { at in
-                guard size.width > 0, size.height > 0, frame.width > 0, frame.height > 0 else { return }
-                tapped = (at, frame.sha256)
-                send(Self.pixel(at, drawn: size, frame: frame))
-            }
-            .padding(10)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(tint.opacity(0.5)))
-            TextField("在这一块里打字（先点它的输入框）", text: $typed)
-                .textFieldStyle(.roundedBorder)
-                .font(.footnote)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .frame(width: max(size.width + 20, 200))
-                .onChange(of: typed) { was, now in
-                    if clearing {
-                        clearing = false
-                        return
-                    }
-                    // Only what changed goes: words added, or as many Backspaces as went.
-                    let kept = zip(was, now).prefix { $0 == $1 }.count
-                    for _ in 0..<(was.count - kept) { send(.key("Backspace")) }
-                    let added = String(now.dropFirst(kept))
-                    if !added.isEmpty { send(.text(added)) }
-                }
-                .onSubmit {
-                    send(.key("Enter"))
-                    if !typed.isEmpty {
-                        clearing = true
-                        typed = ""
-                    }
-                }
-                .onKeyPress(.tab) {
-                    send(.key("Tab"))
-                    return .handled
-                }
-        }
-    }
 }

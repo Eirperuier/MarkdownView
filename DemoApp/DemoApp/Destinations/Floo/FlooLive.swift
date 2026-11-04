@@ -495,33 +495,6 @@ final class FlooLive {
         }
     }
 
-    /// What you did on an interactive view (floo interaction.md §4.3 view), sent one after
-    /// another in the order you did it — each waits for the one before — to the device the
-    /// call runs on. Nothing typed is kept or written out; one that doesn't go is said on the
-    /// card's line, never its words.
-    func input(ask: String, control: String, _ action: FlooViewAction, frame: String?) {
-        guard let client, let current, let id = AskID(ask), shown[id] != nil else { return }
-        let given: ViewInput.Action
-        switch action {
-        case .tap(let x, let y): given = .tap(x: x, y: y)
-        case .text(let text): given = .text(text)
-        case .key(let key):
-            guard let key = ViewInput.Key(rawValue: key) else { return }
-            given = .key(key)
-        }
-        let input = ViewInput(control: control, given, frame: frame)
-        let before = inputs
-        inputs = Task { [weak self] in
-            await before?.value
-            do { try await client.input(input, on: id, in: current) } catch {
-                self?.demo.catchUp("没送到：\(input.description)")
-            }
-        }
-    }
-
-    /// The last input sent, which the next waits for: they reach the page in order.
-    private var inputs: Task<Void, Never>?
-
     /// The card's values as `controls` take them on the wire: a field's words read as its kind
     /// (a date a day, a time a clock), a step's state; none for a control it doesn't have.
     static func wire(_ values: [String: FlooValue], _ controls: [AskControl]) -> [String: ControlValue] {
@@ -1862,10 +1835,10 @@ final class FlooLive {
                 .decision(options.map { FlooDecisionOption(key: $0.key, label: $0.label, standing: $0.standing, danger: $0.danger) })
             case .step(let what, _):
                 .step(what: what)
-            case .view(let image, let interactive):
-                .view(
-                    FlooViewFrame(png: image.png, sha256: image.sha256, width: image.width, height: image.height, scale: image.scale),
-                    interactive: interactive)
+            case .view(let image, _):
+                .view(FlooViewFrame(
+                    png: image.png, sha256: image.sha256, width: image.width, height: image.height, scale: image.scale,
+                    state: image.state.flatMap { FlooViewState(rawValue: $0.rawValue) }, cover: image.cover))
             case .toggle(let value, let effect):
                 .toggle(value: value, keep: effect == AskControl.keepSignedIn)
             case .say(let text): .say(text)
