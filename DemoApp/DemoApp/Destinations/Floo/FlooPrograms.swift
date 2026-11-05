@@ -346,9 +346,29 @@ struct FlooProgramScreen: View {
             let shown = column.present(Self.presentation(presentation), dismissed)
             return CardPresented(
                 close: shown.close,
-                resize: { detents in shown.resize(detents.map { $0 == .medium ? .medium : .large }) },
+                resize: { detents in shown.resize(detents.map(Self.detent)) },
+                restyle: { style in
+                    shown.restyle(
+                        FlooSheetStyle(
+                            interactsBelow: style.interactsBelow.map(Self.detent),
+                            dismissDisabled: style.dismissDisabled,
+                            cornerRadius: style.cornerRadius.map { CGFloat($0) },
+                            showsGrabber: style.showsGrabber
+                        )
+                    )
+                },
                 push: { screen, back in shown.push(AnyView(screen.modifier(InspectorScreen())), back) }
             )
+        }
+    }
+
+    /// A page's sheet height as the column's sheet has it.
+    private static func detent(_ detent: CardSheetDetent) -> FlooSheetDetent {
+        switch detent {
+        case .medium: .medium
+        case .large: .large
+        case .height(let height): .height(CGFloat(height))
+        case .fraction(let share): .fraction(CGFloat(share))
         }
     }
 
