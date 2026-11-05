@@ -7,7 +7,8 @@
 //  page, live — the agent's own page, in your own logins — with 做完了 and 跳过 under it
 //  (floo's docs/interaction.md §4.1 `step`, its `tab`). The step ends there, on the card,
 //  or when the agent's script ends it, and the page goes back to the agent either way.
-//  Closing the window is 跳过.
+//  Closing the window ends the window, not the step (floo docs/browser.md §2.5): nothing is
+//  answered, the page stays lent, and the card offers 我来做 again; not doing it is 跳过.
 //
 //  The window is AppKit, and this is a Mac Catalyst app, which can't link AppKit: it's
 //  floo-browser's FlooEnginePanel, built as a plug-in bundle (embed-panel.sh) and loaded
@@ -36,14 +37,20 @@ enum FlooStepPanel {
     @MainActor static var available: Bool { plugin != nil }
 
     /// Opens the window for `ask`, showing engine page `tab`, or brings it forward if it's
-    /// open. `ended` hears your answer given in the window: `completed` or `skipped`.
-    /// False when it can't be shown here.
+    /// open. `ended` hears your answer given in the window: `completed` or `skipped`;
+    /// `closed`, the window closed without one, the step still open (a plug-in older than
+    /// that read closing as `skipped`). False when it can't be shown here.
     @MainActor static func open(
-        ask: String, tab: UInt64, title: String, instruction: String, ended: @escaping (String) -> Void
+        ask: String, tab: UInt64, title: String, instruction: String, ended: @escaping (String) -> Void,
+        closed: @escaping () -> Void
     ) -> Bool {
         let selector = NSSelectorFromString("openStep:onEnd:")
         guard let plugin, plugin.responds(to: selector) else { return false }
-        let step: NSDictionary = ["ask": ask, "tab": NSNumber(value: tab), "title": title, "instruction": instruction]
+        let onClose: @convention(block) () -> Void = { closed() }
+        let step: NSDictionary = [
+            "ask": ask, "tab": NSNumber(value: tab), "title": title, "instruction": instruction,
+            "onClose": onClose as AnyObject,
+        ]
         let block: @convention(block) (NSString) -> Void = { ended($0 as String) }
         _ = plugin.perform(selector, with: step, with: block as AnyObject)
         return true
