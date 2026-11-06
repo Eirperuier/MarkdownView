@@ -1493,11 +1493,14 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
     /// Not on the Mac: there the input mode is the app's language, not the keyboard's
     /// (an English keyboard in a Chinese app reads "zh-Hans"), and an input method's
     /// marked text comes through `setMarkedText`, which doesn't ask the delegate.
+    private static let scripted = UserDefaults.standard.bool(forKey: "docEditTest")
+
     private static func startsComposition(_ text: String, in textView: UITextView) -> Bool {
         #if targetEnvironment(macCatalyst)
         return false
         #else
-        guard let language = textView.textInputMode?.primaryLanguage,
+        // The edit tests type through this delegate, whatever keyboard the device has on.
+        guard !scripted, let language = textView.textInputMode?.primaryLanguage,
             ["zh", "ja", "ko"].contains(where: language.hasPrefix)
         else { return false }
         return !text.isEmpty && text.allSatisfy { $0.isASCII && $0.isLetter }

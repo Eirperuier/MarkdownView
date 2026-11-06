@@ -405,7 +405,7 @@ private struct DocPageView: View {
             .padding(.vertical, DocTokens.Space.sm)
             // The Mac's format panel: under the bar at the window's right, open until
             // its Aa closes it (Craft's).
-            .docMenuPanel(isPresented: editor.panels.showsFormat, title: String(localized: "Format"), alignment: .trailing, keepsOpen: { _ in true },
+            .docMenuPanel(isPresented: editor.panels.showsFormat, title: String(localized: "Format"), alignment: .trailing, staysBeside: true, keepsOpen: { _ in true },
                           onDismiss: { editor.panels.showsFormat = false }) { [editor] _ in
                 DocFormatMenu(editor: editor).sections
             }
@@ -435,11 +435,11 @@ private struct DocPageView: View {
                 Button("Undo", systemImage: "arrow.uturn.backward") { editor.requestUndo() }
                     .keyboardShortcut("z", modifiers: .command)
                     .disabled(!demo.canUndo)
-                    .buttonStyle(.floo(.plain))
+                    .buttonStyle(.floo(.plain, iconOnly: true))
                 Button("Redo", systemImage: "arrow.uturn.forward") { editor.requestRedo() }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                     .disabled(!demo.canRedo)
-                    .buttonStyle(.floo(.plain))
+                    .buttonStyle(.floo(.plain, iconOnly: true))
                 Spacer()
                 #if targetEnvironment(macCatalyst)
                 Button("Format", systemImage: "textformat") { editor.panels.showsFormat.toggle() }
@@ -454,8 +454,10 @@ private struct DocPageView: View {
                         editor.resetDocument()
                     }
                     .buttonStyle(.floo(.plain))
+                    .fixedSize()
                     Button("Agent Demo") { demo.runScript() }
                         .buttonStyle(.floo(.primary))
+                        .fixedSize()
                 }
             }
         }

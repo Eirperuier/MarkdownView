@@ -31,27 +31,13 @@ extension View {
 
     /// A panel's width: its own beside what opened it, the sheet's in a sheet.
     func docPanelWidth(_ width: CGFloat, alignment: Alignment = .center) -> some View {
-        modifier(DocPanelWidth(width: width, alignment: alignment))
+        flooPanelWidth(width, alignment: alignment)
     }
 
     /// Sizes the sheet this content is in to the content, the page behind staying usable
     /// (a tool's sheet). `estimate`: its height until it's measured.
     func docSizedSheet(estimate: CGFloat) -> some View {
         modifier(DocSizedSheet(height: estimate))
-    }
-}
-
-private struct DocPanelWidth: ViewModifier {
-    let width: CGFloat
-    let alignment: Alignment
-    @Environment(\.flooPanelPresentation) private var presentation
-
-    func body(content: Content) -> some View {
-        if presentation == .sheet {
-            content.frame(maxWidth: .infinity, alignment: alignment)
-        } else {
-            content.frame(width: width, alignment: alignment)
-        }
     }
 }
 
@@ -99,10 +85,10 @@ extension View {
     /// `sections` in floo's panel while `isPresented`, following what they read; `onDismiss`
     /// when it's gone some way of its own.
     func docMenuPanel(isPresented: Bool, title: String? = nil, edge: FlooFloatingEdge = .below, alignment: FlooFloatingAlignment = .leading,
-                      keepsOpen: (@MainActor (CGPoint) -> Bool)? = nil, onDismiss: @escaping () -> Void,
+                      staysBeside: Bool = false, keepsOpen: (@MainActor (CGPoint) -> Bool)? = nil, onDismiss: @escaping () -> Void,
                       sections: @escaping @MainActor (FlooPanelPresentation) -> [FlooMenuSection]) -> some View {
         flooMenuPanel(isPresented: Binding(get: { isPresented }, set: { if !$0 { onDismiss() } }), title: title, edge: edge, alignment: alignment,
-                      keepsOpen: keepsOpen, sections: sections)
+                      staysBeside: staysBeside, keepsOpen: keepsOpen, sections: sections)
     }
 }
 
