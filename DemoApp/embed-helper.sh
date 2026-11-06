@@ -5,6 +5,8 @@
 # it, so floo has to be beside this repository. Not on iOS.
 set -euo pipefail
 [[ ${IS_MACCATALYST:-NO} == YES ]] || exit 0
+# Working on the app itself: each of these is a build of its own, every time.
+[[ ${SKIP_EMBEDS:-NO} == YES ]] && exit 0
 helper=$SRCROOT/../../floo/Apps/Floo/helper.sh
 if [[ ! -x $helper ]]; then
   print "error: Floo Helper is built from floo, which isn't beside this repository ($helper)"
