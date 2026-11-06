@@ -13,6 +13,7 @@ let package = Package(
     ],
     products: [
         .library(name: "MarkdownView", targets: ["MarkdownView"]),
+        .library(name: "MarkdownCore", targets: ["MarkdownCore"]),
     ],
     dependencies: [
         // CJK-friendly emphasis delimiters (and the matching swift-cmark fork).
@@ -21,7 +22,8 @@ let package = Package(
         // Forks carrying the changes the selectable path and math rendering need;
         // see each fork's history on top of its upstream tag.
         .package(url: "https://github.com/techx-academy/floo-LaTeXSwiftUI.git", revision: "6245f306b9aced861a66d4b2e7441cb285ae7d18"),
-        .package(url: "https://github.com/techx-academy/floo-RichText.git", revision: "7ba6a5435100ae04a14f16049caeca4232661c01"),
+        // A local fork branch until the first performance gate; then pushed and pinned.
+        .package(path: "../markdown-uikit-deps/floo-RichText"),
     ],
     targets: [
         // What parses and holds markdown, with no drawing in it.

@@ -21,6 +21,7 @@
 		F100C0DE2E00000000000065 /* ContentKit in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000066 /* ContentKit */; };
 		F100C0DE2E00000000000011 /* DocKit in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000012 /* DocKit */; };
 		F100C0DE2E00000000000021 /* FlooDesign in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000022 /* FlooDesign */; };
+		AB00F100C0FFEE0000000011 /* MarkdownUIKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB00F100C0FFEE0000000012 /* MarkdownUIKit */; };
 		AB00F100C0FFEE0000000001 /* FlooUIKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB00F100C0FFEE0000000002 /* FlooUIKit */; };
 		F100C0DE2E00000000000041 /* ChatBackgrounds in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000042 /* ChatBackgrounds */; };
 		F100C0DE2E00000000000051 /* AppleDeviceImages in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000052 /* AppleDeviceImages */; };
@@ -58,6 +59,7 @@
 				F100C0DE2E00000000000011 /* DocKit in Frameworks */,
 				F100C0DE2E00000000000021 /* FlooDesign in Frameworks */,
 				AB00F100C0FFEE0000000001 /* FlooUIKit in Frameworks */,
+				AB00F100C0FFEE0000000011 /* MarkdownUIKit in Frameworks */,
 				F100C0DE2E00000000000041 /* ChatBackgrounds in Frameworks */,
 				F100C0DE2E00000000000051 /* AppleDeviceImages in Frameworks */,
 			);
@@ -119,6 +121,7 @@
 				F100C0DE2E00000000000035 /* DeviceSupport */,
 				F100C0DE2E00000000000022 /* FlooDesign */,
 				AB00F100C0FFEE0000000002 /* FlooUIKit */,
+				AB00F100C0FFEE0000000012 /* MarkdownUIKit */,
 				F100C0DE2E00000000000042 /* ChatBackgrounds */,
 				F100C0DE2E00000000000052 /* AppleDeviceImages */,
 			);
@@ -160,6 +163,7 @@
 				F100C0DE2E00000000000031 /* XCLocalSwiftPackageReference "ApplePlatform" */,
 				F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */,
 				AB00F100C0FFEE0000000003 /* XCLocalSwiftPackageReference "floo-uikit" */,
+				AB00F100C0FFEE0000000013 /* XCLocalSwiftPackageReference "MarkdownUIKit" */,
 				F100C0DE2E00000000000040 /* XCLocalSwiftPackageReference "swift-chat-backgrounds" */,
 				F100C0DE2E00000000000050 /* XCLocalSwiftPackageReference "AppleDeviceImages" */,
 			);
@@ -487,6 +491,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../FlooDesign;
 		};
+		AB00F100C0FFEE0000000013 /* XCLocalSwiftPackageReference "MarkdownUIKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../MarkdownUIKit;
+		};
 		AB00F100C0FFEE0000000003 /* XCLocalSwiftPackageReference "floo-uikit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "../../floo-uikit";
@@ -579,6 +587,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */;
 			productName = FlooDesign;
+		};
+		AB00F100C0FFEE0000000012 /* MarkdownUIKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MarkdownUIKit;
 		};
 		AB00F100C0FFEE0000000002 /* FlooUIKit */ = {
 			isa = XCSwiftPackageProductDependency;

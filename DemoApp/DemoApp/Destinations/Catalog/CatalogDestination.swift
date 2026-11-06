@@ -104,6 +104,7 @@ struct CatalogDestination: View {
         }
         .task {
             CatalogImages.install()
+            await CatalogThemeProbe.runIfAsked()
             await CatalogShots.runIfAsked()
         }
     }
