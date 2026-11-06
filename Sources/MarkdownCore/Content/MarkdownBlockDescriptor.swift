@@ -74,4 +74,24 @@ public struct MarkdownBlockDescriptor: Hashable, Sendable, Identifiable {
     /// (Extended Heading). `var` with a default so existing construction
     /// sites stay untouched.
     public var extendedHeadingContext: ExtendedHeadingContext? = nil
+
+    package init(
+        kind: Kind,
+        topLevelIndex: Int,
+        stableHash: Int,
+        sourceText: String,
+        plainText: String,
+        childPlainTexts: [String],
+        listItemContext: ListItemContext?,
+        extendedHeadingContext: ExtendedHeadingContext? = nil
+    ) {
+        self.kind = kind
+        self.topLevelIndex = topLevelIndex
+        self.stableHash = stableHash
+        self.sourceText = sourceText
+        self.plainText = plainText
+        self.childPlainTexts = childPlainTexts
+        self.listItemContext = listItemContext
+        self.extendedHeadingContext = extendedHeadingContext
+    }
 }

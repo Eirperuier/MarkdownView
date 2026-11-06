@@ -10,7 +10,7 @@ import Foundation
 
 // MARK: - Raw
 
-enum RawMarkdownContent: Sendable, Hashable {
+package enum RawMarkdownContent: Sendable, Hashable {
     case plainText(String)
     case url(URL)
     
@@ -35,9 +35,9 @@ enum RawMarkdownContent: Sendable, Hashable {
 
 /// A Sendable markdown content that can be used to render content and supports on-demand parsing.
 public struct MarkdownContent: Sendable {
-    var raw: RawMarkdownContent
+    package var raw: RawMarkdownContent
     
-    class ParsedDocumentStore: /* NSLock */ @unchecked Sendable {
+    package class ParsedDocumentStore: /* NSLock */ @unchecked Sendable {
         private var lock = NSLock()
         private var caches: [ParseOptions.RawValue : Document] = [:]
         private var childrenCaches: [ParseOptions.RawValue : [any Markup]] = [:]
@@ -87,7 +87,7 @@ public struct MarkdownContent: Sendable {
             return children
         }
         
-        var documents: LazySequence<Dictionary<ParseOptions.RawValue, Document>.Values> {
+        package var documents: LazySequence<Dictionary<ParseOptions.RawValue, Document>.Values> {
             lock.withLock {
                 caches.values.lazy
             }
@@ -97,27 +97,27 @@ public struct MarkdownContent: Sendable {
             !documents.isEmpty
         }
     }
-    var store: ParsedDocumentStore
+    package var store: ParsedDocumentStore
     
     public init(_ text: String) {
         self.raw = .plainText(text)
         self.store = ParsedDocumentStore()
     }
 
-    internal init(raw: RawMarkdownContent) {
+    package init(raw: RawMarkdownContent) {
         self.raw = raw
         self.store = ParsedDocumentStore()
     }
     
-    func parse(options: ParseOptions = ParseOptions()) -> Document {
+    package func parse(options: ParseOptions = ParseOptions()) -> Document {
         store.parse(raw, options: options)
     }
 
-    func topLevelChildren(options: ParseOptions = ParseOptions()) -> [any Markup] {
+    package func topLevelChildren(options: ParseOptions = ParseOptions()) -> [any Markup] {
         store.topLevelChildren(raw, options: options)
     }
 
-    func parseOptions(allowingBlockDirectives: Bool) -> ParseOptions {
+    package func parseOptions(allowingBlockDirectives: Bool) -> ParseOptions {
         var options = ParseOptions()
         if allowingBlockDirectives,
            MarkdownParseSanitizer.allowsBlockDirectiveParsing(raw.text) {

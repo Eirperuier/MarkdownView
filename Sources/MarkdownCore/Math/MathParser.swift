@@ -5,11 +5,7 @@
 //  Created by LiYanan2004 on 2025/2/24.
 //
 
-import SwiftUI
-#if canImport(LaTeXSwiftUI)
-import LaTeXSwiftUI
-import MathJaxSwift
-#endif
+import Foundation
 
 /*
  Credits to colinc86/LaTeXSwiftUI
@@ -95,7 +91,7 @@ extension MathParser {
         public var range: Range<String.Index>
     }
 
-    static func standaloneDisplayMath(
+    package static func standaloneDisplayMath(
         in text: String,
         unescapingCommonMarkEscapes: Bool = false
     ) -> String? {
@@ -122,7 +118,7 @@ extension MathParser {
         return String(trimmed[math.range])
     }
 
-    static func containsExplicitColorCommand(in latex: String) -> Bool {
+    package static func containsExplicitColorCommand(in latex: String) -> Bool {
         [
             #"\color"#,
             #"\textcolor"#,

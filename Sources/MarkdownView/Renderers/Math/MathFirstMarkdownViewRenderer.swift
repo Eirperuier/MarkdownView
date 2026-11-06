@@ -5,6 +5,7 @@
 //  Created by Yanan Li on 2025/4/12.
 //
 
+@_spi(MarkdownMath) import MarkdownCore
 import SwiftUI
 import Markdown
 

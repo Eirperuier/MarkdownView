@@ -3,7 +3,9 @@
 //  MarkdownView
 //
 
-enum MarkdownParseSanitizer {
+import Foundation
+
+package enum MarkdownParseSanitizer {
     private struct Fence {
         let marker: Character
         let length: Int
@@ -13,7 +15,7 @@ enum MarkdownParseSanitizer {
         !containsLongFencedCodeBlock(text)
     }
 
-    static func sanitizedForCmark(_ text: String) -> String {
+    package static func sanitizedForCmark(_ text: String) -> String {
         guard text.contains("~") else { return text }
 
         var result = String()

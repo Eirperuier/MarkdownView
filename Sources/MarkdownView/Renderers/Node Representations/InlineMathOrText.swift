@@ -5,6 +5,7 @@
 //  Created by LiYanan2004 on 2025/2/24.
 //
 
+@_spi(MarkdownMath) import MarkdownCore
 import SwiftUI
 import RegexBuilder
 import Foundation

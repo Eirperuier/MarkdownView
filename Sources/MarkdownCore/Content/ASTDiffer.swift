@@ -6,6 +6,7 @@
 //  Used by the incremental renderer to skip re-rendering unchanged nodes.
 //
 
+import Foundation
 @preconcurrency import Markdown
 
 enum ASTChangeType: Sendable {

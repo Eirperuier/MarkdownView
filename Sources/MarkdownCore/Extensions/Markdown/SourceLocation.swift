@@ -1,3 +1,4 @@
+import Foundation
 import Markdown
 
 extension SourceLocation {

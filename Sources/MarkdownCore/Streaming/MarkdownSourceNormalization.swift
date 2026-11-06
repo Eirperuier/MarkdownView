@@ -777,6 +777,12 @@ private func isStandaloneDisplayMathRange(
     return prefix.isEmpty && suffix.isEmpty
 }
 
+/// What marks inline maths in the text between preprocessing and drawing: `⸨imath:ID⸩`.
+package enum MarkdownInlineMathPlaceholder {
+    package static let prefix = "\u{2E28}imath:"
+    package static let suffix = "\u{2E29}"
+}
+
 /// Extracts `\(...\)` inline math spans BEFORE cmark parsing so that the
 /// backslash-paren delimiters aren't consumed as CommonMark escapes.
 ///
@@ -786,8 +792,8 @@ private func isStandaloneDisplayMathRange(
 public func extractInlineParenMath(from text: String) -> (processed: String, storage: [String: String]) {
     guard text.contains("\\(") else { return (text, [:]) }
 
-    let prefix = MarkdownRendererConfiguration.Math.inlinePlaceholderPrefix
-    let suffix = MarkdownRendererConfiguration.Math.inlinePlaceholderSuffix
+    let prefix = MarkdownInlineMathPlaceholder.prefix
+    let suffix = MarkdownInlineMathPlaceholder.suffix
 
     var result = ""
     result.reserveCapacity(text.count)

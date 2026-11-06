@@ -5,6 +5,7 @@
 //  Created by LiYanan2004 on 2024/12/11.
 //
 
+import Foundation
 import Markdown
 
 extension Markup {
@@ -34,7 +35,7 @@ extension Markup {
     /// A stable hash based on the content and structure of this markup node.
     /// Remains consistent across re-parses when the content is unchanged,
     /// enabling efficient AST diff and view caching during streaming updates.
-    var stableContentHash: Int {
+    package var stableContentHash: Int {
         var hasher = Hasher()
         hasher.combine(String(describing: type(of: self)))
         _hashNodeContent(into: &hasher)

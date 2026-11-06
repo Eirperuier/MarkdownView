@@ -50,8 +50,8 @@ extension MarkdownRendererConfiguration {
             return id
         }
 
-        static let inlinePlaceholderPrefix = "\u{2E28}imath:"
-        static let inlinePlaceholderSuffix = "\u{2E29}"
+        static let inlinePlaceholderPrefix = MarkdownInlineMathPlaceholder.prefix
+        static let inlinePlaceholderSuffix = MarkdownInlineMathPlaceholder.suffix
 
         /// FNV-1a 64-bit → hex(仅 0-9a-f,cmark 安全;进程内确定)。同一公式恒得同 id → 占位符稳定。
         private static func stableHashHex(_ s: some StringProtocol) -> String {

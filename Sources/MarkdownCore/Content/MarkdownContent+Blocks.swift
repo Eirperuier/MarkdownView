@@ -3,6 +3,7 @@
 //  MarkdownView
 //
 
+import Foundation
 @preconcurrency import Markdown
 
 extension MarkdownContent {
@@ -73,7 +74,7 @@ extension MarkdownContent {
     /// Deterministic hash for an Extended Heading pair — must not use `Hasher`
     /// (per-process random seed) because `MarkdownBlockView` re-derives it to
     /// resolve the pair against the descriptor.
-    static func combinedStableHash(_ first: any Markup, _ second: any Markup) -> Int {
+    package static func combinedStableHash(_ first: any Markup, _ second: any Markup) -> Int {
         first.stableContentHash ^ (second.stableContentHash &* 31)
     }
 

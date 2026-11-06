@@ -24,9 +24,18 @@ let package = Package(
         .package(url: "https://github.com/techx-academy/floo-RichText.git", revision: "7ba6a5435100ae04a14f16049caeca4232661c01"),
     ],
     targets: [
+        // What parses and holds markdown, with no drawing in it.
+        .target(
+            name: "MarkdownCore",
+            dependencies: [
+                .product(name: "Markdown", package: "swift-markdown"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "MarkdownView",
             dependencies: [
+                "MarkdownCore",
                 .product(name: "Markdown", package: "swift-markdown"),
                 .product(
                     name: "Highlightr",

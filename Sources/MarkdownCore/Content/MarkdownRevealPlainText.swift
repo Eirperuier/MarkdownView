@@ -3,6 +3,7 @@
 //  MarkdownView
 //
 
+import Foundation
 @preconcurrency import Markdown
 
 enum MarkdownRevealPlainText {
@@ -72,7 +73,7 @@ enum MarkdownRevealPlainText {
 }
 
 extension Markup {
-    var markdownRevealPlainText: String {
+    package var markdownRevealPlainText: String {
         MarkdownRevealPlainText.extract(from: self)
     }
 }

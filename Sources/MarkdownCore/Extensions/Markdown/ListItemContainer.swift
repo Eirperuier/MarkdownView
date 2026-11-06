@@ -1,21 +1,22 @@
 //
-//  BlockQuote.swift
+//  ListItemContainer.swift
 //  MarkdownView
 //
 //  Created by LiYanan2004 on 2024/12/11.
 //
 
+import Foundation
 import Markdown
 
-extension BlockQuote {
-    /// Depth of the quote if nested within others. Index starts at 0.
-    var quoteDepth: Int {
+extension ListItemContainer {
+    /// Depth of the list if nested within others. Index starts at 0.
+    package var listDepth: Int {
         var index = 0
 
         var currentElement = parent
 
         while currentElement != nil {
-            if currentElement is BlockQuote {
+            if currentElement is ListItemContainer {
                 index += 1
             }
 
