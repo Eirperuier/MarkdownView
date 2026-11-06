@@ -2074,7 +2074,7 @@ final class DocEditTests {
                 // A sheet as tall as its pages (Craft's), over the bottom of the window.
                 try? await Task.sleep(for: .milliseconds(800))
                 let sheets = blocks.testSheetFrames
-                let pages = FlooDesignTokens.Component.FormatSheet.page
+                let pages = DocTokens.Component.FormatSheet.page
                 try self.expect(sheets.count == 1 && sheets[0].height > pages && sheets[0].height < pages + 80,
                                 "sheets \(sheets) for pages \(pages) tall")
                 // Another page opens in a sheet over it, and goes back to it.
@@ -3232,17 +3232,18 @@ final class DocEditTests {
             let image = try self.expectValue(renderer.cgImage, "not drawn")
             let data = try self.expectValue(image.dataProvider?.data.flatMap(CFDataGetBytePtr), "no pixels: \(image.width)x\(image.height) bpp \(image.bitsPerPixel) provider \(image.dataProvider != nil) data \(image.dataProvider?.data.map(CFDataGetLength) ?? -1)")
             let (perRow, step) = (image.bytesPerRow, image.bitsPerPixel / 8)
-            // The text between the preview (104 tall) and the footer: white and greys only.
-            var coloured = 0, all = 0
+            // The text between the preview and the footer stands on one colour, the picture's
+            // own (floo-uikit's card): most of it is that one, as a picture wouldn't be.
+            var counts: [Int: Int] = [:], all = 0
             for y in 108..<190 where y < image.height {
                 for x in 0..<min(image.width, Int(DocMediaLayout.cardWidth(in: blocks.testPageWidth))) {
                     let p = y * perRow + x * step
-                    let (a, b, c) = (Int(data[p]), Int(data[p + 1]), Int(data[p + 2]))
+                    counts[(Int(data[p]) / 16) * 65536 + (Int(data[p + 1]) / 16) * 256 + Int(data[p + 2]) / 16, default: 0] += 1
                     all += 1
-                    if max(a, b, c) - min(a, b, c) > 40 { coloured += 1 }
                 }
             }
-            try self.expect(all > 0 && coloured * 100 < all, "\(coloured) of \(all) pixels under the preview are coloured")
+            let coloured = all - (counts.values.max() ?? 0)
+            try self.expect(all > 0 && coloured * 2 < all, "\(coloured) of \(all) pixels under the preview aren't its colour")
         }
         await test("a card turned regular leaves its line and a card again goes back: its box goes from place to place, the rows after it follow, nothing fades") {
             let line = try self.expectValue(self.linkCards(), "no line of cards")

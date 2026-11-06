@@ -24,13 +24,14 @@
 //  and any; the highlights and any.
 //
 
+import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
 import FlooDesign
 
-private typealias Tokens = FlooDesignTokens
-private typealias Metrics = FlooDesignTokens.Component.FormatSheet
+private typealias Tokens = DocTokens
+private typealias Metrics = DocTokens.Component.FormatSheet
 
 enum DocFormatSheetPage: Hashable, Identifiable {
     case main, styles, colors, more
@@ -98,14 +99,14 @@ struct DocFormatSheet: View {
                         styleLabel(style)
                     }
                 }
-                FlooDesignDivider(.vertical, length: Metrics.row - Tokens.Space.xl)
+                FlooDividerLine(.vertical, length: Metrics.row - Tokens.Space.xl)
                 Button { go(.styles) } label: {
                     Text("More…")
                         .font(Metrics.label)
                         .foregroundStyle(Tokens.ColorRole.Content.secondary)
                         .frame(maxWidth: .infinity, minHeight: Metrics.row)
                 }
-                .buttonStyle(FlooDesignPlainButtonStyle())
+                .buttonStyle(.flooContent())
                 .accessibilityIdentifier("sheet-more-styles")
             }
             .disabled(!formatting.takes(.textStyle))
@@ -150,12 +151,12 @@ struct DocFormatSheet: View {
                 .disabled(!formatting.takes(.box))
                 .frame(maxWidth: .infinity)
                 Button { go(.colors) } label: {
-                    FlooDesignRainbowSwatch(Circle(),
+                    FlooRainbowSwatchView(Circle(),
                                             picked: formatting.color.flatMap(Self.token).map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
                         .frame(width: Metrics.colorRing, height: Metrics.colorRing)
                         .frame(width: Metrics.row + Tokens.Space.md, height: Metrics.row)
                 }
-                .buttonStyle(FlooDesignPlainButtonStyle())
+                .buttonStyle(.flooContent())
                 .disabled(formatting.markRanges.isEmpty)
                 .accessibilityLabel(Text("Text Color"))
                 .accessibilityIdentifier("sheet-colors")
@@ -184,7 +185,7 @@ struct DocFormatSheet: View {
         let rows = [Array(DocFormatting.styles.prefix(3)), Array(DocFormatting.styles.suffix(3))]
         return VStack(spacing: 0) {
             ForEach(rows.indices, id: \.self) { index in
-                if index > 0 { FlooDesignDivider() }
+                if index > 0 { FlooDividerLine() }
                 HStack(spacing: Tokens.Component.Tile.spacing) {
                     ForEach(rows[index], id: \.key) { style in
                         chip(isOn: formatting.kindIsOn(style.kind), identifier: "sheet-style-\(style.key)") {
@@ -239,11 +240,11 @@ struct DocFormatSheet: View {
                     formatting.pickColor(color)
                 }
             } label: {
-                FlooDesignRainbowSwatch(RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous),
+                FlooRainbowSwatchView(RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous),
                                         picked: picked.map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
                     .frame(height: Metrics.swatchHeight)
             }
-            .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous)))
+            .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous)))
             .accessibilityLabel(Text("Other Color"))
             .accessibilityIdentifier("sheet-color-custom")
         }
@@ -253,10 +254,10 @@ struct DocFormatSheet: View {
     private func swatch(fill: Color, title: String, isOn: Bool, identifier: String, action: @escaping () -> Void) -> some View {
         let shape = RoundedRectangle(cornerRadius: Metrics.swatchRadius, style: .continuous)
         return Button(action: action) {
-            FlooDesignSwatch(shape, fill: fill, isOn: isOn, chosen: .ring(fill))
+            FlooSwatchView(shape, color: fill, isOn: isOn, ring: fill)
                 .frame(height: Metrics.swatchHeight)
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
+        .buttonStyle(.flooContent(in: shape))
         .accessibilityLabel(title)
         .accessibilityAddTraits(isOn ? .isSelected : [])
         .accessibilityIdentifier(identifier)
@@ -297,7 +298,7 @@ struct DocFormatSheet: View {
                 HStack(spacing: Tokens.Component.Tile.spacing) {
                     tile(isOn: style.fill != nil, identifier: "sheet-cell-fill") { go(.cellFill) } label: {
                         HStack(spacing: Tokens.Space.md) {
-                            FlooDesignRainbowSwatch(Circle(), picked: style.fill.flatMap(DocColors.fill))
+                            FlooRainbowSwatchView(Circle(), picked: style.fill.flatMap(DocColors.fill))
                                 .frame(width: Tokens.Icon.toolbar, height: Tokens.Icon.toolbar)
                             Text("Fill").font(Metrics.label)
                         }
@@ -305,7 +306,7 @@ struct DocFormatSheet: View {
                     .disabled(!formatting.takes(.fill))
                     tile(isOn: formatting.color != nil, identifier: "sheet-cell-colors") { go(.colors) } label: {
                         HStack(spacing: Tokens.Space.md) {
-                            FlooDesignRainbowSwatch(Circle(),
+                            FlooRainbowSwatchView(Circle(),
                                                     picked: formatting.color.flatMap(Self.token).map(DocColors.swatch) ?? Tokens.ColorRole.Content.primary)
                                 .frame(width: Tokens.Icon.toolbar, height: Tokens.Icon.toolbar)
                             Text("Text").font(Metrics.label)
@@ -387,10 +388,10 @@ struct DocFormatSheet: View {
                     set(token)
                     go(.main)
                 } label: {
-                    FlooDesignSwatch(shape, fill: token.flatMap(DocColors.fill) ?? Tokens.ColorRole.Surface.canvas, isOn: current == token)
+                    FlooSwatchView(shape, color: token.flatMap(DocColors.fill) ?? Tokens.ColorRole.Surface.canvas, isOn: current == token)
                         .frame(height: Metrics.fillHeight)
                 }
-                .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
+                .buttonStyle(.flooContent(in: shape))
                 .accessibilityLabel(swatch.map(DocColors.fillTitle) ?? String(localized: "None"))
                 .accessibilityIdentifier("sheet-fill-\(token ?? "none")")
             }
@@ -399,10 +400,10 @@ struct DocFormatSheet: View {
                     set(DocColors.hex(color))
                 }
             } label: {
-                FlooDesignRainbowSwatch(shape, picked: custom.flatMap(DocColors.fill))
+                FlooRainbowSwatchView(shape, picked: custom.flatMap(DocColors.fill))
                     .frame(height: Metrics.fillHeight)
             }
-            .buttonStyle(FlooDesignPlainButtonStyle(in: shape))
+            .buttonStyle(.flooContent(in: shape))
             .accessibilityLabel(Text("Other Color"))
             .accessibilityIdentifier("sheet-fill-custom")
         }
@@ -429,7 +430,7 @@ struct DocFormatSheet: View {
                 }
                 tile(isOn: style.stripe != TableStyle.noStripe, identifier: "sheet-stripe") { go(.stripe) } label: {
                     HStack(spacing: Tokens.Space.md) {
-                        FlooDesignRainbowSwatch(Circle(), picked: style.stripe.flatMap(DocColors.fill))
+                        FlooRainbowSwatchView(Circle(), picked: style.stripe.flatMap(DocColors.fill))
                             .frame(width: Tokens.Icon.toolbar, height: Tokens.Icon.toolbar)
                         Text("Alternating Row Color").font(Metrics.label)
                     }
@@ -458,7 +459,7 @@ struct DocFormatSheet: View {
             }
             .accessibilityLabel(Text("Add \(title)"))
         }
-        .buttonStyle(FlooDesignPlainButtonStyle())
+        .buttonStyle(.flooContent())
         .frame(maxWidth: .infinity, minHeight: Metrics.row, maxHeight: Metrics.row)
         .background(Tokens.ColorRole.Surface.control, in: .rect(cornerRadius: Tokens.Component.Tile.cornerRadius, style: .continuous))
     }
@@ -520,7 +521,7 @@ struct DocFormatSheet: View {
         Button(action: action) {
             label().frame(maxWidth: .infinity, minHeight: Metrics.row)
         }
-        .buttonStyle(FlooDesignTileButtonStyle(isOn: isOn, surface: .chip))
+        .buttonStyle(.flooContent(isOn: isOn))
         .accessibilityIdentifier(identifier)
     }
 
@@ -529,7 +530,7 @@ struct DocFormatSheet: View {
         Button(action: action) {
             label().frame(maxWidth: .infinity, minHeight: Metrics.row, maxHeight: Metrics.row)
         }
-        .buttonStyle(FlooDesignTileButtonStyle(isOn: isOn))
+        .buttonStyle(.flooContent(surface: .control, isOn: isOn))
         .accessibilityIdentifier(identifier)
     }
 

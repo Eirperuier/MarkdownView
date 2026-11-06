@@ -12,12 +12,12 @@
 //  Each change is one step; typing in a field is one for the field.
 //
 
+import FlooUIKit
 import SwiftUI
 import DocKit
-import FlooDesign
 
 private typealias Metrics = DocCollectionMetrics
-private typealias Tokens = FlooDesignTokens
+private typealias Tokens = DocTokens
 
 struct DocChartPanel: View {
     let snapshot: DocCollectionSnapshot
@@ -102,7 +102,7 @@ private struct DocPanelField: View {
 
     var body: some View {
         TextField(placeholder, text: $typed)
-            .textFieldStyle(FlooDesignTextFieldStyle())
+            .textFieldStyle(FlooTextFieldStyle())
             .frame(width: width)
             .onAppear { typed = text }
             .onChange(of: text) { _, new in if new != typed { typed = new } }

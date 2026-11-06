@@ -25,6 +25,7 @@
 //
 
 import CardRuntime
+import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
@@ -460,7 +461,7 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
         let runs = ground.map { ReadableCode.recolored(runs, scheme: scheme ?? .light, on: SRGBColor($0)) } ?? runs
         let storage = textStorage
         storage.beginEditing()
-        storage.addAttribute(.foregroundColor, value: ink ?? FlooDesignTokens.UIKitColor.primary, range: NSRange(location: 0, length: storage.length))
+        storage.addAttribute(.foregroundColor, value: ink ?? DocTokens.UIKitColor.primary, range: NSRange(location: 0, length: storage.length))
         for (range, color) in runs where NSMaxRange(range) <= storage.length {
             storage.addAttribute(.foregroundColor, value: color, range: range)
         }
@@ -611,7 +612,7 @@ struct DocSourceField: UIViewRepresentable {
 
     /// In the colours of the Markdown it's in, if it has its own.
     private func attributes(_ colors: MarkdownColors?) -> [NSAttributedString.Key: Any] {
-        let ink = colors.map { UIColor($0.primary) } ?? FlooDesignTokens.UIKitColor.primary
+        let ink = colors.map { UIColor($0.primary) } ?? DocTokens.UIKitColor.primary
         var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink]
         if let code {
             let style = NSMutableParagraphStyle()
@@ -803,7 +804,7 @@ struct DocCodeGutter: View {
             ForEach(1...max(1, lines), id: \.self) { number in
                 Text(verbatim: "\(number)")
                     .font(Font(code.font))
-                    .foregroundStyle(colors?.tertiary ?? FlooDesignTokens.ColorRole.Content.tertiary)
+                    .foregroundStyle(colors?.tertiary ?? DocTokens.ColorRole.Content.tertiary)
                     .frame(height: code.pitch)
             }
         }
@@ -848,10 +849,10 @@ struct DocCodeBox: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: DocCodeMetrics.radius + DocCodeMetrics.ringOffset, style: .continuous)
-                .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary.opacity(DocCodeMetrics.ringOpacity), lineWidth: DocCodeMetrics.border)
+                .strokeBorder(DocTokens.ColorRole.Accent.primary.opacity(DocCodeMetrics.ringOpacity), lineWidth: DocCodeMetrics.border)
                 .padding(-DocCodeMetrics.ringOffset)
                 .opacity(isEditing ? 1 : 0)
-                .animation(FlooDesignTokens.Motion.reveal, value: isEditing)
+                .animation(DocTokens.Motion.reveal, value: isEditing)
                 .allowsHitTesting(false)
         }
     }
@@ -937,9 +938,9 @@ struct DocMathRowView: View {
         Group {
             if isEmpty {
                 Text("Empty formula. Enter LaTeX.")
-                    .font(FlooDesignTokens.Typography.body.font)
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
-                    .frame(maxWidth: .infinity, minHeight: FlooDesignTokens.Control.standardHeight)
+                    .font(DocTokens.Typography.body.font)
+                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
+                    .frame(maxWidth: .infinity, minHeight: DocTokens.Control.standardHeight)
             } else {
                 MarkdownBlockView(tree: tree)
                     .markdownDisplayMathRendersSynchronously()
@@ -947,11 +948,11 @@ struct DocMathRowView: View {
             }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.md, style: .continuous)
-                .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
-                .padding(.horizontal, -(FlooDesignTokens.Space.sm - 2))
+            RoundedRectangle(cornerRadius: DocTokens.Radius.md, style: .continuous)
+                .strokeBorder(DocTokens.ColorRole.Accent.primary, lineWidth: DocTokens.Border.focus)
+                .padding(.horizontal, -(DocTokens.Space.sm - 2))
                 .opacity(editing ? 1 : 0)
-                .animation(FlooDesignTokens.Motion.reveal, value: editing)
+                .animation(DocTokens.Motion.reveal, value: editing)
                 .allowsHitTesting(false)
         }
         .background { DocViewAnchor { [block, controller] in controller.mathRows[block] = .init(view: $0) } }
@@ -979,12 +980,12 @@ struct DocMathKeyboardPanel: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [controller] height in
                         controller.revealMath(block, over: height)
                     }
-                    .transition(.opacity.combined(with: .scale(scale: FlooDesignTokens.Motion.revealStartScale, anchor: .bottom)))
+                    .transition(.opacity.combined(with: .scale(scale: DocTokens.Motion.revealStartScale, anchor: .bottom)))
                     .onDisappear { DocScrolling.keyboardPanel = 0 }
             }
         }
         .padding(.bottom, controller.keyboardBarHeight)
-        .animation(FlooDesignTokens.Motion.reveal, value: block)
+        .animation(DocTokens.Motion.reveal, value: block)
     }
 }
 
@@ -995,7 +996,7 @@ struct DocMathPanel: View {
     let text: String
     let controller: DocSourceController
 
-    private typealias Tokens = FlooDesignTokens
+    private typealias Tokens = DocTokens
 
     /// As wide as a formula line wants, within the window.
     private var width: CGFloat {
@@ -1032,7 +1033,7 @@ struct DocMathPanel: View {
                             .minimumScaleFactor(0.7)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(FlooDesignButtonStyle(.secondary))
+                    .buttonStyle(.floo(.tertiary))
                     .accessibilityLabel(key.name)
                 }
                 Menu {
@@ -1048,7 +1049,7 @@ struct DocMathPanel: View {
                         .frame(maxWidth: .infinity)
                 }
                 .menuStyle(.button)
-                .buttonStyle(FlooDesignButtonStyle(.secondary))
+                .buttonStyle(.floo(.tertiary))
                 .accessibilityLabel("More Symbols")
             }
         }

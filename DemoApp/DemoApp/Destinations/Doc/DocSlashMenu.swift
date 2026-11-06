@@ -413,7 +413,7 @@ extension DocEditor {
             let keyboard = toOverlay(frame.convert(window.convert(DocScrolling.keyboard, from: nil), from: window))
             // Down to the keyboard bar's middle, as Craft's (the room's edge is a gap
             // inside it).
-            let floor = keyboard.minY - DocScrolling.keyboardBar / 2 + FlooDesignTokens.Component.Menu.gap
+            let floor = keyboard.minY - DocScrolling.keyboardBar / 2 + DocTokens.Component.Menu.gap
             if floor < room.maxY { room.size.height = max(0, floor - room.minY) }
         }
         return (anchor, room)

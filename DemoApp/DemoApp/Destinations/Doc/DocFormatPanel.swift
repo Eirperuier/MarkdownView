@@ -14,13 +14,14 @@
 //  and palettes open as the menu's next level.
 //
 
+import FlooUIKit
 import SwiftUI
 import DocKit
 import FlooDesign
 
-private typealias Tokens = FlooDesignTokens
-private typealias Metrics = FlooDesignTokens.Component.FormatPanel
-private typealias Controls = FlooDesignTokens.Component.ActionMenu.Controls
+private typealias Tokens = DocTokens
+private typealias Metrics = DocTokens.Component.FormatPanel
+private typealias Controls = DocTokens.Component.ActionMenu.Controls
 
 /// The editor's selection, observable.
 @MainActor
@@ -73,7 +74,7 @@ struct DocFormatMenu {
                 FlooDesignMenuTile(id: "layout-\(layout)", help: layout.title, isOn: editor.blocks.selectedLayouts == [layout]) {
                     editor.blocks.setLayout(layout)
                 } label: {
-                    FlooDesignMediaStyleGlyph(layout.style)
+                    layout.style.pictureImage
                         .frame(maxWidth: .infinity, minHeight: Controls.tallTile)
                 }
             })]))

@@ -27,6 +27,7 @@
 //  undo, redo and sync treat the table like the rest of the document.
 //
 
+import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
@@ -983,7 +984,7 @@ struct DocTableCellField: UIViewRepresentable {
         let look = controller.look(key)
         view.font = look.font
         view.textAlignment = look.textAlignment
-        view.textColor = FlooDesignTokens.UIKitColor.primary
+        view.textColor = DocTokens.UIKitColor.primary
         // The model is the truth; while typing it already equals the view.
         if view.text != text, view.markedTextRange == nil {
             let editing = view.isFirstResponder
@@ -1017,7 +1018,7 @@ struct DocTableCellField: UIViewRepresentable {
 
 // MARK: - The table
 
-private typealias Handles = FlooDesignTokens.Component.TableHandles
+private typealias Handles = DocTokens.Component.TableHandles
 
 /// The edited cell: its text (a column's name in a text view of its own, a body cell's
 /// text the editor's), Craft's ring around the cell, its ⋮.
@@ -1034,7 +1035,7 @@ struct DocTableCellEditor: View {
                 // Where MarkdownView draws the cell's fill (Handles.ringOutset). While its row
                 // or column is picked, that one is ringed instead (DocTableEdges).
                 RoundedRectangle(cornerRadius: Handles.ringRadius, style: .continuous)
-                    .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
+                    .strokeBorder(DocTokens.ColorRole.Accent.primary, lineWidth: DocTokens.Border.focus)
                     .opacity(controller.line == nil ? 1 : 0)
                     .padding(.horizontal, -Handles.ringOutset.width)
                     .padding(.vertical, -Handles.ringOutset.height)
@@ -1111,7 +1112,7 @@ struct DocTableGrip: View {
             controller.pick(line, of: key)
         } label: {
             Capsule()
-                .fill(FlooDesignTokens.ColorRole.Accent.primary.opacity(Handles.gripOpacity))
+                .fill(DocTokens.ColorRole.Accent.primary.opacity(Handles.gripOpacity))
                 .frame(width: size.width, height: size.height)
                 .frame(width: max(size.width, Handles.target), height: max(size.height, Handles.target))
                 .contentShape(Rectangle())
@@ -1201,7 +1202,7 @@ struct DocTableEdges: View {
                     : CGRect(x: table.minX - Handles.rowOutset.leading, y: cell.minY,
                              width: table.width + Handles.rowOutset.leading + Handles.rowOutset.trailing, height: cell.height)
                 RoundedRectangle(cornerRadius: Handles.ringRadius, style: .continuous)
-                    .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
+                    .strokeBorder(DocTokens.ColorRole.Accent.primary, lineWidth: DocTokens.Border.focus)
                     .frame(width: rect.width, height: rect.height)
                     .offset(x: rect.minX, y: rect.minY)
                     .allowsHitTesting(false)
@@ -1230,7 +1231,7 @@ struct DocTableEdgeDot: View {
     var body: some View {
         Button(action: action) {
             Circle()
-                .fill(FlooDesignTokens.ColorRole.Accent.primary)
+                .fill(DocTokens.ColorRole.Accent.primary)
                 .frame(width: Handles.dot, height: Handles.dot)
                 .scaleEffect(hovering ? Handles.dotHoverScale : 1)
                 .frame(width: Handles.target, height: Handles.target)
@@ -1238,7 +1239,7 @@ struct DocTableEdgeDot: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(FlooDesignTokens.Motion.feedbackCurve, value: hovering)
+        .animation(DocTokens.Motion.feedbackCurve, value: hovering)
         .help(label)
         .accessibilityLabel(label)
     }
@@ -1255,11 +1256,11 @@ struct DocTableCellMenu: View {
         } label: {
             Image(systemName: "ellipsis")
                 .rotationEffect(.degrees(90))
-                .font(.system(size: FlooDesignTokens.Icon.compact, weight: .semibold))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                .frame(width: FlooDesignTokens.Space.xxl, height: FlooDesignTokens.Control.compactHeight)
+                .font(.system(size: DocTokens.Icon.compact, weight: .semibold))
+                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
+                .frame(width: DocTokens.Space.xxl, height: DocTokens.Control.compactHeight)
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.sm, style: .continuous)))
+        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: DocTokens.Radius.sm, style: .continuous)))
         .accessibilityLabel("Table Actions")
         .docTableMenu(DocTableMenuTarget(key: key), controller: controller)
     }
@@ -1398,7 +1399,7 @@ enum DocScrolling {
         // later): it's going there already; a new scroll would start over from rest.
         let now = CACurrentMediaTime()
         if let going = targets.object(forKey: list), abs(going.y - target) < 0.5,
-           now - going.time < FlooDesignTokens.Motion.scrollSpring.settlingDuration { return }
+           now - going.time < DocTokens.Motion.scrollSpring.settlingDuration { return }
         targets.setObject(DocScrollTarget(y: target, time: now), forKey: list)
         if let scroll = scrollers.object(forKey: list) {
             scroll.call(target)
@@ -1408,7 +1409,7 @@ enum DocScrolling {
     }
 
     /// How a list scrolls itself: its TiledView's own scroll, in the scroll motion
-    /// (FlooDesignTokens.Motion.scrollSpring, through the app's TiledMotion).
+    /// (DocTokens.Motion.scrollSpring, through the app's TiledMotion).
     static func register(_ list: UIScrollView, scroll: @escaping @MainActor (CGFloat) -> Void) {
         scrollers.setObject(DocScroller(call: scroll), forKey: list)
     }

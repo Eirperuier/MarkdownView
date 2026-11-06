@@ -18,7 +18,7 @@ import UIKit
 import DocKit
 import FlooDesign
 
-private typealias Metrics = FlooDesignTokens.Component.SelectionToolbar
+private typealias Metrics = DocTokens.Component.SelectionToolbar
 
 /// The selected text the menu acts on (the menu reads it).
 @MainActor

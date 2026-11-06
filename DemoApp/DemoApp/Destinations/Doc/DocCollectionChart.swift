@@ -21,7 +21,7 @@ import Charts
 import DocKit
 import FlooDesign
 
-private typealias Tokens = FlooDesignTokens
+private typealias Tokens = DocTokens
 
 struct DocCollectionChart: View {
     let snapshot: DocCollectionSnapshot

@@ -17,6 +17,7 @@
 //  - the calculation row computes a column (Calculate on the pointer over it), + adds a record.
 //
 
+import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
@@ -65,27 +66,27 @@ struct DocCollectionTable: View {
                 head(widths)
                 if let groups = view.groups(of: rows, in: snapshot.database), let column = groupColumn {
                     ForEach(groups, id: \.key) { group in
-                        FlooDesignDivider()
+                        FlooDividerLine()
                         groupHead(group, column: column)
                         if !folded.contains(group.key) {
                             ForEach(Array(group.rows.enumerated()), id: \.element.id) { index, row in
-                                FlooDesignDivider()
+                                FlooDividerLine()
                                 record(row, number: index + 1, widths: widths)
                             }
                         }
                     }
                 } else {
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                        FlooDesignDivider()
+                        FlooDividerLine()
                         record(row, number: index + 1, widths: widths)
                     }
                 }
-                FlooDesignDivider()
+                FlooDividerLine()
                 foot(widths, rows: rows)
             }
             .fixedSize(horizontal: true, vertical: false)
             .overlay(RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)
-                .strokeBorder(FlooDesignTokens.Border.separator, lineWidth: FlooDesignTokens.Border.hairline))
+                .strokeBorder(DocTokens.Border.separator, lineWidth: DocTokens.Border.hairline))
             .clipShape(RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
@@ -96,8 +97,8 @@ struct DocCollectionTable: View {
     private func head(_ widths: [CGFloat]) -> some View {
         HStack(spacing: 0) {
             Image(systemName: "number")
-                .font(.system(size: FlooDesignTokens.Icon.compact))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                .font(.system(size: DocTokens.Icon.compact))
+                .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                 .frame(width: Metrics.numberWidth)
             ForEach(Array(zip(columns, widths)), id: \.0.id) { column, width in
                 separator
@@ -110,7 +111,7 @@ struct DocCollectionTable: View {
             }
         }
         .frame(height: Metrics.headHeight)
-        .background(FlooDesignTokens.ColorRole.Surface.decoration)
+        .background(DocTokens.ColorRole.Surface.decoration)
     }
 
     private var addField: some View {
@@ -118,12 +119,12 @@ struct DocCollectionTable: View {
             controller.show(.addField, in: block)
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                .frame(width: Metrics.addFieldWidth - FlooDesignTokens.Border.hairline, height: Metrics.headHeight)
+                .font(.system(size: DocTokens.Icon.compact, weight: .medium))
+                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
+                .frame(width: Metrics.addFieldWidth - DocTokens.Border.hairline, height: Metrics.headHeight)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: Rectangle()))
+        .buttonStyle(.flooContent(in: Rectangle()))
         .help(String(localized: "Add Field"))
         .accessibilityLabel(String(localized: "Add Field"))
         .flooDesignAnchoredPanel(isPresented: controller.isShowing(.addField, in: block), configuration: .init(horizontalAlignment: .trailing),
@@ -146,15 +147,15 @@ struct DocCollectionTable: View {
         } label: {
             HStack(spacing: 0) {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: FlooDesignTokens.Icon.inline, weight: .semibold))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                    .font(.system(size: DocTokens.Icon.inline, weight: .semibold))
+                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                     .rotationEffect(.degrees(isFolded ? -90 : 0))
                     .frame(width: Metrics.numberWidth)
-                HStack(spacing: FlooDesignTokens.Space.sm) {
+                HStack(spacing: DocTokens.Space.sm) {
                     DocGroupLabel(column: column, group: group)
                     Text("\(group.rows.count)")
                         .font(.system(size: 13).monospacedDigit())
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                        .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                 }
                 .padding(.horizontal, Metrics.cellInset)
                 Spacer(minLength: 0)
@@ -186,12 +187,12 @@ struct DocCollectionTable: View {
             }
             if controller.isEditable {
                 separator
-                Color.clear.frame(width: Metrics.addFieldWidth - FlooDesignTokens.Border.hairline)
+                Color.clear.frame(width: Metrics.addFieldWidth - DocTokens.Border.hairline)
             }
         }
         .frame(minHeight: Metrics.rowHeight)
         .fixedSize(horizontal: false, vertical: true)
-        .background(isPicked ? FlooDesignTokens.ColorRole.Surface.selected : .clear)
+        .background(isPicked ? DocTokens.ColorRole.Surface.selected : .clear)
         .onHover { over in
             if over { hoveredRow = row.id } else if hoveredRow == row.id { hoveredRow = nil }
         }
@@ -235,14 +236,14 @@ struct DocCollectionTable: View {
     /// The row's number; over the row (or with rows picked) the box that picks it.
     @ViewBuilder
     private func numberCell(_ row: Row, number: Int, isHovered: Bool, isPicked: Bool) -> some View {
-        let picking = controller.isEditable && (isHovered || !picked.isEmpty || !FlooDesignTokens.Platform.isPointer && isPicked)
+        let picking = controller.isEditable && (isHovered || !picked.isEmpty || !DocTokens.Platform.isPointer && isPicked)
         if picking {
             Button {
                 controller.togglePicked(row.id, in: block)
             } label: {
                 Image(systemName: isPicked ? "checkmark.square.fill" : "square")
-                    .font(.system(size: FlooDesignTokens.Icon.standard))
-                    .foregroundStyle(isPicked ? FlooDesignTokens.ColorRole.Content.primary : FlooDesignTokens.ColorRole.Content.tertiary)
+                    .font(.system(size: DocTokens.Icon.standard))
+                    .foregroundStyle(isPicked ? DocTokens.ColorRole.Content.primary : DocTokens.ColorRole.Content.tertiary)
                     .frame(width: Metrics.numberWidth, height: Metrics.rowHeight)
                     .contentShape(Rectangle())
             }
@@ -251,7 +252,7 @@ struct DocCollectionTable: View {
         } else {
             Text("\(number)")
                 .font(.system(size: 13).monospacedDigit())
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                 .frame(width: Metrics.numberWidth, height: Metrics.rowHeight)
                 .contentShape(Rectangle())
                 .onTapGesture { if controller.isEditable { controller.togglePicked(row.id, in: block) } }
@@ -265,8 +266,8 @@ struct DocCollectionTable: View {
                 controller.addRecord(to: block)
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                    .font(.system(size: DocTokens.Icon.compact, weight: .medium))
+                    .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                     .frame(width: Metrics.numberWidth, height: Metrics.rowHeight)
                     .contentShape(Rectangle())
             }
@@ -277,7 +278,7 @@ struct DocCollectionTable: View {
             if view.showsCalculations {
                 ForEach(Array(zip(columns, widths)), id: \.0.id) { column, width in
                     DocCalculationCell(snapshot: snapshot, view: view, column: column, rows: rows, controller: controller,
-                                       offers: overFoot || !FlooDesignTokens.Platform.isPointer)
+                                       offers: overFoot || !DocTokens.Platform.isPointer)
                         .padding(.horizontal, Metrics.cellInset)
                         .frame(width: width, alignment: .trailing)
                 }
@@ -289,7 +290,7 @@ struct DocCollectionTable: View {
     }
 
     private var separator: some View {
-        FlooDesignDivider(.vertical)
+        FlooDividerLine(.vertical)
     }
 }
 
@@ -339,23 +340,23 @@ private struct DocFieldHead: View {
                     .disabled(snapshot.database.columns.count < 2)
             }
         } label: {
-            HStack(spacing: FlooDesignTokens.Space.xs + 2) {
+            HStack(spacing: DocTokens.Space.xs + 2) {
                 Image(systemName: DocFieldText.symbol(column))
-                    .font(.system(size: FlooDesignTokens.Icon.compact))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                    .font(.system(size: DocTokens.Icon.compact))
+                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                 Text(column.name)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                    .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                     .lineLimit(1)
                 if let sort = view.layout.sort.first(where: { $0.column == column.id }) {
                     Image(systemName: sort.ascending ? "arrow.up" : "arrow.down")
-                        .font(.system(size: FlooDesignTokens.Icon.inline, weight: .semibold))
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                        .font(.system(size: DocTokens.Icon.inline, weight: .semibold))
+                        .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: FlooDesignTokens.Icon.inline, weight: .semibold))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                    .font(.system(size: DocTokens.Icon.inline, weight: .semibold))
+                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                     .opacity(hovering ? 1 : 0)
             }
             .padding(.horizontal, Metrics.cellInset)
@@ -364,7 +365,7 @@ private struct DocFieldHead: View {
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
-        .buttonStyle(FlooDesignPlainButtonStyle(in: Rectangle()))
+        .buttonStyle(.flooContent(in: Rectangle()))
         .onHover { hovering = $0 }
         .flooDesignAnchoredPanel(isPresented: controller.isShowing(.editField(column.id), in: block),
                                  onDismiss: { controller.close(.editField(column.id), in: block) }) {
@@ -403,8 +404,8 @@ struct DocCollectionCell: View {
             .overlay {
                 // The cell taking typing, outlined (Craft's).
                 if focused {
-                    RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs, style: .continuous)
-                        .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: Metrics.focusWidth)
+                    RoundedRectangle(cornerRadius: DocTokens.Radius.xs, style: .continuous)
+                        .strokeBorder(DocTokens.ColorRole.Accent.primary, lineWidth: Metrics.focusWidth)
                         .padding(.horizontal, compact ? -Metrics.cellInset / 2 : -Metrics.cellInset + 1)
                         .padding(.vertical, 1)
                         .allowsHitTesting(false)
@@ -423,8 +424,8 @@ struct DocCollectionCell: View {
                 controller.set(on ? nil : .checkbox(value: true), row: row.id, column: column.id, in: block)
             } label: {
                 Image(systemName: on ? "checkmark.square.fill" : "square")
-                    .font(.system(size: FlooDesignTokens.Icon.standard))
-                    .foregroundStyle(on ? FlooDesignTokens.ColorRole.Content.primary : FlooDesignTokens.ColorRole.Content.tertiary)
+                    .font(.system(size: DocTokens.Icon.standard))
+                    .foregroundStyle(on ? DocTokens.ColorRole.Content.primary : DocTokens.ColorRole.Content.tertiary)
                     .frame(maxWidth: compact ? nil : .infinity, minHeight: Metrics.rowHeight)
                     .contentShape(Rectangle())
             }
@@ -437,7 +438,7 @@ struct DocCollectionCell: View {
             } label: {
                 Text(DocFieldText.text(value, in: column))
                     .font(.system(size: 14))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.primary)
+                    .foregroundStyle(DocTokens.ColorRole.Content.primary)
                     .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight, alignment: .leading)
                     .contentShape(Rectangle())
             }
@@ -451,16 +452,16 @@ struct DocCollectionCell: View {
         default:
             // The title opens the record (Craft's arrow, over the row): over the room kept
             // for it at the title's end, so its coming and going moves nothing.
-            HStack(spacing: FlooDesignTokens.Space.sm) {
+            HStack(spacing: DocTokens.Space.sm) {
                 // A record with a page written shows it before its title (Craft's).
                 if isTitle, !compact, controller.hasPage?(row.id) == true {
                     DocRecordPageMark()
                 }
                 field
             }
-            .padding(.trailing, isTitle && !compact ? Metrics.openButton + FlooDesignTokens.Space.xs : 0)
+            .padding(.trailing, isTitle && !compact ? Metrics.openButton + DocTokens.Space.xs : 0)
             .overlay(alignment: .trailing) {
-                if isTitle, !compact, rowHovered || !FlooDesignTokens.Platform.isPointer {
+                if isTitle, !compact, rowHovered || !DocTokens.Platform.isPointer {
                     DocOpenRecordButton(snapshot: snapshot, row: row, controller: controller)
                 }
             }
@@ -474,8 +475,8 @@ struct DocCollectionCell: View {
             .font(.system(size: 14))
             // Text the field doesn't take (a word in a number, a link without a host) shows
             // faint while it's typed; it goes when the editing ends (Craft's).
-            .foregroundStyle(DocFieldText.takes(text, in: column) ? FlooDesignTokens.ColorRole.Content.primary
-                                                                 : FlooDesignTokens.ColorRole.Content.tertiary)
+            .foregroundStyle(DocFieldText.takes(text, in: column) ? DocTokens.ColorRole.Content.primary
+                                                                 : DocTokens.ColorRole.Content.tertiary)
             .multilineTextAlignment(column.type == .number && !compact ? .trailing : .leading)
             .padding(.vertical, Metrics.cellLinePadding)
             .frame(minHeight: Metrics.rowHeight)
@@ -518,7 +519,7 @@ struct DocCollectionCell: View {
         case .multiSelect(let ids)?: ids.compactMap { id in options.first { $0.id == id } }
         default: []
         }
-        let chips = HStack(spacing: FlooDesignTokens.Space.xs) {
+        let chips = HStack(spacing: DocTokens.Space.xs) {
             ForEach(chosen, id: \.id) { DocChip($0, in: options) }
             Spacer(minLength: 0)
         }
@@ -555,7 +556,7 @@ struct DocCollectionCell: View {
 enum DocCollectionWidths {
     static func head(_ column: Column) -> CGFloat {
         // The type's symbol, its gap, the name, the chevron's room, the insets.
-        width(column.name, size: 13, weight: .medium) + FlooDesignTokens.Icon.compact + 3 * FlooDesignTokens.Space.xs + 2
+        width(column.name, size: 13, weight: .medium) + DocTokens.Icon.compact + 3 * DocTokens.Space.xs + 2
             + 12 + 2 * Metrics.cellInset
     }
 
@@ -567,16 +568,16 @@ enum DocCollectionWidths {
         case (.multiSelect(let options), .multiSelect(let ids)?):
             return chips(ids.compactMap { id in options.first { $0.id == id } }) + inset
         case (.checkbox, _):
-            return FlooDesignTokens.Icon.standard + inset
+            return DocTokens.Icon.standard + inset
         default:
-            let title = isTitle ? Metrics.openButton + FlooDesignTokens.Space.xs : 0
+            let title = isTitle ? Metrics.openButton + DocTokens.Space.xs : 0
             return width(DocFieldText.text(value, in: column), size: 14) + title + inset + 2
         }
     }
 
     private static func chips(_ options: [SelectOption]) -> CGFloat {
         options.map { width($0.name, size: 13, weight: .medium) + 14 }.reduce(0, +)
-            + CGFloat(max(options.count - 1, 0)) * FlooDesignTokens.Space.xs
+            + CGFloat(max(options.count - 1, 0)) * DocTokens.Space.xs
     }
 
     static func width(_ text: String, size: CGFloat, weight: UIFont.Weight = .regular) -> CGFloat {
@@ -597,11 +598,11 @@ struct DocOpenRecordButton: View {
             controller.openRecord?(row.id, snapshot.block)
         } label: {
             Image(systemName: "arrow.right.circle")
-                .font(.system(size: FlooDesignTokens.Icon.standard))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                .font(.system(size: DocTokens.Icon.standard))
+                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                 .frame(width: Metrics.openButton, height: Metrics.openButton)
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
+        .buttonStyle(.flooContent(in: Circle()))
         .help(String(localized: "Open"))
         .accessibilityLabel(String(localized: "Open"))
     }
@@ -631,19 +632,19 @@ private struct DocCalculationCell: View {
                 Button(String(localized: "None")) { controller.setCalculation(nil, for: column.id, in: view.id, of: snapshot.block) }
             }
         } label: {
-            HStack(spacing: FlooDesignTokens.Space.xs) {
+            HStack(spacing: DocTokens.Space.xs) {
                 Spacer(minLength: 0)
                 if let calculation {
                     Text(DocCollectionMath.label(calculation))
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                        .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                     Text(DocCollectionMath.value(calculation, of: column, in: rows))
                         .font(.system(size: 14).monospacedDigit())
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                        .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                 } else {
                     Text(String(localized: "Calculate"))
                         .font(.system(size: 12))
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                        .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                         .opacity(controller.isEditable && offers ? 1 : 0)
                 }
             }

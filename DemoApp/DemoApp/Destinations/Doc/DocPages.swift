@@ -17,7 +17,6 @@
 
 import SwiftUI
 import DocKit
-import FlooDesign
 
 enum DocPageMetrics {
     /// The sheet's height and a little: the title and preview stand beside it.
@@ -29,7 +28,7 @@ enum DocPageMetrics {
     static let sheetLines: [CGFloat] = [14, 10, 12]
     static let lineHeight: CGFloat = 2
     static let lineGap: CGFloat = 3
-    static let gap = FlooDesignTokens.Space.md
+    static let gap = DocTokens.Space.md
 }
 
 /// One open page: its document, its editor, and the block in the page above that opened it.
@@ -228,11 +227,11 @@ struct DocPageRowView: View {
                 Text(page.title.isEmpty ? String(localized: "Untitled") : page.title)
                     .font(Font(DocTableCellField.bodyFont))
                     .fontWeight(.semibold)
-                    .foregroundStyle(page.title.isEmpty ? FlooDesignTokens.ColorRole.Content.tertiary : FlooDesignTokens.ColorRole.Content.primary)
+                    .foregroundStyle(page.title.isEmpty ? DocTokens.ColorRole.Content.tertiary : DocTokens.ColorRole.Content.primary)
                 if !page.preview.isEmpty {
                     Text(page.preview)
                         .font(Font(DocTableCellField.bodyFont))
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                        .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                 }
             }
             .lineLimit(1)
@@ -253,13 +252,13 @@ struct DocPageSheet: View {
         VStack(alignment: .leading, spacing: DocPageMetrics.lineGap) {
             ForEach(Array(DocPageMetrics.sheetLines.enumerated()), id: \.offset) { _, width in
                 Capsule()
-                    .fill(FlooDesignTokens.ColorRole.Content.tertiary)
+                    .fill(DocTokens.ColorRole.Content.tertiary)
                     .frame(width: width, height: DocPageMetrics.lineHeight)
             }
         }
         .padding(DocPageMetrics.sheetInset)
         .frame(width: DocPageMetrics.sheet.width, height: DocPageMetrics.sheet.height, alignment: .topLeading)
-        .background(FlooDesignTokens.ColorRole.Surface.control,
+        .background(DocTokens.ColorRole.Surface.control,
                     in: RoundedRectangle(cornerRadius: DocPageMetrics.sheetCorner, style: .continuous))
         .accessibilityHidden(true)
     }
@@ -274,10 +273,10 @@ struct DocPageTitle: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(page.title)
-                .font(FlooDesignTokens.Typography.body.font.weight(.semibold))
+                .font(DocTokens.Typography.body.font.weight(.semibold))
             let ancestors = page.ancestors
             if !ancestors.isEmpty {
-                HStack(spacing: FlooDesignTokens.Space.xxs) {
+                HStack(spacing: DocTokens.Space.xxs) {
                     ForEach(Array(ancestors.enumerated()), id: \.element.id) { index, ancestor in
                         if index > 0 {
                             Image(systemName: "chevron.right")
@@ -287,8 +286,8 @@ struct DocPageTitle: View {
                             .buttonStyle(.plain)
                     }
                 }
-                .font(FlooDesignTokens.Typography.metadata.font)
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                .font(DocTokens.Typography.metadata.font)
+                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
             }
         }
         .lineLimit(1)
