@@ -224,6 +224,14 @@ extension MarkdownStyle {
         )
     }
 
+    /// The body text style's size: what a view with no font of its own lays out at.
+    var resolvedBodyTextSize: CGFloat {
+        UIFont.preferredFont(
+            forTextStyle: .body,
+            compatibleWith: contentSizeCategory.map { UITraitCollection(preferredContentSizeCategory: $0) }
+        ).pointSize
+    }
+
     var resolvedTextColor: UIColor { textColor ?? .floo(.markdownText) }
     var resolvedLinkColor: UIColor { linkColor ?? (isQuoted ? .floo(.markdownQuoteEmphasis) : .floo(.markdownLink)) }
     var resolvedStrongColor: UIColor { strongColor ?? (isQuoted ? .floo(.markdownQuoteEmphasis) : .floo(.markdownStrong)) }

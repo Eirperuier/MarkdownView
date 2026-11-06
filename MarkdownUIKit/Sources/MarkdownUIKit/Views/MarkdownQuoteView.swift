@@ -48,6 +48,11 @@ final class MarkdownQuoteView: UIView {
 
     var textView: UITextView { host.textView }
 
+    /// Inside another block a quote is in a box of its own, which cuts a first letter's overhang.
+    func clipsTextToBounds() {
+        host.textView.clipsToBounds = true
+    }
+
     /// A quote from its source (`> …`): one level of markers off, a callout's first line out.
     func configure(source: String, style: MarkdownStyle, inlineMath: [String: String]?, displayMath: [UUID: String]? = nil) {
         let inner = Self.strippingQuoteMarkers(source)
@@ -210,6 +215,8 @@ final class MarkdownCalloutHeaderView: UIView {
         }
         let textX = (icon?.size.width ?? 0) + spacing
         let textY = markdownPixelRound(metrics.ascent - textAscent)
+        // A layout's text cuts at its own left edge: a first A's foot stops there.
+        UIGraphicsGetCurrentContext()?.clip(to: CGRect(x: textX, y: -bounds.height, width: bounds.width, height: bounds.height * 3))
         title?.draw(with: CGRect(x: textX, y: textY, width: max(0, bounds.width - Self.overhang * 2 - textX), height: bounds.height), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
     }
 }

@@ -22,7 +22,7 @@ public extension FlooColorRole {
     /// Table of contents, a code block's language, what's quieter than the text.
     static let markdownSecondaryText = FlooColorRole("markdown.secondaryText") { $0[.secondaryLabel] }
     /// Bullets and other marks quieter than the text beside them.
-    static let markdownTertiaryText = FlooColorRole("markdown.tertiaryText") { _ in .tertiaryLabel }
+    static let markdownTertiaryText = FlooColorRole("markdown.tertiaryText") { $0.sets(.placeholder) ? $0[.placeholder] : .tertiaryLabel }
     /// Links.
     static let markdownLink = FlooColorRole("markdown.link") { $0[.accent] }
     /// Bold text.
@@ -36,8 +36,8 @@ public extension FlooColorRole {
     static let markdownMath = FlooColorRole("markdown.math") { $0[.markdownText] }
 
     // Inline code and highlights
-    /// Inline code's text.
-    static let markdownInlineCode = FlooColorRole("markdown.inlineCode") { _ in .systemGray }
+    /// Inline code's text: grey, or a theme's secondary text.
+    static let markdownInlineCode = FlooColorRole("markdown.inlineCode") { $0.sets(.secondaryLabel) ? $0[.secondaryLabel] : .systemGray }
     /// The ground behind inline code.
     static let markdownInlineCodeFill = FlooColorRole("markdown.inlineCodeFill") { $0[.markdownInlineCode].markdownOpacity(0.1) }
     /// The ground behind `==highlighted==` text: the document palette's yellow.
@@ -73,7 +73,7 @@ public extension FlooColorRole {
 
     // Chips
     /// A chip's capsule.
-    static let markdownChipFill = FlooColorRole("markdown.chipFill") { _ in UIColor.systemGray.markdownOpacity(0.1) }
+    static let markdownChipFill = FlooColorRole("markdown.chipFill") { $0[.markdownInlineCode].markdownOpacity(0.1) }
     /// A chip's label and placeholder icon.
     static let markdownChipText = FlooColorRole("markdown.chipText") { $0[.markdownSecondaryText] }
     /// A chip's "+2".
@@ -81,7 +81,7 @@ public extension FlooColorRole {
 
     // Bubbles
     /// A topic bubble's capsule.
-    static let markdownBubbleFill = FlooColorRole("markdown.bubbleFill") { _ in UIColor.systemGray.markdownOpacity(0.12) }
+    static let markdownBubbleFill = FlooColorRole("markdown.bubbleFill") { $0[.markdownInlineCode].markdownOpacity(0.12) }
     /// A topic bubble's icon.
     static let markdownBubbleIcon = FlooColorRole("markdown.bubbleIcon") { $0[.markdownSecondaryText] }
 

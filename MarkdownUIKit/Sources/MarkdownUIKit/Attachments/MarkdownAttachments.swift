@@ -112,10 +112,20 @@ class MarkdownGlyphView: UIView {
 
     var image: UIImage? { didSet { applyImage() } }
     var color: UIColor? { didSet { applyImage() } }
+    /// A symbol from `MarkdownSymbols`, its image, frame and outline.
+    func show(_ symbol: MarkdownSymbols.Scaled) {
+        image = symbol.image
+        imageFrame = symbol.frame
+        imageOutline = symbol.outline.map { ($0, symbol.outlineScale) }
+    }
     /// Where the image goes, in this view.
     var imageFrame: CGRect = .zero { didSet { setNeedsLayout() } }
     /// Drawn as a vector at `imageFrame` exactly, not as a view: for a symbol scaled from a
     /// bigger size.
+    /// A disc's symbol goes to the next pixel down, not the nearest: measured from a list's bullets.
+    var vectorSnapsDown = false
+    /// Draws this outline instead of `image`, from the corner of `imageFrame`.
+    var imageOutline: (path: CGPath, scale: CGFloat)?
     var drawsImageAsVector = false {
         didSet {
             imageView.isHidden = drawsImageAsVector
@@ -148,6 +158,7 @@ class MarkdownGlyphView: UIView {
         }
     }
 
+    private var vectorShift = CGPoint.zero
     private let canvas = Canvas()
     private let imageView = UIImageView()
     private let vector = VectorCanvas()
@@ -201,11 +212,11 @@ class MarkdownGlyphView: UIView {
         snapped.origin.y = markdownPixelRound(frame.minY + imageFrame.minY) - frame.minY
         imageView.frame = snapped
         if drawsImageAsVector {
-            // On the pixel grid in the window, big enough for what's drawn, which goes where it
-            // falls in it.
-            let x0 = markdownPixelFloor(frame.minX + imageFrame.minX) - frame.minX
-            let y0 = markdownPixelFloor(frame.minY + imageFrame.minY) - frame.minY
-            let box = CGRect(x: x0, y: y0, width: (imageFrame.maxX - x0 + 1).rounded(.up), height: (imageFrame.maxY - y0 + 1).rounded(.up))
+            // On the pixel grid in the window, as a layout's layer goes, to the nearest pixel. What's
+            // inside it keeps its own place.
+            let shift = CGPoint(x: markdownPixelRound(frame.minX) - frame.minX, y: (vectorSnapsDown ? markdownPixelCeil(frame.minY) : markdownPixelRound(frame.minY)) - frame.minY)
+            let box = bounds.insetBy(dx: -Self.canvasMargin, dy: -Self.canvasMargin).offsetBy(dx: shift.x, dy: shift.y)
+            vectorShift = shift
             if vector.frame != box {
                 vector.frame = box
                 vector.setNeedsDisplay()
@@ -214,11 +225,18 @@ class MarkdownGlyphView: UIView {
     }
 
     fileprivate func drawVector(origin: CGPoint) {
+        let rect = imageFrame.offsetBy(dx: vectorShift.x - origin.x, dy: vectorShift.y - origin.y)
+        if let imageOutline, let context = UIGraphicsGetCurrentContext() {
+            context.saveGState()
+            context.translateBy(x: rect.minX, y: rect.minY)
+            context.scaleBy(x: imageOutline.scale, y: imageOutline.scale)
+            (color ?? .label).setFill()
+            context.addPath(imageOutline.path)
+            context.fillPath()
+            context.restoreGState()
+            return
+        }
         guard let image else { return }
-        var rect = imageFrame.offsetBy(dx: -origin.x, dy: -origin.y)
-        // A layout's image starts on the pixel grid: measured, the left of its place and below.
-        rect.origin.x = markdownPixelFloor(rect.minX)
-        rect.origin.y = markdownPixelCeil(rect.minY)
         let drawn = if let color, image.isSymbolImage || image.renderingMode == .alwaysTemplate {
             image.withTintColor(color, renderingMode: .alwaysOriginal)
         } else {
@@ -255,87 +273,99 @@ enum MarkdownSymbols {
         UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight))
     }
 
-    /// Where to draw `image` so it fills `box` as a resizable image fitted to it. A symbol scales
-    /// evenly until what it draws, not its whole size, reaches 96.5% of the box (measured from a
-    /// layout's seal.fill and globe at 11 and 14), and that's what's centred.
-    static func fit(_ image: UIImage, in box: CGRect) -> CGRect {
-        guard image.size.width > 0, image.size.height > 0 else { return box }
-        let drawn = image.isSymbolImage ? glyphBounds(of: image) : CGRect(origin: .zero, size: image.size)
-        guard drawn.width > 0, drawn.height > 0 else { return box }
-        let fill: CGFloat = image.isSymbolImage ? 0.965 : 1
-        let scale = min(box.width / drawn.width, box.height / drawn.height) * fill
-        return CGRect(
-            x: box.midX - drawn.midX * scale,
-            y: box.midY - drawn.midY * scale,
-            width: image.size.width * scale,
-            height: image.size.height * scale
-        )
+    /// A symbol as a layout draws one, by frame or at a size that isn't one it was hinted for:
+    /// the glyph's own outline, its alignment rect on the box. Without the outline, a big image
+    /// scaled, within a pixel of it.
+    struct Scaled {
+        let image: UIImage
+        /// Where `image` goes, or, with `outline`, the outline's corner and size.
+        let frame: CGRect
+        var outline: CGPath?
+        var outlineScale: CGFloat = 1
     }
 
-    /// A symbol's image at a size big enough to scale, and the frame that draws it as it'd be at
-    /// `pointSize`, centred in `box`. A symbol asked for at a small size comes hinted to the
-    /// pixel grid and up to 4% too big; a layout's scales evenly with the size.
-    static func scaled(_ name: String, pointSize: CGFloat, weight: UIImage.SymbolWeight = .regular, in box: CGRect) -> (image: UIImage, frame: CGRect)? {
-        let reference: CGFloat = 64
-        guard let image = image(name, pointSize: reference, weight: weight) else { return nil }
-        let glyph = glyphBounds(of: image)
-        let scale = pointSize / reference
-        let frame = CGRect(
-            x: box.midX - glyph.midX * scale,
-            y: box.midY - glyph.midY * scale,
-            width: image.size.width * scale,
-            height: image.size.height * scale
-        )
-        return (image, frame)
+    /// Where a resizable, scaled-to-fit symbol goes in `box`. A layout fits the rect the symbol
+    /// aligns by at the text's size (`textSize`), which is rounded to half points and is a
+    /// little more than what it draws: how much of the box it fills depends on the symbol and
+    /// on that size. A non-symbol image just fits.
+    static func fit(_ image: UIImage, in box: CGRect, textSize: CGFloat) -> Scaled {
+        guard image.isSymbolImage,
+              let atText = image.applyingSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: textSize)),
+              let rect = glyph(of: atText)?.alignmentRect ?? fallbackRect(of: atText), rect.width > 0, rect.height > 0
+        else {
+            guard image.size.width > 0, image.size.height > 0 else { return Scaled(image: image, frame: box) }
+            let scale = min(box.width / image.size.width, box.height / image.size.height)
+            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            return Scaled(image: image, frame: CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height))
+        }
+        let fitted = min(box.width / rect.width, box.height / rect.height)
+        let target = CGPoint(x: box.midX - rect.width * fitted / 2, y: box.midY - rect.height * fitted / 2)
+        return place(atText, at: target, scale: fitted, referenceOf: image, pointSize: textSize)
     }
+
+    /// A symbol at `pointSize`, unscaled, its layout size centred in `box`. A layout keeps that
+    /// rect's corner on the pixel grid, in its host.
+    static func scaled(_ name: String, pointSize: CGFloat, weight: UIImage.SymbolWeight = .regular, in box: CGRect) -> Scaled? {
+        guard let atSize = image(name, pointSize: pointSize, weight: weight),
+              let rect = glyph(of: atSize)?.alignmentRect ?? fallbackRect(of: atSize)
+        else { return nil }
+        let corner = CGPoint(x: markdownPixelRound(box.midX - atSize.size.width / 2), y: markdownPixelRound(box.midY - atSize.size.height / 2))
+        return place(atSize, at: CGPoint(x: corner.x + rect.minX, y: corner.y + rect.minY), scale: 1, referenceOf: atSize, pointSize: pointSize)
+    }
+
+    /// `symbol` scaled, with the corner of the rect it aligns by at `target`.
+    private static func place(_ symbol: UIImage, at target: CGPoint, scale: CGFloat, referenceOf source: UIImage, pointSize: CGFloat) -> Scaled {
+        if let glyph = glyph(of: symbol), let outline = glyph.outline {
+            return Scaled(
+                image: symbol,
+                frame: CGRect(origin: target, size: CGSize(width: symbol.size.width * scale, height: symbol.size.height * scale)),
+                outline: outline,
+                outlineScale: scale / symbol.scale
+            )
+        }
+        let reference = source.applyingSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: referenceSize)) ?? symbol
+        let unit = scale * pointSize / referenceSize
+        let corner = fallbackRect(of: reference)?.origin ?? .zero
+        return Scaled(image: reference, frame: CGRect(
+            x: target.x - corner.x * unit,
+            y: target.y - corner.y * unit,
+            width: reference.size.width * unit,
+            height: reference.size.height * unit
+        ))
+    }
+
+    private static let referenceSize: CGFloat = 64
 
     /// A symbol's size in a layout: up to a half point.
     static func laidOutSize(_ image: UIImage) -> CGSize {
         CGSize(width: markdownPixelCeil(image.size.width), height: markdownPixelCeil(image.size.height))
     }
 
-    private static var glyphBoundsCache: [String: CGRect] = [:]
+    /// A symbol has a point each side at the sizes text has, when the glyph doesn't say.
+    private static func fallbackRect(of image: UIImage) -> CGRect? {
+        image.isSymbolImage ? CGRect(origin: .zero, size: image.size).insetBy(dx: 1, dy: 1) : nil
+    }
 
-    /// What a symbol really draws, in its image's coordinates. UIImage doesn't say, so it's
-    /// drawn once and looked at. An image's description holds its symbol and configuration.
-    private static func glyphBounds(of image: UIImage) -> CGRect {
-        let key = image.description
-        if let cached = glyphBoundsCache[key] { return cached }
-        let scale: CGFloat = 4
-        let width = Int((image.size.width * scale).rounded(.up))
-        let height = Int((image.size.height * scale).rounded(.up))
-        var result = CGRect(origin: .zero, size: image.size)
-        if width > 0, height > 0, let context = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
-            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue
-        ) {
-            context.translateBy(x: 0, y: CGFloat(height))
-            context.scaleBy(x: scale, y: -scale)
-            UIGraphicsPushContext(context)
-            image.draw(at: .zero)
-            UIGraphicsPopContext()
-            if let data = context.data?.assumingMemoryBound(to: UInt8.self) {
-                var minX = width, minY = height, maxX = -1, maxY = -1
-                for y in 0..<height {
-                    for x in 0..<width where data[y * width + x] > 127 {
-                        minX = min(minX, x)
-                        maxX = max(maxX, x)
-                        minY = min(minY, y)
-                        maxY = max(maxY, y)
-                    }
-                }
-                if maxX >= 0 {
-                    result = CGRect(
-                        x: CGFloat(minX) / scale,
-                        y: CGFloat(minY) / scale,
-                        width: CGFloat(maxX - minX + 1) / scale,
-                        height: CGFloat(maxY - minY + 1) / scale
-                    )
-                }
-            }
-        }
-        glyphBoundsCache[key] = result
-        return result
+    private struct Glyph {
+        let alignmentRect: CGRect
+        let outline: CGPath?
+    }
+
+    /// What a layout reads and UIImage doesn't say: its `alignmentRectInsets` aren't this rect.
+    /// Private and read with care: nil where it isn't there. UI only, nothing leaves the process.
+    private static func glyph(of image: UIImage) -> Glyph? {
+        let content = "content", vectorGlyph = "vectorGlyph", alignmentRect = "alignmentRect", path = NSSelectorFromString("CGPath")
+        guard image.isSymbolImage, image.responds(to: NSSelectorFromString(content)),
+              let holder = image.value(forKey: content) as? NSObject,
+              holder.responds(to: NSSelectorFromString(vectorGlyph)),
+              let glyph = holder.value(forKey: vectorGlyph) as? NSObject,
+              glyph.responds(to: NSSelectorFromString(alignmentRect)),
+              let rect = (glyph.value(forKey: alignmentRect) as? NSValue)?.cgRectValue
+        else { return nil }
+        guard glyph.responds(to: path) else { return Glyph(alignmentRect: rect, outline: nil) }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Unmanaged<CGPath>?
+        let outline = unsafeBitCast(glyph.method(for: path), to: Getter.self)(glyph, path)?.takeUnretainedValue()
+        return Glyph(alignmentRect: rect, outline: outline)
     }
 }
 
@@ -368,9 +398,9 @@ final class MarkdownListSymbolAttachment: MarkdownViewAttachment {
         let side = markdownPixelCeil(diameter)
         let box = CGRect(x: 0, y: 0, width: side, height: side)
         if let symbol = MarkdownSymbols.scaled(systemName, pointSize: diameter * 0.52, weight: .semibold, in: box) {
-            view.image = symbol.image
-            view.imageFrame = symbol.frame
+            view.show(symbol)
             view.drawsImageAsVector = true
+            view.vectorSnapsDown = true
         }
         // It copies as a standard bullet.
         super.init(id: id, view: view, size: box.size, replacement: "- ")
@@ -414,18 +444,18 @@ final class MarkdownSiteIconAttachment: MarkdownViewAttachment {
         let height = max(font.ascender - font.descender, side)
         let box = CGRect(x: room, y: (height - side) / 2, width: side, height: side)
         let view = MarkdownGlyphView()
+        let textSize = style.resolvedBodyTextSize
         if let icon = style.icons?.image(host) {
-            view.image = icon
+            view.show(MarkdownSymbols.fit(icon, in: box, textSize: textSize))
             view.color = .floo(.markdownText)
-            view.imageFrame = MarkdownSymbols.fit(icon, in: box)
             view.drawsImageAsVector = icon.isSymbolImage
         } else {
             style.icons?.prefetch?(host)
-            let globe = MarkdownSymbols.image("globe", pointSize: side)
-            view.image = globe
-            view.color = color
             let inset = side / 16
-            view.imageFrame = globe.map { MarkdownSymbols.fit($0, in: box.insetBy(dx: inset, dy: inset)) } ?? box
+            if let globe = MarkdownSymbols.image("globe", pointSize: side).map({ MarkdownSymbols.fit($0, in: box.insetBy(dx: inset, dy: inset), textSize: textSize) }) {
+                view.show(globe)
+            }
+            view.color = color
             view.drawsImageAsVector = true
         }
         if let open = style.openURL { view.onTap = { open(url) } }
@@ -481,19 +511,24 @@ final class MarkdownChipAttachment: MarkdownViewAttachment {
         } else {
             key = ""
         }
-        let iconBox = CGRect(x: padding, y: (height - iconSide) / 2, width: iconSide, height: iconSide)
+        // The row is on the pixel grid in the capsule, the icon centred in the row as it falls.
+        let rowHeight = max(iconSide, textSize.height, moreSize.height)
+        let iconBox = CGRect(x: padding, y: markdownPixelRound((height - rowHeight) / 2) + (rowHeight - iconSide) / 2, width: iconSide, height: iconSide)
+        let bodySize = style.resolvedBodyTextSize
         if let icon = style.icons?.image(key) {
-            view.image = icon
+            view.show(MarkdownSymbols.fit(icon, in: iconBox, textSize: bodySize))
             view.color = .floo(.markdownText)
-            view.imageFrame = MarkdownSymbols.fit(icon, in: iconBox)
             view.imageCornerRadius = 3
             view.drawsImageAsVector = icon.isSymbolImage
         } else {
             style.icons?.prefetch?(key)
             let image = style.icons?.placeholder?() ?? MarkdownSymbols.image("globe", pointSize: iconSide, weight: .medium)
-            view.image = image
+            if let fitted = image.map({ MarkdownSymbols.fit($0, in: iconBox, textSize: bodySize) }) {
+                view.show(fitted)
+            } else {
+                view.imageFrame = iconBox
+            }
             view.color = .floo(.markdownChipText)
-            view.imageFrame = image.map { MarkdownSymbols.fit($0, in: iconBox) } ?? iconBox
             view.drawsImageAsVector = image?.isSymbolImage ?? false
         }
         view.capsuleColor = .floo(.markdownChipFill)
@@ -526,8 +561,7 @@ final class MarkdownBubbleAttachment: MarkdownViewAttachment {
         view.capsuleFrame = CGRect(x: 3, y: 0, width: capsule.width, height: capsule.height)
         let inner = CGRect(x: 3 + 5, y: 2.5, width: imageSize.width, height: imageSize.height)
         if let symbol = MarkdownSymbols.scaled("ellipsis.bubble", pointSize: size * 0.72, in: inner) {
-            view.image = symbol.image
-            view.imageFrame = symbol.frame
+            view.show(symbol)
             view.drawsImageAsVector = true
         }
         if let url, let open = style.openURL { view.onTap = { open(url) } }
@@ -547,6 +581,7 @@ final class MarkdownNestedQuoteAttachment: RichTextAttachment {
     @MainActor
     init(id: AnyHashable, quote: BlockQuote, style: MarkdownStyle) {
         let view = MarkdownQuoteView()
+        view.clipsTextToBounds()
         let body = quote.callout?.body ?? quote
         let inner = Document(body.children.compactMap { $0 as? BlockMarkup })
         // Inside another block the quote's serif font reaches runs with no font of their own. At
