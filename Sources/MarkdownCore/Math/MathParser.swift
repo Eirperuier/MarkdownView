@@ -91,7 +91,7 @@ extension MathParser {
         public var range: Range<String.Index>
     }
 
-    package static func standaloneDisplayMath(
+    public static func standaloneDisplayMath(
         in text: String,
         unescapingCommonMarkEscapes: Bool = false
     ) -> String? {

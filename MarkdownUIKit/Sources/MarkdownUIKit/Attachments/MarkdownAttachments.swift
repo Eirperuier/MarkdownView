@@ -52,26 +52,6 @@ final class MarkdownEmptyAttachment: MarkdownViewAttachment {
     }
 }
 
-/// Inline maths until LaTeXCore draws it: the source's width at the text's size, in a box the
-/// height of the text's line, so lines around keep their geometry. Copies as `$…$`, so pasting
-/// into an input or an editor brings the formula back.
-final class MarkdownMathSeamAttachment: MarkdownViewAttachment {
-    @MainActor
-    init(id: AnyHashable, latex: String, font: UIFont) {
-        let size = CGSize(
-            width: ceil((latex as NSString).size(withAttributes: [.font: font]).width),
-            height: font.ascender - font.descender
-        )
-        let view = UIView()
-        view.isUserInteractionEnabled = false
-        super.init(id: id, view: view, size: size, replacement: "$\(latex)$")
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
 /// A flat colour in a layer, with corners. Its colour is dynamic, the layer's is resolved: it's
 /// resolved again whenever a trait that colour reads changes. In a layer so it composites as a
 /// shape does, with fractional edges as they fall.

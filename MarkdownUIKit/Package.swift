@@ -16,6 +16,7 @@ let package = Package(
         // MarkdownView's fork of it: a visitor reads its nodes.
         .package(url: "https://github.com/Eirperuier/swift-markdown.git", revision: "daac37a4170ddb163eb2db53f97d0cf1ee742c18"),
         .package(path: "../../markdown-uikit-deps/floo-RichText"),
+        .package(path: "../../markdown-uikit-deps/floo-LaTeXSwiftUI"),
         .package(path: "../../floo-uikit"),
     ],
     targets: [
@@ -25,6 +26,7 @@ let package = Package(
                 .product(name: "MarkdownCore", package: "MarkdownView"),
                 .product(name: "Markdown", package: "swift-markdown"),
                 .product(name: "RichTextCore", package: "floo-RichText"),
+                .product(name: "LaTeXCore", package: "floo-LaTeXSwiftUI"),
                 .product(name: "FlooUIKit", package: "floo-uikit"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]

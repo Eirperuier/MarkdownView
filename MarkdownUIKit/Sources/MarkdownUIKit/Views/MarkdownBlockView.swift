@@ -8,7 +8,7 @@
 //
 
 import Markdown
-import MarkdownCore
+@_spi(MarkdownMath) import MarkdownCore
 import RichTextCore
 import UIKit
 
@@ -20,12 +20,16 @@ public enum MarkdownPendingBlock: Equatable, Sendable {
 /// One `MarkdownStreamBlock`, in UIKit.
 @MainActor
 public final class MarkdownBlockView: UIView {
+    /// The block's height changed by itself: a formula came in late.
+    public var onHeightChange: (() -> Void)?
+
     private enum Layout {
         case empty
         /// A leading indent (a nested item's 20 pt a level) and the text.
         case text(MarkdownTextHost, leading: CGFloat)
         case quote(MarkdownQuoteView)
         case footnotes([MarkdownTextHost])
+        case math(MarkdownDisplayMathView)
         case pending(MarkdownPendingBlock)
     }
 
@@ -44,7 +48,7 @@ public final class MarkdownBlockView: UIView {
     /// The text views inside, for a host's selection and hooks.
     public var textViews: [UITextView] {
         switch layout {
-        case .empty, .pending: []
+        case .empty, .pending, .math: []
         case .text(let host, _): [host.textView]
         case .quote(let quote): [quote.textView]
         case .footnotes(let hosts): hosts.map(\.textView)
@@ -102,6 +106,7 @@ public final class MarkdownBlockView: UIView {
         case .text(let host, _): host.release()
         case .quote(let quote): quote.removeFromSuperview()
         case .footnotes(let hosts): hosts.forEach { $0.release() }
+        case .math(let view): view.removeFromSuperview()
         }
         layout = .empty
         cachedHeight = nil
@@ -127,7 +132,7 @@ public final class MarkdownBlockView: UIView {
         switch descriptor.kind {
         case .blockQuote:
             let quote = MarkdownQuoteView()
-            quote.configure(source: source, style: style, inlineMath: block.inlineMathStorage)
+            quote.configure(source: source, style: style, inlineMath: block.inlineMathStorage, displayMath: block.displayMathStorage)
             addSubview(quote)
             layout = .quote(quote)
         case .paragraph:
@@ -138,18 +143,30 @@ public final class MarkdownBlockView: UIView {
             } else if Self.isOnlyImages(source), style.inlineImage == nil {
                 layout = .pending(.image)
             } else {
-                showText(source, depth: depth, style: style, inlineMath: block.inlineMathStorage)
+                showText(source, depth: depth, style: style, block: block)
             }
         case .heading, .orderedList, .unorderedList:
-            showText(Self.textBeforeFence(source, in: descriptor), depth: depth, style: style, inlineMath: block.inlineMathStorage)
+            showText(Self.textBeforeFence(source, in: descriptor), depth: depth, style: style, block: block)
         case .blockDirective(let name) where !style.registeredDirectives.contains(name) && name != MarkdownTree.mathAttribute:
             // A directive nothing renders shows its content as markdown.
-            showText(source, depth: 0, style: style, inlineMath: block.inlineMathStorage)
-        case .blockDirective(let name):
-            layout = .pending(name == MarkdownTree.mathAttribute ? .displayMath : .directive)
+            showText(source, depth: 0, style: style, block: block)
+        case .blockDirective(let name) where name == MarkdownTree.mathAttribute:
+            // `@math(uuid:…)`: what the splitter took out.
+            if let latex = Self.directiveFormula(source, in: block.displayMathStorage) {
+                showMath(latex, style: style)
+            } else {
+                layout = .pending(.displayMath)
+            }
+        case .blockDirective:
+            layout = .pending(.directive)
         case .codeBlock: layout = .pending(.code)
         case .table: layout = .pending(.table)
-        case .mathBlock: layout = .pending(.displayMath)
+        case .mathBlock:
+            if let latex = MathParser.standaloneDisplayMath(in: source, unescapingCommonMarkEscapes: true) {
+                showMath(latex, style: style)
+            } else {
+                layout = .pending(.displayMath)
+            }
         case .thematicBreak: layout = .pending(.rule)
         case .htmlBlock: layout = .pending(.html)
         case .unknown: layout = .pending(.other)
@@ -163,7 +180,7 @@ public final class MarkdownBlockView: UIView {
         let style = resolved(given)
         self.style = given
         semanticContentAttribute = style.layoutDirection == .rightToLeft ? .forceRightToLeft : .unspecified
-        showText(markdown, depth: 0, style: style, inlineMath: nil)
+        showText(markdown, depth: 0, style: style, block: nil)
     }
 
     private func applyAsQuote(markdown: String, style given: MarkdownStyle) {
@@ -177,8 +194,27 @@ public final class MarkdownBlockView: UIView {
         setNeedsLayout()
     }
 
-    private func showText(_ source: String, depth: Int, style: MarkdownStyle, inlineMath: [String: String]?) {
-        let text = MarkdownTextBuilder.build(markdown: source, style: style, listDepthOffset: depth, inlineMath: inlineMath)
+    private func showMath(_ latex: String, style: MarkdownStyle) {
+        let view = MarkdownDisplayMathView()
+        view.onHeightChange = { [weak self] in
+            self?.cachedHeight = nil
+            self?.setNeedsLayout()
+            self?.onHeightChange?()
+        }
+        view.configure(latex: latex, style: style)
+        addSubview(view)
+        layout = .math(view)
+    }
+
+    private static func directiveFormula(_ source: String, in storage: [UUID: String]?) -> String? {
+        guard let storage, let start = source.range(of: "uuid:") else { return nil }
+        let rest = source[start.upperBound...]
+        let value = rest.prefix { $0 != ")" }.trimmingCharacters(in: .whitespaces)
+        return UUID(uuidString: value).flatMap { storage[$0] }
+    }
+
+    private func showText(_ source: String, depth: Int, style: MarkdownStyle, block: MarkdownStreamBlock?) {
+        let text = MarkdownTextBuilder.build(markdown: source, style: style, listDepthOffset: depth, inlineMath: block?.inlineMathStorage, displayMath: block?.displayMathStorage)
         let host = MarkdownTextHost()
         if style.addsEdgeInsets {
             host.insets = UIEdgeInsets(top: text.topEdgeInset, left: 0, bottom: text.bottomEdgeInset, right: 0)
@@ -288,6 +324,8 @@ public final class MarkdownBlockView: UIView {
             height = host.height(forWidth: width - leading)
         case .quote(let quote):
             height = quote.height(forWidth: width)
+        case .math(let view):
+            height = view.height(forWidth: width)
         case .footnotes(let hosts):
             let lines = hosts.reduce(0) { $0 + $1.height(forWidth: width) }
             height = lines + CGFloat(max(0, hosts.count - 1)) * Self.footnoteSpacing + Self.footnotePadding * 2
@@ -313,6 +351,8 @@ public final class MarkdownBlockView: UIView {
             host.layout(in: rect, isRightToLeft: isRTL)
         case .quote(let quote):
             quote.frame = bounds
+        case .math(let view):
+            view.frame = bounds
         case .footnotes(let hosts):
             var y = Self.footnotePadding
             for host in hosts {

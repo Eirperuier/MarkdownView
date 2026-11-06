@@ -1,22 +1,6 @@
 {
-  "originHash" : "53e06d44c928ac6d09d2661e1570ebb89052b14c5dc8b8eff9dd4714539fd642",
+  "originHash" : "94556cd0afd0fe97d9d564241ce0f717c049ba3de64afe6317806c8e8faaaf70",
   "pins" : [
-    {
-      "identity" : "floo-latexswiftui",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/techx-academy/floo-LaTeXSwiftUI.git",
-      "state" : {
-        "revision" : "6245f306b9aced861a66d4b2e7441cb285ae7d18"
-      }
-    },
-    {
-      "identity" : "floo-swiftdraw",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/techx-academy/floo-SwiftDraw.git",
-      "state" : {
-        "revision" : "bf2f0af78ad9fdee9f577bf1cf5db6586a136430"
-      }
-    },
     {
       "identity" : "grdb.swift",
       "kind" : "remoteSourceControl",

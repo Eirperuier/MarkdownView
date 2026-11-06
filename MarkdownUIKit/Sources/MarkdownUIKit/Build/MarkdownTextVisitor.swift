@@ -37,6 +37,8 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     let bodyFont: UIFont
     /// Inline maths' LaTeX by placeholder id (from preprocessing).
     let inlineMathStorage: [String: String]
+    /// Formulas on their own, by the id in their directive.
+    let displayMathStorage: [UUID: String]
     /// `^[…]` placeholders by index (they match `style.footnotes.inlineNotes` in order).
     let inlineFootnoteTokens: [Int: MarkdownFootnoteSyntax.InlineToken]
     /// Added to list depth: a list item re-parsed alone has depth 0, so • / ◦ need it back.
@@ -55,6 +57,7 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
         style: MarkdownStyle,
         bodyFont: UIFont,
         inlineMathStorage: [String: String],
+        displayMathStorage: [UUID: String],
         inlineFootnoteTokens: [Int: MarkdownFootnoteSyntax.InlineToken] = [:],
         listDepthOffset: Int = 0,
         plainOffsetBase: Int = 0
@@ -62,6 +65,7 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
         self.style = style
         self.bodyFont = bodyFont
         self.inlineMathStorage = inlineMathStorage
+        self.displayMathStorage = displayMathStorage
         self.inlineFootnoteTokens = inlineFootnoteTokens
         self.listDepthOffset = listDepthOffset
         // A fragment's base (a table cell's): anchors and the map become absolute.
@@ -637,6 +641,11 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
         if !style.registeredDirectives.contains(blockDirective.name), blockDirective.name != MarkdownTree.mathAttribute {
             return descendInto(blockDirective)
         }
+        if blockDirective.name == MarkdownTree.mathAttribute, style.nestedBlock == nil,
+           let value = blockDirective.argumentText.parseNameValueArguments().first?.value,
+           let id = UUID(uuidString: value), let latex = displayMathStorage[id] {
+            return attachmentBlock(blockDirective, attachment: MarkdownDisplayMathAttachment(id: nextAttachmentID(), latex: latex, style: style))
+        }
         return blockSeam(blockDirective)
     }
 
@@ -928,7 +937,7 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     }
 
     private mutating func mathAttachment(latex: String) -> RichTextAttachment {
-        style.inlineMath?(latex, bodyFont) ?? MarkdownMathSeamAttachment(id: nextAttachmentID(), latex: latex, font: bodyFont)
+        style.inlineMath?(latex, bodyFont) ?? MarkdownInlineMathAttachment(id: nextAttachmentID(), latex: latex, style: style)
     }
 
     private func firstInlineMath(in text: String, range: Range<String.Index>) -> (range: Range<String.Index>, latex: String)? {

@@ -49,10 +49,10 @@ final class MarkdownQuoteView: UIView {
     var textView: UITextView { host.textView }
 
     /// A quote from its source (`> …`): one level of markers off, a callout's first line out.
-    func configure(source: String, style: MarkdownStyle, inlineMath: [String: String]?) {
+    func configure(source: String, style: MarkdownStyle, inlineMath: [String: String]?, displayMath: [UUID: String]? = nil) {
         let inner = Self.strippingQuoteMarkers(source)
         let split = MarkdownCallout.split(innerMarkdown: inner)
-        let text = MarkdownTextBuilder.build(markdown: split?.body ?? inner, style: style.quoted, inlineMath: inlineMath)
+        let text = MarkdownTextBuilder.build(markdown: split?.body ?? inner, style: style.quoted, inlineMath: inlineMath, displayMath: displayMath)
         apply(text, callout: split?.callout, style: style)
     }
 

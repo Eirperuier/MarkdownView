@@ -32,6 +32,9 @@ public extension FlooColorRole {
     /// Footnote definitions.
     static let markdownFootnoteText = FlooColorRole("markdown.footnoteText") { $0[.markdownSecondaryText] }
 
+    /// Formulas: the glyphs a formula names no colour for.
+    static let markdownMath = FlooColorRole("markdown.math") { $0[.markdownText] }
+
     // Inline code and highlights
     /// Inline code's text.
     static let markdownInlineCode = FlooColorRole("markdown.inlineCode") { _ in .systemGray }

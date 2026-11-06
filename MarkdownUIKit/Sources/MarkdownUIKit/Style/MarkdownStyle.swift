@@ -138,6 +138,14 @@ public struct MarkdownStyle {
     /// its own line, in a line as tall as the body's.
     var roomBelowLines: CGFloat?
 
+    /// The text style whose x-height sets an inline formula's size.
+    public var inlineMathTextStyle = UIFont.TextStyle.body
+    /// The same for a formula on its own, and the font of the lines around it.
+    public var displayMathTextStyle = UIFont.TextStyle.body
+    /// Draws a formula on its own at once. False: it comes in late unless it's cached, in the
+    /// room set aside for it.
+    public var rendersDisplayMathSynchronously = false
+
     // Layout
     /// Between a paragraph's lines.
     public var lineSpacing: CGFloat = 0
@@ -186,7 +194,7 @@ public struct MarkdownStyle {
     public var openURL: (@MainActor (URL) -> Void)?
 
     // Seams for what isn't drawn here yet
-    /// Draws inline maths. Nil keeps the line's geometry with an empty box the width of the source.
+    /// Draws inline maths in place of LaTeXCore.
     public var inlineMath: (@MainActor (_ latex: String, _ font: UIFont) -> RichTextAttachment)?
     /// Draws an inline image. Nil keeps no room.
     public var inlineImage: (@MainActor (_ image: Markdown.Image, _ style: MarkdownStyle) -> RichTextAttachment?)?

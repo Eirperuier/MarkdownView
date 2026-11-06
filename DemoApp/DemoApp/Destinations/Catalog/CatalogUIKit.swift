@@ -82,6 +82,8 @@ struct CatalogUIKitSettings {
     var isQuoteDecorated = false
 
     init() {
+        // The baseline's stream blocks draw their formulas at once too.
+        style.rendersDisplayMathSynchronously = true
         style.icons = MarkdownIcons(image: { host in
             // One fixed picture, or none for the host that shows the fallback.
             host == "noicon.test" ? nil : UIImage(systemName: "seal.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 64))
@@ -108,7 +110,10 @@ struct CatalogUIKitSettings {
             var h1 = MarkdownTypography.Style(.largeTitle, weight: .bold)
             h1.design = .serif
             style.typography.headings[0] = h1
-        case .fontCode, .fontQuote, .fontTable, .fontMath:
+        case .fontMath:
+            style.inlineMathTextStyle = .title3
+            style.displayMathTextStyle = .title2
+        case .fontCode, .fontQuote, .fontTable:
             break  // Fonts of blocks that aren't drawn yet, or the SwiftUI path's alone.
         case .typographyDoc:
             style.typography.body = .init(.callout)

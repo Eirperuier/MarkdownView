@@ -19,10 +19,9 @@ let package = Package(
         // CJK-friendly emphasis delimiters (and the matching swift-cmark fork).
         .package(url: "https://github.com/Eirperuier/swift-markdown.git", revision: "daac37a4170ddb163eb2db53f97d0cf1ee742c18"),
         .package(url: "https://github.com/raspu/Highlightr.git", from: "2.2.1"),
-        // Forks carrying the changes the selectable path and math rendering need;
-        // see each fork's history on top of its upstream tag.
-        .package(url: "https://github.com/techx-academy/floo-LaTeXSwiftUI.git", revision: "6245f306b9aced861a66d4b2e7441cb285ae7d18"),
-        // A local fork branch until the first performance gate; then pushed and pinned.
+        // Forks carrying the changes the selectable path and math rendering need; local fork
+        // branches until the first performance gate, then pushed and pinned.
+        .package(path: "../markdown-uikit-deps/floo-LaTeXSwiftUI"),
         .package(path: "../markdown-uikit-deps/floo-RichText"),
     ],
     targets: [

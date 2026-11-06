@@ -29,18 +29,25 @@ public enum MarkdownTextBuilder {
     ///   - listDepthOffset: added to list depth, for an item re-parsed alone.
     ///   - plainOffsetBase: where this text starts in plain, for a fragment of a block.
     ///   - inlineMath: formulas already taken out by a splitter, by placeholder id.
+    ///   - displayMath: the same for formulas on their own, by the id in their directive.
     public static func build(
         markdown: String,
         style: MarkdownStyle,
         listDepthOffset: Int = 0,
         plainOffsetBase: Int = 0,
-        inlineMath: [String: String]? = nil
+        inlineMath: [String: String]? = nil,
+        displayMath: [UUID: String]? = nil
     ) -> MarkdownText {
         // Maths out: `$…$` to a placeholder and its LaTeX to storage.
         var inlineStorage = inlineMath ?? [:]
+        var displayStorage = displayMath ?? [:]
         let processed = MarkdownMathPreprocessor.preprocess(
             markdown,
-            appendDisplayMath: { MarkdownMathPreprocessor.displayID(for: $0) },
+            appendDisplayMath: { math in
+                let id = MarkdownMathPreprocessor.displayID(for: math)
+                displayStorage[id] = String(math)
+                return id
+            },
             appendInlineMath: { math in
                 let id = MarkdownMathPreprocessor.inlineID(for: math)
                 inlineStorage[id] = String(math)
@@ -64,6 +71,7 @@ public enum MarkdownTextBuilder {
             listDepthOffset: listDepthOffset,
             plainOffsetBase: plainOffsetBase,
             inlineMath: inlineStorage,
+            displayMath: displayStorage,
             inlineFootnoteTokens: tokens
         )
     }
@@ -75,7 +83,8 @@ public enum MarkdownTextBuilder {
         style: MarkdownStyle,
         listDepthOffset: Int = 0,
         plainOffsetBase: Int = 0,
-        inlineMath: [String: String]? = nil
+        inlineMath: [String: String]? = nil,
+        displayMath: [UUID: String]? = nil
     ) -> MarkdownText {
         build(
             document: document,
@@ -83,6 +92,7 @@ public enum MarkdownTextBuilder {
             listDepthOffset: listDepthOffset,
             plainOffsetBase: plainOffsetBase,
             inlineMath: inlineMath ?? [:],
+            displayMath: displayMath ?? [:],
             inlineFootnoteTokens: [:]
         )
     }
@@ -93,12 +103,14 @@ public enum MarkdownTextBuilder {
         listDepthOffset: Int,
         plainOffsetBase: Int,
         inlineMath: [String: String],
+        displayMath: [UUID: String],
         inlineFootnoteTokens: [Int: MarkdownFootnoteSyntax.InlineToken]
     ) -> MarkdownText {
         let visitor = MarkdownTextVisitor(
             style: style,
             bodyFont: style.defaultFont ?? style.typography.body.font(at: style.contentSizeCategory),
             inlineMathStorage: inlineMath,
+            displayMathStorage: displayMath,
             inlineFootnoteTokens: inlineFootnoteTokens,
             listDepthOffset: listDepthOffset,
             plainOffsetBase: plainOffsetBase
