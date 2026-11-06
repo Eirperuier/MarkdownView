@@ -9,13 +9,13 @@
 //  written to doctest.log in the app's temporary folder (docTestLog).
 //
 
+import FlooUIKit
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 import DocKit
 import MarkdownView
 import MessagingUI
-import FlooDesign
 
 /// A test's line: printed, and added to doctest.log in the app's temporary folder, for a
 /// script that can't read the app's console (a simulator's app launched in the background
@@ -686,15 +686,14 @@ final class DocEditTests {
             let paragraph = try self.block("这篇文档由 DocKit")
             let format = DocTextFormat(editor: self.editor, ranges: [(paragraph.id, 0..<4)])
             let sections = format.menuSections { nil }
-            try self.expect(sections.flatMap(\.controls).map(\.id) == ["text-marks", "text-highlight", "text-color", "text-pen"]
-                            && sections.flatMap(\.items).map(\.title) == ["Format Panel"], "menu \(sections.flatMap(\.controls).map(\.id))")
+            try self.expect(sections.flatMap(\.items).map(\.title) == ["text-marks", "Highlight", "Text Color", "Pen", "Format Panel"], "menu \(sections.flatMap(\.items).map(\.title))")
             // Over the text it opens as the keys alone, its last key unfolding the rest.
             var unfolded = false
             let fold = Binding { unfolded } set: { unfolded = $0 }
             let strip = format.menuSections(linkFrom: { nil }, unfolded: fold)
-            try self.expect(strip.count == 1 && strip.flatMap(\.controls).map(\.id) == ["text-marks"], "strip \(strip.flatMap(\.controls).map(\.id))")
+            try self.expect(strip.count == 1 && strip.flatMap(\.items).map(\.title) == ["text-marks"], "strip \(strip.flatMap(\.items).map(\.title))")
             fold.wrappedValue = true
-            try self.expect(format.menuSections(linkFrom: { nil }, unfolded: fold).flatMap(\.controls).map(\.id) == ["text-marks", "text-highlight", "text-color", "text-pen"], "unfolded")
+            try self.expect(format.menuSections(linkFrom: { nil }, unfolded: fold).flatMap(\.items).map(\.title) == ["text-marks", "Highlight", "Text Color", "Pen", "Format Panel"], "unfolded")
             @MainActor func system() -> [String] {
                 format.systemMenu(linkFrom: UIView()).children.flatMap { ($0 as? UIMenu).map { $0.options.contains(.displayInline) ? $0.children : [$0] } ?? [$0] }
                     .map { ($0 as? UIAction).map { "\($0.title)\($0.state == .on ? "✓" : "")" } ?? ($0 as? UIMenu)?.title ?? "" }
@@ -760,11 +759,11 @@ final class DocEditTests {
         }
         await test("Slash menu: over the caret's line where it fits, else under it, never over the keyboard") {
             let room = CGRect(x: 0, y: 100, width: 400, height: 500)
-            let low = FlooDesignMenuOverlay.frame(over: CGRect(x: 50, y: 520, width: 2, height: 20), in: room, rows: 12)
+            let low = DocSlashPlacement.frame(over: CGRect(x: 50, y: 520, width: 2, height: 20), in: room, rows: 12)
             try self.expect(low.maxY < 520 && low.minY >= room.minY, "low caret: \(low)")
-            let high = FlooDesignMenuOverlay.frame(over: CGRect(x: 50, y: 120, width: 2, height: 20), in: room, rows: 12)
+            let high = DocSlashPlacement.frame(over: CGRect(x: 50, y: 120, width: 2, height: 20), in: room, rows: 12)
             try self.expect(high.minY > 140 && high.maxY <= room.maxY, "high caret: \(high)")
-            let squeezed = FlooDesignMenuOverlay.frame(over: CGRect(x: 50, y: 200, width: 2, height: 20), in: CGRect(x: 0, y: 100, width: 400, height: 200), rows: 12)
+            let squeezed = DocSlashPlacement.frame(over: CGRect(x: 50, y: 200, width: 2, height: 20), in: CGRect(x: 0, y: 100, width: 400, height: 200), rows: 12)
             try self.expect(squeezed.maxY <= 300 && squeezed.minY >= 100, "squeezed: \(squeezed)")
             try self.expect(low.maxX <= room.maxX && high.minX >= room.minX, "out of the sides: \(low) \(high)")
         }
@@ -1226,8 +1225,8 @@ final class DocEditTests {
             let menu = self.editor.sources.codeMenu(block.id)
             try self.perform(menu, ["Language", "Python"])
             try self.expect(self.demo.doc.block(block.id)?.kind == .code(language: "python"), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
-            let languages = try self.expectValue(self.editor.sources.codeMenu(block.id).flatMap(\.items).first { $0.id == "language" }?.submenu, "no Language")
-            try self.expect(languages.flatMap(\.items).filter { $0.isOn == true }.map(\.title) == ["Python"], "ticked \(languages.flatMap(\.items).filter { $0.isOn == true }.map(\.title))")
+            let languages = try self.expectValue(self.editor.sources.codeMenu(block.id).flatMap(\.items).first { $0.title == "Language" }?.sections, "no Language")
+            try self.expect(languages.flatMap(\.items).filter { $0.isOn }.map(\.title) == ["Python"], "ticked \(languages.flatMap(\.items).filter { $0.isOn }.map(\.title))")
             try self.perform(menu, ["Language", "Plain Text"])
             try self.expect(self.demo.doc.block(block.id)?.kind == .code(language: nil), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
             UIPasteboard.general.string = ""
@@ -2247,15 +2246,14 @@ final class DocEditTests {
                 let before = order()
                 let row = try self.expectValue(blocks.testRowFrame(block.id), "no row")
                 try self.expect(blocks.testRightClick(at: CGPoint(x: row.midX, y: row.midY)), "no menu")
-                FlooDesignContextMenus.close()
                 try self.expect(blocks.selected == [block.id], "selected \(blocks.selected.count)")
                 let titles = blocks.selectionMenu().flatMap(\.items).map(\.title)
                 try self.expect(titles == ["Edit", "Cut", "Copy", "Duplicate", "Format", "Insert", "Sort", "Delete"], "menu \(titles)")
-                let format = try self.expectValue(blocks.selectionMenu().flatMap(\.items).first { $0.title == "Format" }?.submenu, "no Format")
+                let format = try self.expectValue(blocks.selectionMenu().flatMap(\.items).first { $0.title == "Format" }?.sections, "no Format")
                 let panel = DocFormatMenu(editor: self.editor).sections
                 try self.expect(format.first?.items.map(\.title) == ["Copy Format", "Paste Format", "Clear Format"]
-                                && format.dropFirst().map { $0.controls.map(\.id) } == panel.map { $0.controls.map(\.id) },
-                                "Format \(format.map { $0.items.map(\.title) + $0.controls.map(\.id) })")
+                                && format.dropFirst().map { $0.items.map(\.title) } == panel.map { $0.items.map(\.title) },
+                                "Format \(format.map { $0.items.map(\.title) })")
                 DocFormatting(editor: self.editor).toggleList(.listItem(style: .bullet))
                 try self.expect(self.demo.doc.block(block.id)?.kind == .listItem(style: .bullet), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
                 try await self.undo()
@@ -2282,7 +2280,7 @@ final class DocEditTests {
                 let menu = blocks.selectionMenu()
                 let titles = menu.flatMap(\.items).map(\.title)
                 try self.expect(menu.first?.title == "2 items" && titles == ["Group", "Cut", "Copy", "Duplicate", "Format", "Insert", "Sort", "Delete"], "menu \(String(describing: menu.first?.title)) \(titles)")
-                let format = try self.expectValue(menu.flatMap(\.items).first { $0.title == "Format" }?.submenu, "no Format")
+                let format = try self.expectValue(menu.flatMap(\.items).first { $0.title == "Format" }?.sections, "no Format")
                 try self.expect(format.first?.items.first.map { $0.title == "Copy Format" && !$0.isEnabled } == true, "Copy Format is on")
                 // Z → A: the one whose words come later first.
                 try self.perform(menu, ["Sort", "Sort Z → A"])
@@ -3783,11 +3781,11 @@ final class DocEditTests {
     }
 
     /// Chooses the item at `path` in a menu (titles, through submenus), as a click on it would.
-    private func perform(_ menu: [FlooDesignActionMenuSection], _ path: [String]) throws {
-        func find(_ sections: [FlooDesignActionMenuSection], _ path: ArraySlice<String>) -> FlooDesignActionMenuItem? {
+    private func perform(_ menu: [FlooMenuSection], _ path: [String]) throws {
+        func find(_ sections: [FlooMenuSection], _ path: ArraySlice<String>) -> FlooMenuItem? {
             guard let title = path.first, let item = sections.flatMap(\.items).first(where: { $0.title == title }) else { return nil }
-            if path.count == 1 { return item.submenu == nil ? item : nil }
-            return item.submenu.flatMap { find($0, path.dropFirst()) }
+            if path.count == 1 { return item.sections == nil ? item : nil }
+            return item.sections.flatMap { find($0, path.dropFirst()) }
         }
         let item = try expectValue(find(menu, path[...]), "no \(path.joined(separator: " › ")) in the menu")
         item.perform()

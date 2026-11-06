@@ -94,3 +94,61 @@ private struct DocSizedSheet: ViewModifier {
             .presentationBackgroundInteraction(.enabled)
     }
 }
+
+extension View {
+    /// `sections` in floo's panel while `isPresented`, following what they read; `onDismiss`
+    /// when it's gone some way of its own.
+    func docMenuPanel(isPresented: Bool, title: String? = nil, edge: FlooFloatingEdge = .below, alignment: FlooFloatingAlignment = .leading,
+                      keepsOpen: (@MainActor (CGPoint) -> Bool)? = nil, onDismiss: @escaping () -> Void,
+                      sections: @escaping @MainActor (FlooPanelPresentation) -> [FlooMenuSection]) -> some View {
+        flooMenuPanel(isPresented: Binding(get: { isPresented }, set: { if !$0 { onDismiss() } }), title: title, edge: edge, alignment: alignment,
+                      keepsOpen: keepsOpen, sections: sections)
+    }
+}
+
+/// A colour to choose, and what choosing it does.
+struct DocSwatch {
+    let id: String
+    let title: String
+    let color: Color
+    let isOn: Bool
+    let perform: () -> Void
+}
+
+@MainActor
+extension FlooMenuItem {
+    /// Colours to choose one of. `title` is only said.
+    static func docSwatches(_ title: String, _ swatches: [DocSwatch], well: FlooSwatches.Well? = nil, isEnabled: Bool = true) -> FlooMenuItem {
+        .swatches(swatches.map { FlooSwatch(id: $0.id, title: $0.title, color: UIColor($0.color), isOn: $0.isOn) }, title: title, well: well, isEnabled: isEnabled) { chosen in
+            swatches.first { $0.id == chosen.id }?.perform()
+        }
+    }
+
+    /// A colour setting: its title, the colour it has, its palette a level in.
+    static func docColor(_ title: String, picked: Color?, isEnabled: Bool = true, _ sections: [FlooMenuSection]) -> FlooMenuItem {
+        .submenu(title, image: picked.map(DocColorDot.image), isEnabled: isEnabled, sections)
+    }
+
+    /// Keys side by side, symbols alone, each on or off by what it acts on. `title` is only said.
+    static func docKeys(_ title: String, _ keys: [FlooMenuTile]) -> FlooMenuItem {
+        .tiles(keys, title: title)
+    }
+}
+
+/// The dot a row of a colour shows: one image for each, so that the row's seen unchanged.
+@MainActor
+private enum DocColorDot {
+    static var drawn: [String: UIImage] = [:]
+
+    static func image(_ color: Color) -> UIImage {
+        let key = color.description
+        if let image = drawn[key] { return image }
+        let side = FlooFormMetrics.isMacIdiom ? 16.0 : 22.0
+        let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { context in
+            UIColor(color).setFill()
+            context.cgContext.fillEllipse(in: CGRect(x: 0, y: 0, width: side, height: side))
+        }
+        drawn[key] = image
+        return image
+    }
+}

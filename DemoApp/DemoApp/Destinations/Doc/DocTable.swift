@@ -31,7 +31,6 @@ import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
-import FlooDesign
 import MarkdownView
 
 struct DocTableSnapshot: Equatable {
@@ -1270,8 +1269,8 @@ extension View {
     /// The table's menu (Craft's, FlooDesign's action menu) from this view while it's
     /// `target`'s: beside it, or a sheet on a phone.
     func docTableMenu(_ target: DocTableMenuTarget, controller: DocTableController) -> some View {
-        flooDesignActionMenu(isPresented: controller.menu == target,
-                             onDismiss: { if controller.menu == target { controller.closeMenu() } }) { presentation in
+        docMenuPanel(isPresented: controller.menu == target,
+                     onDismiss: { if controller.menu == target { controller.closeMenu() } }) { presentation in
             DocTableMenuSections(target: target, controller: controller).sections(for: presentation)
         }
     }
@@ -1284,50 +1283,50 @@ struct DocTableMenuSections {
     let target: DocTableMenuTarget
     let controller: DocTableController
 
-    private func item(_ action: DocTableAction, symbol: Bool = true) -> FlooDesignActionMenuItem {
-        .action(action.title, symbol: symbol ? action.symbol : nil, role: action.isDestructive ? .destructive : .standard,
-                isEnabled: controller.isAvailable(action, at: target.key, on: target.line), id: "\(action)") { [controller, target] in
+    private func item(_ action: DocTableAction, symbol: Bool = true) -> FlooMenuItem {
+        .action(action.title, symbol: symbol ? action.symbol : nil, role: action.isDestructive ? .destructive : .normal,
+                isEnabled: controller.isAvailable(action, at: target.key, on: target.line)) { [controller, target] in
             controller.perform(action, at: target.key, on: target.line)
         }
     }
 
     /// Craft's Format: the cells' text, number format and colours (the format panel's),
     /// on the edited cell (its selected text, else all of it) or its picked row or column.
-    private var format: FlooDesignActionMenuItem? {
+    private var format: FlooMenuItem? {
         let formatting = DocFormatting(editor: controller.editor)
         guard let cell = formatting.cell, cell.key == target.key, cell.scope == (target.line.map { .line($0) } ?? .cell),
               !cell.formats.isEmpty
         else { return nil }
-        return .submenu(String(localized: "Format"), symbol: "textformat", id: "format", sections: DocFormatMenu.cellSections(cell, formatting))
+        return .submenu(String(localized: "Format"), symbol: "textformat", DocFormatMenu.cellSections(cell, formatting))
     }
 
-    func sections(for presentation: FlooDesignPanelPresentation) -> [FlooDesignActionMenuSection] {
-        let editTable = FlooDesignActionMenuItem.submenu(String(localized: "Edit Table"), symbol: "tablecells.badge.ellipsis", sections: [
-            .init(.rows, [item(.insertRowAbove), item(.insertRowBelow), item(.insertColumnLeft), item(.insertColumnRight)]),
-            .init(.rows, [item(.moveRowUp), item(.moveRowDown), item(.moveColumnLeft), item(.moveColumnRight)]),
-            .init(.plain, [item(.deleteRow), item(.deleteColumn), item(.deleteTable)]),
+    func sections(for presentation: FlooPanelPresentation) -> [FlooMenuSection] {
+        let editTable = FlooMenuItem.submenu(String(localized: "Edit Table"), symbol: "tablecells.badge.ellipsis", [
+            .init([item(.insertRowAbove), item(.insertRowBelow), item(.insertColumnLeft), item(.insertColumnRight)]),
+            .init([item(.moveRowUp), item(.moveRowDown), item(.moveColumnLeft), item(.moveColumnRight)]),
+            .init([item(.deleteRow), item(.deleteColumn), item(.deleteTable)]),
         ])
-        let clear = FlooDesignActionMenuSection(.plain, [item(.clearCell, symbol: false)])
+        let clear = FlooMenuSection([item(.clearCell, symbol: false)])
         switch presentation {
-        case .anchored:
+        case .floating:
             return [
-                .init(.rows, [editTable] + (format.map { [$0] } ?? []) + [item(.insertFormula)]),
-                .init(.rows, [item(.sortAscending, symbol: false), item(.sortDescending, symbol: false)]),
-                .init(.rows, [item(.cut, symbol: false), item(.copy, symbol: false), item(.paste, symbol: false)]),
+                .init([editTable] + (format.map { [$0] } ?? []) + [item(.insertFormula)]),
+                .init([item(.sortAscending, symbol: false), item(.sortDescending, symbol: false)]),
+                .init([item(.cut, symbol: false), item(.copy, symbol: false), item(.paste, symbol: false)]),
                 clear,
             ]
         case .sheet:
             return [
-                .init(.tiles, [
+                .init(display: .medium, [
                     editTable,
-                    .submenu(String(localized: "Sort"), symbol: "line.3.horizontal.decrease.circle", sections: [
-                        .init(.rows, [item(.sortAscending), item(.sortDescending)]),
+                    .submenu(String(localized: "Sort"), symbol: "line.3.horizontal.decrease.circle", [
+                        .init([item(.sortAscending), item(.sortDescending)]),
                     ]),
                 ]),
-                .init(.buttons, (format.map { [$0] } ?? []) + [item(.insertFormula)]),
-                .init(.rows, [
-                    .submenu(String(localized: "Actions"), symbol: "command", sections: [
-                        .init(.rows, [item(.cut), item(.copy), item(.paste)]),
+                .init((format.map { [$0] } ?? []) + [item(.insertFormula)]),
+                .init([
+                    .submenu(String(localized: "Actions"), symbol: "command", [
+                        .init([item(.cut), item(.copy), item(.paste)]),
                     ]),
                 ]),
                 clear,

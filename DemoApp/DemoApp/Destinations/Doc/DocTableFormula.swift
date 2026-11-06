@@ -31,7 +31,6 @@ import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
-import FlooDesign
 import MarkdownView
 
 /// A formula being written: its cell, its text (without its "=") and the caret.

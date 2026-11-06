@@ -13,7 +13,6 @@
 import FlooUIKit
 import SwiftUI
 import DocKit
-import FlooDesign
 
 private typealias Metrics = DocCollectionMetrics
 

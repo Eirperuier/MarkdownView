@@ -16,10 +16,10 @@
 //    opens its settings (DocCollectionChartPanel).
 //
 
+import FlooUIKit
 import SwiftUI
 import Charts
 import DocKit
-import FlooDesign
 
 private typealias Tokens = DocTokens
 
@@ -49,8 +49,8 @@ struct DocCollectionChart: View {
             }
             .padding(.vertical, Tokens.Space.xs)
             .contentShape(Rectangle())
-            .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in
-                [.init(.rows, [.action(String(localized: "Chart Settings…"), symbol: "slider.horizontal.3") { controller.show(.chart, in: block) }])]
+            .flooContextMenu(isEnabled: controller.isEditable) {
+                [.init([.action(String(localized: "Chart Settings…"), symbol: "slider.horizontal.3") { controller.show(.chart, in: block) }])]
             }
         } else {
             note(String(localized: "No records to chart."))
@@ -89,25 +89,25 @@ struct DocCollectionChart: View {
     }
 
     /// A group's right-click menu.
-    private func menu(_ group: CollectionChartData.Group) -> [FlooDesignActionMenuSection] {
+    private func menu(_ group: CollectionChartData.Group) -> [FlooMenuSection] {
         let keys = (view.groups(of: database.rows, in: database, everyOption: true) ?? []).map(\.key)
-        var record: [FlooDesignActionMenuItem] = []
+        var record: [FlooMenuItem] = []
         if !group.isOther, group.group.rows.count == 1, let row = group.group.rows.first, let open = controller.openRecord {
             let title = DocCollectionController.titleColumn(of: database).map { DocFieldText.text(row.cells[$0.id], in: $0) } ?? ""
             record.append(.action(title.isEmpty ? String(localized: "Open Record") : String(localized: "Open “\(title)”"),
                                   symbol: "arrow.up.left.and.arrow.down.right") { open(row.id, block) })
         }
-        var sections: [FlooDesignActionMenuSection] = record.isEmpty ? [] : [.init(.rows, record)]
+        var sections: [FlooMenuSection] = record.isEmpty ? [] : [.init(record)]
         guard controller.isEditable else { return sections }
         if !group.isOther {
-            sections.append(.init(.rows, [
+            sections.append(.init([
                 .action(String(localized: "Highlight"), symbol: "highlighter", isOn: group.highlighted) {
                     controller.changeChart(view.id, in: block) { chart in
                         if chart.highlight.contains(group.key) { chart.highlight.removeAll { $0 == group.key } } else { chart.highlight.append(group.key) }
                     }
                 },
             ]))
-            sections.append(.init(.rows, [
+            sections.append(.init([
                 .action(String(localized: "Show Only This Group"), symbol: "eye") {
                     var grouping = view.grouping
                     grouping.hidden = keys.filter { $0 != group.key }
@@ -120,7 +120,7 @@ struct DocCollectionChart: View {
                 },
             ]))
         }
-        sections.append(.init(.rows, [
+        sections.append(.init([
             .action(String(localized: "Chart Settings…"), symbol: "slider.horizontal.3") { controller.show(.chart, in: block) },
         ]))
         return sections
@@ -254,7 +254,7 @@ struct DocChartPlot {
 private struct DocChartBars: View {
     let plot: DocChartPlot
     @Binding var selected: String?
-    let menu: (CollectionChartData.Group) -> [FlooDesignActionMenuSection]
+    let menu: (CollectionChartData.Group) -> [FlooMenuSection]
 
     var body: some View {
         // The names as wide as the widest, up to a point past which they wrap.
@@ -290,7 +290,7 @@ private struct DocChartBars: View {
                 .contentShape(Rectangle())
                 .background(selected == group.key ? Tokens.ColorRole.Surface.selected : .clear, in: RoundedRectangle(cornerRadius: Tokens.Radius.xs))
                 .onTapGesture { selected = selected == group.key ? nil : group.key }
-                .flooDesignContextMenu { _ in menu(group) }
+                .flooContextMenu { menu(group) }
             }
         }
     }
@@ -341,7 +341,7 @@ private struct DocChartBars: View {
 private struct DocChartAxes: View {
     let plot: DocChartPlot
     @Binding var selected: String?
-    let menu: (CollectionChartData.Group) -> [FlooDesignActionMenuSection]
+    let menu: (CollectionChartData.Group) -> [FlooMenuSection]
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.xs) {
@@ -399,7 +399,7 @@ private struct DocChartAxes: View {
                                 .frame(width: band, height: frame.height)
                                 .position(x: frame.minX + x, y: frame.midY)
                                 .onTapGesture { selected = selected == group.key ? nil : group.key }
-                                .flooDesignContextMenu { _ in menu(group) }
+                                .flooContextMenu { menu(group) }
                         }
                     }
                 }
@@ -459,7 +459,7 @@ private struct DocChartAxes: View {
 private struct DocChartRing: View {
     let plot: DocChartPlot
     @Binding var selected: String?
-    let menu: (CollectionChartData.Group) -> [FlooDesignActionMenuSection]
+    let menu: (CollectionChartData.Group) -> [FlooMenuSection]
 
     private var total: Double { plot.groups.reduce(0) { $0 + max($1.total, 0) } }
 
@@ -510,6 +510,6 @@ private struct DocChartRing: View {
         .contentShape(Rectangle())
         .background(selected == group.key ? Tokens.ColorRole.Surface.selected : .clear, in: RoundedRectangle(cornerRadius: Tokens.Radius.xs))
         .onTapGesture { selected = selected == group.key ? nil : group.key }
-        .flooDesignContextMenu { _ in menu(group) }
+        .flooContextMenu { menu(group) }
     }
 }

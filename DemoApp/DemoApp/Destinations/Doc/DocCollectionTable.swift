@@ -21,7 +21,6 @@ import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
-import FlooDesign
 
 private typealias Metrics = DocCollectionMetrics
 
@@ -183,7 +182,7 @@ struct DocCollectionTable: View {
                                   isTitle: column.id == titleColumn?.id, rowHovered: isHovered, place: place)
                     .padding(.horizontal, Metrics.cellInset)
                     .frame(width: width, alignment: column.type == .number ? .trailing : .leading)
-                    .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in place.menu?.rows?() ?? [] }
+                    .flooContextMenu(isEnabled: controller.isEditable) { place.menu?.rows?() ?? [] }
             }
             if controller.isEditable {
                 separator
@@ -196,25 +195,25 @@ struct DocCollectionTable: View {
         .onHover { over in
             if over { hoveredRow = row.id } else if hoveredRow == row.id { hoveredRow = nil }
         }
-        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in menu(row, cell: nil) }
+        .flooContextMenu(isEnabled: controller.isEditable) { menu(row, cell: nil) }
     }
 
     /// A record's right-click menu (Craft's): open it, a new row above or below, clear the
     /// cell clicked, copy or delete it. On a picked row: copy or delete the picked rows.
-    private func menu(_ row: Row, cell column: Column?) -> [FlooDesignActionMenuSection] {
+    private func menu(_ row: Row, cell column: Column?) -> [FlooMenuSection] {
         let rows = picked.contains(row.id) ? picked : [row.id]
-        let copyAndDelete = FlooDesignActionMenuSection(.rows, [
+        let copyAndDelete = FlooMenuSection([
             .action(rows.count > 1 ? String(localized: "Duplicate \(rows.count) Rows") : String(localized: "Duplicate Row"),
                     symbol: "plus.square.on.square") { controller.duplicate(rows: rows, in: block) },
             .action(rows.count > 1 ? String(localized: "Delete \(rows.count) Rows") : String(localized: "Delete Row"),
                     symbol: "trash", role: .destructive) { controller.delete(rows: rows, in: block) },
         ])
         guard !picked.contains(row.id) else { return [copyAndDelete] }
-        var sections: [FlooDesignActionMenuSection] = []
+        var sections: [FlooMenuSection] = []
         if let open = controller.openRecord {
-            sections.append(.init(.rows, [.action(String(localized: "Open"), symbol: "arrow.right.circle") { open(row.id, block) }]))
+            sections.append(.init([.action(String(localized: "Open"), symbol: "arrow.right.circle") { open(row.id, block) }]))
         }
-        sections.append(.init(.rows, [
+        sections.append(.init([
             .action(String(localized: "Insert Row Above"), symbol: "arrow.up.to.line") {
                 controller.insertRecord(beside: row.id, below: false, groupedBy: view.layout.groupBy, in: block)
             },
@@ -223,7 +222,7 @@ struct DocCollectionTable: View {
             },
         ]))
         if let column {
-            sections.append(.init(.rows, [
+            sections.append(.init([
                 .action(String(localized: "Clear Cell Contents"), symbol: "eraser", isEnabled: row.cells[column.id] != nil) {
                     controller.set(nil, row: row.id, column: column.id, in: block)
                 },
@@ -390,7 +389,7 @@ struct DocCollectionCell: View {
     @FocusState private var focused: Bool
 
     /// A record's cell in the table, its menu the record's right-click rows.
-    static func place(row: Row, column: Column, in block: DocBlockID, menu: @escaping () -> [FlooDesignActionMenuSection]) -> DocFieldPlace {
+    static func place(row: Row, column: Column, in block: DocBlockID, menu: @escaping () -> [FlooMenuSection]) -> DocFieldPlace {
         DocFieldPlace(field: [block, row.id, column.id] as [AnyHashable], block: block,
                       menu: DocPlaceMenu(title: String(localized: "Row Actions"), symbol: "tablecells.badge.ellipsis", opens: .rows(menu)))
     }

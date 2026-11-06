@@ -13,28 +13,28 @@
 //  have nothing behind them here and aren't in it.
 //
 
+import FlooUIKit
 import UIKit
 import DocKit
-import FlooDesign
 
 extension DocBlockController {
     /// The menu for the selected blocks: one block's, or several's (Craft's differ).
-    func selectionMenu() -> [FlooDesignActionMenuSection] {
+    func selectionMenu() -> [FlooMenuSection] {
         let tops = groups(selected).map { $0[0] }
         let several = canGroup
         let editable = tops.first.flatMap { demo.doc.block($0) }.map { !several && $0.kind.carriesText } ?? false
-        var sections: [FlooDesignActionMenuSection] = []
+        var sections: [FlooMenuSection] = []
         if several {
-            sections.append(.init(title: String(localized: "\(selected.count) items"), [
+            sections.append(.init(String(localized: "\(selected.count) items"), [
                 .action(String(localized: "Group")) { [weak self] in self?.groupSelection() },
             ]))
         } else if editable, let block = tops.first {
-            sections.append(.init(.rows, [.action(String(localized: "Edit")) { [weak self] in self?.edit(block) }]))
+            sections.append(.init([.action(String(localized: "Edit")) { [weak self] in self?.edit(block) }]))
             // A code block's: its language, Copy Code.
             sections += editor.sources.codeMenu(block)
         }
         sections += [
-            .init(.rows, [
+            .init([
                 .action(String(localized: "Cut")) { [weak self] in
                     self?.copySelection()
                     self?.deleteSelection()
@@ -42,18 +42,18 @@ extension DocBlockController {
                 .action(String(localized: "Copy")) { [weak self] in self?.copySelection() },
                 .action(String(localized: "Duplicate")) { [weak self] in self?.duplicateSelection() },
             ]),
-            .init(.rows, [
+            .init([
                 formatMenu(DocFormatting(editor: editor), copies: !several),
-                .submenu(String(localized: "Insert"), sections: [.init(.rows, [
+                .submenu(String(localized: "Insert"), [.init([
                     .action(String(localized: "Insert Above")) { [weak self] in self?.insertLine(above: true) },
                     .action(String(localized: "Insert Below")) { [weak self] in self?.insertLine(above: false) },
                 ])]),
-                .submenu(String(localized: "Sort"), sections: [.init(.rows, [
+                .submenu(String(localized: "Sort"), [.init([
                     .action(String(localized: "Sort A → Z"), isEnabled: several) { [weak self] in self?.sortSelection(descending: false) },
                     .action(String(localized: "Sort Z → A"), isEnabled: several) { [weak self] in self?.sortSelection(descending: true) },
                 ])]),
             ]),
-            .init(.rows, [
+            .init([
                 .action(String(localized: "Delete"), role: .destructive) { [weak self] in self?.deleteSelection() },
             ]),
         ]
@@ -63,10 +63,10 @@ extension DocBlockController {
     /// Format: copy, paste and clear the format above what the format panel has (the
     /// same sections, `DocFormatMenu`), changed there and left open.
     /// Copy Format only for one block (`copies`).
-    private func formatMenu(_ formatting: DocFormatting, copies: Bool) -> FlooDesignActionMenuItem {
+    private func formatMenu(_ formatting: DocFormatting, copies: Bool) -> FlooMenuItem {
         let copied = editor.panels.copiedFormat
-        return .submenu(String(localized: "Format"), id: "format", sections: [
-            .init(.rows, [
+        return .submenu(String(localized: "Format"), [
+            .init([
                 .action(String(localized: "Copy Format"), isEnabled: copies) { [weak self] in self?.editor.panels.copiedFormat = formatting.format },
                 .action(String(localized: "Paste Format"), isEnabled: copied != nil) {
                     if let copied { formatting.paste(copied) }

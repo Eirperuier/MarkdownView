@@ -31,7 +31,6 @@ import UIKit
 import DocKit
 import MarkdownView
 import MessagingUI
-import FlooDesign
 
 enum DocSourceKind: Equatable {
     case code(language: String?)
@@ -228,19 +227,19 @@ final class DocSourceController {
     }
 
     /// A code block's menu: its language (Plain Text, then by name) and Copy Code.
-    func codeMenu(_ block: DocBlockID) -> [FlooDesignActionMenuSection] {
+    func codeMenu(_ block: DocBlockID) -> [FlooMenuSection] {
         guard case .code(let language)? = demo.doc.block(block)?.kind else { return [] }
-        let languages: [FlooDesignActionMenuSection] = [
-            .init(.rows, [.action(String(localized: "Plain Text"), isOn: language == nil, id: "plain") { [weak self] in
+        let languages: [FlooMenuSection] = [
+            .init([.action(String(localized: "Plain Text"), isOn: language == nil) { [weak self] in
                 self?.setLanguage(nil, of: block)
             }]),
-            .init(.rows, Self.languages.map { choice in
-                .action(choice.name, isOn: language == choice.id, id: choice.id) { [weak self] in self?.setLanguage(choice.id, of: block) }
+            .init(Self.languages.map { choice in
+                .action(choice.name, isOn: language == choice.id) { [weak self] in self?.setLanguage(choice.id, of: block) }
             }),
         ]
-        return [.init(.rows, [
-            .submenu(String(localized: "Language"), symbol: "chevron.left.forwardslash.chevron.right", id: "language", sections: languages),
-            .action(String(localized: "Copy Code"), symbol: "doc.on.doc", id: "copyCode") { [weak self] in
+        return [.init([
+            .submenu(String(localized: "Language"), symbol: "chevron.left.forwardslash.chevron.right", languages),
+            .action(String(localized: "Copy Code"), symbol: "doc.on.doc") { [weak self] in
                 UIPasteboard.general.string = self?.text(block)
             },
         ])]
@@ -592,7 +591,7 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     /// Right-click in code: its menu (the language, Copy Code) above the text's.
     func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
         guard let block, let rows = controller?.codeMenu(block), !rows.isEmpty else { return nil }
-        return UIMenu(children: FlooDesignContextMenus.systemMenu(rows) + suggestedActions)
+        return UIMenu(children: rows.systemElements() + suggestedActions)
     }
     #endif
 }

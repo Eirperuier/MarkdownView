@@ -17,7 +17,6 @@
 import FlooUIKit
 import SwiftUI
 import DocKit
-import FlooDesign
 
 private typealias Metrics = DocCollectionMetrics
 private typealias Tokens = DocTokens
@@ -962,8 +961,8 @@ struct DocOptionsPanel: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
-                    .flooDesignContextMenu { _ in
-                        [.init(.rows, [.action(String(localized: "Delete Option"), symbol: "trash", role: .destructive) {
+                    .flooContextMenu {
+                        [.init([.action(String(localized: "Delete Option"), symbol: "trash", role: .destructive) {
                             controller.deleteOption(option.id, in: column.id, of: block)
                         }])]
                     }

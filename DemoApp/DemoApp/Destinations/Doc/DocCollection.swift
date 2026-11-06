@@ -22,7 +22,6 @@
 import FlooUIKit
 import SwiftUI
 import DocKit
-import FlooDesign
 import MarkdownView
 
 struct DocCollectionSnapshot: Equatable {
@@ -1186,7 +1185,7 @@ private struct DocCollectionHeader: View {
         .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
         .help(String(localized: "View Options"))
         .accessibilityLabel(String(localized: "View Options"))
-        .flooDesignActionMenu(isPresented: showsViewMenu, configuration: .init(horizontalAlignment: .trailing),
+        .docMenuPanel(isPresented: showsViewMenu, alignment: .trailing,
                               onDismiss: { showsViewMenu = false }) { _ in
             current.map { viewSections($0, full: true) } ?? []
         }
@@ -1194,11 +1193,11 @@ private struct DocCollectionHeader: View {
 
     /// A view's menu: its panels, then renaming, copying and deleting it; the toolbar's
     /// also downloads it.
-    private func viewSections(_ view: CollectionView, full: Bool) -> [FlooDesignActionMenuSection] {
+    private func viewSections(_ view: CollectionView, full: Bool) -> [FlooMenuSection] {
         // Ticked when the view groups (Craft's).
         // A chart's groups are its axis; its order is theirs, so it has no sorting.
         let isChart = view.layout.chart != nil
-        let panels: [FlooDesignActionMenuItem] = [
+        let panels: [FlooMenuItem] = [
             .action(String(localized: "Filter"), symbol: "line.3.horizontal.decrease") { open(.filter, for: view) },
         ] + (isChart ? [] : [
             .action(String(localized: "Sort"), symbol: "arrow.up.arrow.down") { open(.sort, for: view) },
@@ -1207,13 +1206,13 @@ private struct DocCollectionHeader: View {
                 ? .action(String(localized: "X Axis"), symbol: "chart.bar.xaxis") { open(.group, for: view) }
                 : .action(String(localized: "Group"), symbol: "rectangle.3.group", isOn: view.layout.groupBy != nil) { open(.group, for: view) },
         ]
-        var sections: [FlooDesignActionMenuSection] = [
-            .init(.rows, [.action(String(localized: "Layout & Visibility"), symbol: "tablecells") { open(.layout, for: view) }]
+        var sections: [FlooMenuSection] = [
+            .init([.action(String(localized: "Layout & Visibility"), symbol: "tablecells") { open(.layout, for: view) }]
                   + (isChart ? [.action(String(localized: "Chart"), symbol: "slider.horizontal.3") { open(.chart, for: view) }] : [])),
-            .init(.rows, panels),
+            .init(panels),
         ]
         if controller.isEditable {
-            sections.append(.init(.rows, [
+            sections.append(.init([
                 .action(String(localized: "Rename View"), symbol: "character.cursor.ibeam") {
                     viewName = view.name
                     renaming = view.id
@@ -1225,7 +1224,7 @@ private struct DocCollectionHeader: View {
             ]))
         }
         if full {
-            sections.append(.init(.rows, [
+            sections.append(.init([
                 .action(String(localized: "Download as CSV"), symbol: "arrow.down.circle") {
                     DocCSVExport.save(controller.csv(snapshot, view), named: collection.name.isEmpty ? String(localized: "Collection") : collection.name)
                 },
@@ -1336,7 +1335,7 @@ private struct DocCollectionHeader: View {
                                 in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
             }
             .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
-            .flooDesignContextMenu { _ in viewSections(view, full: false) }
+            .flooContextMenu { viewSections(view, full: false) }
             .docPanel(isPresented: controller.isShowing(.nameView(view.id), in: block),
                                      onDismiss: { controller.close(.nameView(view.id), in: block) }) {
                 DocNameViewPanel(block: block, view: view, controller: controller)

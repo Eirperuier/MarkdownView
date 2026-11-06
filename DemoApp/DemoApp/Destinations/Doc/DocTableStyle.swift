@@ -229,6 +229,18 @@ struct DocCellLook: Equatable {
         }
     }
 
+    /// A name in the typeface, for a tile showing it.
+    static func uiFont(_ font: Typeface) -> UIFont {
+        let design: UIFontDescriptor.SystemDesign = switch font {
+        case .system: .default
+        case .serif: .serif
+        case .mono: .monospaced
+        case .rounded: .rounded
+        }
+        let base = UIFont.systemFont(ofSize: 13)
+        return base.fontDescriptor.withDesign(design).map { UIFont(descriptor: $0, size: 13) } ?? base
+    }
+
     static func design(_ font: Typeface) -> Font.Design {
         switch font {
         case .system: .default

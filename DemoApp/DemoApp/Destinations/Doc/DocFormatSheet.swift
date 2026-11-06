@@ -28,7 +28,6 @@ import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
-import FlooDesign
 
 private typealias Tokens = DocTokens
 private typealias Metrics = DocTokens.Component.FormatSheet

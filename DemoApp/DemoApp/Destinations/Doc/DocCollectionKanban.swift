@@ -19,7 +19,6 @@ import FlooUIKit
 import SwiftUI
 import UniformTypeIdentifiers
 import DocKit
-import FlooDesign
 
 private typealias Metrics = DocCollectionMetrics
 
@@ -139,19 +138,19 @@ private struct DocKanbanLane: View {
         .overlay(alignment: .topLeading) { line }
         .onHover { hovering = $0 }
         // A card's own menu wins over the column's (the smaller catcher).
-        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in menu }
+        .flooContextMenu(isEnabled: controller.isEditable) { menu }
         // The whole column takes the drop, its cards too: where between them follows the pointer.
         .onDrop(of: [.text], delegate: DocKanbanDrop(landing: $landing, place: place, drop: drop))
     }
 
     /// The column's right-click menu (Craft's): a new card at its end, the grouping's
     /// panel, leaving the group out.
-    private var menu: [FlooDesignActionMenuSection] {
+    private var menu: [FlooMenuSection] {
         [
-            .init(.rows, [.action(String(localized: "Add Item"), symbol: "plus") {
+            .init([.action(String(localized: "Add Item"), symbol: "plus") {
                 controller.addRecord(to: block, in: (column.id, group.value))
             }]),
-            .init(.rows, [
+            .init([
                 .action(String(localized: "Edit Grouping"), symbol: "rectangle.3.group") { controller.show(.group, in: block) },
                 .action(String(localized: "Hide Group"), symbol: "eye.slash") { controller.hide(group: group.key, in: view.id, of: block) },
             ]),
@@ -303,7 +302,7 @@ private struct DocKanbanCard: View {
             .strokeBorder(focused ? DocTokens.ColorRole.Accent.primary : DocTokens.Border.subtle,
                           lineWidth: focused ? Metrics.focusWidth : DocTokens.Border.standard))
         .onHover { hovering = $0 }
-        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in place.menu?.rows?() ?? [] }
+        .flooContextMenu(isEnabled: controller.isEditable) { place.menu?.rows?() ?? [] }
         .docPanel(isPresented: fieldPanel != nil,
                                  onDismiss: { if let fieldPanel { controller.close(fieldPanel, in: block) } }) {
             fieldPanelContent
@@ -346,17 +345,17 @@ private struct DocKanbanCard: View {
                       menu: DocPlaceMenu(title: String(localized: "Card Actions"), symbol: "ellipsis.circle", opens: .rows { menu }))
     }
 
-    private var menu: [FlooDesignActionMenuSection] {
+    private var menu: [FlooMenuSection] {
         let others = snapshot.database.columns.filter { $0.id != titleColumn?.id }
-        let properties = FlooDesignActionMenuItem.submenu(String(localized: "Edit Properties"), symbol: "slider.horizontal.3", sections: [
-            .init(.rows, others.map { column in
+        let properties = FlooMenuItem.submenu(String(localized: "Edit Properties"), symbol: "slider.horizontal.3", [
+            .init(others.map { column in
                 .action(column.name, symbol: DocFieldText.symbol(column.type)) { edit(column) }
             }),
-            .init(.rows, [.action(String(localized: "Add Field"), symbol: "plus") { controller.show(.cardField(row.id), in: block) }]),
+            .init([.action(String(localized: "Add Field"), symbol: "plus") { controller.show(.cardField(row.id), in: block) }]),
         ])
         return [
-            .init(.rows, [properties]),
-            .init(.rows, [
+            .init([properties]),
+            .init([
                 .action(String(localized: "Duplicate Item"), symbol: "plus.square.on.square") { controller.duplicate(row: row.id, in: block) },
                 .action(String(localized: "Delete Item"), symbol: "trash", role: .destructive) { controller.delete(row.id, in: block) },
             ]),

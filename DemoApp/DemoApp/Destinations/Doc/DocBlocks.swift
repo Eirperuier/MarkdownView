@@ -26,13 +26,12 @@ import UIKit.UIGestureRecognizerSubclass
 import DocKit
 import MarkdownView
 import MessagingUI
-import FlooDesign
 import CardRuntime
 
 @MainActor
 @Observable
 final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInteractionDelegate, UIDropInteractionDelegate,
-    UIContextMenuInteractionDelegate, QLPreviewControllerDataSource {
+    QLPreviewControllerDataSource {
     #if targetEnvironment(macCatalyst)
     nonisolated static let usesHandles = true
     #else
@@ -211,7 +210,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             click.delegate = self
             list.addGestureRecognizer(click)
             blockClick = click
-            list.addInteraction(UIContextMenuInteraction(delegate: self))
+            list.flooAddContextMenu(at: { [weak self] in self?.rightClickMenu(at: $0) ?? [] })
         } else {
             selection.install(layout: reader)
             let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
@@ -528,25 +527,17 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// (DocBlockMenu). On a table's cell the cell is edited, and its menu shows (ours, by
     /// the cell). Text being edited has its own (DocEditor.editMenu); a view in a block
     /// with its own right-click menu (a collection's row) takes it before the list.
-    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        rightClick(at: location)
-        return nil
-    }
-
-    /// The block menu shown (false: none, or the cell's).
-    @discardableResult
-    private func rightClick(at location: CGPoint) -> Bool {
-        guard Self.usesHandles, drag == nil, !demo.isAgentWriting, let id = block(at: location) else { return false }
-        // What's inside a block has its own menu (a view's rows, cards and tabs).
-        if let list, FlooDesignContextMenus.handOver(at: location, in: list) { return false }
+    /// The block menu at a right-click (none: nothing there, or the cell's, which it shows).
+    /// What's inside a block with a menu of its own (a view's rows, cards and tabs) has its
+    /// turn first: UIKit's asks the innermost.
+    private func rightClickMenu(at location: CGPoint) -> [FlooMenuSection] {
+        guard Self.usesHandles, drag == nil, !demo.isAgentWriting, let id = block(at: location) else { return [] }
         if let row = rowFrame(id), let cell = editor.tables.cell(in: id, at: CGPoint(x: location.x - row.minX, y: location.y - row.minY)) {
             editor.tables.showMenu(cell)
-            return false
+            return []
         }
         if !selected.contains(id) { click(id) }
-        guard let list else { return false }
-        FlooDesignContextMenus.show(at: location, in: list) { [weak self] _ in self?.selectionMenu() ?? [] }
-        return true
+        return selectionMenu()
     }
 
     /// Whether a block's row (`editsText`: it has text to edit) takes clicks itself (its
@@ -1696,7 +1687,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @discardableResult
     /// A right-click at `point` (list coordinates): whether the block menu shows.
     func testRightClick(at point: CGPoint) -> Bool {
-        rightClick(at: point)
+        !rightClickMenu(at: point).isEmpty
     }
 
     func testPress(_ id: DocBlockID, toY y: CGFloat? = nil) -> Bool {
@@ -1985,7 +1976,7 @@ struct DocBlockSelectionBar: View {
     var body: some View {
         // Shown exactly while selecting, under no sheet: FlooDesign's panel stays in
         // the view and follows only that, so nothing can leave it on screen.
-        FlooDesignActionPanel(isPresented: blocks.isSelecting && !showsSheet) { actions }
+        actionPanel
             .sheet(isPresented: Binding(get: { showsSheet }, set: { if !$0 { blocks.closeSheet() } })) {
                 Group {
                     if blocks.isChoosingLayout {
@@ -2004,27 +1995,37 @@ struct DocBlockSelectionBar: View {
         !blocks.selectedLayouts.isEmpty || !blocks.selectedImageFits.isEmpty
     }
 
+    /// The actions over the page's bottom, rising in and sinking out with `shown` only.
+    private var actionPanel: some View {
+        let shown = blocks.isSelecting && !showsSheet
+        return HStack(spacing: DocTokens.Space.xs) { actions }
+            .padding(DocTokens.Space.sm)
+            .flooGlass(in: RoundedRectangle(cornerRadius: DocTokens.Radius.xxl, style: .continuous))
+            .padding(.horizontal, DocTokens.Space.md)
+            .padding(.bottom, DocTokens.Space.md)
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown ? 0 : DocTokens.Space.md)
+            .allowsHitTesting(shown)
+            .accessibilityHidden(!shown)
+            .animation(DocTokens.Motion.reveal, value: shown)
+    }
+
     @ViewBuilder private var actions: some View {
         Group {
-            Button {
+            Button(String(localized: "Style"), systemImage: "textformat") {
                 blocks.editor.panels.sheetPage = .main
-            } label: {
-                FlooDesignActionTile(title: String(localized: "Style"), symbol: "textformat", color: Action.format)
             }
+            .buttonStyle(.flooTile(color: Action.format))
             .accessibilityIdentifier("selection-style")
             if hasMedia {
-                Button {
+                Button(String(localized: "Layout"), systemImage: "rectangle.split.2x1") {
                     blocks.isChoosingLayout = true
-                } label: {
-                    FlooDesignActionTile(title: String(localized: "Layout"), symbol: "rectangle.split.2x1", color: Action.neutral)
                 }
             }
             // Several blocks into a page of their own (Craft's Group, the Mac's menu).
             if blocks.canGroup {
-                Button {
+                Button(String(localized: "Group"), systemImage: "wand.and.sparkles") {
                     blocks.groupSelection()
-                } label: {
-                    FlooDesignActionTile(title: String(localized: "Group"), symbol: "wand.and.sparkles", color: Action.neutral)
                 }
             }
             Menu {
@@ -2034,15 +2035,16 @@ struct DocBlockSelectionBar: View {
                 }
                 Button("Duplicate", systemImage: "plus.square.on.square") { blocks.duplicateSelection() }
             } label: {
-                FlooDesignActionTile(title: String(localized: "Actions"), symbol: "square.and.arrow.up", color: Action.neutral)
+                Label(String(localized: "Actions"), systemImage: "square.and.arrow.up")
             }
-            Button {
+            .menuStyle(.button)
+            Button(String(localized: "Delete"), systemImage: "trash") {
                 blocks.deleteSelection()
-            } label: {
-                FlooDesignActionTile(title: String(localized: "Delete"), symbol: "trash", color: Action.destructive)
             }
+            .buttonStyle(.flooTile(color: Action.destructive))
         }
-        .buttonStyle(FlooDesignActionTileStyle())
+        .buttonStyle(.flooTile(color: Action.neutral))
+        .frame(width: 72)
     }
 
     private typealias Action = DocTokens.ColorRole.Action

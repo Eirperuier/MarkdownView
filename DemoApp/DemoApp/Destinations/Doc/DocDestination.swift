@@ -11,7 +11,6 @@ import SwiftUI
 import MarkdownView
 import MessagingUI
 import DocKit
-import FlooDesign
 
 struct DocDestination: View {
     /// Code blocks are coloured by Highlightr, read and edited alike.
@@ -406,9 +405,8 @@ private struct DocPageView: View {
             .padding(.vertical, DocTokens.Space.sm)
             // The Mac's format panel: under the bar at the window's right, open until
             // its Aa closes it (Craft's).
-            .flooDesignActionMenu(isPresented: editor.panels.showsFormat, title: String(localized: "Format"),
-                                  configuration: .init(horizontalAlignment: .trailing, anchorGap: 0, dismissesOnOutsideTouch: false),
-                                  onDismiss: { editor.panels.showsFormat = false }) { [editor] _ in
+            .docMenuPanel(isPresented: editor.panels.showsFormat, title: String(localized: "Format"), alignment: .trailing, keepsOpen: { _ in true },
+                          onDismiss: { editor.panels.showsFormat = false }) { [editor] _ in
                 DocFormatMenu(editor: editor).sections
             }
         Divider()
