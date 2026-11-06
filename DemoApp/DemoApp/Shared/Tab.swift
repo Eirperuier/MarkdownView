@@ -9,7 +9,7 @@ import Foundation
 import SwiftUI
 
 enum Tab: String, CaseIterable {
-    case overview, image, table, text, list, customization, tint, interact, blockDirective, math, streaming, chat, floo, contacts, doc
+    case overview, image, table, text, list, customization, tint, interact, blockDirective, math, extensions, streaming, chat, floo, contacts, doc
     
     var name: String {
         switch self {
@@ -23,6 +23,7 @@ enum Tab: String, CaseIterable {
         case .interact: "Interact"
         case .blockDirective: "Block Directive"
         case .math: "Math Rendering"
+        case .extensions: "Extensions"
         case .streaming: "Streaming"
         case .chat: "Chat"
         case .floo: String(localized: "floo Chat")
@@ -82,6 +83,7 @@ extension Tab {
                     case .interact: InteractDestination()
                     case .blockDirective: BlockDirectiveDestination()
                     case .math: MathDestination()
+                    case .extensions: ExtensionsDestination()
                     case .streaming, .chat, .floo, .contacts, .doc: EmptyView()
                     }
                 }

@@ -14,6 +14,10 @@ enum MarkdownRevealPlainText {
             return MarkdownPenMarkSyntax.strippedPlainText(
                 MarkdownHighlightSyntax.strippedPlainText(text.plainText)
             )
+        case let quote as BlockQuote:
+            // 提示块首行 `[!kind] 标题` 只作标题呈现,不计入 reveal(显示侧同样剥掉)。
+            let body = quote.callout?.body ?? quote
+            return body.children.map { extract(from: $0) }.joined()
         case let code as InlineCode:
             return code.code
         case let codeBlock as CodeBlock:

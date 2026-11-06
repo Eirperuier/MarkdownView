@@ -31,6 +31,8 @@ public protocol BlockQuoteStyle {
 public struct BlockQuoteStyleConfiguration {
     /// The content of a block quote.
     public var content: Content
+    /// 提示块(`> [!note]`)的种类与标题;普通引用为 nil。
+    var callout: MarkdownCallout? = nil
     
     /// A type-erased content of a block quote
     public struct Content: View {

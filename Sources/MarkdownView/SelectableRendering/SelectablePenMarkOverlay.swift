@@ -2,10 +2,11 @@
 //  SelectablePenMarkOverlay.swift
 //  MarkdownView
 //
-//  可选中管线的行内笔迹绘制层(`:circle[…]` / `:wavy[…]`)。
-//  文字本体由 UITextView 正常渲染(参与选择/reveal),笔迹画在其上的透明 overlay:
-//  按 textStorage 里的 PenMarkAttribute range,经 TextKit2 enumerateTextSegments 取
-//  每行 frame,逐行画笔迹(跨行 span 按行拆段,与 SwiftUI Text 管线的 PenMarkPainter 行为一致)。
+//  可选中管线的行内笔迹绘制层(`:circle[…]` / `:marker[…]` / `:u[…]` …)。
+//  文字本体由 UITextView 正常渲染(参与选择/reveal),笔迹画在两层透明 view 上:
+//  荧光笔一层垫在文字之下,其余一层压在文字之上。按 textStorage 里的 PenMarkAttribute
+//  range,经 TextKit2 enumerateTextSegments 取每行 frame 与基线,交给 PenMarkGeometry
+//  (与 SwiftUI Text 管线的 PenMarkPainter 同一份几何)逐行落笔。
 //
 //  流式:span 末字符过 frontier 后笔迹才出现并淡入(与原版管线"写完字才落笔"同节奏);
 //  等待/淡入期间由 CADisplayLink 驱动重绘,全部定型后自动停 —— 静态消息零常驻开销。
@@ -20,12 +21,12 @@ import RichText
 final class SelectablePenMarkOverlayView: UIView {
     struct Mark {
         let range: NSRange
-        let kind: MarkdownPenMarkSyntax.Kind
-        let colorToken: String?
-        /// 内容哈希 seed(随属性值携带):与 SwiftUI 管线同一段文字同一笔迹。
-        let seed: Double
+        /// 含内容哈希 seed:与 SwiftUI 管线同一段文字同一笔迹。
+        let mark: MarkdownPenMarkSyntax.Mark
     }
 
+    /// 本层画哪些:true = 荧光笔(垫在字下),false = 其余(压在字上)。
+    private var isUnderlay = false
     private weak var textView: UITextView?
     private var marks: [Mark] = []
     /// (textView, storage range) → 是否已完整揭示。nil = 静态内容,恒真。
@@ -35,57 +36,69 @@ final class SelectablePenMarkOverlayView: UIView {
     private var displayLink: CADisplayLink?
 
     private static let fadeDuration: TimeInterval = 0.35
-    private static let lineWidth: CGFloat = 1.8
-    /// 笔迹越出文字排版框的出血余量(圈画外扩+渐松+波浪下探;与 SwiftUI 管线
-    /// PenMarkPainter.displayPadding 同量级):overlay 比 textView 四周各大这么多,
-    /// 且 textView 需解除 clipsToBounds(UITextView 是 scroll view,默认裁切)。
-    private static let overhang: CGFloat = 12
+    /// 笔迹越出文字排版框的出血余量(PenMarkGeometry.overhang + 余量):overlay 比 textView
+    /// 四周各大这么多,且 textView 需解除 clipsToBounds(UITextView 是 scroll view,默认裁切)。
+    private static let overhang: CGFloat = PenMarkGeometry.overhang + 2
 
     // MARK: - 接入
 
-    /// textView 创建/内容更新后同步:扫描 storage 的 PenMarkAttribute,有则挂/刷 overlay,无则拆。
+    /// textView 创建/内容更新后同步:扫描 storage 的 PenMarkAttribute,有则挂/刷两层 overlay,无则拆。
     static func sync(on textView: UITextView, isRevealed: (@MainActor (UITextView, NSRange) -> Bool)?) {
         var marks: [Mark] = []
         let storage = textView.textStorage
         storage.enumerateAttribute(.richTextPenMark, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
             guard let raw = value as? String,
                   let decoded = MarkdownPenMarkSyntax.decodeAttributeValue(raw) else { return }
-            marks.append(Mark(range: range, kind: decoded.kind, colorToken: decoded.color, seed: decoded.seed))
+            marks.append(Mark(range: range, mark: decoded))
         }
-
-        let existing = textView.subviews.compactMap { $0 as? SelectablePenMarkOverlayView }.first
+        let existing = textView.subviews.compactMap { $0 as? SelectablePenMarkOverlayView }
         guard !marks.isEmpty else {
-            existing?.detach()
+            existing.forEach { $0.detach() }
             return
         }
-
-        let overlay: SelectablePenMarkOverlayView
-        if let existing {
-            overlay = existing
-        } else {
-            overlay = SelectablePenMarkOverlayView(frame: .zero)
-            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            overlay.backgroundColor = .clear
-            overlay.isOpaque = false
-            overlay.isUserInteractionEnabled = false
-            overlay.contentMode = .redraw
-            textView.addSubview(overlay)
+        for isUnderlay in [true, false] {
+            let layerMarks = marks.filter { $0.mark.kind.isUnderlay == isUnderlay }
+            let current = existing.first { $0.isUnderlay == isUnderlay }
+            guard !layerMarks.isEmpty else {
+                current?.detach()
+                continue
+            }
+            let overlay = current ?? Self.make(isUnderlay: isUnderlay, on: textView)
+            // 出血区:overlay 比 textView 四周各大 overhang,行首尾/首末行的笔迹不被切;
+            // 这些块级 textView 不滚动,解除裁切安全。
+            overlay.frame = textView.bounds.insetBy(dx: -Self.overhang, dy: -Self.overhang)
+            overlay.textView = textView
+            overlay.marks = layerMarks
+            overlay.isRevealed = isRevealed
+            overlay.setNeedsDisplay()
+            overlay.updateDisplayLink()
         }
-        // 出血区:overlay 比 textView 四周各大 overhang,行首尾/首末行的笔迹不被切;
-        // 这些块级 textView 不滚动,解除裁切安全。
-        overlay.frame = textView.bounds.insetBy(dx: -Self.overhang, dy: -Self.overhang)
         textView.clipsToBounds = false
-        overlay.textView = textView
-        overlay.marks = marks
-        overlay.isRevealed = isRevealed
-        overlay.setNeedsDisplay()
-        overlay.updateDisplayLink()
+    }
+
+    private static func make(isUnderlay: Bool, on textView: UITextView) -> SelectablePenMarkOverlayView {
+        let overlay = SelectablePenMarkOverlayView(frame: .zero)
+        overlay.isUnderlay = isUnderlay
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlay.backgroundColor = .clear
+        overlay.isOpaque = false
+        overlay.isUserInteractionEnabled = false
+        overlay.contentMode = .redraw
+        // 底层垫在文字绘制视图之下(textView 背景透明);面层在最上。
+        if isUnderlay { textView.insertSubview(overlay, at: 0) } else { textView.addSubview(overlay) }
+        // 颜色是动态色,深浅色切换时重画。
+        overlay.registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: SelectablePenMarkOverlayView, _) in
+            view.setNeedsDisplay()
+        }
+        return overlay
     }
 
     private func detach() {
         displayLink?.invalidate()
         displayLink = nil
-        textView?.clipsToBounds = true
+        if let textView, !textView.subviews.contains(where: { $0 !== self && $0 is SelectablePenMarkOverlayView }) {
+            textView.clipsToBounds = true
+        }
         removeFromSuperview()
     }
 
@@ -147,15 +160,34 @@ final class SelectablePenMarkOverlayView: UIView {
             let age = now.timeIntervalSince(stamp)
             let alpha = Self.fadeDuration > 0 ? min(1, max(0, age / Self.fadeDuration)) : 1
 
-            let ink = Self.ink(for: mark.colorToken, in: textView)
-            for lineRect in segmentRects(for: mark.range, in: textView) {
-                drawStroke(kind: mark.kind, in: lineRect, seed: mark.seed, alpha: alpha, ink: ink, ctx: ctx)
+            ctx.saveGState()
+            ctx.setAlpha(alpha * PenMarkGeometry.defaultInk(for: mark.mark.kind).opacity)
+            let ink = Self.ink(for: mark, in: textView).cgColor
+            for segment in segments(for: mark.range, in: textView) {
+                for stroke in PenMarkGeometry.strokes(for: mark.mark, in: segment.rect, baseline: segment.baseline) {
+                    ctx.addPath(stroke.path)
+                    switch stroke.mode {
+                    case .fill:
+                        ctx.setFillColor(ink)
+                        ctx.fillPath()
+                    case let .stroke(width, dash, roundCap):
+                        ctx.setStrokeColor(ink)
+                        ctx.setLineWidth(width)
+                        ctx.setLineCap(roundCap ? .round : .butt)
+                        ctx.setLineJoin(.round)
+                        ctx.setLineDash(phase: 0, lengths: dash)
+                        ctx.strokePath()
+                    }
+                }
             }
+            ctx.restoreGState()
         }
     }
 
-    /// mark 的逐行 frame(textView 坐标系 = 容器坐标 + textContainerInset)。
-    private func segmentRects(for range: NSRange, in textView: UITextView) -> [CGRect] {
+    /// mark 的逐行排版框 + 基线(overlay 坐标系 = textView 坐标 + overhang)。排版框取该行
+    /// 基线上下按字体 ascender/descender 撑开 —— 与 SwiftUI 管线 run.typographicBounds 同义
+    ///(segment frame 是整行行盒,CJK fallback 会把它撑高)。
+    private func segments(for range: NSRange, in textView: UITextView) -> [(rect: CGRect, baseline: CGFloat)] {
         guard let tlm = textView.textLayoutManager,
               let contentManager = tlm.textContentManager else { return [] }
         let docStart = contentManager.documentRange.location
@@ -163,107 +195,56 @@ final class SelectablePenMarkOverlayView: UIView {
               let end = contentManager.location(docStart, offsetBy: range.location + range.length),
               let textRange = NSTextRange(location: start, end: end) else { return [] }
 
-        // overlay 原点在 textView 坐标 (-overhang, -overhang),换算 = inset + overhang。
+        let storage = textView.textStorage
+        let font = (range.location < storage.length
+            ? storage.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont
+            : nil) ?? textView.font ?? .preferredFont(forTextStyle: .body)
         let inset = textView.textContainerInset
-        var rects: [CGRect] = []
-        tlm.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
+        let dx = inset.left + Self.overhang
+        let dy = inset.top + Self.overhang
+        var result: [(rect: CGRect, baseline: CGFloat)] = []
+        tlm.enumerateTextSegments(in: textRange, type: .standard, options: []) { segmentRange, frame, _, _ in
             guard frame.width > 1 else { return true }
-            rects.append(frame.offsetBy(dx: inset.left + Self.overhang, dy: inset.top + Self.overhang))
+            let baseline = segmentRange.flatMap { Self.baseline(at: $0.location, midY: frame.midY, in: tlm) }
+                ?? (frame.minY + font.ascender)
+            let rect = CGRect(x: frame.minX, y: baseline - font.ascender,
+                              width: frame.width, height: font.ascender - font.descender)
+            result.append((rect.offsetBy(dx: dx, dy: dy), baseline + dy))
             return true
         }
-        return rects
+        return result
     }
 
-    /// 颜色 token → 笔色(与 PenMarkPainter.ink 同色板;accent 用 textView.tintColor)。
-    private static func ink(for token: String?, in textView: UITextView) -> UIColor {
-        let base: UIColor
-        switch token {
-        case "blue": base = .systemBlue
-        case "green": base = .systemGreen
-        case "orange": base = .systemOrange
-        case "purple": base = .systemPurple
-        case "gray", "grey": base = .systemGray
-        case "accent": base = textView.tintColor ?? .systemRed
-        case let hex? where hex.hasPrefix("#"):
-            base = Self.hexColor(hex) ?? .systemRed
-        case let name?:
-            base = MarkdownColorToken.text(name).map { UIColor($0) } ?? .systemRed
-        default: base = .systemRed
-        }
-        return base
-    }
-
-    private static func hexColor(_ token: String) -> UIColor? {
-        var hex = String(token.dropFirst())
-        if hex.count == 3 { hex = hex.map { "\($0)\($0)" }.joined() }
-        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
-        return UIColor(
-            red: CGFloat((value >> 16) & 0xFF) / 255,
-            green: CGFloat((value >> 8) & 0xFF) / 255,
-            blue: CGFloat(value & 0xFF) / 255,
-            alpha: 1
-        )
-    }
-
-    /// 笔迹绘制:与 SwiftUI 管线 PenMarkPainter 同参数(UIKit 版本副本,改动需两侧同步)。
-    private func drawStroke(
-        kind: MarkdownPenMarkSyntax.Kind,
-        in rect: CGRect,
-        seed: Double,
-        alpha: Double,
-        ink: UIColor,
-        ctx: CGContext
-    ) {
-        let path = UIBezierPath()
-        switch kind {
-        case .wavy:
-            let y0 = rect.maxY + 1.5
-            var x = rect.minX
-            var first = true
-            while x <= rect.maxX {
-                let y = y0 + 1.4 * sin(x / 9 * 2 * .pi + seed)
-                    + 0.7 * Self.penNoise(Double(x) / 6, seed: seed)
-                if first { path.move(to: CGPoint(x: x, y: y)); first = false }
-                else { path.addLine(to: CGPoint(x: x, y: y)) }
-                x += 2.5
-            }
-        case .circle:
-            let box = rect.insetBy(dx: -5, dy: -2.5)
-            let center = CGPoint(x: box.midX, y: box.midY)
-            let a = box.width / 2
-            let b = box.height / 2
-            let start = -Double.pi * 0.75
-            let end = start + 2 * .pi + .pi * 0.22
-            let samples = 84
-            for i in 0...samples {
-                let progress = Double(i) / Double(samples)
-                let t = start + (end - start) * progress
-                let radiusScale = 1
-                    + 0.045 * Self.penNoise(t * 1.9, seed: seed)
-                    + 0.06 * progress
-                let point = CGPoint(
-                    x: center.x + a * radiusScale * CGFloat(cos(t)),
-                    y: center.y + b * radiusScale * CGFloat(sin(t))
-                )
-                if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
+    /// 某位置所在行的基线 y(容器坐标):layout fragment 里与 segment 同高的那条行片段。
+    private static func baseline(at location: NSTextLocation, midY: CGFloat, in tlm: NSTextLayoutManager) -> CGFloat? {
+        guard let fragment = tlm.textLayoutFragment(for: location) else { return nil }
+        let origin = fragment.layoutFragmentFrame.origin
+        for line in fragment.textLineFragments {
+            let bounds = line.typographicBounds.offsetBy(dx: origin.x, dy: origin.y)
+            if bounds.minY <= midY, midY <= bounds.maxY {
+                return bounds.minY + line.glyphOrigin.y
             }
         }
-
-        ctx.saveGState()
-        ctx.setStrokeColor(ink.withAlphaComponent(0.72 * alpha).cgColor)
-        ctx.setLineWidth(Self.lineWidth)
-        ctx.setLineCap(.round)
-        ctx.setLineJoin(.round)
-        ctx.addPath(path.cgPath)
-        ctx.strokePath()
-        ctx.restoreGState()
+        return nil
     }
 
-    /// 与 PenMarkPainter.penNoise / app 侧 handDrawnNoise 同款(参数一致,同 seed 同笔迹)。
-    private static func penNoise(_ t: Double, seed: Double) -> Double {
-        sin(t * 3.1 + seed * 12.9) * 0.55
-            + sin(t * 7.3 + seed * 4.7) * 0.3
-            + sin(t * 13.7 + seed * 7.1) * 0.15
+    /// 颜色 token → 笔色(与 PenMarkPainter.shading 同色板;accent = textView.tintColor,
+    /// foreground = 该段文字自己的颜色)。系统色是动态色,draw 时按当前外观解析。
+    private static func ink(for mark: Mark, in textView: UITextView) -> UIColor {
+        let fallback = PenMarkGeometry.defaultInk(for: mark.mark.kind).token
+        func foreground() -> UIColor {
+            let storage = textView.textStorage
+            guard mark.range.location < storage.length else { return .label }
+            return storage.attribute(.foregroundColor, at: mark.range.location, effectiveRange: nil) as? UIColor ?? .label
+        }
+        switch mark.mark.color ?? fallback {
+        case "foreground": return foreground()
+        case "accent": return textView.tintColor ?? .systemRed
+        case let token:
+            if let color = mark.mark.color.flatMap(MarkdownPenInk.chosen) ?? MarkdownPenInk.color(token) { return UIColor(color) }
+            if fallback == "foreground" { return foreground() }
+            return MarkdownPenInk.color(fallback).map(UIColor.init) ?? .label
+        }
     }
 }
 #endif

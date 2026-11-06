@@ -15,6 +15,7 @@ import CardModel
 @main
 struct DemoAppApp: App {
     init() {
+        ExtensionsDestination.enableSyntax()
         prewarmMarkdownMathRenderer()
         // The cards' view packages as this build last compiled them, before any is asked for.
         Catalog.keepCompiled(in: .cachesDirectory.appending(
