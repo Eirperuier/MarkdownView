@@ -5,14 +5,14 @@
 
 import Foundation
 
-package enum MarkdownAutolinkDetector {
+public enum MarkdownAutolinkDetector {
     nonisolated(unsafe) private static let detector: NSDataDetector? = try? NSDataDetector(
         types: NSTextCheckingResult.CheckingType.link.rawValue
     )
 
     /// Every URL or email detected in `plain`, as character offsets into it, in the order
     /// they come. Empty when there's none.
-    package static func links(in plain: String) -> [(url: URL, characters: Range<Int>)] {
+    public static func links(in plain: String) -> [(url: URL, characters: Range<Int>)] {
         guard let detector, !plain.isEmpty, mayHoldLink(plain) else { return [] }
 
         let nsText = plain as NSString
@@ -36,7 +36,7 @@ package enum MarkdownAutolinkDetector {
     /// finds has an address's `@`, or a `.` or `:` right before a letter or digit: a domain
     /// (`apple.com`, bare ones too), an IP, a scheme (`https:`, `:` also before `/`). A
     /// sentence's full stop or a label's colon is followed by a space, so prose goes unscanned.
-    package static func mayHoldLink(_ plain: String) -> Bool {
+    public static func mayHoldLink(_ plain: String) -> Bool {
         var previous: Unicode.Scalar = " "
         for scalar in plain.unicodeScalars {
             if scalar == "@" || scalar == "\u{FF20}" { return true }

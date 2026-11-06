@@ -66,8 +66,8 @@ public struct MarkdownFootnotes: Equatable, Hashable, Sendable {
 /// 保证「app 数出的内联脚注序列」与「预处理替换的占位符序列」一一对应。
 public enum MarkdownFootnoteSyntax {
     /// 内联脚注占位符(与 math 占位符同风格,视觉上不可能出现在正文里)。
-    package static let inlinePlaceholderPrefix = "\u{2E28}fnote:"
-    package static let inlinePlaceholderSuffix = "\u{2E29}"
+    public static let inlinePlaceholderPrefix = "\u{2E28}fnote:"
+    public static let inlinePlaceholderSuffix = "\u{2E29}"
 
     /// 内联脚注 `^[…]` 的出现(range 含 `^[` 与收尾 `]`;content 为中括号内的原文)。
     /// 跳过反引号 code span 与 `$…$` 数学段(与 app 索引侧保持一致的近似规则)。
@@ -156,15 +156,15 @@ public enum MarkdownFootnoteSyntax {
     }
 
     /// 预处理产物:占位符序号 → (内容原文, plain 单位数)。
-    package struct InlineToken {
-        package let content: String
+    public struct InlineToken {
+        public let content: String
         /// 源文本在 AST plain 坐标系里占的单位数:`^` + `[` + 内容 plain + `]`。
         /// 驱动方(reveal frontier)按未预处理的 AST 记账,这里必须与之一致。
-        package let plainSpan: Int
+        public let plainSpan: Int
     }
 
     /// 把 `^[…]` 替换成 `⸨fnote:K⸩` 占位符(K = 出现顺序)。在 math 预处理之后调用。
-    package static func preprocessInlineNotes(_ text: String) -> (text: String, tokens: [Int: InlineToken]) {
+    public static func preprocessInlineNotes(_ text: String) -> (text: String, tokens: [Int: InlineToken]) {
         let occurrences = inlineOccurrences(in: text)
         guard !occurrences.isEmpty else { return (text, [:]) }
         var tokens: [Int: InlineToken] = [:]

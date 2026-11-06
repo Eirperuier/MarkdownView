@@ -778,9 +778,9 @@ private func isStandaloneDisplayMathRange(
 }
 
 /// What marks inline maths in the text between preprocessing and drawing: `⸨imath:ID⸩`.
-package enum MarkdownInlineMathPlaceholder {
-    package static let prefix = "\u{2E28}imath:"
-    package static let suffix = "\u{2E29}"
+public enum MarkdownInlineMathPlaceholder {
+    public static let prefix = "\u{2E28}imath:"
+    public static let suffix = "\u{2E29}"
 }
 
 /// Extracts `\(...\)` inline math spans BEFORE cmark parsing so that the

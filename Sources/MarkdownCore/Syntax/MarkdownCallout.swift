@@ -16,11 +16,11 @@ public enum MarkdownCalloutSyntax {
     nonisolated(unsafe) public static var isEnabled = false
 }
 
-package struct MarkdownCallout: Equatable {
-    package enum Kind: String, CaseIterable {
+public struct MarkdownCallout: Equatable {
+    public enum Kind: String, CaseIterable {
         case note, tip, important, warning, caution
 
-        package init?(token: String) {
+        public init?(token: String) {
             switch token.lowercased() {
             case "note", "info", "abstract", "summary": self = .note
             case "tip", "hint", "success", "check", "done": self = .tip
@@ -31,7 +31,7 @@ package struct MarkdownCallout: Equatable {
             }
         }
 
-        package var symbol: String {
+        public var symbol: String {
             switch self {
             case .note: "info.circle.fill"
             case .tip: "lightbulb.fill"
@@ -44,19 +44,19 @@ package struct MarkdownCallout: Equatable {
         var defaultTitle: String { rawValue.capitalized }
     }
 
-    package let kind: Kind
+    public let kind: Kind
     /// 首行标记后的自定义标题,nil = kind 名。
-    package let customTitle: String?
+    public let customTitle: String?
 
-    package init(kind: Kind, customTitle: String?) {
+    public init(kind: Kind, customTitle: String?) {
         self.kind = kind
         self.customTitle = customTitle
     }
 
-    package var title: String { customTitle ?? kind.defaultTitle }
+    public var title: String { customTitle ?? kind.defaultTitle }
 
     /// 解析首行:`[!kind]` 后可跟标题(Obsidian 的 `[!kind]-` / `[!kind]+` 折叠符忽略)。
-    package static func parse(firstLine: String) -> MarkdownCallout? {
+    public static func parse(firstLine: String) -> MarkdownCallout? {
         guard MarkdownCalloutSyntax.isEnabled else { return nil }
         let line = firstLine.trimmingCharacters(in: .whitespaces)
         guard line.hasPrefix("[!"), let close = line.firstIndex(of: "]") else { return nil }
@@ -69,7 +69,7 @@ package struct MarkdownCallout: Equatable {
     }
 
     /// 引用块内部 markdown(已剥 `>`)→ 提示 + 去掉首行后的内容。
-    package static func split(innerMarkdown: String) -> (callout: MarkdownCallout, body: String)? {
+    public static func split(innerMarkdown: String) -> (callout: MarkdownCallout, body: String)? {
         let firstLine = innerMarkdown.prefix { $0 != "\n" }
         guard let callout = parse(firstLine: String(firstLine)) else { return nil }
         let body = innerMarkdown.dropFirst(firstLine.count).drop { $0 == "\n" }
@@ -79,7 +79,7 @@ package struct MarkdownCallout: Equatable {
 
 extension BlockQuote {
     /// 首段首行(到第一个换行为止的纯文本 inline)是 `[!kind]` 时的提示。
-    package var callout: (callout: MarkdownCallout, body: BlockQuote)? {
+    public var callout: (callout: MarkdownCallout, body: BlockQuote)? {
         guard MarkdownCalloutSyntax.isEnabled,
               let paragraph = child(at: 0) as? Paragraph else { return nil }
         var inlines = paragraph.children.compactMap { $0 as? InlineMarkup }

@@ -12,7 +12,7 @@ import Foundation
 import Markdown
 
 /// 自定义 bullet 的两种来源。
-package enum CustomListMarker: Equatable {
+public enum CustomListMarker: Equatable {
     case emoji(String)
     case symbol(String)   // SF Symbol 名(如 "star.fill")
 }
@@ -20,7 +20,7 @@ package enum CustomListMarker: Equatable {
 extension ListItem {
     /// 检测行首 `{token}` 自定义 bullet 标记(仅无序列表项;有序/任务列表不接管)。
     /// 返回 (marker, 需从首个 Text 剥掉的字符数,含收尾空格)。
-    package var customListMarkerMatch: (marker: CustomListMarker, stripCount: Int)? {
+    public var customListMarkerMatch: (marker: CustomListMarker, stripCount: Int)? {
         // 任务列表([x])不接管;有序列表也不接管(仅无序 bullet)。
         guard checkbox == nil else { return nil }
         guard let paragraph = child(at: 0) as? Paragraph,
@@ -30,7 +30,7 @@ extension ListItem {
 
     /// 从(list item 内容起始的)字符串解析 `{token}` 前缀;命中返回 (marker, 需剥掉的字符数)。
     /// 容忍行首空白;`}` 后紧跟内容或一个空白都认(空白一并剥掉)——中文常不加空格。
-    package static func parseMarkerToken(_ raw: String) -> (marker: CustomListMarker, stripCount: Int)? {
+    public static func parseMarkerToken(_ raw: String) -> (marker: CustomListMarker, stripCount: Int)? {
         let leadingWS = raw.prefix { $0 == " " || $0 == "\t" }.count
         let s = String(raw.dropFirst(leadingWS))
         guard s.hasPrefix("{"), let close = s.firstIndex(of: "}") else { return nil }
@@ -51,7 +51,7 @@ extension ListItem {
     }
 
     /// 去掉行首 `{token}` 前缀后的 list item(内容渲染用);无标记则原样返回。
-    package func strippingCustomMarker() -> ListItem {
+    public func strippingCustomMarker() -> ListItem {
         guard let match = customListMarkerMatch else { return self }
         var blockChildren = children.compactMap { $0 as? BlockMarkup }
         guard blockChildren.count == childCount,

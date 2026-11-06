@@ -13,15 +13,15 @@ public enum MarkdownHighlightSyntax {
 
     /// 一个 `==…==` 匹配的字符偏移:`start..<innerStart` 与 `innerEnd..<end` 是两侧
     /// 定界符,`innerStart..<innerEnd` 是要高亮的内部文本。
-    package struct Match {
-        package let start: Int
-        package let innerStart: Int
-        package let innerEnd: Int
-        package let end: Int
+    public struct Match {
+        public let start: Int
+        public let innerStart: Int
+        public let innerEnd: Int
+        public let end: Int
     }
 
     /// 扫描出所有顶层 `==非空文本==`(内部不含换行;`====` 空内容跳过)。
-    package static func matchOffsets(_ string: String) -> [Match] {
+    public static func matchOffsets(_ string: String) -> [Match] {
         guard isEnabled else { return [] }
         let chars = Array(string)
         let n = chars.count
@@ -59,7 +59,7 @@ public enum MarkdownHighlightSyntax {
     }
 
     /// reveal 计数用:去掉定界符,只留内部文本(+ 匹配外的原文)。
-    package static func strippedPlainText(_ string: String) -> String {
+    public static func strippedPlainText(_ string: String) -> String {
         let matches = matchOffsets(string)
         guard !matches.isEmpty else { return string }
         let chars = Array(string)
@@ -74,7 +74,7 @@ public enum MarkdownHighlightSyntax {
         return result
     }
 
-    package static func characterRange(
+    public static func characterRange(
         in attributed: AttributedString,
         from start: Int,
         to end: Int

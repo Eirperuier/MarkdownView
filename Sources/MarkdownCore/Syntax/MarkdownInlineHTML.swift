@@ -5,8 +5,8 @@
 
 import Foundation
 
-package enum MarkdownInlineHTML {
-    package static func replacementText(for rawHTML: String) -> String? {
+public enum MarkdownInlineHTML {
+    public static func replacementText(for rawHTML: String) -> String? {
         let trimmed = rawHTML.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "<", trimmed.last == ">" else {
             return nil

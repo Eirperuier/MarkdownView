@@ -84,7 +84,7 @@ public enum MarkdownColorToken {
     public static let palette = ["gray", "slate", "purple", "blue", "cyan", "mint", "green", "lemon", "yellow", "red"]
 
     /// (浅色模式文字色, 深色模式文字色)。浅色模式下取更深的同色相,浅黄之类才读得清。
-    package static let shades: [String: (light: UInt32, dark: UInt32)] = [
+    public static let shades: [String: (light: UInt32, dark: UInt32)] = [
         "gray": (0x8A8A8E, 0x9C9CA2),
         "slate": (0x4A4A52, 0x7C7C86),
         "purple": (0xB04ED6, 0xDF6CF5),
@@ -99,7 +99,7 @@ public enum MarkdownColorToken {
         "brown": (0x9C6B3C, 0xD4A373),
     ]
 
-    package static func hexValue(_ token: String) -> UInt32? {
+    public static func hexValue(_ token: String) -> UInt32? {
         guard token.hasPrefix("#") else { return nil }
         var hex = String(token.dropFirst())
         if hex.count == 3 { hex = hex.map { "\($0)\($0)" }.joined() }

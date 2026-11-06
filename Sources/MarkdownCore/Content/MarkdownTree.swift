@@ -48,7 +48,7 @@ public struct MarkdownTree: @unchecked Sendable, Hashable {
         BlockDirective(name: mathAttribute, children: [Paragraph(Text(latex))])
     }
 
-    package static let mathAttribute = "math"
+    public static let mathAttribute = "math"
 }
 
 private struct MathFinder: MarkupWalker {

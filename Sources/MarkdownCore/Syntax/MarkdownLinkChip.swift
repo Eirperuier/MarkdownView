@@ -52,16 +52,16 @@ public enum MarkdownLinkChips {
 
     // MARK: - 连续链接折叠
 
-    package struct ChipGroup {
-        package let label: String
-        package let urls: [String]
+    public struct ChipGroup {
+        public let label: String
+        public let urls: [String]
         /// 组之后下一个待访问的 child 下标。
-        package let nextIndex: Int
+        public let nextIndex: Int
     }
 
     /// 从 `start` 开始匹配一串可 chip 化的链接(链接之间允许纯空白文本)。
     /// 首链接的文字作为 chip label(为空时退化为 host)。
-    package static func consecutiveChipLinks(in children: [any Markup], from start: Int) -> ChipGroup? {
+    public static func consecutiveChipLinks(in children: [any Markup], from start: Int) -> ChipGroup? {
         guard isEnabled,
               let first = children[start] as? Markdown.Link,
               let firstURL = chippableDestination(first) else { return nil }

@@ -33,31 +33,31 @@ public enum MarkdownPenMarkSyntax {
         case color  // 文字色(普通前景色 run,不走绘制层)
 
         /// 绘制层:填充铺在字下,线条压在字上。
-        package var isUnderlay: Bool { self == .marker }
+        public var isUnderlay: Bool { self == .marker }
     }
 
     /// 内容长度上限(字符)。圈画是词级注记,超长不匹配 —— 语法层挡掉"圈整段"。
     static let maxInnerLength = 40
 
-    package struct Match {
-        package let start: Int
-        package let innerStart: Int
-        package let innerEnd: Int
+    public struct Match {
+        public let start: Int
+        public let innerStart: Int
+        public let innerEnd: Int
         /// 含可选 `{…}` 属性块的整体终点。
-        package let end: Int
-        package let kind: Kind
+        public let end: Int
+        public let kind: Kind
         /// `{color=…}` / `{c=…}` 的颜色 token(named / 语义 / #hex),nil = 该 kind 的默认色。
-        package let color: String?
+        public let color: String?
         /// `{style=…}`(u / s 的线型),nil = single。
-        package let style: String?
+        public let style: String?
         /// 笔迹抖动 seed = 内容 FNV 哈希:同一段文字两条管线/多次重排永远同一笔迹
         /// (字符位置做 seed 会因两管线坐标系不同而画出不同的圈)。
-        package let seed: Double
+        public let seed: Double
     }
 
     /// 内容 → 确定性 seed(FNV-1a;不用 Hasher —— 它每次启动随机盐)。
     /// 取模压到小值:penNoise 里 seed 参与 sin 相位,过大丢精度。
-    package static func contentSeed(_ text: String) -> Double {
+    public static func contentSeed(_ text: String) -> Double {
         var hash: UInt32 = 2166136261
         for byte in text.utf8 {
             hash = (hash ^ UInt32(byte)) &* 16777619
@@ -67,7 +67,7 @@ public enum MarkdownPenMarkSyntax {
 
     /// 扫描 `:name[非空内容]{可选属性}`(同行、白名单名、长度受限;
     /// 属性块 = remark 指令的 `{key=value}` 扩展位)。
-    package static func matchOffsets(_ string: String) -> [Match] {
+    public static func matchOffsets(_ string: String) -> [Match] {
         guard isEnabled, string.contains(":") else { return [] }
         let chars = Array(string)
         let n = chars.count
@@ -158,13 +158,13 @@ public enum MarkdownPenMarkSyntax {
     }
 
     /// 解码后的 run 属性值。
-    package struct Mark: Hashable, Sendable {
-        package let kind: Kind
-        package let color: String?
-        package let style: String?
-        package let seed: Double
+    public struct Mark: Hashable, Sendable {
+        public let kind: Kind
+        public let color: String?
+        public let style: String?
+        public let seed: Double
 
-        package init(kind: Kind, color: String?, style: String?, seed: Double) {
+        public init(kind: Kind, color: String?, style: String?, seed: Double) {
             self.kind = kind
             self.color = color
             self.style = style
@@ -174,15 +174,15 @@ public enum MarkdownPenMarkSyntax {
 
     /// run 属性值编码:`kind|colorToken|seed|style`(color/style 可空;桥进 NSAttributedString
     /// 只能是简单值,两侧用 decodeAttributeValue 解)。
-    package static func encodeAttributeValue(_ m: Match) -> String {
+    public static func encodeAttributeValue(_ m: Match) -> String {
         encodeAttributeValue(kind: m.kind, color: m.color, style: m.style, seed: m.seed)
     }
 
-    package static func encodeAttributeValue(kind: Kind, color: String?, style: String? = nil, seed: Double) -> String {
+    public static func encodeAttributeValue(kind: Kind, color: String?, style: String? = nil, seed: Double) -> String {
         "\(kind.rawValue)|\(color ?? "")|\(Int(seed))|\(style ?? "")"
     }
 
-    package static func decodeAttributeValue(_ value: String) -> Mark? {
+    public static func decodeAttributeValue(_ value: String) -> Mark? {
         let parts = value.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false)
         guard let first = parts.first, let kind = Kind(rawValue: String(first)) else { return nil }
         let color = parts.count > 1 && !parts[1].isEmpty ? String(parts[1]) : nil
@@ -191,7 +191,7 @@ public enum MarkdownPenMarkSyntax {
         return Mark(kind: kind, color: color, style: style, seed: seed)
     }
 
-    package static func characterRange(
+    public static func characterRange(
         in attributed: AttributedString,
         from start: Int,
         to end: Int
@@ -213,7 +213,7 @@ public enum MarkdownPenMarkAttribute: AttributedStringKey {
 
 extension AttributedString {
     /// 是否含笔迹注记 run(渲染分支据此挂 TextRenderer)。
-    package var hasPenMark: Bool {
+    public var hasPenMark: Bool {
         runs.contains { $0[MarkdownPenMarkAttribute.self] != nil }
     }
 }

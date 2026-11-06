@@ -109,7 +109,7 @@ public struct MarkdownContent: Sendable {
         self.store = ParsedDocumentStore()
     }
     
-    package func parse(options: ParseOptions = ParseOptions()) -> Document {
+    public func parse(options: ParseOptions = ParseOptions()) -> Document {
         store.parse(raw, options: options)
     }
 
@@ -117,7 +117,7 @@ public struct MarkdownContent: Sendable {
         store.topLevelChildren(raw, options: options)
     }
 
-    package func parseOptions(allowingBlockDirectives: Bool) -> ParseOptions {
+    public func parseOptions(allowingBlockDirectives: Bool) -> ParseOptions {
         var options = ParseOptions()
         if allowingBlockDirectives,
            MarkdownParseSanitizer.allowsBlockDirectiveParsing(raw.text) {

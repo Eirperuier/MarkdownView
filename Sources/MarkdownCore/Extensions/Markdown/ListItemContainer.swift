@@ -10,7 +10,7 @@ import Markdown
 
 extension ListItemContainer {
     /// Depth of the list if nested within others. Index starts at 0.
-    package var listDepth: Int {
+    public var listDepth: Int {
         var index = 0
 
         var currentElement = parent

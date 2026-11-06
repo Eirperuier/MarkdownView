@@ -73,7 +73,7 @@ enum MarkdownRevealPlainText {
 }
 
 extension Markup {
-    package var markdownRevealPlainText: String {
+    public var markdownRevealPlainText: String {
         MarkdownRevealPlainText.extract(from: self)
     }
 }
