@@ -15,7 +15,7 @@ import CardUI
 import SwiftUI
 import MarkdownView
 import MessagingUI
-import FlooDesign
+import FlooUIKit
 
 // MARK: - Model
 
@@ -188,7 +188,7 @@ struct FlooWorkStatusView: View {
                         .transition(.opacity)
                 }
             }
-            .animation(FlooDesignTokens.Motion.step, value: thinking)
+            .animation(AppMotion.step, value: thinking)
         }
         .mask {
             // The bubble: its padding around the face.
@@ -202,7 +202,7 @@ struct FlooWorkStatusView: View {
                 size = new
                 return
             }
-            withAnimation(FlooDesignTokens.Motion.layout) { size = new }
+            withAnimation(AppMotion.layout) { size = new }
         }
     }
 }
@@ -241,7 +241,7 @@ struct FlooTypingDots: View {
                     .offset(y: on ? -1.5 : 0)
                     // Each a third of the pulse after the one before.
                     .animation(
-                        FlooDesignTokens.Motion.pulse?.delay(Double(index) * 0.68 / 3),
+                        AppMotion.pulse?.delay(Double(index) * 0.68 / 3),
                         value: on
                     )
             }
@@ -267,7 +267,7 @@ struct FlooCallsLine: View {
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
                 }
             }
-            .animation(FlooDesignTokens.Motion.layout, value: calls.map(\.id))
+            .animation(AppMotion.layout, value: calls.map(\.id))
             TimelineView(.periodic(from: .now, by: 2)) { context in
                 let says = calls.isEmpty ? "" : calls[Int(context.date.timeIntervalSinceReferenceDate / 2) % calls.count].says
                 // The words turn over in place: the old go up, the new come from below.
@@ -280,7 +280,7 @@ struct FlooCallsLine: View {
                         .id(says)
                         .transition(.push(from: .bottom).combined(with: .opacity))
                 }
-                .animation(FlooDesignTokens.Motion.layout, value: says)
+                .animation(AppMotion.layout, value: says)
             }
         }
         .frame(height: 20)
@@ -653,7 +653,7 @@ private struct FlooCallState: View {
             }
         }
         .frame(width: 14, height: 14)
-        .animation(FlooDesignTokens.Motion.layout, value: state)
+        .animation(AppMotion.layout, value: state)
     }
 }
 

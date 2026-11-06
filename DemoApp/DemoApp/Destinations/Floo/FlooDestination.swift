@@ -15,7 +15,7 @@ import CardRuntime
 import CardUI
 import DocKit
 import TransportKit
-import FlooDesign
+import FlooUIKit
 import Wire
 import ChatBackgrounds
 
@@ -487,13 +487,13 @@ struct FlooDestination: View {
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 6)
-        .animation(FlooDesignTokens.Motion.layout, value: demo.openAsks.count)
-        .animation(FlooDesignTokens.Motion.layout, value: demo.showsAsks)
-        .animation(FlooDesignTokens.Motion.layout, value: demo.answering)
-        .animation(FlooDesignTokens.Motion.layout, value: demo.replying)
-        .animation(FlooDesignTokens.Motion.layout, value: demo.queued.map(\.id))
-        .animation(FlooDesignTokens.Motion.layout, value: demo.showsErrands)
-        .animation(FlooDesignTokens.Motion.layout, value: demo.presence.isEmpty)
+        .animation(AppMotion.layout, value: demo.openAsks.count)
+        .animation(AppMotion.layout, value: demo.showsAsks)
+        .animation(AppMotion.layout, value: demo.answering)
+        .animation(AppMotion.layout, value: demo.replying)
+        .animation(AppMotion.layout, value: demo.queued.map(\.id))
+        .animation(AppMotion.layout, value: demo.showsErrands)
+        .animation(AppMotion.layout, value: demo.presence.isEmpty)
     }
 
     private func play() {
@@ -757,7 +757,7 @@ private struct FlooRowView: View {
 
     /// On a phone a long press is for the message's menu: its words are picked by a double
     /// tap. (A text view puts its long presses back as it changes how it's selected.)
-    private static let textHooks: MarkdownSelectableTextHooks? = FlooDesignTokens.Platform.isPointer ? nil : {
+    private static let textHooks: MarkdownSelectableTextHooks? = DocTokens.Platform.isPointer ? nil : {
         let noLongPress = { @MainActor (textView: UITextView) in
             for gesture in textView.gestureRecognizers ?? [] where gesture is UILongPressGestureRecognizer {
                 gesture.isEnabled = false
@@ -2288,7 +2288,7 @@ private struct FlooBubblePiece<Content: View>: View {
                     || (state.finished.contains(row) && $0.whole != shown.whole)
             } ?? true
             // Laid out: no animation. The reveal moving on: the bubble's height goes with it.
-            var transaction = Transaction(animation: laidOut ? nil : FlooDesignTokens.Motion.layout)
+            var transaction = Transaction(animation: laidOut ? nil : AppMotion.layout)
             transaction.flooRevealMoved = !laidOut
             withTransaction(transaction) { state.rows[row] = shown }
         }
@@ -2432,7 +2432,7 @@ private struct FlooBubbleBackground: View {
             // the words across as they're revealed): an animation of its own would trail
             // behind. Only a line more of words revealed grows it down in a move of its own.
             // It shows up around its first words, fading in there.
-            .transaction { $0.animation = $0.flooRevealMoved ? FlooDesignTokens.Motion.layout : nil }
+            .transaction { $0.animation = $0.flooRevealMoved ? AppMotion.layout : nil }
             .opacity(bubble.shown ? 1 : 0)
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
             // What lifts with its message's menu: placed, not moved there (offset isn't where
@@ -2623,7 +2623,7 @@ private struct FlooDrawnCard: View {
             // Settled when a few frames pass with no new height.
             guard (try? await Task.sleep(for: .milliseconds(100))) != nil else { return }
             // Its row tells the list its new height, and the rows after it follow.
-            withAnimation(FlooDesignTokens.Motion.layout) { shown = true }
+            withAnimation(AppMotion.layout) { shown = true }
         }
     }
 }
@@ -2658,7 +2658,7 @@ private struct FlooLiveCard: View {
                 .opacity(drawing ? 0 : 1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .animation(FlooDesignTokens.Motion.layout, value: drawing)
+            .animation(AppMotion.layout, value: drawing)
         }
         .overlay { FlooCardEdge(size: layout.size) }
         .cardUpdates(of: session)
@@ -2819,7 +2819,7 @@ enum FlooMessageMenu {
         let mine = demo.myReaction(on: row)
         let react = { (emoji: String) in demo.react(number, emoji == mine ? nil : emoji) }
         var sections: [UIMenuElement] = []
-        let pointer = FlooDesignTokens.Platform.isPointer
+        let pointer = DocTokens.Platform.isPointer
         if pointer {
             sections.append(UIMenu(options: .displayAsPalette, children: FlooReaction.offered.map { emoji in
                 UIAction(title: emoji, image: image(of: emoji), state: emoji == mine ? .on : .off) { _ in react(emoji) }
@@ -2956,7 +2956,7 @@ private struct FlooReactionBar: View {
             }
         }
         .padding(5)
-        .flooDesignGlass(.clear, in: Capsule())
+        .flooGlass(in: Capsule())
         .padding(.bottom, 8)
     }
 }
@@ -2988,7 +2988,7 @@ private struct FlooReactionsView: View {
                         if reaction.mine { Capsule().strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 1) }
                     }
                 }
-                .buttonStyle(FlooDesignPlainButtonStyle(in: Capsule()))
+                .buttonStyle(.flooContent(in: Capsule()))
                 .help(reaction.who.joined(separator: "、"))
                 .accessibilityLabel("\(reaction.emoji) \(reaction.who.joined(separator: "、"))")
             }

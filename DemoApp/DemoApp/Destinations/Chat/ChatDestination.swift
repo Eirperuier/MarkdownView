@@ -9,7 +9,7 @@
 import SwiftUI
 import MarkdownView
 import MessagingUI
-import FlooDesign
+import FlooUIKit
 
 extension TiledViewReader: MarkdownBlockSelectionLayout where ID == String {
     public var layoutVersion: UInt { version }
@@ -28,7 +28,7 @@ struct ChatDestination: View {
     @State private var reader = TiledViewReader<String>()
     @State private var selection = {
         let selection = MarkdownBlockSelectionController()
-        selection.motion = FlooDesignTokens.Motion.markdown
+        selection.motion = AppMotion.markdown
         return selection
     }()
     @State private var heightCache = ChatHeightCache()

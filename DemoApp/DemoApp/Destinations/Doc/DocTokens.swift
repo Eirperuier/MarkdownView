@@ -155,19 +155,17 @@ enum DocTokens {
 
     enum Motion {
         static var feedbackCurve: Animation { FlooMotion.press.swiftUI ?? .linear(duration: 0) }
-        static let layoutSpring = Spring(duration: 0.34, bounce: 0)
+        static let layoutSpring = AppMotion.layoutSpring
         /// The app's list scroll (`TiledMotion`), which what follows a scroll waits out.
-        static let scrollSpring = Spring(duration: 0.5, bounce: 0)
+        static let scrollSpring = AppMotion.scrollSpring
         static var revealDuration: TimeInterval { FlooMotion.appear.duration }
-        @MainActor static var layout: Animation? { UIAccessibility.isReduceMotionEnabled ? nil : .spring(layoutSpring) }
+        @MainActor static var layout: Animation? { AppMotion.layout }
         @MainActor static var step: Animation? { FlooMotion.floatingResize.swiftUI }
         static var reveal: Animation? { FlooMotion.appear.swiftUI }
         static var dismiss: Animation? { FlooMotion.disappear.swiftUI }
         @MainActor static var revealStartScale: CGFloat { UIAccessibility.isReduceMotionEnabled ? 1 : 0.975 }
 
-        static var markdown: MarkdownMotion {
-        MarkdownMotion(feedback: feedbackCurve, layout: .spring(layoutSpring), revealCurve: .easeOut, revealDuration: revealDuration)
-        }
+        static var markdown: MarkdownMotion { AppMotion.markdown }
     }
 
     enum Component {

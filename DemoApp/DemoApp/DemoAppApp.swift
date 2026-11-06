@@ -8,7 +8,7 @@
 import SwiftUI
 import MarkdownView
 import MessagingUI
-import FlooDesign
+import FlooUIKit
 import CardUI
 import CardModel
 
@@ -33,8 +33,8 @@ struct DemoAppApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .markdownMotion(FlooDesignTokens.Motion.markdown)
-                .tiledMotion(FlooDesignTokens.Motion.tiled)
+                .markdownMotion(AppMotion.markdown)
+                .tiledMotion(AppMotion.tiled)
         }
         .commands { DocCommands() }
     }

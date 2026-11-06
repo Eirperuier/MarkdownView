@@ -13,7 +13,7 @@
 
 import AppleDeviceImages
 import SwiftUI
-import FlooDesign
+import FlooUIKit
 import Wire
 import TransportKit
 import ServiceKit
@@ -843,7 +843,7 @@ private struct FlooCapabilityPage: View {
                             LabeledContent {
                                 Text(count(key))
                             } label: {
-                                FlooDesignSettingsLabel(key.title)
+                                FlooSettingsLabel(key.title)
                             }
                         }
                     }
@@ -945,7 +945,6 @@ private struct FlooCapabilityApprovalPage: View {
 
             Section {
                 Toggle("读取也按上面的方式", isOn: reads)
-                    .tint(FlooDesignTokens.Component.Settings.switchTint)
                     .disabled(set == nil)
             } footer: {
                 Text(set == nil ? "先选一种批准方式，才能单独管读取。" : readsWords)
