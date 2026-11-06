@@ -5,7 +5,7 @@
 //  Every style MarkdownView draws, on one page, and the same list drawn to PNGs:
 //
 //      -openTab catalog -catalogShots <dir> [-catalogWidth 390] [-catalogDark YES]
-//                       [-catalogOnly id,id] [-catalogRenderer swiftui]
+//                       [-catalogOnly id,id] [-catalogRenderer swiftui|uikit]
 //
 //  Scripts/markdown-catalog.sh runs it; Scripts/markdown-pixel-diff.swift compares two sets.
 //
@@ -246,23 +246,35 @@ enum CatalogShots {
         let top: CGFloat = 160
         let windowHeight: CGFloat = 2400
         let measured = CatalogMeasuredHeight()
-        let host = UIHostingController(rootView: AnyView(
-            CatalogFixtureView(fixture: fixture)
-                .frame(width: width, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGFloat.self, of: \.size.height) { measured.height = $0 }
-                .padding(.top, top)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .ignoresSafeArea()
-        ))
-        host.overrideUserInterfaceStyle = style
-        host.view.backgroundColor = .systemBackground
-        host.safeAreaRegions = []
+        let root: UIViewController
+        if UserDefaults.standard.string(forKey: "catalogRenderer") == "uikit" {
+            let host = UIViewController()
+            let view = CatalogUIKitFixtureView(fixture: fixture, scale: scene.screen.scale)
+            host.view.addSubview(view)
+            // Off-window, as a list cell asks before it's shown.
+            measured.height = view.height(forWidth: width)
+            view.frame = CGRect(x: 0, y: top, width: width, height: measured.height)
+            root = host
+        } else {
+            let host = UIHostingController(rootView: AnyView(
+                CatalogFixtureView(fixture: fixture)
+                    .frame(width: width, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self, of: \.size.height) { measured.height = $0 }
+                    .padding(.top, top)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .ignoresSafeArea()
+            ))
+            host.safeAreaRegions = []
+            root = host
+        }
+        root.overrideUserInterfaceStyle = style
+        root.view.backgroundColor = .systemBackground
 
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = style
         window.frame = CGRect(x: 0, y: 0, width: width, height: windowHeight)
-        window.rootViewController = host
+        window.rootViewController = root
         window.isHidden = false
         defer {
             window.isHidden = true

@@ -13,6 +13,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: ".."),
+        // MarkdownView's fork of it: a visitor reads its nodes.
+        .package(url: "https://github.com/Eirperuier/swift-markdown.git", revision: "daac37a4170ddb163eb2db53f97d0cf1ee742c18"),
         .package(path: "../../markdown-uikit-deps/floo-RichText"),
         .package(path: "../../floo-uikit"),
     ],
@@ -21,6 +23,7 @@ let package = Package(
             name: "MarkdownUIKit",
             dependencies: [
                 .product(name: "MarkdownCore", package: "MarkdownView"),
+                .product(name: "Markdown", package: "swift-markdown"),
                 .product(name: "RichTextCore", package: "floo-RichText"),
                 .product(name: "FlooUIKit", package: "floo-uikit"),
             ],
