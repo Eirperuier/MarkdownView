@@ -52,6 +52,15 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
     /// What the page's default colours come to: the app's accent, as a catalogue fixture has it.
     static let theme = FlooTheme.system.setting(.accent, to: UIColor(named: "AccentColor") ?? .systemBlue)
 
+    /// Once, on the window: a trait override in each row has UIKit walk the row's views at every
+    /// layout pass. The SwiftUI rows don't read it.
+    static func applyTheme() {
+        guard ChatRenderer.current == .uikit else { return }
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows { window.traitOverrides.flooTheme = theme }
+        }
+    }
+
     nonisolated static func draws(_ block: MarkdownStreamBlock) -> Bool {
         ChatRenderer.current == .uikit && MarkdownUIKit.MarkdownBlockView.draws(block)
     }
@@ -106,16 +115,6 @@ final class ChatUIKitRowView: UIView {
     private weak var renderedHeights: ChatRenderedHeights?
     var onHeightChange: (() -> Void)?
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        traitOverrides.flooTheme = ChatUIKitBlock.theme
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
     func show(id: String, block: MarkdownStreamBlock, reveal: MarkdownReveal?, renderedHeights: ChatRenderedHeights) {
         self.renderedHeights = renderedHeights
         if rowID != id { reset() }
@@ -155,7 +154,7 @@ final class ChatUIKitRowView: UIView {
 
 /// Blocks' views by row, with their text in and laid out, off any window or in a row. A height is
 /// asked of the view that will show it, so a row is built and laid out once. A row coming back
-/// finds its view as it left it. As many are kept as the list keeps SwiftUI rows' hosts.
+/// finds its view as it left it.
 @MainActor
 enum ChatUIKitBlockViews {
     private struct Entry {
@@ -171,7 +170,7 @@ enum ChatUIKitBlockViews {
         let category: UIContentSizeCategory
     }
 
-    private static let capacity = 200
+    private static let capacity = 96
     private static var entries: [String: Entry] = [:]
     private static var heights: [HeightKey: CGFloat] = [:]
     private static var clock: UInt64 = 0

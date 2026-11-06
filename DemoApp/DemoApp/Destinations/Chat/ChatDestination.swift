@@ -58,6 +58,7 @@ struct ChatDestination: View {
             }
         }
         .task {
+            ChatUIKitBlock.applyTheme()
             selection.itemsProvider = { [conversation] in
                 conversation.rows.map {
                     switch $0.kind {
