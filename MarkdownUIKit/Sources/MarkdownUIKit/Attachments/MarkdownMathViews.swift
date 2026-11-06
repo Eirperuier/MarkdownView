@@ -38,20 +38,34 @@ enum MarkdownMath {
         UIFont.preferredFont(forTextStyle: textStyle, compatibleWith: style.contentSizeCategory.map { UITraitCollection(preferredContentSizeCategory: $0) })
     }
 
-    /// A line of text in `font`, its leading in, as a layout measures it.
-    static func lineHeight(_ font: UIFont) -> CGFloat {
-        markdownPixelCeil(font.ascender - font.descender + font.leading)
+    /// From one line's top to the next one's, as a layout steps lines: whole points.
+    static func lineStep(_ font: UIFont) -> CGFloat {
+        (font.ascender - font.descender + font.leading).rounded()
     }
 
-    /// What's below a line's baseline: the font's, and its leading, less a pixel a layout rounds
-    /// off.
+    /// What's below a baseline in a line with one after it.
     static func belowBaseline(_ font: UIFont) -> CGFloat {
-        font.leading - font.descender - 1 / markdownPixelScale
+        (font.leading - font.descender).rounded()
     }
 
-    /// A line holding an image `height` tall on its baseline.
-    static func imageLineHeight(_ height: CGFloat, font: UIFont) -> CGFloat {
-        max(lineHeight(font), height + belowBaseline(font))
+    /// A formula's baseline in the second line, from the top of the first, while it's no taller
+    /// than the room there. On the Mac a layout rounds the ascent.
+    static func secondBaseline(_ font: UIFont) -> CGFloat {
+        #if targetEnvironment(macCatalyst)
+        lineStep(font) * 2 - belowBaseline(font)
+        #else
+        lineStep(font) + font.ascender
+        #endif
+    }
+
+    /// A last line's height and what's below its baseline. On iOS the leading is only between
+    /// lines. On the Mac, with a leading under a point, a last line is as tall as any other.
+    static func lastLine(_ font: UIFont) -> (height: CGFloat, below: CGFloat) {
+        #if targetEnvironment(macCatalyst)
+        (lineStep(font), belowBaseline(font))
+        #else
+        (font.ascender - font.descender, -font.descender)
+        #endif
     }
 }
 
@@ -198,7 +212,9 @@ final class MarkdownInlineMathAttachment: RichTextAttachment {
             container.addSubview(view)
             fittedSize = { proposal in
                 let size = text.boundingRect(with: CGSize(width: proposal.width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).size
-                return CGSize(width: markdownPixelCeil(size.width), height: markdownPixelCeil(size.height))
+                // Its last line is a last line's height, not a whole step.
+                let height = size.height - MarkdownMath.lineStep(textFont) + MarkdownMath.lastLine(textFont).height
+                return CGSize(width: markdownPixelCeil(size.width), height: markdownPixelCeil(height))
             }
         }
         super.init(id: id, sizing: .fittingLineFragment)
@@ -212,10 +228,11 @@ final class MarkdownInlineMathAttachment: RichTextAttachment {
     /// from the baseline, which makes the box taller by that much.
     @MainActor
     private static func layout(image: CGSize, offset: CGFloat, font: UIFont) -> (size: CGSize, imageOrigin: CGPoint) {
-        let line = MarkdownMath.imageLineHeight(image.height, font: font)
+        let last = MarkdownMath.lastLine(font)
+        let line = max(last.height, image.height + last.below)
         let height = markdownPixelCeil(line + abs(offset))
-        let top = max(0, line - MarkdownMath.belowBaseline(font) - image.height) + max(0, -offset)
-        return (CGSize(width: image.width, height: height), CGPoint(x: 0, y: markdownPixelRound(top)))
+        let top = max(0, line - last.below - image.height) + max(0, -offset)
+        return (CGSize(width: markdownPixelCeil(image.width), height: height), CGPoint(x: 0, y: markdownPixelRound(top)))
     }
 
     @MainActor
@@ -241,6 +258,7 @@ final class MarkdownDisplayMathView: UIView {
     private var contentSize = CGSize.zero
     private var reserved: CGFloat = 0
     private var imageTop: CGFloat = 0
+    private var imageSize = CGSize.zero
     private var renderTask: Task<Void, Never>?
 
     override init(frame: CGRect) {
@@ -284,7 +302,8 @@ final class MarkdownDisplayMathView: UIView {
     }
 
     private func show(_ piece: LaTeXMathPiece?, latex: String, font: UIFont, isPlaceholder: Bool = false) {
-        let line = MarkdownMath.lineHeight(font)
+        let line = MarkdownMath.lineStep(font)
+        let last = markdownPixelCeil(MarkdownMath.lastLine(font).height)
         if isPlaceholder {
             imageView.isHidden = true
             sourceView.isHidden = true
@@ -294,10 +313,13 @@ final class MarkdownDisplayMathView: UIView {
             sourceView.isHidden = true
             imageView.show(piece, latex: latex, xHeight: font.xHeight)
             let image = metrics.imageSize
-            let imageLine = MarkdownMath.imageLineHeight(image.height, font: font)
-            imageTop = line + max(0, imageLine - MarkdownMath.belowBaseline(font) - image.height)
-            contentSize = CGSize(width: image.width, height: markdownPixelCeil(line * 2 + imageLine))
-            imageView.bounds.size = image
+            let below = MarkdownMath.belowBaseline(font)
+            let imageLine = max(line, image.height + below)
+            // A tall formula goes up into the leading between the lines, down to the first
+            // line's text.
+            imageTop = max(MarkdownMath.secondBaseline(font) - image.height, MarkdownMath.lastLine(font).height)
+            contentSize = CGSize(width: image.width, height: markdownPixelCeil(line + imageLine + last))
+            imageSize = image
         } else {
             // What LaTeX can't read: its source with the blank lines, in the formula's place.
             imageView.isHidden = true
@@ -310,7 +332,7 @@ final class MarkdownDisplayMathView: UIView {
             sourceView.lineStep = line
             let size = text.boundingRect(with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).size
             let lines = CGFloat(text.string.components(separatedBy: "\n").count)
-            contentSize = CGSize(width: markdownPixelCeil(size.width), height: markdownPixelCeil(lines * line))
+            contentSize = CGSize(width: markdownPixelCeil(size.width), height: markdownPixelCeil((lines - 1) * line + last))
         }
         setNeedsLayout()
     }
@@ -322,10 +344,10 @@ final class MarkdownDisplayMathView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         scroller.frame = bounds
-        let top = markdownPixelRound((bounds.height - contentSize.height) / 2)
+        let top = (bounds.height - contentSize.height) / 2
         scroller.contentSize = CGSize(width: contentSize.width, height: bounds.height)
-        imageView.frame = CGRect(x: 0, y: markdownPixelRound(top + imageTop), width: imageView.bounds.width, height: imageView.bounds.height)
-        sourceView.frame = CGRect(x: 0, y: top, width: contentSize.width, height: contentSize.height)
+        imageView.frame = CGRect(x: 0, y: markdownPixelRound(top + imageTop), width: imageSize.width, height: imageSize.height)
+        sourceView.frame = CGRect(x: 0, y: markdownPixelRound(top), width: contentSize.width, height: contentSize.height)
         if effectiveUserInterfaceLayoutDirection == .rightToLeft {
             scroller.contentOffset.x = max(0, contentSize.width - bounds.width)
         }

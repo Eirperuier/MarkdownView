@@ -306,11 +306,20 @@ enum MarkdownSymbols {
     /// A symbol at `pointSize`, unscaled, its layout size centred in `box`. A layout keeps that
     /// rect's corner on the pixel grid, in its host.
     static func scaled(_ name: String, pointSize: CGFloat, weight: UIImage.SymbolWeight = .regular, in box: CGRect) -> Scaled? {
-        guard let atSize = image(name, pointSize: pointSize, weight: weight),
-              let rect = glyph(of: atSize)?.alignmentRect ?? fallbackRect(of: atSize)
-        else { return nil }
-        let corner = CGPoint(x: markdownPixelRound(box.midX - atSize.size.width / 2), y: markdownPixelRound(box.midY - atSize.size.height / 2))
-        return place(atSize, at: CGPoint(x: corner.x + rect.minX, y: corner.y + rect.minY), scale: 1, referenceOf: atSize, pointSize: pointSize)
+        guard let atSize = image(name, pointSize: pointSize, weight: weight) else { return nil }
+        #if targetEnvironment(macCatalyst)
+        guard let rect = glyph(of: atSize)?.alignmentRect ?? fallbackRect(of: atSize) else { return nil }
+        #endif
+        let laidOut = laidOutSize(atSize)
+        let corner = CGPoint(x: markdownPixelRound(box.midX - laidOut.width / 2), y: markdownPixelRound(box.midY - laidOut.height / 2))
+        #if targetEnvironment(macCatalyst)
+        let origin = glyph(of: atSize)?.unroundedOrigin ?? rect.origin
+        return place(atSize, at: CGPoint(x: corner.x + origin.x, y: corner.y + origin.y), scale: 1, referenceOf: atSize, pointSize: pointSize)
+        #else
+        // On an iPhone the image itself comes closest: within 26 levels on a list's star, where an
+        // outline is up to 254 off.
+        return Scaled(image: atSize, frame: CGRect(origin: corner, size: atSize.size))
+        #endif
     }
 
     /// `symbol` scaled, with the corner of the rect it aligns by at `target`.
@@ -348,6 +357,8 @@ enum MarkdownSymbols {
 
     private struct Glyph {
         let alignmentRect: CGRect
+        /// Where the outline starts in the image: the rect before rounding.
+        var unroundedOrigin: CGPoint?
         let outline: CGPath?
     }
 
@@ -362,10 +373,12 @@ enum MarkdownSymbols {
               glyph.responds(to: NSSelectorFromString(alignmentRect)),
               let rect = (glyph.value(forKey: alignmentRect) as? NSValue)?.cgRectValue
         else { return nil }
-        guard glyph.responds(to: path) else { return Glyph(alignmentRect: rect, outline: nil) }
+        let unrounded = "alignmentRectUnrounded"
+        let origin = glyph.responds(to: NSSelectorFromString(unrounded)) ? (glyph.value(forKey: unrounded) as? NSValue)?.cgRectValue.origin : nil
+        guard glyph.responds(to: path) else { return Glyph(alignmentRect: rect, unroundedOrigin: origin, outline: nil) }
         typealias Getter = @convention(c) (AnyObject, Selector) -> Unmanaged<CGPath>?
         let outline = unsafeBitCast(glyph.method(for: path), to: Getter.self)(glyph, path)?.takeUnretainedValue()
-        return Glyph(alignmentRect: rect, outline: outline)
+        return Glyph(alignmentRect: rect, unroundedOrigin: origin, outline: outline)
     }
 }
 
@@ -399,7 +412,7 @@ final class MarkdownListSymbolAttachment: MarkdownViewAttachment {
         let box = CGRect(x: 0, y: 0, width: side, height: side)
         if let symbol = MarkdownSymbols.scaled(systemName, pointSize: diameter * 0.52, weight: .semibold, in: box) {
             view.show(symbol)
-            view.drawsImageAsVector = true
+            view.drawsImageAsVector = symbol.outline != nil
             view.vectorSnapsDown = true
         }
         // It copies as a standard bullet.
@@ -478,8 +491,9 @@ final class MarkdownChipAttachment: MarkdownViewAttachment {
 
         override func drawContent() {
             super.drawContent()
-            label?.draw(at: labelOrigin)
-            count?.draw(at: countOrigin)
+            // Without the font's leading: a footnote's is 2.49 pt on an iPhone.
+            label?.draw(with: CGRect(origin: labelOrigin, size: CGSize(width: bounds.width, height: bounds.height)), options: [.usesLineFragmentOrigin], context: nil)
+            count?.draw(with: CGRect(origin: countOrigin, size: CGSize(width: bounds.width, height: bounds.height)), options: [.usesLineFragmentOrigin], context: nil)
         }
     }
 
@@ -533,9 +547,11 @@ final class MarkdownChipAttachment: MarkdownViewAttachment {
         }
         view.capsuleColor = .floo(.markdownChipFill)
         view.label = text
-        view.labelOrigin = CGPoint(x: padding + iconSide + spacing, y: markdownPixelRound((height - textSize.height) / 2))
+        // A half pixel goes up.
+        func pixelY(_ value: CGFloat) -> CGFloat { (value * markdownPixelScale - 0.5 - 1e-6).rounded(.up) / markdownPixelScale }
+        view.labelOrigin = CGPoint(x: padding + iconSide + spacing, y: pixelY((height - textSize.height) / 2))
         view.count = more
-        view.countOrigin = CGPoint(x: padding + iconSide + spacing + textSize.width + spacing, y: markdownPixelRound((height - moreSize.height) / 2))
+        view.countOrigin = CGPoint(x: padding + iconSide + spacing + textSize.width + spacing, y: pixelY((height - moreSize.height) / 2))
         // A tap throws the synthetic chip URL; the host decides (a sheet, say).
         if let open = style.openURL, let url = MarkdownLinkChips.chipURL(for: urls) {
             view.onTap = { open(url) }
@@ -562,7 +578,7 @@ final class MarkdownBubbleAttachment: MarkdownViewAttachment {
         let inner = CGRect(x: 3 + 5, y: 2.5, width: imageSize.width, height: imageSize.height)
         if let symbol = MarkdownSymbols.scaled("ellipsis.bubble", pointSize: size * 0.72, in: inner) {
             view.show(symbol)
-            view.drawsImageAsVector = true
+            view.drawsImageAsVector = symbol.outline != nil
         }
         if let url, let open = style.openURL { view.onTap = { open(url) } }
         super.init(id: id, view: view, size: CGSize(width: capsule.width + 3, height: capsule.height))
@@ -590,8 +606,14 @@ final class MarkdownNestedQuoteAttachment: RichTextAttachment {
         let plain = style.resolvedDefaultFont
         // A text style's descriptor ignores a design: it starts from the system font.
         quoteStyle.defaultFont = UIFont.systemFont(ofSize: plain.pointSize).fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: plain.pointSize) } ?? plain
-        // Measured on the Mac's 13 pt body: its line is 1 pt taller than a serif line in TextKit 2.
-        quoteStyle.roomBelowLines = markdownPixelRound(plain.pointSize / 13)
+        #if targetEnvironment(macCatalyst)
+        // Measured, Mac only, cause not found: a nested quote's line is 1 pt taller than a serif
+        // line in TextKit 2.
+        quoteStyle.roomBelowLines = 1
+        #else
+        // A layout's line goes up to a pixel; TextKit's stays at the font's 20.29.
+        if style.isQuoted, let serif = quoteStyle.defaultFont { quoteStyle.roomBelowLines = markdownPixelCeil(serif.lineHeight) - serif.lineHeight }
+        #endif
         view.configure(document: inner, callout: quote.callout?.callout, style: quoteStyle)
         quoteView = view
         source = quote.format()

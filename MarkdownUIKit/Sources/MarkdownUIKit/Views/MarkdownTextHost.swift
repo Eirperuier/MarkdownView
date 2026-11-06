@@ -20,10 +20,13 @@ func markdownPixelRound(_ value: CGFloat) -> CGFloat {
     (value * markdownPixelScale).rounded() / markdownPixelScale
 }
 
-/// Up to a pixel: a layout's size for text and symbols.
+/// Up to a pixel: a layout's size for text and symbols. It divides by a pixel's size as a layout
+/// does: at 3x an image's 16.666666666666668 pt comes to 17, not 16.67, which pushes what's next
+/// along by a pixel.
 @MainActor
 func markdownPixelCeil(_ value: CGFloat) -> CGFloat {
-    (value * markdownPixelScale).rounded(.up) / markdownPixelScale
+    let pixel = 1 / markdownPixelScale
+    return (value / pixel).rounded(.up) * pixel
 }
 
 @MainActor

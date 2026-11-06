@@ -72,10 +72,16 @@ final class MarkdownQuoteView: UIView {
 
     private func apply(_ text: MarkdownText, callout: MarkdownCallout?, style: MarkdownStyle) {
         self.style = style
+        #if targetEnvironment(macCatalyst)
         // The last line's room, unless the last thing is a block with its own.
         let storage = text.attributed
         let endsInBlock = storage.length > 0 && storage.attribute(.attachment, at: storage.length - 1, effectiveRange: nil) != nil
-        host.insets = UIEdgeInsets(top: text.topEdgeInset, left: 0, bottom: text.bottomEdgeInset + (endsInBlock ? 0 : style.roomBelowLines ?? 0), right: 0)
+        let lastLineRoom = endsInBlock ? 0 : style.roomBelowLines ?? 0
+        #else
+        // A last line has no room below it here.
+        let lastLineRoom: CGFloat = 0
+        #endif
+        host.insets = UIEdgeInsets(top: text.topEdgeInset, left: 0, bottom: text.bottomEdgeInset + lastLineRoom, right: 0)
         host.apply(text, style: style)
         if let callout {
             let tint = MarkdownInk.callout(callout.kind)
@@ -179,14 +185,21 @@ final class MarkdownCalloutHeaderView: UIView {
         setNeedsDisplay()
     }
 
-    /// The text's baseline in its frame: a layout keeps it on the pixel grid.
-    private var textAscent: CGFloat { markdownPixelFloor(font.ascender) }
+    /// The text's baseline in its frame. On the Mac a layout keeps it on the pixel grid and its
+    /// line has the leading under it. On iOS it stays where the font says, without the leading,
+    /// and what's drawn from it falls on the nearest pixel.
+    private var textMetrics: (ascent: CGFloat, descent: CGFloat) {
+        #if targetEnvironment(macCatalyst)
+        let ascent = markdownPixelFloor(font.ascender)
+        return (ascent, markdownPixelCeil(title?.size().height ?? 0) - ascent)
+        #else
+        return (font.ascender, -font.descender)
+        #endif
+    }
 
-    /// Above and below the shared baseline: the text's line and the icon's, whichever is more.
+    /// Above and below the shared baseline: the text's and the icon's, whichever is more.
     private var metrics: (ascent: CGFloat, descent: CGFloat) {
-        let textHeight = markdownPixelCeil(title?.size().height ?? 0)
-        var ascent = textAscent
-        var descent = textHeight - textAscent
+        var (ascent, descent) = textMetrics
         if let icon {
             let below = icon.baselineOffsetFromBottom ?? 0
             ascent = max(ascent, icon.size.height - below)
@@ -202,7 +215,7 @@ final class MarkdownCalloutHeaderView: UIView {
         let textWidth = markdownPixelCeil(textSize.width)
         let lines = max(0, markdownPixelCeil(textSize.height) - markdownPixelCeil(title?.size().height ?? 0))
         let metrics = self.metrics
-        return CGSize(width: iconWidth + spacing + textWidth, height: metrics.ascent + metrics.descent + lines)
+        return CGSize(width: iconWidth + spacing + textWidth, height: markdownPixelCeil(metrics.ascent + metrics.descent) + lines)
     }
 
     override func draw(_ rect: CGRect) {
@@ -214,7 +227,7 @@ final class MarkdownCalloutHeaderView: UIView {
             icon.withTintColor(tint, renderingMode: .alwaysOriginal).draw(in: CGRect(x: 0, y: y, width: icon.size.width, height: icon.size.height))
         }
         let textX = (icon?.size.width ?? 0) + spacing
-        let textY = markdownPixelRound(metrics.ascent - textAscent)
+        let textY = markdownPixelRound(metrics.ascent - textMetrics.ascent)
         // A layout's text cuts at its own left edge: a first A's foot stops there.
         UIGraphicsGetCurrentContext()?.clip(to: CGRect(x: textX, y: -bounds.height, width: bounds.width, height: bounds.height * 3))
         title?.draw(with: CGRect(x: textX, y: textY, width: max(0, bounds.width - Self.overhang * 2 - textX), height: bounds.height), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
