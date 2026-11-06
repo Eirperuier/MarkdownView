@@ -7,6 +7,7 @@
 //  content is ordinary text, black and white inside.
 //
 
+import FlooUIKit
 import Markdown
 import MarkdownCore
 import UIKit
@@ -27,6 +28,12 @@ final class MarkdownQuoteView: UIView {
     private let barWidth: CGFloat = 4
     private let headerSpacing: CGFloat = 6
     private let cornerRadius: CGFloat = 3
+    private var reveal: MarkdownReveal?
+    /// Text only grows into a text view already showing: a block's first build replaces it all.
+    private var hasContent = false
+    private lazy var decorationGate = MarkdownRevealGate { [weak self] isOpen, fades in
+        self?.showDecoration(isOpen, fades: fades)
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -54,7 +61,8 @@ final class MarkdownQuoteView: UIView {
     }
 
     /// A quote from its source (`> …`): one level of markers off, a callout's first line out.
-    func configure(source: String, style: MarkdownStyle, inlineMath: [String: String]?, displayMath: [UUID: String]? = nil) {
+    func configure(source: String, style: MarkdownStyle, inlineMath: [String: String]?, displayMath: [UUID: String]? = nil, reveal: MarkdownReveal? = nil) {
+        self.reveal = reveal
         let inner = Self.strippingQuoteMarkers(source)
         let split = MarkdownCallout.split(innerMarkdown: inner)
         let text = MarkdownTextBuilder.build(markdown: split?.body ?? inner, style: style.quoted, inlineMath: inlineMath, displayMath: displayMath)
@@ -82,7 +90,12 @@ final class MarkdownQuoteView: UIView {
         let lastLineRoom: CGFloat = 0
         #endif
         host.insets = UIEdgeInsets(top: text.topEdgeInset, left: 0, bottom: text.bottomEdgeInset + lastLineRoom, right: 0)
-        host.apply(text, style: style)
+        if hasContent {
+            host.update(text, style: style, reveal: reveal)
+        } else {
+            host.apply(text, style: style, reveal: reveal)
+        }
+        hasContent = true
         if let callout {
             let tint = MarkdownInk.callout(callout.kind)
             ground.color = tint.markdownOpacity(0.1)
@@ -97,7 +110,32 @@ final class MarkdownQuoteView: UIView {
             header?.removeFromSuperview()
             header = nil
         }
+        decorationGate.follow(reveal?.manager)
         setNeedsLayout()
+    }
+
+    /// A reveal coming to or leaving text that's shown.
+    func setReveal(_ reveal: MarkdownReveal?) {
+        self.reveal = reveal
+        host.setReveal(reveal)
+        decorationGate.follow(reveal?.manager)
+    }
+
+    /// Lets the text view go back to the pool.
+    func releaseText() {
+        decorationGate.stop()
+        host.release()
+    }
+
+    /// The ground, the bar and a callout's header appear whole, once any of the text has.
+    private func showDecoration(_ isOpen: Bool, fades: Bool) {
+        let change = { [self] in
+            let alpha: CGFloat = isOpen ? 1 : 0
+            ground.alpha = alpha
+            bar.alpha = alpha
+            header?.alpha = alpha
+        }
+        if fades { FlooMotion.appear.animate(change) } else { change() }
     }
 
     func height(forWidth width: CGFloat) -> CGFloat {

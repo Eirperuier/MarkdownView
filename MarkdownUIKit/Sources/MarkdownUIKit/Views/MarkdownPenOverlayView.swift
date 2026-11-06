@@ -8,9 +8,15 @@
 //  from TextKit 2 go to PenMarkGeometry, the same geometry every path uses.
 //
 
+import FlooUIKit
 import MarkdownCore
 import RichTextCore
 import UIKit
+
+extension FlooMotion {
+    /// A pen mark appearing as the reveal reaches its last character.
+    static let markdownPenReveal = FlooMotion(duration: 0.35, curve: .linear, reduced: .same)
+}
 
 @MainActor
 final class MarkdownPenOverlayView: UIView {
@@ -24,6 +30,11 @@ final class MarkdownPenOverlayView: UIView {
     private var isUnderlay = false
     private weak var textView: UITextView?
     private var marks: [Mark] = []
+    /// Whether a mark's whole range is revealed; nil: there's no reveal, all of it is.
+    private var isRevealed: (@MainActor (NSRange) -> Bool)?
+    /// When each mark, by its range's start, first showed: what its fade goes by.
+    private var revealStamps: [Int: Date] = [:]
+    private var displayLink: CADisplayLink?
 
     /// How far a stroke leaves the text's frame (PenMarkGeometry.overhang and a little): the
     /// overlay is that much larger each way, and the text view stops clipping (it's a scroll
@@ -32,7 +43,7 @@ final class MarkdownPenOverlayView: UIView {
 
     /// After a text view's content changes: scans for pen attributes, adds or refreshes the two
     /// layers where there are any, removes them where not.
-    static func sync(on textView: UITextView) {
+    static func sync(on textView: UITextView, isRevealed: (@MainActor (NSRange) -> Bool)? = nil) {
         var marks: [Mark] = []
         let storage = textView.textStorage
         storage.enumerateAttribute(.richTextPenMark, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
@@ -56,7 +67,9 @@ final class MarkdownPenOverlayView: UIView {
             overlay.frame = textView.bounds.insetBy(dx: -overhang, dy: -overhang)
             overlay.textView = textView
             overlay.marks = layerMarks
+            overlay.isRevealed = isRevealed
             overlay.setNeedsDisplay()
+            overlay.updateDisplayLink()
         }
         textView.clipsToBounds = false
     }
@@ -79,17 +92,60 @@ final class MarkdownPenOverlayView: UIView {
     }
 
     private func detach() {
+        displayLink?.invalidate()
+        displayLink = nil
         if let textView, !textView.subviews.contains(where: { $0 !== self && $0 is MarkdownPenOverlayView }) {
             textView.clipsToBounds = true
         }
         removeFromSuperview()
     }
 
+    /// Runs while a mark hasn't shown or is still fading.
+    private func updateDisplayLink() {
+        guard hasUnsettledMarks else {
+            displayLink?.invalidate()
+            displayLink = nil
+            return
+        }
+        guard displayLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(tick))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    private var hasUnsettledMarks: Bool {
+        let now = MarkdownRevealClock.now
+        for mark in marks {
+            guard isRevealed?(mark.range) ?? true else { return true }
+            let stamp = revealStamps[mark.range.location] ?? .distantPast
+            if now.timeIntervalSince(stamp) < FlooMotion.markdownPenReveal.duration { return true }
+        }
+        return false
+    }
+
+    @objc private func tick() {
+        setNeedsDisplay()
+        updateDisplayLink()
+    }
+
     override func draw(_ rect: CGRect) {
         guard let textView, let context = UIGraphicsGetCurrentContext() else { return }
+        let now = MarkdownRevealClock.now
+        let fade = FlooMotion.markdownPenReveal.duration
         for mark in marks {
+            guard isRevealed?(mark.range) ?? true else { continue }
+            let stamp: Date
+            if let known = revealStamps[mark.range.location] {
+                stamp = known
+            } else {
+                // A whole batch visible at first (an old message opened) doesn't fade; only what
+                // comes up mid-stream does.
+                stamp = displayLink == nil ? .distantPast : now
+                revealStamps[mark.range.location] = stamp
+            }
+            let alpha = min(1, max(0, now.timeIntervalSince(stamp) / fade))
             context.saveGState()
-            context.setAlpha(PenMarkGeometry.defaultInk(for: mark.mark.kind).opacity)
+            context.setAlpha(alpha * PenMarkGeometry.defaultInk(for: mark.mark.kind).opacity)
             let ink = Self.ink(for: mark, in: textView).cgColor
             for segment in segments(for: mark.range, in: textView) {
                 for stroke in PenMarkGeometry.strokes(for: mark.mark, in: segment.rect, baseline: segment.baseline) {

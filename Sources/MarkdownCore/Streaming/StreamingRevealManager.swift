@@ -5,6 +5,14 @@
 
 import Foundation
 
+/// What a reveal reads the time from. A probe holds it still, so a frame in the middle of a
+/// reveal is the same every time; otherwise it's the time.
+public enum MarkdownRevealClock {
+    public nonisolated(unsafe) static var frozen: Date?
+
+    public static var now: Date { frozen ?? Date() }
+}
+
 private final class StreamingRevealTimestampStore: @unchecked Sendable {
     private let lock = NSLock()
     private var firstSeenTimestamps: [Date?] = []
@@ -16,7 +24,7 @@ private final class StreamingRevealTimestampStore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        let now = Date()
+        let now = MarkdownRevealClock.now
         if newValue == Int.max {
             if oldValue != Int.max {
                 completionFreshStart = max(0, oldValue)

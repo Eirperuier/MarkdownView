@@ -55,6 +55,7 @@ final class MarkdownTextHost {
     var insets = UIEdgeInsets.zero
     private var isRightToLeft = false
     private var rightToLeftHeights: [CGFloat: CGFloat] = [:]
+    private var revealController: MarkdownRevealController?
 
     init() {
         textView = RichTextViewPool.acquire(usingTextLayoutManager: true)
@@ -68,22 +69,72 @@ final class MarkdownTextHost {
     }
 
     func release() {
+        revealController?.detach()
+        revealController = nil
         RichTextViewPool.release(textView)
     }
 
-    func apply(_ text: MarkdownText, style: MarkdownStyle) {
-        self.text = text
-        isRightToLeft = style.layoutDirection == .rightToLeft
-        rightToLeftHeights.removeAll()
-        textView.defaultForegroundColor = style.resolvedTextColor
-        delegate.openLink = style.openURL
+    /// Replaces all that shows. `reveal` goes on before the text, or its fragments would be plain.
+    func apply(_ text: MarkdownText, style: MarkdownStyle, reveal: MarkdownReveal? = nil) {
+        prepare(text, style: style)
+        setReveal(reveal)
         // applyContent trusts a same-text prefix to be the same: an update starts clean.
         if textView.textStorage.length > 0 {
             textView.applyContent(NSMutableAttributedString())
         }
         textView.applyContent(NSMutableAttributedString(attributedString: text.attributed))
+        finish(text)
+    }
+
+    /// The same block grown: only what differs from what's in the storage is replaced. What's
+    /// the same keeps its layout, and its place in a reveal.
+    func update(_ text: MarkdownText, style: MarkdownStyle, reveal: MarkdownReveal? = nil) {
+        prepare(text, style: style)
+        setReveal(reveal)
+        let tail = NSMutableAttributedString(attributedString: text.attributed)
+        if textView.replaceTail(tail, nsPrefixLength: 0) == nil {
+            textView.applyContent(NSMutableAttributedString())
+            textView.applyContent(NSMutableAttributedString(attributedString: text.attributed))
+        }
+        finish(text)
+    }
+
+    /// A reveal over the text as it is; nil shows all of it, with no relayout.
+    func setReveal(_ reveal: MarkdownReveal?) {
+        guard let reveal else {
+            guard let controller = revealController else { return }
+            controller.detach()
+            revealController = nil
+            syncPenMarks()
+            return
+        }
+        let controller = revealController ?? MarkdownRevealController()
+        revealController = controller
+        controller.attach(textView, reveal: reveal, storageToPlain: text?.storageToPlain ?? [])
+    }
+
+    private func prepare(_ text: MarkdownText, style: MarkdownStyle) {
+        self.text = text
+        isRightToLeft = style.layoutDirection == .rightToLeft
+        rightToLeftHeights.removeAll()
+        textView.defaultForegroundColor = style.resolvedTextColor
+        delegate.openLink = style.openURL
+    }
+
+    private func finish(_ text: MarkdownText) {
         textView.invalidateFittingSizes()
-        MarkdownPenOverlayView.sync(on: textView)
+        revealController?.contentDidChange(storageToPlain: text.storageToPlain)
+        syncPenMarks()
+    }
+
+    private func syncPenMarks() {
+        guard let controller = revealController else {
+            MarkdownPenOverlayView.sync(on: textView)
+            return
+        }
+        MarkdownPenOverlayView.sync(on: textView) { [weak controller] range in
+            controller?.isRevealed(storageRange: range) ?? true
+        }
     }
 
     /// The text's own size at `width`, inside the insets.

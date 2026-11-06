@@ -38,6 +38,18 @@ public final class MarkdownBlockView: UIView {
     /// What a block is drawn from, to draw it again when its size category changes.
     private var rebuild: (() -> Void)?
     private var cachedHeight: (width: CGFloat, height: CGFloat)?
+    private var reveal: MarkdownReveal?
+    /// The block showing: the same one again grows what shows.
+    private var shownBlockID: UUID?
+    private lazy var mathGate = MarkdownRevealGate { [weak self] isOpen, fades in
+        guard let self, case .math(let view) = self.layout else { return }
+        let change = { view.alpha = isOpen ? 1 : 0 }
+        if fades, let reveal = self.reveal {
+            reveal.style.motion.animate(change)
+        } else {
+            change()
+        }
+    }
 
     /// The block that isn't drawn yet, nil if it's drawn.
     public var pendingBlock: MarkdownPendingBlock? {
@@ -77,9 +89,43 @@ public final class MarkdownBlockView: UIView {
     // MARK: Content
 
     /// A block from a splitter.
-    public func configure(_ block: MarkdownStreamBlock, style: MarkdownStyle) {
-        rebuild = { [weak self] in self?.apply(block, style: style) }
-        apply(block, style: style)
+    ///
+    /// With a reveal, the text shows as far as it's got. The same block again, as it streams,
+    /// replaces only what changed at its end.
+    public func configure(_ block: MarkdownStreamBlock, style: MarkdownStyle, reveal: MarkdownReveal? = nil) {
+        rebuild = { [weak self] in self?.apply(block, style: style, reveal: reveal) }
+        apply(block, style: style, reveal: reveal)
+    }
+
+    /// A reveal coming to or leaving what shows, with no relayout: nil shows all of it.
+    public func setReveal(_ reveal: MarkdownReveal?) {
+        self.reveal = reveal
+        switch layout {
+        case .text(let host, _): host.setReveal(reveal)
+        case .quote(let quote): quote.setReveal(reveal)
+        case .footnotes(let hosts): hosts.forEach { $0.setReveal(reveal) }
+        case .math: mathGate.follow(reveal?.manager)
+        case .empty, .pending: break
+        }
+    }
+
+    /// Whether this renderer draws all of a block. No for what isn't ported yet, and for text
+    /// holding what isn't: a host shows those another way.
+    /// `drawsInlineImages`: the style has an `inlineImage`.
+    public nonisolated static func draws(_ block: MarkdownStreamBlock, drawsInlineImages: Bool = false) -> Bool {
+        let source = block.descriptor.sourceText
+        func holdsUnported() -> Bool {
+            source.contains("```") || source.contains("~~~")
+                || (!drawsInlineImages && source.contains("!["))
+        }
+        switch block.descriptor.kind {
+        case .heading, .paragraph, .orderedList, .unorderedList:
+            return !holdsUnported()
+        case .blockQuote:
+            return !holdsUnported() && !source.contains("|")
+        case .codeBlock, .table, .mathBlock, .thematicBreak, .htmlBlock, .blockDirective, .unknown:
+            return false
+        }
     }
 
     /// A whole text in one text view, as a document's text block is.
@@ -104,11 +150,17 @@ public final class MarkdownBlockView: UIView {
         switch layout {
         case .empty, .pending: break
         case .text(let host, _): host.release()
-        case .quote(let quote): quote.removeFromSuperview()
+        case .quote(let quote):
+            quote.releaseText()
+            quote.removeFromSuperview()
         case .footnotes(let hosts): hosts.forEach { $0.release() }
-        case .math(let view): view.removeFromSuperview()
+        case .math(let view):
+            mathGate.stop()
+            view.removeFromSuperview()
         }
         layout = .empty
+        shownBlockID = nil
+        reveal = nil
         cachedHeight = nil
         setNeedsLayout()
     }
@@ -121,8 +173,13 @@ public final class MarkdownBlockView: UIView {
         return style
     }
 
-    private func apply(_ block: MarkdownStreamBlock, style given: MarkdownStyle) {
-        clear()
+    private func apply(_ block: MarkdownStreamBlock, style given: MarkdownStyle, reveal: MarkdownReveal? = nil) {
+        // The same block keeps a text view or a quote: its text grows in place.
+        let growing = shownBlockID == block.id && Self.keepsView(layout, for: block.descriptor)
+        if !growing { clear() }
+        cachedHeight = nil
+        shownBlockID = block.id
+        self.reveal = reveal
         let style = resolved(given)
         self.style = given
         semanticContentAttribute = style.layoutDirection == .rightToLeft ? .forceRightToLeft : .unspecified
@@ -131,15 +188,20 @@ public final class MarkdownBlockView: UIView {
         let depth = descriptor.listItemContext?.depth ?? 0
         switch descriptor.kind {
         case .blockQuote:
-            let quote = MarkdownQuoteView()
-            quote.configure(source: source, style: style, inlineMath: block.inlineMathStorage, displayMath: block.displayMathStorage)
-            addSubview(quote)
+            let quote: MarkdownQuoteView
+            if case .quote(let shown) = layout {
+                quote = shown
+            } else {
+                quote = MarkdownQuoteView()
+                addSubview(quote)
+            }
+            quote.configure(source: source, style: style, inlineMath: block.inlineMathStorage, displayMath: block.displayMathStorage, reveal: reveal)
             layout = .quote(quote)
         case .paragraph:
             // A paragraph starting with a footnote definition draws a line per definition:
             // cmark joins adjacent definition lines into one paragraph.
             if let lines = Self.footnoteDefinitionLines(source) {
-                layout = .footnotes(makeFootnotes(lines: lines, style: style))
+                layout = .footnotes(makeFootnotes(lines: lines, style: style, reveal: reveal))
             } else if Self.isOnlyImages(source), style.inlineImage == nil {
                 layout = .pending(.image)
             } else {
@@ -194,6 +256,18 @@ public final class MarkdownBlockView: UIView {
         setNeedsLayout()
     }
 
+    /// Only a text block or a quote that's still one goes on in the view it has.
+    private static func keepsView(_ layout: Layout, for descriptor: MarkdownBlockDescriptor) -> Bool {
+        switch (layout, descriptor.kind) {
+        case (.quote, .blockQuote): true
+        case (.text, .heading), (.text, .orderedList), (.text, .unorderedList):
+            true
+        case (.text, .paragraph):
+            footnoteDefinitionLines(descriptor.sourceText) == nil && !isOnlyImages(descriptor.sourceText)
+        default: false
+        }
+    }
+
     private func showMath(_ latex: String, style: MarkdownStyle) {
         let view = MarkdownDisplayMathView()
         view.onHeightChange = { [weak self] in
@@ -204,6 +278,7 @@ public final class MarkdownBlockView: UIView {
         view.configure(latex: latex, style: style)
         addSubview(view)
         layout = .math(view)
+        mathGate.follow(reveal?.manager)
     }
 
     private static func directiveFormula(_ source: String, in storage: [UUID: String]?) -> String? {
@@ -215,12 +290,18 @@ public final class MarkdownBlockView: UIView {
 
     private func showText(_ source: String, depth: Int, style: MarkdownStyle, block: MarkdownStreamBlock?) {
         let text = MarkdownTextBuilder.build(markdown: source, style: style, listDepthOffset: depth, inlineMath: block?.inlineMathStorage, displayMath: block?.displayMathStorage)
-        let host = MarkdownTextHost()
+        let shown: MarkdownTextHost?
+        if case .text(let host, _) = layout { shown = host } else { shown = nil }
+        let host = shown ?? MarkdownTextHost()
         if style.addsEdgeInsets {
             host.insets = UIEdgeInsets(top: text.topEdgeInset, left: 0, bottom: text.bottomEdgeInset, right: 0)
         }
-        host.apply(text, style: style)
-        addSubview(host.textView)
+        if shown == nil {
+            host.apply(text, style: style, reveal: reveal)
+            addSubview(host.textView)
+        } else {
+            host.update(text, style: style, reveal: reveal)
+        }
         // A nested item re-parsed alone has depth 0: its 20 pt a level.
         layout = .text(host, leading: CGFloat(depth) * 20)
     }
@@ -281,7 +362,7 @@ public final class MarkdownBlockView: UIView {
 
     /// A line each, smaller and secondary. The whole line carries the definition's URL, so a tap
     /// anywhere works; real links inside keep their own.
-    private func makeFootnotes(lines: [String], style: MarkdownStyle) -> [MarkdownTextHost] {
+    private func makeFootnotes(lines: [String], style: MarkdownStyle, reveal: MarkdownReveal?) -> [MarkdownTextHost] {
         var footnoteStyle = style
         footnoteStyle.contentSizeCategory = .extraSmall
         footnoteStyle.textColor = style.textColor ?? .floo(.markdownFootnoteText)
@@ -302,7 +383,7 @@ public final class MarkdownBlockView: UIView {
                 )]
             }
             let host = MarkdownTextHost()
-            host.apply(MarkdownTextBuilder.build(markdown: line, style: lineStyle), style: lineStyle)
+            host.apply(MarkdownTextBuilder.build(markdown: line, style: lineStyle), style: lineStyle, reveal: reveal)
             addSubview(host.textView)
             return host
         }
