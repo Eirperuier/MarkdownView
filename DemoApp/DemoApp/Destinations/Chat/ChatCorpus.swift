@@ -9,16 +9,20 @@
 import Foundation
 
 enum ChatCorpus {
+    /// `-chatCorpus text`: replies of only text, to see the text path alone.
+    private static let isTextOnly = UserDefaults.standard.string(forKey: "chatCorpus") == "text"
+    private static var chosen: [String] { isTextOnly ? textReplies : replies }
+
     static func prompt(_ index: Int) -> String {
         prompts[index % prompts.count]
     }
 
     static func reply(_ index: Int) -> String {
-        replies[index % replies.count]
+        chosen[index % chosen.count]
     }
 
     /// Every reply back to back: a long answer to stream.
-    static let longReply = replies.joined(separator: "\n\n")
+    static let longReply = chosen.joined(separator: "\n\n")
 
     /// Uneven chunks, like a model's token stream.
     static func chunks(of text: String) -> [String] {
@@ -40,6 +44,64 @@ enum ChatCorpus {
         "Write a function that splits markdown into blocks.",
         "Compare the three options in a table.",
         "Explain the integral of x² from 0 to 1.",
+    ]
+
+    /// The same prose as `replies`, its code, tables and display maths written out as text, with
+    /// a heading where a chat would have one.
+    private static let textReplies = [
+        #"""
+        ## Keeping the list still
+
+        Loading older messages shifts everything below them, so the list has to **pin a visible anchor** across the update.
+
+        1. Before applying the change, remember one visible cell and its screen position.
+        2. Apply the insert without animation.
+        3. Move the content offset so the anchor lands where it was.
+
+        The trap is timing: self-sizing cells can change height *after* the insert, so the anchor has to be re-applied until their heights settle. A layout that owns its attributes can do this inside `prepare()` instead of patching the offset afterwards.
+
+        > Never set the offset while the user is dragging or decelerating: even setting the current value stops the momentum.
+        """#,
+        #"""
+        这周你的睡眠整体**比上周稳定**，但入睡时间偏晚。
+
+        - 平均时长 7 小时 12 分，比上周多 18 分钟。
+        - 深睡占比 19%，处在你过去三个月的正常区间。
+        - 周三和周五入睡都晚于 1 点，第二天的静息心率也高了 4–5 次/分钟。
+
+        周一 7 小时 5 分，周三 6 小时 10 分，周五 6 小时 32 分，周日 8 小时 2 分：差距主要在周中的入睡时间。
+
+        如果想改善，最有效的是把周中的入睡时间提前到 **12 点前**，其他指标会跟着变好。
+        """#,
+        #"""
+        A **timing curve** runs for a fixed duration along a fixed shape; a **spring** runs until it settles, and its shape comes from physics.
+
+        - Timing curves are predictable: good for things that must finish on a beat.
+        - Springs keep velocity: a scroll that is interrupted mid-flight continues smoothly from where it is, instead of restarting.
+
+        For a critically damped spring the position never overshoots, and a single number alone sets how quickly it settles.
+        """#,
+        #"""
+        ### Splitting into blocks
+
+        A small splitter keeps block ids stable while the text grows, by giving each block the id of its position, and making a new one only for a position it hasn't seen.
+
+        Keyed by position, a block keeps its id as long as nothing is inserted before it, which is exactly the streaming case: text only grows at the end. [The list's docs](https://example.com/list) say more about it.
+        """#,
+        #"""
+        There are three options, and each pays somewhere:
+
+        - One text view per message: low latency, high memory, simple.
+        - One cell per block: low latency, medium memory, more to keep track of.
+        - Pre-rendered snapshots: the lowest latency, the highest memory, and a lot to build.
+
+        **One cell per block** is the usual middle ground: cells stay small, so measuring and reusing them is cheap, and a streaming reply only re-renders its last block.
+        """#,
+        #"""
+        The integral measures the area under the curve between 0 and 1, which comes to one third.
+
+        Intuitively, the curve stays low for most of the interval and only reaches 1 at the right edge, so the area is well under half of the unit square. The same rule gives the integral of any power, `1 / (n + 1)`, for any n of at least 0.
+        """#,
     ]
 
     private static let replies = [

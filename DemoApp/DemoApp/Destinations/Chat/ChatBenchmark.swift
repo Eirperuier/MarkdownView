@@ -11,10 +11,13 @@
 //  times only the named scenarios (the others still run, untimed: later ones start from
 //  where they leave the list). `-chatScrollSpeed <points per second>` sets the scroll
 //  sweep's speed (3000 by default). `-chatOpen YES` opens on the chat page, to try it by hand.
+//  `-chatRenderer uikit|swiftui` picks the text rows' renderer (swiftui by default),
+//  `-chatCorpus text` a conversation of only text.
 //
 
 import SwiftUI
 import MessagingUI
+import Darwin
 import os
 
 /// Measured heights by row content and width, fed back to the list as height hints.
@@ -160,6 +163,9 @@ final class ChatBenchmark {
         let maxJitter: CGFloat
         let staleFrames: Int
         let maxStale: CGFloat
+        /// The process's footprint: the most seen in the scenario, and at its end.
+        let peakFootprintMB: Double
+        let endFootprintMB: Double
 
         var line: String {
             String(
@@ -198,6 +204,7 @@ final class ChatBenchmark {
     @ObservationIgnored private var renderedHeights: ChatRenderedHeights?
     @ObservationIgnored private weak var reader: TiledViewReader<String>?
     @ObservationIgnored private var layoutWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private var peakFootprint: Double = 0
 
     /// Call from the list's content layout callback.
     func contentLayoutChanged() {
@@ -236,6 +243,7 @@ final class ChatBenchmark {
             await self.settle()
         }
         header += " · \(conversation.rows.count) rows"
+        printMix(conversation: conversation, exchanges: exchanges)
 
         // Nothing touched: whatever the list still does after loading (measuring, say).
         await measure("idle") {
@@ -393,9 +401,11 @@ final class ChatBenchmark {
         await settle(0.1)
         jitter.reset()
         stale.reset()
+        peakFootprint = Self.footprintMB()
         clock.onFrame = { [weak self] in
             guard let self, let reader = self.reader else { return }
             self.jitter.sample(reader)
+            self.peakFootprint = max(self.peakFootprint, Self.footprintMB())
             if let rendered = self.renderedHeights { self.stale.sample(reader, rendered: rendered) }
         }
         // An interval per scenario, to line Instruments traces (Animation Hitches, say) up with it.
@@ -415,10 +425,32 @@ final class ChatBenchmark {
             jitterFrames: jitter.jitterFrames,
             maxJitter: jitter.maxDeviation,
             staleFrames: stale.staleFrames,
-            maxStale: stale.maxMismatch
+            maxStale: stale.maxMismatch,
+            peakFootprintMB: max(peakFootprint, Self.footprintMB()),
+            endFootprintMB: Self.footprintMB()
         )
         results.append(result)
         print("BENCH", json(result))
+    }
+
+    /// Which rows the conversation is made of, under this renderer.
+    private func printMix(conversation: ChatConversation, exchanges: Int) {
+        let rows = conversation.rows
+        let uikit = rows.filter(\.drawsInUIKit).count
+        let prompts = rows.filter { if case .prompt = $0.kind { true } else { false } }.count
+        print("BENCHMIX {\"renderer\":\"\(ChatRenderer.current.rawValue)\",\"corpus\":\"\(UserDefaults.standard.string(forKey: "chatCorpus") ?? "mixed")\",\"exchanges\":\(exchanges),\"rows\":\(rows.count),\"uikit\":\(uikit),\"swiftui\":\(rows.count - uikit),\"prompts\":\(prompts)}")
+    }
+
+    /// What the system charges the process for, in megabytes.
+    private static func footprintMB() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
     }
 
     private func nextLayout() async {
@@ -447,6 +479,9 @@ final class ChatBenchmark {
             ("max_jitter_pt", String(format: "%.1f", result.maxJitter)),
             ("stale_frames", result.staleFrames),
             ("max_stale_pt", String(format: "%.1f", result.maxStale)),
+            ("peak_mb", String(format: "%.1f", result.peakFootprintMB)),
+            ("end_mb", String(format: "%.1f", result.endFootprintMB)),
+            ("renderer", "\"\(ChatRenderer.current.rawValue)\""),
         ]
         return "{" + fields.map { "\"\($0.0)\":\($0.1)" }.joined(separator: ",") + "}"
     }

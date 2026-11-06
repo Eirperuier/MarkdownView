@@ -19,13 +19,20 @@ final class CatalogUIKitFixtureView: UIView {
     private let blocks: [MarkdownUIKit.MarkdownBlockView]
     private let scale: CGFloat
 
-    init(fixture: CatalogFixture, scale: CGFloat) {
+    init(fixture: CatalogFixture, scale: CGFloat, revealed: CatalogRevealed? = nil) {
         self.scale = scale
         var settings = CatalogUIKitSettings()
         for knob in fixture.knobs { settings.apply(knob) }
         let style = settings.style
 
         switch fixture.path {
+        case .stream where revealed != nil:
+            let revealed = revealed!
+            blocks = revealed.blocks.map { block in
+                let view = MarkdownUIKit.MarkdownBlockView()
+                view.configure(block, style: style, reveal: MarkdownReveal(manager: revealed.managers[block.id]!, style: ChatUIKitBlock.revealStyle))
+                return view
+            }
         case .stream:
             var splitter = MarkdownBlockSplitter()
             blocks = splitter.split(fixture.markdown).map { block in
@@ -44,6 +51,19 @@ final class CatalogUIKitFixtureView: UIView {
         }
         super.init(frame: .zero)
         traitOverrides.flooTheme = settings.theme
+        // `-catalogRevealTheme from|switch`: a theme set before the frame, or changed mid-reveal
+        // after it has drawn. The two pictures must be the same.
+        if let revealed, revealed.blocks.isEmpty == false, let mode = UserDefaults.standard.string(forKey: "catalogRevealTheme") {
+            let changed = settings.theme.setting([.label: .systemPurple, .accent: .systemOrange])
+            if mode == "from" {
+                traitOverrides.flooTheme = changed
+            } else {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    self?.traitOverrides.flooTheme = changed
+                }
+            }
+        }
         if let appearance = settings.appearance { traitOverrides.userInterfaceStyle = appearance }
         backgroundColor = settings.background
         blocks.forEach(addSubview)

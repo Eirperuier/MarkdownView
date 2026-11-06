@@ -76,6 +76,7 @@ struct ChatDestination: View {
             if conversation.rows.isEmpty {
                 seed()
             }
+            await ChatProbe.run(reader: reader, send: send)
         }
     }
 
@@ -119,6 +120,10 @@ struct ChatDestination: View {
     private var list: some View {
         TiledView(items: conversation.rows, scrollPosition: $scrollPosition) { row in
             ChatRowCell(item: row, conversation: conversation, selection: selection, renderedHeights: renderedHeights)
+        }
+        .itemUIKitCell { [conversation, renderedHeights] row -> (any TiledUIKitCellContent)? in
+            guard row.drawsInUIKit, case .block(let block) = row.kind else { return nil }
+            return ChatUIKitBlock(id: row.id, block: block, isStreaming: row.isStreaming, conversation: conversation, renderedHeights: renderedHeights)
         }
         .prependLoader(conversation.hasOlder ? .loader(perform: { [conversation] in
             await conversation.loadOlder(Self.pageSize, latency: Self.pageLatency)
@@ -250,7 +255,7 @@ private struct ChatRowView: View {
             view
                 .markdownStreaming(conversation.coordinator.ensureManager(for: block.id))
                 .markdownFadeReveal(
-                    duration: 0.5,
+                    duration: AppMotion.streamReveal.duration,
                     startHue: MarkdownFadeRevealConfig.legacyHighlightStartHue,
                     endHue: MarkdownFadeRevealConfig.legacyHighlightEndHue
                 )

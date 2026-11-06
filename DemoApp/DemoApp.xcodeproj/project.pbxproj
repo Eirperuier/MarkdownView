@@ -509,7 +509,7 @@
 		};
 		8C21E5C02D9E7FB20097554E /* XCLocalSwiftPackageReference "floo-swiftui-messaging-ui" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../floo-swiftui-messaging-ui";
+			relativePath = "../../markdown-uikit-deps/floo-swiftui-messaging-ui";
 		};
 /* End XCLocalSwiftPackageReference section */
 

@@ -6,6 +6,9 @@
 //
 //      -openTab catalog -catalogShots <dir> [-catalogWidth 390] [-catalogDark YES]
 //                       [-catalogOnly id,id] [-catalogRenderer swiftui|uikit]
+//                       [-catalogRevealProbe YES]
+//
+//  With -catalogRevealProbe YES the list is frames in the middle of a reveal (CatalogReveal).
 //
 //  Scripts/markdown-catalog.sh runs it; Scripts/markdown-pixel-diff.swift compares two sets.
 //
@@ -218,7 +221,8 @@ enum CatalogShots {
             return
         }
         var entries: [Entry] = []
-        for group in CatalogFixtures.groups {
+        let groups = defaults.bool(forKey: "catalogRevealProbe") ? [CatalogReveal.group] : CatalogFixtures.groups
+        for group in groups {
             for fixture in group.fixtures where only?.contains(fixture.id) ?? true {
                 entries.append(await shoot(fixture, group: group, width: width, dark: dark, scene: scene, folder: folder))
             }
@@ -247,9 +251,12 @@ enum CatalogShots {
         let windowHeight: CGFloat = 2400
         let measured = CatalogMeasuredHeight()
         let root: UIViewController
+        // Held still until the shot's taken; nil out of the reveal probe.
+        let revealed = CatalogReveal.prepare(fixture)
+        defer { CatalogReveal.finish() }
         if UserDefaults.standard.string(forKey: "catalogRenderer") == "uikit" {
             let host = UIViewController()
-            let view = CatalogUIKitFixtureView(fixture: fixture, scale: scene.screen.scale)
+            let view = CatalogUIKitFixtureView(fixture: fixture, scale: scene.screen.scale, revealed: revealed)
             host.view.addSubview(view)
             // Off-window, as a list cell asks before it's shown.
             measured.height = view.height(forWidth: width)
@@ -257,7 +264,13 @@ enum CatalogShots {
             root = host
         } else {
             let host = UIHostingController(rootView: AnyView(
-                CatalogFixtureView(fixture: fixture)
+                Group {
+                    if let revealed {
+                        CatalogRevealView(revealed: revealed)
+                    } else {
+                        CatalogFixtureView(fixture: fixture)
+                    }
+                }
                     .frame(width: width, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .onGeometryChange(for: CGFloat.self, of: \.size.height) { measured.height = $0 }
