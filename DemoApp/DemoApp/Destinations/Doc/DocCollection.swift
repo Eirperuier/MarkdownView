@@ -1086,7 +1086,7 @@ private struct DocCollectionHeader: View {
         .opacity(showsToolbar ? 1 : 0)
         .allowsHitTesting(showsToolbar)
         // The view's panels open under the toolbar, at its right.
-        .flooDesignAnchoredPanel(isPresented: toolbarPanel != nil, configuration: .init(horizontalAlignment: .trailing),
+        .docPanel(isPresented: toolbarPanel != nil, alignment: .trailing,
                                  onDismiss: { if let toolbarPanel { controller.close(toolbarPanel, in: block) } }) {
             if let current {
                 switch toolbarPanel {
@@ -1285,7 +1285,7 @@ private struct DocCollectionHeader: View {
         .menuIndicator(.hidden)
         .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
         .accessibilityLabel(String(localized: "Add View"))
-        .flooDesignAnchoredPanel(isPresented: controller.isShowing(.createKanban, in: block) || controller.isShowing(.createChart, in: block),
+        .docPanel(isPresented: controller.isShowing(.createKanban, in: block) || controller.isShowing(.createChart, in: block),
                                  onDismiss: {
                                      controller.close(.createKanban, in: block)
                                      controller.close(.createChart, in: block)
@@ -1337,7 +1337,7 @@ private struct DocCollectionHeader: View {
             }
             .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
             .flooDesignContextMenu { _ in viewSections(view, full: false) }
-            .flooDesignAnchoredPanel(isPresented: controller.isShowing(.nameView(view.id), in: block),
+            .docPanel(isPresented: controller.isShowing(.nameView(view.id), in: block),
                                      onDismiss: { controller.close(.nameView(view.id), in: block) }) {
                 DocNameViewPanel(block: block, view: view, controller: controller)
             }

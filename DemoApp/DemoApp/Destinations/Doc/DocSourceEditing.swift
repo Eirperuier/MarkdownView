@@ -960,7 +960,7 @@ struct DocMathRowView: View {
         .simultaneousGesture(TapGesture().onEnded { [block, controller] in
             if controller.editing != block { controller.focus(block) }
         })
-        .flooDesignAnchoredPanel(isPresented: editing && DocDevice.isMac, onDismiss: { [block, controller] in controller.dismiss(block) }) {
+        .docPanel(isPresented: editing && DocDevice.isMac, onDismiss: { [block, controller] in controller.dismiss(block) }) {
             DocMathPanel(block: block, text: controller.text(block), controller: controller)
         }
     }
@@ -1006,12 +1006,12 @@ struct DocMathPanel: View {
 
     var body: some View {
         if DocDevice.isMac {
-            FlooDesignFloatingPanelSurface { content }
-                .flooDesignPanelWidth(width)
+            DocPanelSurface { content }
+                .docPanelWidth(width)
         } else {
             content
                 .padding(Tokens.Space.sm)
-                .flooDesignGlass(.regular, in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
+                .flooGlass(in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
                 .padding(.horizontal, Tokens.Space.md)
                 .padding(.bottom, Tokens.Space.sm)
         }

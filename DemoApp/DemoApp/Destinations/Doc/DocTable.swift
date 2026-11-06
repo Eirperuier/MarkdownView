@@ -558,7 +558,7 @@ final class DocTableController {
     /// Esc in a cell: a menu or panel open takes it first (a level back, or it closes);
     /// else the table is left, and selected (where blocks are).
     func leaveByEscape(_ key: DocCellKey) {
-        if FlooDesignPanels.escape() { return }
+        if FlooFloatingPanels.escape() { return }
         leave(key)
         editor.blocks.selectAfterEditing(key.block)
     }
@@ -890,7 +890,7 @@ final class DocCellTextView: UITextView, UITextViewDelegate {
         ]
         // ↑↓ leave the cell only from its first / last line, and not while a right-click's
         // menu has the keys.
-        if !FlooDesignPanels.holdsKeys, let caret = selectedTextRange?.start, markedTextRange == nil {
+        if !FlooFloatingPanels.holdsKeys, let caret = selectedTextRange?.start, markedTextRange == nil {
             let line = caretRect(for: caret)
             if line.minY <= caretRect(for: beginningOfDocument).minY + 1 {
                 commands.append(UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(cellAbove)))
@@ -1049,8 +1049,8 @@ struct DocTableCellEditor: View {
                 }
             }
             // The Mac's formula panel, under the cell.
-            .flooDesignAnchoredPanel(isPresented: DocDevice.isMac && controller.formula?.key == key && controller.formula?.isShown == true,
-                                     configuration: controller.formulaPanelConfiguration(key),
+            .docPanel(isPresented: DocDevice.isMac && controller.formula?.key == key && controller.formula?.isShown == true,
+                                     alignment: .center, keepsOpen: controller.formulaPanelKeepsOpen(key),
                                      onDismiss: { [controller] in controller.finishFormula(writes: true) }) { [controller] in
                 if let formula = controller.formula {
                     // A formula of its own: a panel opened again as this one goes has its own field.

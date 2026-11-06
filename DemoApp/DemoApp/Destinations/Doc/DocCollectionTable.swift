@@ -127,7 +127,7 @@ struct DocCollectionTable: View {
         .buttonStyle(.flooContent(in: Rectangle()))
         .help(String(localized: "Add Field"))
         .accessibilityLabel(String(localized: "Add Field"))
-        .flooDesignAnchoredPanel(isPresented: controller.isShowing(.addField, in: block), configuration: .init(horizontalAlignment: .trailing),
+        .docPanel(isPresented: controller.isShowing(.addField, in: block), alignment: .trailing,
                                  onDismiss: { controller.close(.addField, in: block) }) {
             DocFieldPanel(snapshot: snapshot, column: nil, controller: controller)
         }
@@ -367,7 +367,7 @@ private struct DocFieldHead: View {
         .menuIndicator(.hidden)
         .buttonStyle(.flooContent(in: Rectangle()))
         .onHover { hovering = $0 }
-        .flooDesignAnchoredPanel(isPresented: controller.isShowing(.editField(column.id), in: block),
+        .docPanel(isPresented: controller.isShowing(.editField(column.id), in: block),
                                  onDismiss: { controller.close(.editField(column.id), in: block) }) {
             DocFieldPanel(snapshot: snapshot, column: column, controller: controller)
         }
@@ -444,8 +444,7 @@ struct DocCollectionCell: View {
             }
             .buttonStyle(.plain)
             .disabled(!controller.isEditable)
-            .flooDesignAnchoredPanel(isPresented: controller.isShowing(panel, in: block),
-                                     configuration: .init(anchorGap: 0),
+            .docPanel(isPresented: controller.isShowing(panel, in: block),
                                      onDismiss: { controller.close(panel, in: block) }) {
                 DocDatePanel(row: row, column: column, block: block, controller: controller)
             }
@@ -543,8 +542,7 @@ struct DocCollectionCell: View {
             } label: { chips }
             .buttonStyle(.plain)
             .disabled(!controller.isEditable)
-            .flooDesignAnchoredPanel(isPresented: controller.isShowing(.options(row: row.id, column: column.id), in: block),
-                                     configuration: .init(anchorGap: 0),
+            .docPanel(isPresented: controller.isShowing(.options(row: row.id, column: column.id), in: block),
                                      onDismiss: { controller.close(.options(row: row.id, column: column.id), in: block) }) {
                 DocOptionsPanel(snapshot: snapshot, row: row, column: column, controller: controller)
             }

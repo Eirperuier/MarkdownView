@@ -71,7 +71,7 @@ struct DocCollectionKanban: View {
         .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
         .help(String(localized: "Add New Group"))
         .accessibilityLabel(String(localized: "Add New Group"))
-        .flooDesignAnchoredPanel(isPresented: controller.isShowing(.addOption(group), in: block),
+        .docPanel(isPresented: controller.isShowing(.addOption(group), in: block),
                                  onDismiss: { controller.close(.addOption(group), in: block) }) {
             DocOptionPanel(snapshot: snapshot, column: group, option: nil, controller: controller)
         }
@@ -185,7 +185,7 @@ private struct DocKanbanLane: View {
     private var head: some View {
         HStack(spacing: DocTokens.Space.sm) {
             DocGroupLabel(column: column, group: group)
-                .flooDesignAnchoredPanel(isPresented: option.map { controller.isShowing(.editOption($0.id), in: block) } ?? false,
+                .docPanel(isPresented: option.map { controller.isShowing(.editOption($0.id), in: block) } ?? false,
                                          onDismiss: { if let option { controller.close(.editOption(option.id), in: block) } }) {
                     if let option {
                         DocOptionPanel(snapshot: snapshot, column: column.id, option: option, controller: controller)
@@ -304,7 +304,7 @@ private struct DocKanbanCard: View {
                           lineWidth: focused ? Metrics.focusWidth : DocTokens.Border.standard))
         .onHover { hovering = $0 }
         .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in place.menu?.rows?() ?? [] }
-        .flooDesignAnchoredPanel(isPresented: fieldPanel != nil,
+        .docPanel(isPresented: fieldPanel != nil,
                                  onDismiss: { if let fieldPanel { controller.close(fieldPanel, in: block) } }) {
             fieldPanelContent
         }

@@ -193,10 +193,8 @@ extension DocTableController {
 
     /// The panel under the cell: centred on it, and open while its table's cells are
     /// clicked (they put their references in).
-    func formulaPanelConfiguration(_ key: DocCellKey) -> FlooDesignAnchoredPanelConfiguration {
-        var configuration = FlooDesignAnchoredPanelConfiguration(preferredEdge: .below, horizontalAlignment: .center)
-        configuration.keepsOpen = { [weak self] point in self?.tableFrames[key.block]?.contains(point) == true }
-        return configuration
+    func formulaPanelKeepsOpen(_ key: DocCellKey) -> @MainActor (CGPoint) -> Bool {
+        { [weak self] point in self?.tableFrames[key.block]?.contains(point) == true }
     }
 
     /// The formula's page is gone (the table back on the page).
@@ -462,12 +460,12 @@ struct DocFormulaPanel: View {
 
     var body: some View {
         if DocDevice.isMac {
-            FlooDesignFloatingPanelSurface { content }
-                .flooDesignPanelWidth(Self.width)
+            DocPanelSurface { content }
+                .docPanelWidth(Self.width)
         } else {
             content
                 .padding(Tokens.Space.sm)
-                .flooDesignGlass(.regular, in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
+                .flooGlass(in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
                 .padding(.horizontal, Tokens.Space.md)
                 .padding(.bottom, Tokens.Space.sm)
         }

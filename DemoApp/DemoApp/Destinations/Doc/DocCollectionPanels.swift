@@ -32,7 +32,7 @@ struct DocPanelFrame<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        FlooDesignFloatingPanelSurface(contentInset: Tokens.Component.FloatingPanel.roomyInset) {
+        DocPanelSurface(contentInset: Tokens.Component.FloatingPanel.roomyInset) {
             VStack(alignment: .leading, spacing: Tokens.Space.md) {
                 HStack {
                     Text(title)
@@ -51,7 +51,7 @@ struct DocPanelFrame<Content: View>: View {
                 FlooDividerLine()
                 content
             }
-            .flooDesignPanelWidth(width, alignment: .leading)
+            .docPanelWidth(width, alignment: .leading)
         }
     }
 }
@@ -913,7 +913,7 @@ struct DocOptionsPanel: View {
     let controller: DocCollectionController
     @State private var text = ""
     @FocusState private var focused: Bool
-    @Environment(\.flooDesignPanelPresentation) private var presentation
+    @Environment(\.flooPanelPresentation) private var presentation
 
     private var block: DocBlockID { snapshot.block }
     private var options: [SelectOption] { DocFieldText.options(column) }
@@ -930,7 +930,7 @@ struct DocOptionsPanel: View {
     }
 
     var body: some View {
-        FlooDesignFloatingPanelSurface {
+        DocPanelSurface {
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
                 TextField(String(localized: "Set \(column.name)"), text: $text)
                     .textFieldStyle(.plain)
@@ -980,10 +980,10 @@ struct DocOptionsPanel: View {
                     .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
                 }
             }
-            .flooDesignPanelWidth(260)
+            .docPanelWidth(260)
         }
         // A phone's sheet opens on the options: the keyboard comes when the field is tapped.
-        .onAppear { if presentation == .anchored { Task { @MainActor in focused = true } } }
+        .onAppear { if presentation == .floating { Task { @MainActor in focused = true } } }
     }
 
     private func pick(_ option: OptionID) {
@@ -1017,7 +1017,7 @@ struct DocPropertyPanel: View {
     private var value: CellValue? { row.cells[column.id] }
 
     var body: some View {
-        FlooDesignFloatingPanelSurface {
+        DocPanelSurface {
             TextField(column.name, text: $text)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
@@ -1034,7 +1034,7 @@ struct DocPropertyPanel: View {
                 }
                 .padding(.horizontal, Tokens.Space.sm)
                 .frame(minHeight: Metrics.fieldHeight)
-                .flooDesignPanelWidth(260)
+                .docPanelWidth(260)
         }
         .onAppear {
             text = DocFieldText.text(value, in: column)
@@ -1057,7 +1057,7 @@ struct DocDatePanel: View {
     @State private var month = Date.now
     @FocusState private var focused: Bool
     @Environment(\.self) private var environment
-    @Environment(\.flooDesignPanelPresentation) private var presentation
+    @Environment(\.flooPanelPresentation) private var presentation
 
     private var calendar: Calendar { .current }
     private var panel: DocCollectionPanel.Kind { .date(row: row.id, column: column.id) }
@@ -1085,7 +1085,7 @@ struct DocDatePanel: View {
     }
 
     var body: some View {
-        FlooDesignFloatingPanelSurface {
+        DocPanelSurface {
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
                 HStack(spacing: Tokens.Space.sm) {
                     Image(systemName: "magnifyingglass")
@@ -1136,12 +1136,12 @@ struct DocDatePanel: View {
                     .frame(maxWidth: .infinity, minHeight: Metrics.fieldHeight)
                 }
             }
-            .flooDesignPanelWidth(240)
+            .docPanelWidth(240)
         }
         .onAppear {
             month = chosen ?? .now
             // A phone's sheet opens on the month: the keyboard would take its place.
-            if presentation == .anchored { Task { @MainActor in focused = true } }
+            if presentation == .floating { Task { @MainActor in focused = true } }
         }
     }
 

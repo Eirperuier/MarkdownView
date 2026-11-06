@@ -50,7 +50,7 @@ struct DocFormatSheet: View {
     var body: some View {
         sheet(.main)
             .sheet(item: Binding(get: { page == .main ? nil : page }, set: { if $0 == nil { go(.main) } })) { page in
-                sheet(page).flooDesignSizedSheet(estimate: Metrics.estimate)
+                sheet(page).docSizedSheet(estimate: Metrics.estimate)
             }
     }
 

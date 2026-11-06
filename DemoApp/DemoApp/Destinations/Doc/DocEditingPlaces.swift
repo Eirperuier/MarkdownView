@@ -198,7 +198,9 @@ extension DocBarKey {
 extension DocEditor {
     /// Where typing goes now: what has the keyboard, as a place.
     var editingPlace: (any DocEditingPlace)? {
-        switch DocFirstResponder.current {
+        // Its own views know: the responder chain has been seen to find nothing with one of
+        // them focused in its key window (the Mac, late in a long session).
+        switch DocFirstResponder.current ?? allTextViews.first(where: \.isFirstResponder) {
         case let view as DocCellTextView:
             return view.key.map { DocTableCellPlace(key: $0, controller: tables) }
         case let view as DocSourceTextView:

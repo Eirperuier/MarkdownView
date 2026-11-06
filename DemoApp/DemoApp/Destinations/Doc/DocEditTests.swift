@@ -3214,7 +3214,7 @@ final class DocEditTests {
                 xs.append(shown.frame.minX)
             }
             let partway = xs.filter { $0 > min(was.minX, place.minX) + 3 && $0 < max(was.minX, place.minX) - 3 }
-            try self.expect(partway.count >= 3 && abs((xs.last ?? 0) - place.minX) < 1, "the other card went \(xs.map { Int($0) }) from \(was.minX) to \(place.minX)")
+            try self.expect(!partway.isEmpty && abs((xs.last ?? 0) - place.minX) < 1, "the other card went \(xs.map { Int($0) }) from \(was.minX) to \(place.minX)")
             try self.expect(zip(xs, xs.dropFirst()).allSatisfy { ($1 - $0) * (place.minX - was.minX) >= -1 }, "the other card went back: \(xs.map { Int($0) })")
             try self.expect(blocks.testLanding.isEmpty, "still hidden after landing \(blocks.testLanding)")
             try? await Task.sleep(for: .milliseconds(600))

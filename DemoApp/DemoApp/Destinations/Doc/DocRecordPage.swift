@@ -101,8 +101,8 @@ struct DocRecordFields: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .flooDesignAnchoredPanel(isPresented: controller.isShowing(.addField, in: link.block),
-                                             configuration: .init(horizontalAlignment: .leading),
+                    .docPanel(isPresented: controller.isShowing(.addField, in: link.block),
+                                             alignment: .leading,
                                              onDismiss: { controller.close(.addField, in: link.block) }) {
                         DocFieldPanel(snapshot: snapshot, column: nil, controller: controller)
                     }

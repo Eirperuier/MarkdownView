@@ -1925,7 +1925,7 @@ final class DocBlockKeyView: UIView {
 
     override var keyCommands: [UIKeyCommand]? {
         // A right-click's menu on the blocks has the keys while it's open.
-        guard !FlooDesignPanels.holdsKeys else { return nil }
+        guard !FlooFloatingPanels.holdsKeys else { return nil }
         let commands = [
             UIKeyCommand(input: "\u{8}", modifierFlags: [], action: #selector(deleteBlocks)),
             UIKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: [], action: #selector(deleteBlocks)),
@@ -1996,7 +1996,7 @@ struct DocBlockSelectionBar: View {
                         DocFormatSheet(editor: blocks.editor)
                     }
                 }
-                .flooDesignSizedSheet(estimate: DocTokens.Component.FormatSheet.estimate)
+                .docSizedSheet(estimate: DocTokens.Component.FormatSheet.estimate)
             }
     }
 
