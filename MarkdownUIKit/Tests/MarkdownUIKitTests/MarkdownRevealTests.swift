@@ -15,9 +15,9 @@ final class MarkdownRevealTests: XCTestCase {
         splitter.split(text)[0]
     }
 
-    func testBlockWithFenceIsNotDrawnHere() {
+    func testWhatIsDrawnHere() {
         var splitter = MarkdownBlockSplitter()
-        XCTAssertFalse(MarkdownBlockView.draws(splitter.split("```swift\nlet a = 1\n```")[0]))
+        XCTAssertTrue(MarkdownBlockView.draws(splitter.split("```swift\nlet a = 1\n```")[0]))
         var second = MarkdownBlockSplitter()
         XCTAssertTrue(MarkdownBlockView.draws(second.split("Some **text**.")[0]))
         var third = MarkdownBlockSplitter()

@@ -196,6 +196,7 @@ struct CatalogUIKitSettings {
             h2.design = .rounded
             style.typography.body = body
             style.typography.headings = [h1, h2] + style.typography.headings.dropFirst(2)
+            style.codeBlock.font = .init(.footnote)
         case .fontBody:
             var body = MarkdownTypography.Style(.title3)
             body.design = .rounded
@@ -207,7 +208,9 @@ struct CatalogUIKitSettings {
         case .fontMath:
             style.inlineMathTextStyle = .title3
             style.displayMathTextStyle = .title2
-        case .fontCode, .fontQuote, .fontTable:
+        case .fontCode:
+            style.codeBlock.font = .init(.body)
+        case .fontQuote, .fontTable:
             break  // Fonts of blocks that aren't drawn yet, or the SwiftUI path's alone.
         case .typographyDoc:
             style.typography.body = .init(.callout)
@@ -269,8 +272,18 @@ struct CatalogUIKitSettings {
             break  // The SwiftUI path's own: not ported.
         case .quoteDecoration:
             isQuoteDecorated = true
-        case .codeScrollable, .codeFull, .codeRenderer, .codeRendererBare, .codeRendererDisabled, .codeHighlighter, .codeFloo:
-            break  // Code isn't drawn yet.
+        case .codeScrollable: style.codeBlock.scrollsSideways = true
+        case .codeFull: style.codeBlock.showsAllLines = true
+        case .codeRenderer:
+            style.codeBlock.renderers["catalog"] = MarkdownCodeRenderer(underHeader: CatalogCodePreviewView.ground) { code, _ in CatalogCodePreviewView(code: code) }
+        case .codeRendererBare:
+            style.codeBlock.renderers["catalog"] = MarkdownCodeRenderer(bare: true) { code, _ in CatalogCodePreviewView(code: code) }
+        case .codeRendererDisabled:
+            style.codeBlock.renderers["catalog"] = MarkdownCodeRenderer { code, _ in CatalogCodePreviewView(code: code) }
+            style.codeBlock.disabledRenderers = ["catalog"]
+        case .codeHighlighter: style.codeBlock.highlighter = MarkdownHighlightrHighlighter()
+        case .codeFloo:
+            break  // floo's own box: not ported.
         case .tableGithub, .tableGrid, .tableScrollable, .tableHeaderColumn, .tableNoHeaderRow, .tableNoStripe,
              .tableStripeColor, .tableSerif, .tableCellLooks, .tableDimsParentheticals, .tableCellsSelectable,
              .tableCellPadding, .tableCellOverlay, .tableRowBackground, .tableImage, .tableCellReplacement, .tableDecoration:
@@ -296,5 +309,35 @@ struct CatalogUIKitSettings {
                 MarkdownInlineAnchor(id: $0.id, plainOffset: $0.plainOffset, url: $0.url)
             }
         }
+    }
+}
+
+/// `CatalogCodePreview` in UIKit: the code in caption, padded by 12, on a faint mint ground.
+final class CatalogCodePreviewView: UIView {
+    static let ground = UIColor(Color.mint.opacity(0.2))
+    private let label = UILabel()
+
+    init(code: String) {
+        super.init(frame: .zero)
+        backgroundColor = Self.ground
+        label.text = code
+        label.font = .preferredFont(forTextStyle: .caption1)
+        label.numberOfLines = 0
+        addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let fitted = label.sizeThatFits(CGSize(width: size.width - 24, height: .greatestFiniteMagnitude))
+        return CGSize(width: size.width, height: fitted.height.rounded(.up) + 24)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        label.frame = bounds.insetBy(dx: 12, dy: 12)
     }
 }

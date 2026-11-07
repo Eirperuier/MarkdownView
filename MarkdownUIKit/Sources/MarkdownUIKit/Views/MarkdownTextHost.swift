@@ -62,6 +62,7 @@ final class MarkdownTextHost {
             drawn.removeFromSuperview()
             self.drawn = nil
             if let text { finish(text) }
+            if !renderingColors.isEmpty { applyRenderingColors() }
             // It takes over during a hit test: the touch asks it what's under the finger (a link)
             // before any layout pass would come.
             view.layoutIfNeeded()
@@ -92,6 +93,7 @@ final class MarkdownTextHost {
     private var revealController: MarkdownRevealController?
     private var foregroundColor = UIColor.label
     private var openLink: (@MainActor @Sendable (URL) -> Void)?
+    private var renderingColors: [(range: NSRange, color: UIColor)] = []
 
     init(textView: Bool = true) {
         if textView { shownTextView = makeTextView() }
@@ -162,6 +164,7 @@ final class MarkdownTextHost {
         if let drawn, reveal == nil, canDraw(text) {
             drawn.narrowsToText = hasHangingIndent
             drawn.show(text.attributed, foregroundColor: foregroundColor)
+            if !renderingColors.isEmpty { applyRenderingColors() }
             return
         }
         setReveal(reveal)
@@ -227,6 +230,45 @@ final class MarkdownTextHost {
         shownTextView?.invalidateFittingSizes()
         shownTextView?.setNeedsLayout()
         rightToLeftHeights.removeAll()
+    }
+
+    /// Colours over the text as rendering attributes, which lay nothing out: a highlight coming
+    /// in. Kept for a text view taking the drawn text's place.
+    func setRenderingColors(_ runs: [(range: NSRange, color: UIColor)]) {
+        renderingColors = runs
+        applyRenderingColors()
+    }
+
+    private func applyRenderingColors() {
+        let manager = shownTextView?.textLayoutManager ?? drawn?.layoutManager
+        guard let manager else { return }
+        MarkdownCodeRenderingColors.set(renderingColors, on: manager)
+        shownTextView?.setNeedsDisplay()
+        drawn?.setNeedsDisplay()
+    }
+
+    private var layoutManager: NSTextLayoutManager? { shownTextView?.textLayoutManager ?? drawn?.layoutManager }
+
+    /// Puts the text at a frame already worked out: no measuring.
+    func place(_ frame: CGRect) {
+        if let drawn {
+            _ = drawn.size(forWidth: frame.width)
+            let outer = frame.insetBy(dx: -MarkdownDrawnTextView.overdraw, dy: -MarkdownDrawnTextView.overdraw)
+            if drawn.frame != outer { drawn.frame = outer }
+        } else if textView.frame != frame {
+            textView.frame = frame
+        }
+    }
+
+    /// The fragments as they stand: the same ones again means nothing was laid out.
+    var layoutFragmentIDs: [ObjectIdentifier] {
+        guard let manager = layoutManager else { return [] }
+        var ids: [ObjectIdentifier] = []
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: []) { fragment in
+            ids.append(ObjectIdentifier(fragment))
+            return true
+        }
+        return ids
     }
 
     /// The text's own size at `width`, inside the insets.

@@ -27,6 +27,7 @@ private struct OpenCodeFence {
     let char: Character
     let length: Int
     let infoWord: String
+    var indent = 0
     var maxSameCharRunInContent: Int = 0
 }
 
@@ -40,6 +41,26 @@ private func codeFenceLine<S: StringProtocol>(_ line: S) -> CodeFenceLine? {
         .split(whereSeparator: { $0 == " " || $0 == "\t" })
         .first.map { String($0).lowercased() } ?? ""
     return CodeFenceLine(char: first, length: run.count, infoWord: info)
+}
+
+/// `- ```swift`: a fence opening on a list item's own line, with how far its content is indented.
+private func listItemFenceLine<S: StringProtocol>(_ line: S) -> (fence: CodeFenceLine, indent: Int)? {
+    let stripped = line.drop(while: { $0 == " " })
+    guard let first = stripped.first else { return nil }
+    var rest = stripped.dropFirst(0)
+    if first == "-" || first == "*" || first == "+" {
+        rest = stripped.dropFirst()
+    } else if first.isASCII, first.isNumber {
+        rest = stripped.drop(while: { $0.isASCII && $0.isNumber })
+        guard let delimiter = rest.first, delimiter == "." || delimiter == ")" else { return nil }
+        rest = rest.dropFirst()
+    } else {
+        return nil
+    }
+    guard rest.first == " " else { return nil }
+    let content = rest.drop(while: { $0 == " " })
+    guard let fence = codeFenceLine(content) else { return nil }
+    return (fence, line.count - content.count)
 }
 
 private func replacingCodeFenceLength(in line: String, with length: Int, char: Character) -> String {
@@ -163,7 +184,10 @@ func sanitizeMarkdownCodeFences(_ text: String, streamingFenceLanguages: Set<Str
     }
 
     for (index, line) in lines.enumerated() {
-        guard let fence = codeFenceLine(line) else { continue }
+        // A fence on a list marker's line opens one too: its closing line isn't an opening one.
+        let onMarker = stack.isEmpty ? listItemFenceLine(line) : nil
+        guard let fence = codeFenceLine(line) ?? onMarker?.fence else { continue }
+        let indent = onMarker?.indent ?? line.prefix(while: { $0 == " " }).count
 
         if let current = stack.last {
             let closesCurrent = fence.char == current.char
@@ -178,7 +202,8 @@ func sanitizeMarkdownCodeFences(_ text: String, streamingFenceLanguages: Set<Str
                     lineIndex: index,
                     char: fence.char,
                     length: fence.length,
-                    infoWord: fence.infoWord
+                    infoWord: fence.infoWord,
+                    indent: indent
                 ))
             } else {
                 noteContentFence(fence)
@@ -188,7 +213,8 @@ func sanitizeMarkdownCodeFences(_ text: String, streamingFenceLanguages: Set<Str
                 lineIndex: index,
                 char: fence.char,
                 length: fence.length,
-                infoWord: fence.infoWord
+                infoWord: fence.infoWord,
+                indent: indent
             ))
         }
     }
@@ -200,7 +226,8 @@ func sanitizeMarkdownCodeFences(_ text: String, streamingFenceLanguages: Set<Str
         if replacementLength != entry.length {
             replacementLengths[entry.lineIndex] = replacementLength
         }
-        let closer = String(repeating: entry.char, count: replacementLength)
+        // At the fence's own indent, or it would end a list item and open a block after it.
+        let closer = String(repeating: " ", count: entry.indent) + String(repeating: entry.char, count: replacementLength)
         completionSuffix += StreamingFenceMarker.completionSuffix(
             closer: closer,
             infoWord: entry.infoWord,

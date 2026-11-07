@@ -51,6 +51,11 @@ enum CatalogThemeProbe {
         ("bullet", "- A bullet\n- {star.fill} A symbol"),
         ("task", "- [x] Done\n- [ ] To do"),
         ("callout", "> [!note]\n> A note."),
+        ("code.block", "```swift\n// A comment\nlet name = \"text\"\nfunc f(_ x: Int) -> Int { x + 1 }\n```"),
+        ("code.more", "```python\n" + (1...17).map { "print(\"line \($0)\")" }.joined(separator: "\n") + "\n```"),
+        ("code.badge", "```kotlin\nval a = 1\n```"),
+        ("code.quote", "> Quoted\n>\n> ```swift\n> let x = 1\n> ```"),
+        ("code.item", "- An item\n  ```swift\n  let x = 1\n  ```"),
         ("rule", "---"),
         ("html", "<div>\nSome html\n</div>"),
         ("directive", "@note {\nA note.\n}"),
@@ -88,6 +93,7 @@ enum CatalogThemeProbe {
         var style = MarkdownStyle()
         style.rendersDisplayMathSynchronously = true
         style.linkSiteIcons = true
+        style.codeBlock.highlighter = MarkdownHighlightrHighlighter()
         style.icons = MarkdownIcons(image: { host in
             host == "noicon.test" ? nil : UIImage(systemName: "seal.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 64))
         })
@@ -119,9 +125,15 @@ enum CatalogThemeProbe {
         }
         let height = y + 20 - top
         let area = CGRect(x: 0, y: top, width: width, height: height)
-        try? await Task.sleep(for: .milliseconds(800))
+        // Laid out, not yet highlighted: a highlight coming in must keep the fragments.
+        root.view.layoutIfNeeded()
+        let beforeHighlight = blocks.map { fragmentIDs(in: $0.view) }
+        try? await Task.sleep(for: .milliseconds(3000))
 
-        var report = ""
+        var report = "== highlight\n"
+        for (index, block) in blocks.enumerated() where block.name.hasPrefix("code.") {
+            report += "\(block.name): same fragments \(fragmentIDs(in: block.view) == beforeHighlight[index]), \(beforeHighlight[index].count) fragments\n"
+        }
         let first = shot(window, area)
         save(first, "system", in: folder)
         let fragments = blocks.map { fragmentIDs(in: $0.view) }

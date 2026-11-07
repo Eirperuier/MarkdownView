@@ -156,6 +156,7 @@ public struct MarkdownStyle {
     public var componentSpacing: CGFloat = 10
     public var headingPaddings = MarkdownHeadingPaddings()
     public var list = MarkdownListStyle()
+    public var codeBlock = MarkdownCodeBlockStyle()
     /// Whether a block adds the room a whole document gives it at its edges (a heading's
     /// padding, a paragraph's 5 pt). Off where the host spaces blocks itself.
     public var addsEdgeInsets = true

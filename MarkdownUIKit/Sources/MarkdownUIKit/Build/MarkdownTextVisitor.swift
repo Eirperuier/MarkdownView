@@ -631,7 +631,10 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     }
 
     // Blocks that aren't text are a seam for now (MarkdownBlockView's pending kinds).
-    mutating func visitCodeBlock(_ codeBlock: CodeBlock) -> NSMutableAttributedString { blockSeam(codeBlock) }
+    mutating func visitCodeBlock(_ codeBlock: CodeBlock) -> NSMutableAttributedString {
+        let attachment = style.nestedBlock?(codeBlock, style) ?? MarkdownCodeAttachment(id: nextAttachmentID(), code: codeBlock, style: style)
+        return attachmentBlock(codeBlock, attachment: attachment)
+    }
     mutating func visitTable(_ table: Markdown.Table) -> NSMutableAttributedString { blockSeam(table) }
 
     /// An HTML block shows as its source, as it does in MarkdownView: no web view for a row.

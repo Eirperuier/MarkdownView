@@ -73,6 +73,7 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
     static var style: MarkdownStyle {
         var style = MarkdownStyle()
         style.drawsTextUntilTouched = drawsText
+        style.codeBlock.scrollsSideways = UserDefaults.standard.bool(forKey: "chatCodeScrolls")
         if ChatProbe.file != nil {
             style.openURL = { ChatProbe.tellLink($0) }
         }

@@ -71,6 +71,16 @@ extension MarkdownTypography.Style {
         return font.fontDescriptor.withDesign(design).map { UIFont(descriptor: $0, size: font.pointSize) } ?? font
     }
 
+    /// A line's height in a layout in this style, up to a pixel. On the Mac that's its text style's
+    /// with leading, which a monospaced font has none of its own to go by; on a phone, without.
+    @MainActor
+    func lineHeight(at category: UIContentSizeCategory?) -> CGFloat {
+        let traits = category.map { UITraitCollection(preferredContentSizeCategory: $0) }
+        let font = UIFont.preferredFont(forTextStyle: textStyle, compatibleWith: traits)
+        let leading = UIDevice.current.userInterfaceIdiom == .mac ? font.leading : 0
+        return markdownPixelCeil(font.ascender - font.descender + leading)
+    }
+
     private func plainFont(at category: UIContentSizeCategory?, monospaced: Bool) -> UIFont {
         let traits = category.map { UITraitCollection(preferredContentSizeCategory: $0) }
         let preferred = UIFont.preferredFont(forTextStyle: textStyle, compatibleWith: traits)

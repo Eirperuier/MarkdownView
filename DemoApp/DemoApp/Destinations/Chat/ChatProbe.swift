@@ -44,7 +44,11 @@ enum ChatProbe {
                 // What a UI test can't see: how many rows upgraded, whether text is selected.
                 if words.count > 1 {
                     let selected = RichTextActiveSelection.isActive
-                    try? "upgrades=\(MarkdownDrawnTextStats.upgrades) selected=\(selected)".write(toFile: String(words[1]), atomically: true, encoding: .utf8)
+                    try? "upgrades=\(MarkdownDrawnTextStats.upgrades) selected=\(selected) listOffset=\(reader.contentOffsetY()) codeOffset=\(codeOffset())".write(toFile: String(words[1]), atomically: true, encoding: .utf8)
+                }
+            case "pasteboard":
+                if words.count > 1 {
+                    try? (UIPasteboard.general.string ?? "").write(toFile: String(words[1]), atomically: true, encoding: .utf8)
                 }
             case "quit":
                 fflush(stdout)
@@ -53,6 +57,17 @@ enum ChatProbe {
             }
             fflush(stdout)
         }
+    }
+
+    /// How far a code block that scrolls sideways has gone, -1 with none on screen.
+    private static func codeOffset() -> CGFloat {
+        func find(_ view: UIView) -> UIScrollView? {
+            if let scroll = view as? UIScrollView, String(describing: type(of: scroll)) == "MarkdownCodeScrollView" { return scroll }
+            for sub in view.subviews { if let found = find(sub) { return found } }
+            return nil
+        }
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.windows.first }).first else { return -1 }
+        return find(window)?.contentOffset.x ?? -1
     }
 
     /// Selects the word at a point in the window, as a drag would leave it. Injected mouse events

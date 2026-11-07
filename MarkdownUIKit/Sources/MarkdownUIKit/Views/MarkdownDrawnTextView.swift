@@ -24,7 +24,7 @@ final class MarkdownDrawnTextView: UIView, NSTextLayoutManagerDelegate {
 
     private var measured: (width: CGFloat, size: CGSize)?
     private let storage = NSTextContentStorage()
-    private let layoutManager = NSTextLayoutManager()
+    let layoutManager = NSTextLayoutManager()
     private let container = NSTextContainer(size: .zero)
 
     override init(frame: CGRect) {

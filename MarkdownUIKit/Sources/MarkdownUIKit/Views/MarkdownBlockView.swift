@@ -33,6 +33,8 @@ public final class MarkdownBlockView: UIView {
         case rule(MarkdownRuleView)
         /// A directive's view, as wide as it says it fits.
         case custom(UIView)
+        case code(MarkdownCodeBlockView)
+        case fencedItem(MarkdownFencedItemView)
         case pending(MarkdownPendingBlock)
     }
 
@@ -77,6 +79,8 @@ public final class MarkdownBlockView: UIView {
         case .text(let host, _): [host.textView]
         case .quote(let quote): [quote.textView]
         case .footnotes(let hosts): hosts.map(\.textView)
+        case .code(let view): view.textView.map { [$0] } ?? []
+        case .fencedItem(let view): view.textViews
         }
     }
 
@@ -118,6 +122,8 @@ public final class MarkdownBlockView: UIView {
         case .text(let host, _): host.setReveal(reveal)
         case .quote(let quote): quote.setReveal(reveal)
         case .footnotes(let hosts): hosts.forEach { $0.setReveal(reveal) }
+        case .code(let view): view.setReveal(reveal)
+        case .fencedItem(let view): view.setReveal(reveal)
         case .math, .rule, .custom: mathGate.follow(reveal?.manager)
         case .empty, .pending: break
         }
@@ -129,7 +135,7 @@ public final class MarkdownBlockView: UIView {
         case .text(let host, _): host.textSizeDidChange()
         case .quote(let quote): quote.textSizeDidChange()
         case .footnotes(let hosts): hosts.forEach { $0.textSizeDidChange() }
-        case .empty, .math, .rule, .custom, .pending: break
+        case .empty, .math, .rule, .custom, .code, .fencedItem, .pending: break
         }
         cachedHeight = nil
         setNeedsLayout()
@@ -140,17 +146,16 @@ public final class MarkdownBlockView: UIView {
     /// holding what isn't: a host shows those another way.
     public nonisolated static func draws(_ block: MarkdownStreamBlock) -> Bool {
         let source = block.descriptor.sourceText
-        func holdsUnported() -> Bool {
-            source.contains("```") || source.contains("~~~")
-        }
         switch block.descriptor.kind {
         case .heading, .paragraph, .orderedList, .unorderedList:
-            return !holdsUnported()
+            return true
         case .blockQuote:
-            return !holdsUnported() && !source.contains("|")
+            return !source.contains("|")
         case .thematicBreak, .htmlBlock, .blockDirective:
             return true
-        case .codeBlock, .table, .mathBlock, .unknown:
+        case .codeBlock:
+            return true
+        case .table, .mathBlock, .unknown:
             return false
         }
     }
@@ -189,6 +194,12 @@ public final class MarkdownBlockView: UIView {
             view.removeFromSuperview()
         case .custom(let view):
             mathGate.stop()
+            view.removeFromSuperview()
+        case .code(let view):
+            view.prepareForReuse()
+            view.removeFromSuperview()
+        case .fencedItem(let view):
+            view.release()
             view.removeFromSuperview()
         }
         layout = .empty
@@ -239,8 +250,23 @@ public final class MarkdownBlockView: UIView {
             } else {
                 showText(source, depth: depth, style: style, block: block)
             }
-        case .heading, .orderedList, .unorderedList:
-            showText(Self.textBeforeFence(source, in: descriptor), depth: depth, style: style, block: block)
+        case .heading:
+            showText(source, depth: depth, style: style, block: block)
+        case .orderedList, .unorderedList:
+            if let split = Self.fencedSplit(descriptor) {
+                let item: MarkdownFencedItemView
+                if case .fencedItem(let shown) = layout {
+                    item = shown
+                } else {
+                    item = MarkdownFencedItemView()
+                    item.onHeightChange = { [weak self] in self?.contentChangedHeight() }
+                    addSubview(item)
+                }
+                item.configure(split, depth: depth, ordered: descriptor.listItemContext?.listType == .ordered, style: style, reveal: reveal, inlineMath: block.inlineMathStorage, displayMath: block.displayMathStorage)
+                layout = .fencedItem(item)
+            } else {
+                showText(source, depth: depth, style: style, block: block)
+            }
         case .blockDirective(let name) where style.blockDirective(named: name) == nil && name != MarkdownTree.mathAttribute:
             // A directive nothing renders shows its content as markdown.
             showText(source, depth: 0, style: style, block: block)
@@ -253,7 +279,8 @@ public final class MarkdownBlockView: UIView {
             }
         case .blockDirective(let name):
             showDirective(name, source: source, style: style, block: block)
-        case .codeBlock: layout = .pending(.code)
+        case .codeBlock(let language):
+            showCode(descriptor.plainText, language: language, style: style)
         case .table: layout = .pending(.table)
         case .mathBlock:
             if let latex = MathParser.standaloneDisplayMath(in: source, unescapingCommonMarkEscapes: true) {
@@ -297,8 +324,12 @@ public final class MarkdownBlockView: UIView {
     private static func keepsView(_ layout: Layout, for descriptor: MarkdownBlockDescriptor) -> Bool {
         switch (layout, descriptor.kind) {
         case (.quote, .blockQuote): true
-        case (.text, .heading), (.text, .orderedList), (.text, .unorderedList):
+        case (.code, .codeBlock), (.fencedItem, .orderedList), (.fencedItem, .unorderedList):
             true
+        case (.text, .heading):
+            true
+        case (.text, .orderedList), (.text, .unorderedList):
+            fencedSplit(descriptor) == nil
         case (.text, .htmlBlock):
             true
         case (.text, .paragraph):
@@ -358,7 +389,46 @@ public final class MarkdownBlockView: UIView {
         layout = .text(host, leading: CGFloat(depth) * 20)
     }
 
-    /// An item with a code fence: the text before it (marker included) is text, the fence a block
+    /// A list item with a code fence, by what's before it and what's from it on.
+    private static func fencedSplit(_ descriptor: MarkdownBlockDescriptor) -> MarkdownFencedItemView.Split? {
+        guard descriptor.listItemContext != nil else { return nil }
+        return MarkdownFencedItemView.split(descriptor.sourceText)
+    }
+
+    private func showCode(_ code: String, language: String?, style: MarkdownStyle) {
+        if let custom = style.codeBlock.custom {
+            showCustomCode(custom(code, language, style))
+            return
+        }
+        if let renderer = style.codeBlock.renderer(for: language), renderer.bare {
+            showCustomCode(renderer.makeView(code, language))
+            return
+        }
+        let view: MarkdownCodeBlockView
+        if case .code(let shown) = layout {
+            view = shown
+        } else {
+            view = MarkdownCodeBlockView()
+            view.onHeightChange = { [weak self] in self?.contentChangedHeight() }
+            addSubview(view)
+        }
+        view.configure(code: code, language: language, style: style, reveal: reveal)
+        layout = .code(view)
+    }
+
+    /// A code block a host draws itself, which appears whole.
+    private func showCustomCode(_ view: UIView) {
+        addSubview(view)
+        layout = .custom(view)
+        mathGate.follow(reveal?.manager)
+    }
+
+    private func contentChangedHeight() {
+        cachedHeight = nil
+        setNeedsLayout()
+        onHeightChange?()
+    }
+
     /// not drawn yet. An item starting with one draws just its marker.
     private static func textBeforeFence(_ source: String, in descriptor: MarkdownBlockDescriptor) -> String {
         guard descriptor.listItemContext != nil, source.contains("```") || source.contains("~~~") else { return source }
@@ -439,6 +509,10 @@ public final class MarkdownBlockView: UIView {
             height = quote.height(forWidth: width)
         case .math(let view):
             height = view.height(forWidth: width)
+        case .code(let view):
+            height = view.height(forWidth: width)
+        case .fencedItem(let view):
+            height = view.height(forWidth: width)
         case .rule:
             height = MarkdownRuleView.height
         case .custom(let view):
@@ -470,6 +544,10 @@ public final class MarkdownBlockView: UIView {
             quote.frame = bounds
         case .math(let view):
             view.frame = bounds
+        case .code(let view):
+            if view.frame != bounds { view.frame = bounds }
+        case .fencedItem(let view):
+            if view.frame != bounds { view.frame = bounds }
         case .rule(let view):
             if view.frame != bounds { view.frame = bounds }
         case .custom(let view):

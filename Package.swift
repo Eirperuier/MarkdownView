@@ -30,6 +30,14 @@ let package = Package(
             name: "MarkdownCore",
             dependencies: [
                 .product(name: "Markdown", package: "swift-markdown"),
+                .product(
+                    name: "Highlightr",
+                    package: "Highlightr",
+                    condition: .when(platforms: [.iOS, .macCatalyst, .macOS])
+                ),
+            ],
+            resources: [
+                .process("Resources")
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -54,9 +62,6 @@ let package = Package(
                     package: "floo-RichText",
                     condition: .when(platforms: [.iOS, .macCatalyst, .macOS])
                 ),
-            ],
-            resources: [
-                .process("Resources")
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
