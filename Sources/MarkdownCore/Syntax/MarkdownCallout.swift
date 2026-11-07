@@ -16,8 +16,8 @@ public enum MarkdownCalloutSyntax {
     nonisolated(unsafe) public static var isEnabled = false
 }
 
-public struct MarkdownCallout: Equatable {
-    public enum Kind: String, CaseIterable {
+public struct MarkdownCallout: Equatable, Sendable {
+    public enum Kind: String, CaseIterable, Sendable {
         case note, tip, important, warning, caution
 
         public init?(token: String) {
