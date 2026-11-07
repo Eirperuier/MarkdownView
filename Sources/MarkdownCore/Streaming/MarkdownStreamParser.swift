@@ -81,6 +81,11 @@ public final class MarkdownStreamParser {
         Task {
             let parsed = await Self.parse(request.text, isStreaming: request.isStreaming, with: splitter)
             splitter = parsed.splitter
+            #if canImport(UIKit) && !os(watchOS)
+            // What follows from a commit (rows, layout) runs on the main thread: at a frame's
+            // start, not whenever the parse ended (see MarkdownFrameStart).
+            await MarkdownFrameStart.shared.next()
+            #endif
             if generation != self.generation {
                 // Reset while parsing: this splitter's ids belong to the old document.
                 splitter.reset()
