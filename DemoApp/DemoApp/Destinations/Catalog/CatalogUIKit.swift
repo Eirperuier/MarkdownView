@@ -231,6 +231,9 @@ struct CatalogUIKitSettings {
     var style = {
         var style = MarkdownStyle()
         style.drawsTextUntilTouched = UserDefaults.standard.bool(forKey: "chatDrawsText")
+        // The catalogue's baseline is MarkdownView's: its header, plain unless a knob colours it.
+        style.codeBlock.look = .header
+        style.codeBlock.highlighter = nil
         return style
     }()
     /// The app's accent: SwiftUI takes it from the asset catalog, a theme names it.
@@ -356,8 +359,7 @@ struct CatalogUIKitSettings {
             style.codeBlock.renderers["catalog"] = MarkdownCodeRenderer { code, _ in CatalogCodePreviewView(code: code) }
             style.codeBlock.disabledRenderers = ["catalog"]
         case .codeHighlighter: style.codeBlock.highlighter = MarkdownHighlightrHighlighter()
-        case .codeFloo:
-            break  // floo's own box: not ported.
+        case .codeFloo: style.codeBlock.look = .box
         case .tableGithub: style.table.look = .github
         case .tableGrid: style.table.look = .grid
         case .tableScrollable: style.table.scrollsSideways = true

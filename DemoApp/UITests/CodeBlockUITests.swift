@@ -1,7 +1,8 @@
 import XCTest
 
-/// A code block in chat with real touches: its buttons, selecting its text, and scrolls that
-/// start on it, drawn and in a text view, wrapped and scrolling sideways.
+/// A code block in chat with real touches. The box, chat's default: no buttons, selecting and
+/// copying its text, scrolling sideways, scrolls that start on it, drawn and in a text view. The
+/// header look, a style option: its buttons, and its wrapped and sideways lines.
 @MainActor
 final class CodeBlockUITests: XCTestCase {
     private let probe = "/tmp/md-code-probe"
@@ -11,13 +12,14 @@ final class CodeBlockUITests: XCTestCase {
         continueAfterFailure = true
     }
 
-    private func launch(drawn: Bool, scrolls: Bool = false) {
+    private func launch(drawn: Bool, scrolls: Bool = false, header: Bool = false) {
         for suffix in ["", ".state", ".pasteboard"] { try? FileManager.default.removeItem(atPath: probe + suffix) }
         app = XCUIApplication()
         app.launchArguments = [
             "-AppleLanguages", "(en)", "-ApplePersistenceIgnoreState", "YES",
             "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatCorpus", "interaction",
             "-chatDrawsText", drawn ? "YES" : "NO", "-chatCodeScrolls", scrolls ? "YES" : "NO", "-chatProbe", probe,
+            "-chatCodeLook", header ? "header" : "box",
         ]
         app.launch()
     }
@@ -63,8 +65,8 @@ final class CodeBlockUITests: XCTestCase {
         return matches.firstMatch
     }
 
-    private func checkCopy(drawn: Bool) {
-        launch(drawn: drawn)
+    private func checkHeaderCopy(drawn: Bool) {
+        launch(drawn: drawn, header: true)
         _ = codeText()
         let copy = button("Copy")
         XCTAssertTrue(copy.waitForExistence(timeout: 5), "no Copy")
@@ -77,8 +79,42 @@ final class CodeBlockUITests: XCTestCase {
         XCTAssertTrue(button("Copy").waitForExistence(timeout: 4), "the mark didn't go back")
     }
 
-    func testCopyOnDrawnText() { checkCopy(drawn: true) }
-    func testCopyOnTextView() { checkCopy(drawn: false) }
+    func testHeaderCopyOnDrawnText() { checkHeaderCopy(drawn: true) }
+    func testHeaderCopyOnTextView() { checkHeaderCopy(drawn: false) }
+
+    /// A box has nothing to press, and every line.
+    func testABoxHasNoButtonsAndEveryLine() {
+        launch(drawn: false)
+        _ = codeText()
+        for label in ["Copy", "Expand"] { XCTAssertFalse(button(label).exists, "a box has \(label)") }
+        XCTAssertFalse(button("Show the Remaining 2 lines").exists, "a box has a line limit")
+        XCTAssertTrue(element("interactionLastCodeLine").exists, "a box leaves out lines past 15")
+    }
+
+    /// What a box offers for copying: selected text, and the system's menu over it.
+    private func checkCopyingASelection(drawn: Bool) {
+        launch(drawn: drawn)
+        let word = codeText().coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0)).withOffset(CGVector(dx: 40, dy: 7))
+        word.press(forDuration: 1.0)
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertTrue(isSelected, "a long press on code selected nothing")
+        var copy = app.menuItems["Copy"]
+        if !copy.waitForExistence(timeout: 2) {
+            // A tap on what's selected brings the menu if the press didn't.
+            word.tap()
+            copy = app.menuItems["Copy"]
+        }
+        XCTAssertTrue(copy.waitForExistence(timeout: 3), "no Copy in the text's menu")
+        copy.tap()
+        Thread.sleep(forTimeInterval: 0.3)
+        let copied = ask("pasteboard", ".pasteboard") ?? ""
+        print("COPIED \(copied)")
+        XCTAssertFalse(copied.isEmpty, "nothing copied")
+        XCTAssertTrue("let interactionFirstCodeLine = 1".contains(copied.trimmingCharacters(in: .whitespacesAndNewlines)), "copied: \(copied.prefix(40))")
+    }
+
+    func testCopyingASelectionInDrawnCode() { checkCopyingASelection(drawn: true) }
+    func testCopyingASelectionInATextView() { checkCopyingASelection(drawn: false) }
 
     private func checkSheet(opening label: String) {
         let opener = button(label)
@@ -95,14 +131,14 @@ final class CodeBlockUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars.buttons["Copied"].waitForExistence(timeout: 2), "no Copied on the sheet")
     }
 
-    func testExpandOpensTheSheet() {
-        launch(drawn: true)
+    func testHeaderExpandOpensTheSheet() {
+        launch(drawn: true, header: true)
         _ = codeText()
         checkSheet(opening: "Expand")
     }
 
-    func testShowRemainingOpensTheSheet() {
-        launch(drawn: true)
+    func testHeaderShowRemainingOpensTheSheet() {
+        launch(drawn: true, header: true)
         _ = codeText()
         let more = button("Show the Remaining 2 lines")
         for _ in 0..<4 where !(more.exists && more.isHittable) {
@@ -112,8 +148,8 @@ final class CodeBlockUITests: XCTestCase {
         checkSheet(opening: "Show the Remaining 2 lines")
     }
 
-    private func checkSelecting(drawn: Bool, scrolls: Bool = false) {
-        launch(drawn: drawn, scrolls: scrolls)
+    private func checkSelecting(drawn: Bool) {
+        launch(drawn: drawn)
         let code = codeText()
         code.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0)).withOffset(CGVector(dx: 40, dy: 7)).press(forDuration: 1.0)
         Thread.sleep(forTimeInterval: 0.8)
@@ -122,7 +158,13 @@ final class CodeBlockUITests: XCTestCase {
 
     func testLongPressSelectsDrawnCode() { checkSelecting(drawn: true) }
     func testLongPressSelectsCodeInATextView() { checkSelecting(drawn: false) }
-    func testLongPressSelectsScrollingCode() { checkSelecting(drawn: true, scrolls: true) }
+
+    func testHeaderLongPressSelectsScrollingCode() {
+        launch(drawn: true, scrolls: true, header: true)
+        codeText().coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0)).withOffset(CGVector(dx: 40, dy: 7)).press(forDuration: 1.0)
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertTrue(isSelected, "a long press on code selected nothing")
+    }
 
     func testDoubleTapSelectsDrawnCode() {
         launch(drawn: true)
@@ -143,7 +185,7 @@ final class CodeBlockUITests: XCTestCase {
 
     /// A sideways drag on a long line moves the code and leaves the list.
     func testCodeScrollsSideways() {
-        launch(drawn: true, scrolls: true)
+        launch(drawn: true)
         let code = codeText()
         XCTAssertEqual(codeOffset, 0)
         let before = code.frame
@@ -158,9 +200,9 @@ final class CodeBlockUITests: XCTestCase {
     }
 
     /// A drag up and down starting on the block moves the list, and the code stays where it is
-    /// across, wrapped or scrolling sideways.
-    private func checkVerticalScroll(scrolls: Bool) {
-        launch(drawn: true, scrolls: scrolls)
+    /// across, in a box or in a header's lines, wrapped or scrolling sideways.
+    private func checkVerticalScroll(scrolls: Bool, header: Bool) {
+        launch(drawn: true, scrolls: scrolls, header: header)
         let code = codeText()
         let before = listOffset
         let start = code.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0)).withOffset(CGVector(dx: 120, dy: 30))
@@ -172,8 +214,9 @@ final class CodeBlockUITests: XCTestCase {
         if scrolls { XCTAssertEqual(codeOffset, 0, "a drag down moved the code sideways") }
     }
 
-    func testVerticalScrollStartsOnWrappedBlock() { checkVerticalScroll(scrolls: false) }
-    func testVerticalScrollStartsOnScrollingBlock() { checkVerticalScroll(scrolls: true) }
+    func testVerticalScrollStartsOnBox() { checkVerticalScroll(scrolls: true, header: false) }
+    func testVerticalScrollStartsOnWrappedHeaderBlock() { checkVerticalScroll(scrolls: false, header: true) }
+    func testVerticalScrollStartsOnScrollingHeaderBlock() { checkVerticalScroll(scrolls: true, header: true) }
 
     /// Scrolling over code, as over text, doesn't make text views of it.
     func testScrollingUpgradesAtMostTheBlockTouched() {

@@ -72,6 +72,8 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
     static var style: MarkdownStyle {
         var style = MarkdownStyle()
         style.drawsTextUntilTouched = drawsText
+        // The box by default; `-chatCodeLook header` for what tests the header.
+        if UserDefaults.standard.string(forKey: "chatCodeLook") == "header" { style.codeBlock.look = .header }
         style.codeBlock.scrollsSideways = UserDefaults.standard.bool(forKey: "chatCodeScrolls")
         style.table.scrollsSideways = UserDefaults.standard.bool(forKey: "chatTableScrolls")
         if ChatProbe.file != nil {

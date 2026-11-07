@@ -164,7 +164,7 @@ final class MarkdownTextBuilderTests: XCTestCase {
 
     func testRolesOfSimpleBlocksFollowTheirFallbacks() {
         let light = UITraitCollection { $0.userInterfaceStyle = .light; $0.flooTheme = .system }
-        XCTAssertEqual(UIColor.floo(.markdownImageCaption).resolvedColor(with: light), UIColor.secondaryLabel.resolvedColor(with: light))
+        XCTAssertEqual(UIColor.floo(.markdownImageFill).resolvedColor(with: light), UIColor.secondarySystemBackground.resolvedColor(with: light))
     }
 
     func testARightToLeftItemKeepsItsLines() {

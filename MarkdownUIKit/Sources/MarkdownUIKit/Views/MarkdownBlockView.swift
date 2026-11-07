@@ -28,7 +28,7 @@ public final class MarkdownBlockView: UIView {
         case rule(MarkdownRuleView)
         /// A directive's view, as wide as it says it fits.
         case custom(UIView)
-        case code(MarkdownCodeBlockView)
+        case code(any MarkdownCodeDisplay)
         case fencedItem(MarkdownFencedItemView)
         case table(MarkdownTableView)
     }
@@ -413,11 +413,15 @@ public final class MarkdownBlockView: UIView {
             showCustomCode(renderer.makeView(code, language))
             return
         }
-        let view: MarkdownCodeBlockView
-        if case .code(let shown) = layout {
+        let view: any MarkdownCodeDisplay
+        if case .code(let shown) = layout, style.codeBlock.isDisplay(shown, for: language) {
             view = shown
         } else {
-            view = MarkdownCodeBlockView()
+            if case .code(let shown) = layout {
+                shown.prepareForReuse()
+                shown.removeFromSuperview()
+            }
+            view = style.codeBlock.makeDisplay(for: language)
             view.onHeightChange = { [weak self] in self?.contentChangedHeight() }
             addSubview(view)
         }

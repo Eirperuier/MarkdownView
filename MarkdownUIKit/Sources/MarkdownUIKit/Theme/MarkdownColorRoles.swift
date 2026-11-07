@@ -74,12 +74,30 @@ public extension FlooColorRole {
     // Blocks
     /// A thematic break's line: faint grey, or a theme's secondary text.
     static let markdownRule = FlooColorRole("markdown.rule") { ($0.sets(.secondaryLabel) ? $0[.secondaryLabel] : .systemGray).markdownOpacity(0.1) }
-    /// The caption under an image.
-    static let markdownImageCaption = FlooColorRole("markdown.imageCaption") { $0[.markdownSecondaryText] }
     /// The mark where an image didn't load.
     static let markdownImagePlaceholder = FlooColorRole("markdown.imagePlaceholder") { $0[.markdownSecondaryText] }
-    /// The spinner while an image loads.
-    static let markdownImageSpinner = FlooColorRole("markdown.imageSpinner") { $0[.markdownSecondaryText] }
+
+    /// An image's panel until its picture is here.
+    static let markdownImageFill = FlooColorRole("markdown.imageFill") { theme in
+        theme.sets(.label) ? theme[.markdownText].markdownOpacity(0.1) : .secondarySystemBackground
+    }
+
+    // Code box. Under `.system` the text colour's opacities DocKit measured on Craft's dark page;
+    // a theme's colours are stronger, as those vanish on a coloured surface.
+    /// The box's ground.
+    static let markdownCodeBoxFill = FlooColorRole("markdown.codeBox.fill") { codeBoxInk($0, 0.014, themed: 0.06) }
+    /// The gutter's ground, over the box's.
+    static let markdownCodeBoxGutter = FlooColorRole("markdown.codeBox.gutter") { codeBoxInk($0, 0.014, themed: 0.05) }
+    /// The box's outline.
+    static let markdownCodeBoxBorder = FlooColorRole("markdown.codeBox.border") { codeBoxInk($0, 0.09, themed: 0.2) }
+    /// The line between the gutter and the code.
+    static let markdownCodeBoxSeparator = FlooColorRole("markdown.codeBox.separator") { codeBoxInk($0, 0.09, themed: 0.2) }
+    /// The line numbers.
+    static let markdownCodeBoxLineNumber = FlooColorRole("markdown.codeBox.lineNumber") { $0[.markdownTertiaryText] }
+
+    private static func codeBoxInk(_ theme: FlooTheme, _ system: CGFloat, themed: CGFloat) -> UIColor {
+        theme[.markdownText].markdownOpacity(theme.sets(.label) ? themed : system)
+    }
 
     // Tables
     /// A cell's text.

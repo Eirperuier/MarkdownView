@@ -130,6 +130,108 @@ final class MarkdownCodeBlockTests: XCTestCase {
         view.prepareForReuse()
     }
 
+    // MARK: The box
+
+    private func boxView(_ source: String, style: MarkdownStyle = MarkdownStyle()) -> MarkdownBlockView {
+        var splitter = MarkdownBlockSplitter()
+        let view = MarkdownBlockView()
+        view.configure(splitter.split(source)[0], style: style)
+        return view
+    }
+
+    func testTheDefaultLookIsTheBoxAndHeaderIsAnOption() {
+        let box = boxView("```swift\nlet a = 1\n```")
+        XCTAssertNotNil(box.subviews.first as? MarkdownCodeBoxView)
+        box.prepareForReuse()
+        var style = MarkdownStyle()
+        style.codeBlock.look = .header
+        let header = boxView("```swift\nlet a = 1\n```", style: style)
+        XCTAssertNotNil(header.subviews.first as? MarkdownCodeBlockView)
+        header.prepareForReuse()
+    }
+
+    /// A renderer's switch needs the header; a bare renderer is its own view.
+    func testALanguageWithARendererKeepsTheHeader() {
+        var style = MarkdownStyle()
+        style.codeBlock.renderers["chart"] = MarkdownCodeRenderer { _, _ in UIView() }
+        let view = boxView("```chart\nx\n```", style: style)
+        XCTAssertNotNil(view.subviews.first as? MarkdownCodeBlockView)
+        view.prepareForReuse()
+    }
+
+    /// From the line count alone, off any window, with every line and none wrapping.
+    func testBoxHeightIsItsLines() {
+        let metrics = MarkdownCodeBoxMetrics(bodySize: MarkdownStyle().resolvedBodyTextSize)
+        let long = "let long = " + String(repeating: "2 ", count: 400)
+        let view = boxView("```swift\n" + (1...40).map { "line \($0)" }.joined(separator: "\n") + "\n" + long + "\n```")
+        let height = view.height(forWidth: 300)
+        XCTAssertEqual(height, 2 + metrics.edge * 2 + 41 * metrics.pitch)
+        XCTAssertEqual(view.height(forWidth: 600), height)
+        view.frame = CGRect(x: 0, y: 0, width: 300, height: height)
+        view.layoutIfNeeded()
+        XCTAssertEqual(view.height(forWidth: 300), height)
+        view.prepareForReuse()
+    }
+
+    /// DocKit's sizes, measured at 13 points.
+    func testBoxMetricsScaleFromThirteen() {
+        let metrics = MarkdownCodeBoxMetrics(bodySize: 15.2)
+        XCTAssertEqual(metrics.font.pointSize, 13)
+        XCTAssertEqual(metrics.pitch, 20)
+        XCTAssertEqual(metrics.edge, 9)
+        XCTAssertEqual(metrics.numberTrailing, 10.5)
+        XCTAssertEqual(metrics.codeLeading, 14)
+    }
+
+    func testBoxGrowingKeepsTheTextView() {
+        var splitter = MarkdownBlockSplitter()
+        let view = MarkdownBlockView()
+        let first = splitter.split("```swift\nlet a = 1")[0]
+        view.configure(first, style: MarkdownStyle())
+        let textView = view.textViews.first
+        XCTAssertNotNil(textView)
+        view.configure(splitter.split("```swift\nlet a = 1\nlet b = 2")[0], style: MarkdownStyle())
+        XCTAssertTrue(view.textViews.first === textView)
+        XCTAssertEqual(view.textViews.first?.textStorage.string, "let a = 1\nlet b = 2")
+        view.prepareForReuse()
+    }
+
+    /// Under `.system` the box is the text colour's opacities, as DocKit's; a theme's are stronger.
+    func testBoxRolesFollowTheText() {
+        func alpha(_ role: FlooColorRole, _ theme: FlooTheme) -> CGFloat {
+            var value: CGFloat = 0
+            UIColor.floo(role).resolvedColor(with: UITraitCollection { $0.userInterfaceStyle = .light; $0.flooTheme = theme }).getRed(nil, green: nil, blue: nil, alpha: &value)
+            return value
+        }
+        let labelAlpha = alpha(.markdownText, .system)
+        XCTAssertEqual(alpha(.markdownCodeBoxFill, .system), labelAlpha * 0.014, accuracy: 0.001)
+        XCTAssertEqual(alpha(.markdownCodeBoxBorder, .system), labelAlpha * 0.09, accuracy: 0.001)
+        XCTAssertGreaterThan(alpha(.markdownCodeBoxBorder, .surface(.systemOrange)), 0.1)
+    }
+
+    // MARK: Images
+
+    /// An image alone has a panel at the width in DocKit's shape; one in a line stays small.
+    func testAPanelIsWholeWidthOnlyAlone() throws {
+        let url = URL(string: "https://example.invalid/x.png")!
+        let alone = MarkdownImageView(content: .loading(url), isAlone: true, alternativeText: nil, fallbackText: nil, style: MarkdownStyle())
+        XCTAssertEqual(alone.fittedSize(width: 400), CGSize(width: 400, height: 300))
+        let inline = MarkdownImageView(content: .loading(url), isAlone: false, alternativeText: nil, fallbackText: nil, style: MarkdownStyle())
+        XCTAssertEqual(inline.fittedSize(width: 400).width, 50)
+    }
+
+    /// Its own width at most, and 640 high.
+    func testAPictureKeepsItsSizeUpToTheCap() {
+        func fitted(_ size: CGSize, width: CGFloat) -> CGSize {
+            let image = MarkdownLoadedImage(image: UIImage(), size: size, maxWidth: size.width)
+            let view = MarkdownImageView(content: .loaded(image), isAlone: true, alternativeText: "A", fallbackText: nil, style: MarkdownStyle())
+            return view.fittedSize(width: width)
+        }
+        XCTAssertEqual(fitted(CGSize(width: 200, height: 100), width: 700), CGSize(width: 200, height: 100))
+        XCTAssertEqual(fitted(CGSize(width: 1000, height: 500), width: 700), CGSize(width: 700, height: 350))
+        XCTAssertEqual(fitted(CGSize(width: 500, height: 2000), width: 700), CGSize(width: 500, height: 640))
+    }
+
     /// A token's colour under `.system` is the highlighter's, in each mode.
     func testTokenColoursAreTheHighlightersOnSystem() {
         let light = MarkdownCodeColor(red: 0.6, green: 0.1, blue: 0.2, alpha: 1)

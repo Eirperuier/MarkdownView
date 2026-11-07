@@ -2,8 +2,8 @@
 //  MarkdownCodeBlockView.swift
 //  MarkdownUIKit
 //
-//  A fenced code block: a header (language, expand, copy), its lines on stripes, "Show the
-//  Remaining" past 15 lines. Its parts are as few as they can be, as a row in a chat is measured
+//  A fenced code block in the header look (`MarkdownCodeBlockStyle.Look.header`): a header
+//  (language, expand, copy), its lines on stripes, "Show the Remaining" past 15 lines. Its parts are as few as they can be, as a row in a chat is measured
 //  by the frame:
 //
 //   - The box and the stripes are shape layers: no picture to draw, nothing on the main thread.
@@ -15,7 +15,8 @@
 //   - Colours from a highlight are rendering attributes on the layout manager. A token's colour
 //     changes no geometry, so nothing is laid out again when it comes.
 //
-//  Whether lines wrap or scroll sideways comes from the style; wrapping is the default.
+//  Whether lines wrap or scroll sideways comes from the style; wrapping is the default. The
+//  default look is the box, `MarkdownCodeBoxView`.
 //
 
 import FlooUIKit
@@ -43,14 +44,24 @@ public struct MarkdownCodeRenderer {
 
 /// How code blocks look and behave.
 public struct MarkdownCodeBlockStyle {
-    /// The code's text style; the font is the monospaced system font at its size.
+    public enum Look: Sendable {
+        /// DocKit's: a thin border, line numbers, every line, scrolling sideways. Its sizes are
+        /// its own (`MarkdownCodeBoxMetrics`). A language with a renderer keeps the header, where
+        /// its Preview/Code switch goes.
+        case box
+        /// A header with the language, copy and expand, lines on stripes, up to 15 of them.
+        case header
+    }
+
+    public var look = Look.box
+    /// The header look's text style; the font is the monospaced system font at its size.
     public var font = MarkdownTypography.Style(.caption1)
-    /// Lines scroll sideways, at a fixed height each, rather than wrap.
+    /// In the header look, lines scroll sideways, at a fixed height each, rather than wrap.
     public var scrollsSideways = false
-    /// Every line, rather than the first 15 and a button for the rest.
+    /// In the header look, every line, rather than the first 15 and a button for the rest.
     public var showsAllLines = false
     /// Colours code; nil leaves it plain.
-    public var highlighter: (any MarkdownCodeHighlighter)?
+    public var highlighter: (any MarkdownCodeHighlighter)? = MarkdownHighlightrHighlighter()
     /// Renderers by lowercased language.
     public var renderers: [String: MarkdownCodeRenderer] = [:]
     /// Languages the renderers are off for: they show as code.
@@ -71,7 +82,7 @@ public struct MarkdownCodeBlockStyle {
 }
 
 @MainActor
-public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate {
+public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate, MarkdownCodeDisplay {
     /// The block changed height by itself: a mode switched.
     var onHeightChange: (() -> Void)?
 
@@ -81,7 +92,6 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate {
     private var style = MarkdownStyle()
     private var lines = MarkdownCodeLines(code: "")
     private var reveal: MarkdownReveal?
-    private var metrics = MarkdownCodeRevealMetrics(code: "")
 
     // Parts.
     private let boxFill = CAShapeLayer()
@@ -111,25 +121,16 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate {
     private var isCopied = false
     private var copiedTask: Task<Void, Never>?
     private var shownText = ""
-    private var highlightTask: Task<Void, Never>?
-    private var highlightedCode: String?
+    private let highlight = MarkdownCodeHighlightLoader()
     private var measured: (width: CGFloat, rows: Rows)?
     private var pathKey: PathKey?
     private var visibleLineCount = Int.max
     private var moreIsVisible = true
-    private var revealListener: UUID?
-    private var revealManager: StreamingRevealManager?
-    private lazy var gate = MarkdownRevealGate { [weak self] isOpen, fades in
-        guard let self else { return }
-        let change = { self.alpha = isOpen ? 1 : 0 }
-        if fades, let manager = self.revealManager {
-            var motion = FlooMotion.markdownBlockReveal
-            motion.duration = manager.adaptiveFadeDuration(baseDuration: motion.duration)
-            motion.animate(change)
-        } else {
-            change()
-        }
-    }
+    private lazy var lineReveal = {
+        let reveal = MarkdownCodeLineReveal(view: self)
+        reveal.onChange = { [weak self] in self?.applyVisibleLines(animated: true) }
+        return reveal
+    }()
 
     /// Row by row: where each starts under the header, and where they all end.
     private struct Rows: Equatable {
@@ -163,6 +164,11 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate {
         }
         header.isUserInteractionEnabled = false
         addSubview(header)
+        highlight.apply = { [weak self] tokens in
+            guard let self, self.hostIsShowing else { return false }
+            self.host.setRenderingColors(MarkdownCodeTokenColors.runs(tokens, upTo: (self.shownText as NSString).length))
+            return true
+        }
         applyColors()
         let press = MarkdownCodePressRecognizer(target: self, action: #selector(pressed(_:)))
         press.delegate = self
@@ -183,8 +189,7 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate {
     }
 
     isolated deinit {
-        stopFollowing()
-        highlightTask?.cancel()
+        lineReveal.stop()
         copiedTask?.cancel()
         host.release()
     }
@@ -199,7 +204,7 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate {
         self.style = style
         self.reveal = reveal.map { MarkdownReveal(manager: $0.manager, style: MarkdownRevealStyle(motion: .markdownCodeReveal, highlight: .color(.clear))) }
         lines = MarkdownCodeLines(code: code)
-        if reveal != nil { metrics = MarkdownCodeRevealMetrics(code: code) }
+        if reveal != nil { lineReveal.measure(code) }
         apply(changed: changedCode)
         follow(self.reveal?.manager)
         sheet?.update(code: code)
@@ -209,7 +214,7 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate {
     func setReveal(_ reveal: MarkdownReveal?) {
         let codeReveal = reveal.map { MarkdownReveal(manager: $0.manager, style: MarkdownRevealStyle(motion: .markdownCodeReveal, highlight: .color(.clear))) }
         self.reveal = codeReveal
-        if codeReveal != nil { metrics = MarkdownCodeRevealMetrics(code: code) }
+        if codeReveal != nil { lineReveal.measure(code) }
         if hostIsShowing { host.setReveal(codeReveal) }
         follow(codeReveal?.manager)
         if codeReveal == nil { applyVisibleLines(animated: false) }
@@ -217,10 +222,8 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate {
 
     /// Lets its text view go back to the pool.
     func prepareForReuse() {
-        highlightTask?.cancel()
-        highlightTask = nil
-        highlightedCode = nil
-        stopFollowing()
+        highlight.reset()
+        lineReveal.stop()
         if hostIsShowing {
             host.release()
             host.view.removeFromSuperview()
@@ -392,45 +395,13 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate {
     // MARK: Highlighting
 
     private func showHighlight() {
-        guard let highlighter = style.codeBlock.highlighter, highlightedCode != code else { return }
-        // At hand: coloured on its first frame.
-        if let tokens = highlighter.cachedTokens(code: code, language: language) {
-            highlightTask?.cancel()
-            highlightTask = nil
-            applyTokens(tokens, for: code)
-            return
-        }
-        scheduleHighlight(highlighter)
-    }
-
-    private func scheduleHighlight(_ highlighter: any MarkdownCodeHighlighter) {
-        guard window != nil else { return }
-        highlightTask?.cancel()
-        let code = self.code, language = self.language
-        highlightTask = Task.detached(priority: .userInitiated) { [weak self] in
-            // Only the latest of a stream is worth it.
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled, let tokens = await highlighter.tokens(code: code, language: language) else { return }
-            await self?.tokensArrived(tokens, for: code)
-        }
-    }
-
-    private func tokensArrived(_ tokens: MarkdownCodeTokens, for code: String) {
-        guard !Task.isCancelled, self.code.hasPrefix(code) else { return }
-        applyTokens(tokens, for: code)
-    }
-
-    private func applyTokens(_ tokens: MarkdownCodeTokens, for code: String) {
-        guard tokens.string == code || code.hasPrefix(tokens.string) || tokens.string.hasPrefix(code), hostIsShowing else { return }
-        highlightedCode = code
-        host.setRenderingColors(MarkdownCodeTokenColors.runs(tokens, upTo: (shownText as NSString).length))
+        highlight.show(code: code, language: language, highlighter: style.codeBlock.highlighter, isOnWindow: window != nil)
     }
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil else {
-            highlightTask?.cancel()
-            highlightTask = nil
+            highlight.cancel()
             return
         }
         if showsLines { showHighlight() }
@@ -439,43 +410,15 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate {
     // MARK: Reveal
 
     private func follow(_ manager: StreamingRevealManager?) {
-        gate.follow(manager)
-        guard manager !== revealManager else {
-            applyVisibleLines(animated: false)
-            return
-        }
-        stopFollowingLines()
-        revealManager = manager
-        if let manager {
-            revealListener = manager.addListener { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyVisibleLines(animated: true) }
-            }
-        }
+        lineReveal.follow(manager)
         applyVisibleLines(animated: false)
-    }
-
-    private func stopFollowing() {
-        gate.stop()
-        stopFollowingLines()
-    }
-
-    private func stopFollowingLines() {
-        if let revealListener { revealManager?.removeListener(revealListener) }
-        revealListener = nil
-        revealManager = nil
     }
 
     /// Lines the reveal has reached: their stripes, the button past them, and the box when it
     /// goes by lines.
     private func applyVisibleLines(animated: Bool) {
         let limit = lines.shownCount(showsAll: style.codeBlock.showsAllLines)
-        var visible = limit
-        var moreVisible = true
-        if let manager = revealManager, manager.revealedCount != Int.max {
-            let count = manager.revealedCount
-            visible = metrics.visibleLineCount(revealed: count, limit: limit)
-            moreVisible = count > metrics.end(afterLineCount: limit)
-        }
+        let (visible, moreVisible) = lineReveal.visibleLines(limit: limit)
         if moreVisible != moreIsVisible {
             moreIsVisible = moreVisible
             more?.alpha = moreVisible ? 1 : 0
@@ -627,7 +570,7 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate {
         let visible = min(visibleLineCount, rows.tops.count)
         // Lines going by a reveal: the box comes down with them.
         var boxHeight = bounds.height
-        if scrolls, showsLines, content == nil, revealManager != nil, revealManager?.revealedCount != Int.max {
+        if scrolls, showsLines, content == nil, lineReveal.isRevealing {
             boxHeight = min(bounds.height, headerBottom + CGFloat(visible) * Self.scrollingRowHeight + (moreIsVisible ? (more?.bounds.height ?? 0) : 0))
         }
         boxHeight = min(boxHeight, height(forWidth: bounds.width))

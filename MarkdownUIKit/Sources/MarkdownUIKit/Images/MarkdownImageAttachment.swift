@@ -2,10 +2,10 @@
 //  MarkdownImageAttachment.swift
 //  MarkdownUIKit
 //
-//  An image in text, as MarkdownImage and NetworkImage draw one, in one storage character: a
-//  spinner, then the picture with its caption under it, or a placeholder a tap tries again. What
-//  it can't load shows its description. A picture's size goes through TextKit when it arrives:
-//  a hosted view stayed at its spinner's 50 pt, its picture cut and its caption over what's next.
+//  An image in text, as DocKit draws one, in one storage character: a panel, then the picture at
+//  its own size up to the width and 640 pt high, its corners rounded. A panel that failed has a
+//  mark, and a tap tries again. What it can't load shows its description. A picture's size goes
+//  through TextKit when it arrives. An image with text beside it has a small panel, in the line.
 //
 
 import Markdown
@@ -49,8 +49,18 @@ extension RichTextAttachment {
     }
 }
 
-/// The picture and what stands for it. Its views come as needed: a shown picture is one image
-/// view and, with a caption, one more.
+/// An image's sizes, DocKit's.
+enum MarkdownImageMetrics {
+    static let cornerRadius: CGFloat = 8
+    static let maxHeight: CGFloat = 640
+    /// A panel alone in its line, its picture's shape not known yet: this high for its width.
+    static let panelAspect: CGFloat = 3 / 4
+    /// A panel with text beside it: as wide as this, a line high, so the text doesn't move far.
+    static let inlinePanelWidth: CGFloat = 50
+}
+
+/// The picture and what stands for it, which is drawn by the view itself. A shown picture is one
+/// image view, its corners its own: nothing's clipped offscreen.
 @MainActor
 final class MarkdownImageView: UIView {
     enum Content {
@@ -60,51 +70,45 @@ final class MarkdownImageView: UIView {
         case text
     }
 
-    /// A spinner's width, kept by a placeholder so a failure doesn't move what's beside it.
-    private static let waitingWidth: CGFloat = 50
-    /// A VStack's room between a picture and its caption.
-    private static let captionSpacing: CGFloat = 8
-    private static let padding: CGFloat = 5
-
     var onSizeChange: (() -> Void)?
 
     private var content: Content
-    private let caption: NSAttributedString?
+    private let isAlone: Bool
     private let fallback: NSAttributedString?
-    private let waitingHeight: CGFloat
+    private let lineHeight: CGFloat
     private let placeholderSize: CGFloat
     private var placeholder: MarkdownGlyphView?
     private lazy var imageView: UIImageView = {
         let view = UIImageView()
-        view.contentMode = .scaleToFill
+        view.contentMode = .scaleAspectFit
         view.isUserInteractionEnabled = false
+        view.layer.cornerRadius = MarkdownImageMetrics.cornerRadius
+        view.layer.cornerCurve = .continuous
+        view.layer.masksToBounds = true
         addSubview(view)
         return view
     }()
     private var textView: MarkdownMathSourceView?
-    private var spinner: UIActivityIndicatorView?
     private var tapRecognizer: UITapGestureRecognizer?
-    private var imageFrame = CGRect.zero
-    private var textFrame = CGRect.zero
     private var fit: (width: CGFloat, size: CGSize)?
 
-    init(content: Content, alternativeText: String?, fallbackText: String?, style: MarkdownStyle) {
+    /// `isAlone`: nothing's beside it in its paragraph, so a panel can take the whole width.
+    init(content: Content, isAlone: Bool, alternativeText: String?, fallbackText: String?, style: MarkdownStyle) {
         self.content = content
-        let category = style.contentSizeCategory.map { UITraitCollection(preferredContentSizeCategory: $0) }
-        caption = alternativeText.map {
-            NSAttributedString(string: $0, attributes: [
-                .font: UIFont.preferredFont(forTextStyle: .callout, compatibleWith: category),
-                .foregroundColor: UIColor.floo(.markdownImageCaption),
-            ])
-        }
+        self.isAlone = isAlone
         let body = style.typography.body.font(at: style.contentSizeCategory)
         fallback = fallbackText.map {
             NSAttributedString(string: $0, attributes: [.font: body, .foregroundColor: style.resolvedTextColor])
         }
-        waitingHeight = markdownPixelCeil(MarkdownMath.lastLine(body).height)
+        lineHeight = markdownPixelCeil(MarkdownMath.lastLine(body).height)
         placeholderSize = style.resolvedBodyTextSize
         super.init(frame: .zero)
         isUserInteractionEnabled = false
+        layer.cornerRadius = MarkdownImageMetrics.cornerRadius
+        layer.cornerCurve = .continuous
+        accessibilityLabel = alternativeText
+        isAccessibilityElement = alternativeText != nil
+        accessibilityTraits = .image
         registerForTraitChanges(MarkdownColorTraits.all) { (view: MarkdownImageView, _: UITraitCollection) in
             view.applyColors()
         }
@@ -125,36 +129,25 @@ final class MarkdownImageView: UIView {
         onSizeChange?()
     }
 
-    /// The size at `width`, working out where things go in it. Nothing's measured twice.
+    /// The size at `width`. Nothing's measured twice.
     func fittedSize(width: CGFloat) -> CGSize {
         if let fit, fit.width == width { return fit.size }
         let size: CGSize
         switch content {
         case .loading, .failed:
-            size = CGSize(width: Self.waitingWidth, height: waitingHeight)
-            textFrame = .zero
-            imageFrame = .zero
+            size = isAlone
+                ? CGSize(width: markdownPixelFloor(width), height: (width * MarkdownImageMetrics.panelAspect).rounded())
+                : CGSize(width: MarkdownImageMetrics.inlinePanelWidth, height: lineHeight)
         case .text:
-            let text = measure(fallback, width: width)
-            size = text
-            imageFrame = .zero
-            textFrame = CGRect(origin: .zero, size: text)
+            size = measure(fallback, width: width)
         case .loaded(let loaded):
-            let shownWidth = min(width, loaded.maxWidth)
-            let picture = loaded.size.width > 0
-                // Down to a pixel: a hair over the line's room would send it to a line of its own.
-                ? CGSize(width: markdownPixelFloor(shownWidth), height: markdownPixelRound(shownWidth * loaded.size.height / loaded.size.width))
-                : .zero
-            let text = measure(caption, width: width)
-            let total = max(picture.width, text.width)
-            imageFrame = CGRect(x: markdownPixelRound((total - picture.width) / 2), y: 0, width: picture.width, height: picture.height)
-            guard caption != nil else {
-                textFrame = .zero
-                size = picture
+            guard loaded.size.width > 0 else {
+                size = .zero
                 break
             }
-            textFrame = CGRect(x: markdownPixelRound((total - text.width) / 2), y: picture.height + Self.captionSpacing, width: text.width, height: text.height)
-            size = CGSize(width: total, height: textFrame.maxY)
+            // Down to a pixel: a hair over the line's room would send it to a line of its own.
+            let shown = markdownPixelFloor(min(width, loaded.maxWidth))
+            size = CGSize(width: shown, height: min(MarkdownImageMetrics.maxHeight, (shown * loaded.size.height / loaded.size.width).rounded()))
         }
         fit = (width, size)
         return size
@@ -173,43 +166,22 @@ final class MarkdownImageView: UIView {
         case .loading:
             imageView.isHidden = true
             removePlaceholder()
-            if spinner == nil {
-                let view = UIActivityIndicatorView(style: .medium)
-                view.isUserInteractionEnabled = false
-                addSubview(view)
-                spinner = view
-            }
-            spinner?.startAnimating()
         case .loaded(let loaded):
-            removeSpinner()
             removePlaceholder()
             imageView.isHidden = false
             imageView.image = loaded.image
-            text = caption
         case .failed:
-            removeSpinner()
             imageView.isHidden = true
             if placeholder == nil {
                 let view = MarkdownGlyphView()
                 view.color = .floo(.markdownImagePlaceholder)
-                let box = CGRect(x: 0, y: 0, width: Self.waitingWidth, height: waitingHeight)
-                // At its natural size, as a hosted image is: a view, centred on the pixel grid.
-                if let image = MarkdownSymbols.image("photo", pointSize: placeholderSize, scale: .large) {
-                    let laid = MarkdownSymbols.laidOutSize(image)
-                    view.image = image
-                    view.imageFrame = CGRect(
-                        x: markdownPixelRound((box.width - laid.width) / 2),
-                        y: markdownPixelRound((box.height - laid.height) / 2),
-                        width: image.size.width,
-                        height: image.size.height
-                    )
-                }
+                view.image = MarkdownSymbols.image("photo", pointSize: placeholderSize, scale: .large)
                 addSubview(view)
                 placeholder = view
             }
         case .text:
-            removeSpinner()
             imageView.isHidden = true
+            removePlaceholder()
             text = fallback
         }
         if let text {
@@ -231,26 +203,29 @@ final class MarkdownImageView: UIView {
         placeholder = nil
     }
 
-    private func removeSpinner() {
-        spinner?.stopAnimating()
-        spinner?.removeFromSuperview()
-        spinner = nil
-    }
-
     /// A layer holds what's resolved: resolved again whenever a trait a colour reads changes.
     private func applyColors() {
-        spinner?.color = UIColor.floo(.markdownImageSpinner).resolvedColor(with: traitCollection)
+        let isPanel: Bool
+        switch content {
+        case .loading, .failed: isPanel = true
+        case .loaded, .text: isPanel = false
+        }
+        layer.backgroundColor = isPanel ? UIColor.floo(.markdownImageFill).resolvedColor(with: traitCollection).cgColor : nil
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        _ = fittedSize(width: fit?.width ?? bounds.width)
-        if let placeholder { setFrame(placeholder, bounds) }
-        if imageView.image != nil { setFrame(imageView, imageFrame) }
-        if let textView { setFrame(textView, textFrame) }
-        if let spinner {
-            let size = spinner.intrinsicContentSize
-            setFrame(spinner, CGRect(x: 0, y: (bounds.height - size.height) / 2, width: size.width, height: size.height))
+        if case .loaded = content { setFrame(imageView, bounds) }
+        if let textView { setFrame(textView, bounds) }
+        if let placeholder, let image = placeholder.image {
+            setFrame(placeholder, bounds)
+            let laid = MarkdownSymbols.laidOutSize(image)
+            placeholder.imageFrame = CGRect(
+                x: markdownPixelRound((bounds.width - laid.width) / 2),
+                y: markdownPixelRound((bounds.height - laid.height) / 2),
+                width: image.size.width,
+                height: image.size.height
+            )
         }
     }
 
@@ -305,6 +280,8 @@ final class MarkdownImageAttachment: RichTextAttachment {
         }
         imageView = MarkdownImageView(
             content: content,
+            // DocKit's rule for an image block: the only thing in its paragraph.
+            isAlone: image.parent is Paragraph && image.parent?.childCount == 1,
             alternativeText: MarkdownImageSource.alternativeText(of: image),
             fallbackText: url == nil ? image.plainText : nil,
             style: style

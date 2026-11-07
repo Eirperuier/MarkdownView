@@ -73,9 +73,8 @@ final class MarkdownImageLoader {
             return svg(data, text: text, scale: scale, longSide: longSide)
         }
         guard let image = UIImage(data: data) else { return nil }
-        // A picture isn't drawn wider than its longer side.
         let decoded = downsampled(data, image: image, scale: scale, longSide: longSide) ?? image.preparingForDisplay() ?? image
-        return MarkdownLoadedImage(image: decoded, size: image.size, maxWidth: max(image.size.width, image.size.height))
+        return MarkdownLoadedImage(image: decoded, size: image.size, maxWidth: image.size.width)
     }
 
     /// A picture bigger than the screen can show is kept at what it can.

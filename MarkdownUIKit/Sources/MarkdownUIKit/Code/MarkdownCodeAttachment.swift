@@ -10,15 +10,15 @@ import RichTextCore
 import UIKit
 
 final class MarkdownCodeAttachment: RichTextAttachment {
-    private let view: MarkdownCodeBlockView
+    private let view: any MarkdownCodeDisplay
     private let source: String
 
     @MainActor
     init(id: AnyHashable, code: CodeBlock, style: MarkdownStyle) {
         source = code.format()
-        view = MarkdownCodeBlockView()
+        view = style.codeBlock.makeDisplay(for: code.language)
         super.init(id: id, sizing: .fittingLineFragment)
-        view.configure(code: code.code, language: code.language, style: style)
+        view.configure(code: code.code, language: code.language, style: style, reveal: nil)
     }
 
     required init?(coder: NSCoder) {

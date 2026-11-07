@@ -60,12 +60,14 @@ enum CatalogThemeProbe {
         ("code.block", "```swift\n// A comment\nlet name = \"text\"\nfunc f(_ x: Int) -> Int { x + 1 }\n```"),
         ("code.more", "```python\n" + (1...17).map { "print(\"line \($0)\")" }.joined(separator: "\n") + "\n```"),
         ("code.badge", "```kotlin\nval a = 1\n```"),
+        ("code.header", "```swift\n// A comment\nlet name = \"text\"\n```"),
         ("code.quote", "> Quoted\n>\n> ```swift\n> let x = 1\n> ```"),
         ("code.item", "- An item\n  ```swift\n  let x = 1\n  ```"),
         ("rule", "---"),
         ("html", "<div>\nSome html\n</div>"),
         ("directive", "@note {\nA note.\n}"),
-        ("image.caption", "![A caption](https://\(CatalogImages.host)/square.png)"),
+        ("image.picture", "![A picture](https://\(CatalogImages.host)/square.png)"),
+        ("image.waiting", "![Never comes](https://\(CatalogImages.host)/never.png)"),
         ("image.failed", "![Missing](https://\(CatalogImages.host)/missing.png)"),
         ("image.fallback", "![A description](square.png)"),
     ]
@@ -79,6 +81,7 @@ enum CatalogThemeProbe {
         case "table.scrolls": style.table.scrollsSideways = true
         case "table.github": style.table.look = .github
         case "table.grid": style.table.look = .grid
+        case "code.header": style.codeBlock.look = .header
         default: break
         }
         return style
@@ -100,7 +103,7 @@ enum CatalogThemeProbe {
         let top: CGFloat = 160
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = dark ? .dark : .light
-        window.frame = CGRect(x: 0, y: 0, width: width, height: 2400)
+        window.frame = CGRect(x: 0, y: 0, width: width, height: 3400)
         let root = UIViewController()
         // What text is worked out to read on: rows, over a page. On the Mac the rows are a veil.
         root.view.backgroundColor = .systemBackground
