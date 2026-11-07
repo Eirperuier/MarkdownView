@@ -17,7 +17,7 @@ final class DrawnTextUITests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments = [
             "-AppleLanguages", "(en)", "-ApplePersistenceIgnoreState", "YES",
-            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatCorpus", "interaction",
+            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatCorpus", "interactionText",
             "-chatDrawsText", drawn ? "YES" : "NO", "-chatProbe", probe,
         ]
         app.launch()

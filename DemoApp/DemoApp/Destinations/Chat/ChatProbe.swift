@@ -44,7 +44,7 @@ enum ChatProbe {
                 // What a UI test can't see: how many rows upgraded, whether text is selected.
                 if words.count > 1 {
                     let selected = RichTextActiveSelection.isActive
-                    try? "upgrades=\(MarkdownDrawnTextStats.upgrades) selected=\(selected) listOffset=\(reader.contentOffsetY()) codeOffset=\(codeOffset()) tableOffset=\(tableOffset()) tableTextViews=\(tableTextViews())".write(toFile: String(words[1]), atomically: true, encoding: .utf8)
+                    try? "upgrades=\(MarkdownDrawnTextStats.upgrades) selected=\(selected) listOffset=\(reader.contentOffsetY()) tableOffset=\(tableOffset()) tableTextViews=\(tableTextViews()) codeOffset=\(codeOffset())".write(toFile: String(words[1]), atomically: true, encoding: .utf8)
                 }
             case "pasteboard":
                 if words.count > 1 {

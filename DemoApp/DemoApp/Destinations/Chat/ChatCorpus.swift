@@ -13,7 +13,28 @@ enum ChatCorpus {
     private static let isTextOnly = UserDefaults.standard.string(forKey: "chatCorpus") == "text"
     /// `-chatCorpus interaction`: short rows with known text, for the UI tests.
     private static let isInteraction = UserDefaults.standard.string(forKey: "chatCorpus") == "interaction"
-    private static var chosen: [String] { isInteraction ? interactionReplies : isTextOnly ? textReplies : replies }
+    /// `-chatCorpus interactionText`: the same, up to its code: the text fits on a screen.
+    private static let isInteractionText = UserDefaults.standard.string(forKey: "chatCorpus") == "interactionText"
+    /// `-chatCorpus interactionTable`: the same, with a table.
+    private static let isInteractionTable = UserDefaults.standard.string(forKey: "chatCorpus") == "interactionTable"
+    private static var chosen: [String] { isInteractionTable ? interactionTableReplies : isInteractionText ? interactionTextReplies : isInteraction ? interactionReplies : isTextOnly ? textReplies : replies }
+
+    private static let interactionTableReplies = ["""
+    Interaction before the table.
+
+    | Table name | Table value | Table third | Table fourth | Table fifth | Table sixth | Table seventh |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | Table plain words to select | [Table test link](https://example.com/table) | A longer cell of plain words in the third column of the table | Fourth cell | Fifth cell | Sixth cell | Seventh cell |
+    | Table second row | Second value | **Table bold** words | `table code` | Fifth two | Sixth two | Seventh two |
+    | Table third row | Third value | Third third | Fourth three | Fifth three | Sixth three | Seventh three |
+    | Table fourth row | Fourth value | Third four | Fourth four | Fifth four | Sixth four | Seventh four |
+    | Table fifth row | Fifth value | Third five | Fourth five | Fifth five | Sixth five | Seventh five |
+    | Table sixth row | Sixth value | Third six | Fourth six | Fifth six | Sixth six | Seventh six |
+
+    Interaction after the table.
+    """]
+
+    private static let interactionTextReplies = interactionReplies.map { $0.components(separatedBy: "```swift")[0] }
 
     private static let interactionReplies = ["""
     Interaction first paragraph with plain words to select in it.
@@ -45,17 +66,6 @@ enum ChatCorpus {
     ```
 
     Interaction after the code.
-
-    | Table name | Table value | Table third | Table fourth | Table fifth | Table sixth | Table seventh |
-    | --- | --- | --- | --- | --- | --- | --- |
-    | Table plain words to select | [Table test link](https://example.com/table) | A longer cell of plain words in the third column of the table | Fourth cell | Fifth cell | Sixth cell | Seventh cell |
-    | Table second row | Second value | **Table bold** words | `table code` | Fifth two | Sixth two | Seventh two |
-    | Table third row | Third value | Third third | Fourth three | Fifth three | Sixth three | Seventh three |
-    | Table fourth row | Fourth value | Third four | Fourth four | Fifth four | Sixth four | Seventh four |
-    | Table fifth row | Fifth value | Third five | Fourth five | Fifth five | Sixth five | Seventh five |
-    | Table sixth row | Sixth value | Third six | Fourth six | Fifth six | Sixth six | Seventh six |
-
-    Interaction after the table.
     """]
 
     static func prompt(_ index: Int) -> String {
