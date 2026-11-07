@@ -11,7 +11,19 @@ import Foundation
 enum ChatCorpus {
     /// `-chatCorpus text`: replies of only text, to see the text path alone.
     private static let isTextOnly = UserDefaults.standard.string(forKey: "chatCorpus") == "text"
-    private static var chosen: [String] { isTextOnly ? textReplies : replies }
+    /// `-chatCorpus interaction`: short rows with known text, for the UI tests.
+    private static let isInteraction = UserDefaults.standard.string(forKey: "chatCorpus") == "interaction"
+    private static var chosen: [String] { isInteraction ? interactionReplies : isTextOnly ? textReplies : replies }
+
+    private static let interactionReplies = ["""
+    Interaction first paragraph with plain words to select in it.
+
+    [Open the test link](https://example.com/drawn) and then some plain words after it.
+
+    - A list item with plain words
+
+    Interaction last paragraph with `inline code` and **bold** words.
+    """]
 
     static func prompt(_ index: Int) -> String {
         prompts[index % prompts.count]

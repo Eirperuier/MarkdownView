@@ -4,8 +4,9 @@
 //
 //  Text drawn in one view, by the same TextKit 2 a text view lays out with, for rows that are
 //  only looked at. A text view costs a row a dozen views and several passes over its text; this
-//  costs one view and one layout. The first touch or pointer on it asks for a real text view in
-//  its place, so selecting, links and the pointer are a text view's own.
+//  costs one view and one layout. The first touch, or a pointer moving over it, asks for a real
+//  text view in its place, so selecting, links and the pointer are a text view's own. Scrolling
+//  doesn't: a scroll hit-tests every row passing under a resting pointer.
 //
 
 import UIKit
@@ -37,6 +38,9 @@ final class MarkdownDrawnTextView: UIView, NSTextLayoutManagerDelegate {
         layoutManager.textContainer = container
         layoutManager.delegate = self
         storage.addTextLayoutManager(layoutManager)
+        if UIDevice.current.userInterfaceIdiom != .phone {
+            addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:))))
+        }
         registerForTraitChanges(MarkdownColorTraits.all) { (view: MarkdownDrawnTextView, _: UITraitCollection) in
             view.setNeedsDisplay()
         }
@@ -133,8 +137,19 @@ final class MarkdownDrawnTextView: UIView, NSTextLayoutManagerDelegate {
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard isUserInteractionEnabled, !isHidden, alpha > 0.01, self.point(inside: point, with: event),
-              let textView = onTouched?() else { return nil }
+        guard isUserInteractionEnabled, !isHidden, alpha > 0.01, self.point(inside: point, with: event) else { return nil }
+        guard event?.type == .touches, let textView = onTouched?() else { return self }
         return textView.hitTest(convert(point, to: textView), with: event)
     }
+
+    /// `.began` also comes as a row scrolls under a resting pointer: only a move counts.
+    @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
+        if recognizer.state == .changed { _ = onTouched?() }
+    }
+}
+
+/// How many rows have changed drawn text for a text view: for probes.
+@MainActor
+public enum MarkdownDrawnTextStats {
+    public static var upgrades = 0
 }

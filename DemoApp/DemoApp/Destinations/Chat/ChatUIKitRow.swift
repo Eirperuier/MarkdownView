@@ -74,7 +74,7 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
         var style = MarkdownStyle()
         style.drawsTextUntilTouched = drawsText
         if ChatProbe.file != nil {
-            style.openURL = { print("LINK \($0)") }
+            style.openURL = { ChatProbe.tellLink($0) }
         }
         return style
     }

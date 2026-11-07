@@ -54,6 +54,7 @@ final class MarkdownTextHost {
         let view = makeTextView()
         shownTextView = view
         if let drawn {
+            MarkdownDrawnTextStats.upgrades += 1
             if let text { view.applyContent(NSMutableAttributedString(attributedString: text.attributed)) }
             view.frame = drawn.frame.insetBy(dx: MarkdownDrawnTextView.overdraw, dy: MarkdownDrawnTextView.overdraw)
             drawn.superview?.insertSubview(view, aboveSubview: drawn)
@@ -61,6 +62,10 @@ final class MarkdownTextHost {
             drawn.removeFromSuperview()
             self.drawn = nil
             if let text { finish(text) }
+            // It takes over during a hit test: the touch asks it what's under the finger (a link)
+            // before any layout pass would come.
+            view.layoutIfNeeded()
+            if let manager = view.textLayoutManager { manager.ensureLayout(for: manager.documentRange) }
         }
         return view
     }

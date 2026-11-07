@@ -15,6 +15,8 @@
 //
 
 import MessagingUI
+import MarkdownUIKit
+import RichTextCore
 import UIKit
 
 @MainActor
@@ -38,6 +40,12 @@ enum ChatProbe {
             case "select":
                 let numbers = (words.count > 1 ? words[1] : "").split(separator: " ").compactMap { Double($0) }
                 if numbers.count == 2 { select(CGPoint(x: numbers[0], y: numbers[1])) }
+            case "state":
+                // What a UI test can't see: how many rows upgraded, whether text is selected.
+                if words.count > 1 {
+                    let selected = RichTextActiveSelection.isActive
+                    try? "upgrades=\(MarkdownDrawnTextStats.upgrades) selected=\(selected)".write(toFile: String(words[1]), atomically: true, encoding: .utf8)
+                }
             case "quit":
                 fflush(stdout)
                 exit(0)
@@ -83,5 +91,14 @@ enum ChatProbe {
         }
         try? data.write(to: URL(fileURLWithPath: path))
         print("PROBE shot \(path)")
+    }
+}
+
+extension ChatProbe {
+    /// A link opened under a probe: told on stdout and in a file a UI test reads.
+    static func tellLink(_ url: URL) {
+        print("LINK \(url)")
+        guard let file else { return }
+        try? url.absoluteString.write(toFile: file + ".link", atomically: true, encoding: .utf8)
     }
 }
