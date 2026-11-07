@@ -31,6 +31,9 @@ final class MarkdownRevealController: NSObject, NSTextLayoutManagerDelegate {
     private var style: MarkdownRevealStyle?
     private var lastAdvance = MarkdownRevealClock.now
 
+    /// Where a table has this text: a cell's letters land where they're drawn when it settles.
+    nonisolated(unsafe) var placement: MarkdownTextPlacement?
+
     // What a fragment's draw reads.
     nonisolated(unsafe) fileprivate var isActive = false
     nonisolated(unsafe) fileprivate var snapFrontier = 0
@@ -292,6 +295,7 @@ final class MarkdownRevealController: NSObject, NSTextLayoutManagerDelegate {
     ) -> NSTextLayoutFragment {
         let fragment = MarkdownRevealFragment(textElement: textElement, range: textElement.elementRange)
         fragment.owner = self
+        fragment.placement = placement
         return fragment
     }
 
@@ -350,8 +354,11 @@ final class MarkdownRevealController: NSObject, NSTextLayoutManagerDelegate {
 
 final class MarkdownRevealFragment: NSTextLayoutFragment {
     nonisolated(unsafe) weak var owner: MarkdownRevealController?
+    nonisolated(unsafe) var placement: MarkdownTextPlacement?
 
-    override func draw(at renderingOrigin: CGPoint, in ctx: CGContext) {
+    override func draw(at origin: CGPoint, in ctx: CGContext) {
+        var renderingOrigin = origin
+        if let placement { renderingOrigin.x += placement.shift(of: self) }
         guard let owner, owner.isActive,
               let manager = textLayoutManager,
               let contentManager = manager.textContentManager else {

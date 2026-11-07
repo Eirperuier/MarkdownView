@@ -17,7 +17,22 @@ enum ChatCorpus {
     private static let isInteractionText = UserDefaults.standard.string(forKey: "chatCorpus") == "interactionText"
     /// `-chatCorpus interactionTable`: the same, with a table.
     private static let isInteractionTable = UserDefaults.standard.string(forKey: "chatCorpus") == "interactionTable"
-    private static var chosen: [String] { isInteractionTable ? interactionTableReplies : isInteractionText ? interactionTextReplies : isInteraction ? interactionReplies : isTextOnly ? textReplies : replies }
+    /// `-chatCorpus interactionAligned`: cells centred and at the right, and headings: text that
+    /// lands between pixels, for changing over.
+    private static let isInteractionAligned = UserDefaults.standard.string(forKey: "chatCorpus") == "interactionAligned"
+    private static var chosen: [String] { isInteractionAligned ? interactionAlignedReplies : isInteractionTable ? interactionTableReplies : isInteractionText ? interactionTextReplies : isInteraction ? interactionReplies : isTextOnly ? textReplies : replies }
+
+    private static let interactionAlignedReplies = ["""
+    # Aligned title heading
+
+    ## Aligned second heading
+
+    | Aligned left | Aligned centre | Aligned right |
+    | :-- | :-: | --: |
+    | First words | Centred wordsmith | Right wordsmith |
+    | Second words | Centre line | Right line |
+    | Third words | Centred ij | Right ij |
+    """]
 
     private static let interactionTableReplies = ["""
     Interaction before the table.

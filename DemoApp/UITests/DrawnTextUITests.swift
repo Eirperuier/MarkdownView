@@ -12,12 +12,12 @@ final class DrawnTextUITests: XCTestCase {
         launch(drawn: true)
     }
 
-    private func launch(drawn: Bool) {
+    private func launch(drawn: Bool, corpus: String = "interactionText") {
         for suffix in ["", ".link", ".state"] { try? FileManager.default.removeItem(atPath: probe + suffix) }
         app = XCUIApplication()
         app.launchArguments = [
             "-AppleLanguages", "(en)", "-ApplePersistenceIgnoreState", "YES",
-            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatCorpus", "interactionText",
+            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatCorpus", corpus,
             "-chatDrawsText", drawn ? "YES" : "NO", "-chatProbe", probe,
         ]
         app.launch()
@@ -135,6 +135,24 @@ final class DrawnTextUITests: XCTestCase {
         add(XCTAttachment(image: after))
         print("OVER differing pixels \(different)")
         XCTAssertEqual(different, 0, "the row's pixels changed when its text view took over")
+    }
+
+    /// Two headings in one text: what a catalogue's pictures differ in between the two modes.
+    func testChangingOverAHeadingDoesNotShow() {
+        app.terminate()
+        launch(drawn: true, corpus: "interactionAligned")
+        let element = waitForRow("Aligned title heading")
+        let frame = element.frame
+        let before = XCUIScreen.main.screenshot().image
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertGreaterThan(state().upgrades, 0, "the tap didn't upgrade the row")
+        let after = XCUIScreen.main.screenshot().image
+        let different = Self.differingPixels(before, after, in: frame)
+        add(XCTAttachment(image: before))
+        add(XCTAttachment(image: after))
+        print("OVER heading differing pixels \(different)")
+        XCTAssertEqual(different, 0, "the heading's pixels changed when its text view took over")
     }
 
     private static func differingPixels(_ a: UIImage, _ b: UIImage, in frame: CGRect) -> Int {

@@ -106,9 +106,19 @@ final class MarkdownTableCell {
     }
 
     /// What a text view's host takes.
-    var text: MarkdownText {
+    var text: MarkdownText { text(of: string) }
+
+    /// The same for a text view over the table's own underlines, which stay as they're drawn.
+    var textWithoutUnderlines: MarkdownText {
+        guard hasUnderlines else { return text }
+        let copy = NSMutableAttributedString(attributedString: string)
+        copy.removeAttribute(.underlineStyle, range: NSRange(location: 0, length: copy.length))
+        return text(of: copy)
+    }
+
+    private func text(of attributed: NSAttributedString) -> MarkdownText {
         MarkdownText(
-            attributed: string,
+            attributed: attributed,
             revealTotal: span.end,
             storageToPlain: map ?? Array(span.offset..<(span.offset + string.string.count)),
             topEdgeInset: 0,

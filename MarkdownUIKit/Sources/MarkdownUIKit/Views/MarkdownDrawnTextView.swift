@@ -116,8 +116,8 @@ final class MarkdownDrawnTextView: UIView, NSTextLayoutManagerDelegate {
         layoutManager.enumerateTextLayoutFragments(from: layoutManager.documentRange.location, options: [.ensuresLayout]) { fragment in
             let frame = fragment.layoutFragmentFrame
             if frame.minY + inset > rect.maxY { return false }
-            // On the pixel grid, as a text view's fragment views are.
-            fragment.draw(at: CGPoint(x: markdownPixelRound(frame.minX) + inset, y: markdownPixelRound(frame.minY) + inset), in: context)
+            // Down to the pixel grid, as a text view puts its fragment views.
+            fragment.draw(at: CGPoint(x: markdownPixelFloor(frame.minX) + inset, y: markdownPixelFloor(frame.minY) + inset), in: context)
             return true
         }
     }

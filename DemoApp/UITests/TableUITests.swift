@@ -11,12 +11,12 @@ final class TableUITests: XCTestCase {
         continueAfterFailure = true
     }
 
-    private func launch(scrolls: Bool = false, drawn: Bool = true) {
+    private func launch(scrolls: Bool = false, drawn: Bool = true, corpus: String = "interactionTable") {
         for suffix in ["", ".state", ".link", ".pasteboard"] { try? FileManager.default.removeItem(atPath: probe + suffix) }
         app = XCUIApplication()
         app.launchArguments = [
             "-AppleLanguages", "(en)", "-ApplePersistenceIgnoreState", "YES",
-            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatCorpus", "interactionTable",
+            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatCorpus", corpus,
             "-chatDrawsText", drawn ? "YES" : "NO", "-chatTableScrolls", scrolls ? "YES" : "NO", "-chatProbe", probe,
         ]
         app.launch()
@@ -115,6 +115,37 @@ final class TableUITests: XCTestCase {
         XCTAssertEqual(element("Table second row").frame.minY, frame.minY, accuracy: 1, "the cell's text moved down")
     }
 
+    /// A cell at its pixels, before and after a touch gives it a text view.
+    private func assertChangingOver(_ words: String, file: StaticString = #filePath, line: UInt = #line) {
+        let target = cell(words)
+        let frame = target.frame
+        let before = XCUIScreen.main.screenshot().image
+        let views = number("tableTextViews")
+        target.tap()
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertEqual(number("tableTextViews"), views + 1, "the tap gave \(words) no text view", file: file, line: line)
+        let after = XCUIScreen.main.screenshot().image
+        add(XCTAttachment(image: before))
+        add(XCTAttachment(image: after))
+        let different = PixelDifference.count(before, after, in: frame.insetBy(dx: -4, dy: -2))
+        print("OVER \(words): differing pixels \(different)")
+        XCTAssertEqual(different, 0, "\(words) changed when its text view took over", file: file, line: line)
+    }
+
+    func testChangingOverACentredCellDoesNotShow() {
+        launch(corpus: "interactionAligned")
+        assertChangingOver("Centred wordsmith")
+        assertChangingOver("Centre line")
+        assertChangingOver("Centred ij")
+    }
+
+    func testChangingOverARightAlignedCellDoesNotShow() {
+        launch(corpus: "interactionAligned")
+        assertChangingOver("Right wordsmith")
+        assertChangingOver("Right line")
+        assertChangingOver("Right ij")
+    }
+
     func testManyTouchesKeepFewTextViews() {
         launch()
         let rows = ["Table plain words", "Table second row", "Table third row", "Table fourth row", "Table fifth row", "Table sixth row",
@@ -168,5 +199,24 @@ final class TableUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.2)
         }
         XCTAssertGreaterThan(number("tableTextViews"), 0)
+    }
+}
+
+/// How many pixels two screenshots differ by in a frame.
+@MainActor
+enum PixelDifference {
+    static func count(_ a: UIImage, _ b: UIImage, in frame: CGRect) -> Int {
+        let scale = a.scale
+        let box = CGRect(x: frame.minX * scale, y: frame.minY * scale, width: frame.width * scale, height: frame.height * scale).integral
+        guard let ca = a.cgImage?.cropping(to: box), let cb = b.cgImage?.cropping(to: box) else { return -1 }
+        func pixels(_ image: CGImage) -> [UInt8] {
+            var data = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let context = CGContext(data: &data, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return data
+        }
+        let pa = pixels(ca), pb = pixels(cb)
+        guard pa.count == pb.count else { return -2 }
+        return stride(from: 0, to: pa.count, by: 4).reduce(0) { $0 + (pa[$1] != pb[$1] || pa[$1 + 1] != pb[$1 + 1] || pa[$1 + 2] != pb[$1 + 2] ? 1 : 0) }
     }
 }

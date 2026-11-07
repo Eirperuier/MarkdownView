@@ -63,12 +63,22 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
     @MainActor
     private final class CellHost {
         let host: MarkdownTextHost
+        let placement: MarkdownTextPlacement?
         var cell: MarkdownTableCell
+
+        /// The table goes on drawing its underlines under this text view.
+        let leavesUnderlines: Bool
+
+        var text: MarkdownText { leavesUnderlines ? cell.textWithoutUnderlines : cell.text }
 
         init(cell: MarkdownTableCell, reveal: MarkdownReveal?) {
             self.cell = cell
-            host = MarkdownTextHost(textView: true)
-            host.apply(cell.text, style: cell.style, reveal: reveal)
+            leavesUnderlines = cell.hasUnderlines && reveal == nil
+            // What a table draws gives way to this text and takes over again: it lands the same.
+            // A cell always in a text view has nothing to match.
+            placement = cell.needsTextView ? nil : MarkdownTextPlacement()
+            host = MarkdownTextHost(textView: true, placement: placement)
+            host.apply(text, style: cell.style, reveal: reveal)
         }
     }
 
@@ -421,8 +431,12 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
                     tag.markdownOpacity(0.15).setFill()
                     UIBezierPath(roundedRect: frame, cornerRadius: MarkdownTableMetrics.tagCornerRadius).fill()
                 }
-                guard hosts[cell.position] == nil, replacedViews[cell.position] == nil else { continue }
+                guard replacedViews[cell.position] == nil else { continue }
                 let inner = cell.tag == nil ? frame : frame.insetBy(dx: MarkdownTableMetrics.tagPadding.width, dy: MarkdownTableMetrics.tagPadding.height)
+                if let host = hosts[cell.position] {
+                    if host.leavesUnderlines { drawUnderlines(of: cell, in: inner, context: context) }
+                    continue
+                }
                 // At least its natural width: a hair over its box mustn't wrap it.
                 var rect = CGRect(x: inner.minX, y: inner.minY, width: inner.width, height: inner.height + 100)
                 // A hair too wide for its box stays on its line, over the box's far edge.
@@ -431,12 +445,7 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
                     rect.size.width = fit.width + 0.001
                 }
                 cell.drawing.draw(with: rect, options: [.usesLineFragmentOrigin], context: nil)
-                if cell.hasUnderlines {
-                    for bar in cell.underlineBars(width: inner.width) {
-                        bar.color.setFill()
-                        context.fill(bar.rect.offsetBy(dx: inner.minX, dy: inner.minY))
-                    }
-                }
+                drawUnderlines(of: cell, in: inner, context: context)
             }
         }
 
@@ -445,6 +454,14 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
             for row in rows {
                 for cell in cells[row] { overlay(geometry.cellRect(cell)) }
             }
+        }
+    }
+
+    private func drawUnderlines(of cell: MarkdownTableCell, in rect: CGRect, context: CGContext) {
+        guard cell.hasUnderlines else { return }
+        for bar in cell.underlineBars(width: rect.width) {
+            bar.color.setFill()
+            context.fill(bar.rect.offsetBy(dx: rect.minX, dy: rect.minY))
         }
     }
 
@@ -545,9 +562,14 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
         guard geometry.textFrames.indices.contains(position.row), geometry.textFrames[position.row].indices.contains(position.column) else { return }
         var frame = geometry.textFrames[position.row][position.column]
         if host.cell.tag != nil { frame = frame.insetBy(dx: MarkdownTableMetrics.tagPadding.width, dy: MarkdownTableMetrics.tagPadding.height) }
-        // A hair too wide for its box stays on its line.
-        if let fit = host.cell.hairOverFit(width: frame.width, scale: traitCollection.displayScale) {
-            frame.size.width = fit.width + 0.01
+        // A hair too wide for its box stays on its line, where it's drawn.
+        let fit = host.cell.hairOverFit(width: frame.width, scale: traitCollection.displayScale)
+        if let fit { frame.size.width = fit.width + 0.01 }
+        // The hair's room a drawing gives it counts too.
+        let exact = fit.map { $0.offset + (host.cell.alignment == .center ? 0.0005 : host.cell.alignment == .trailing ? 0.001 : 0) }
+        if host.placement?.exactOffset != exact {
+            host.placement?.exactOffset = exact
+            host.host.textView.setNeedsDisplay()
         }
         if host.host.textView.frame != frame {
             host.host.place(frame)
@@ -575,7 +597,7 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
             let cell = content.rows[position.row][position.column]
             if cell !== cellHost.cell {
                 cellHost.cell = cell
-                cellHost.host.update(cell.text, style: cell.style, reveal: revealing.contains(position) ? reveal : nil)
+                cellHost.host.update(cellHost.text, style: cell.style, reveal: revealing.contains(position) ? reveal : nil)
                 cellHost.host.textView.invalidateFittingSizes()
             }
         }

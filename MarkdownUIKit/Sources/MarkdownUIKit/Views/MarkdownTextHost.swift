@@ -46,6 +46,47 @@ extension CGRect {
     }
 }
 
+/// Keeps a text view's text where string drawing puts it. A text view floors each fragment's view
+/// to the pixel grid and drops the rest, so text that's centred or at the right sits up to a pixel
+/// left of the same text drawn by a table. Each fragment draws that remainder itself.
+final class MarkdownTextPlacement: NSObject, NSTextLayoutManagerDelegate, @unchecked Sendable {
+    private let pixel: CGFloat
+    /// Where the text starts in its frame when that isn't where the layout has it: a text a hair
+    /// too wide for its box. Set on the main thread, read as it draws, also on the main thread.
+    var exactOffset: CGFloat?
+
+    @MainActor
+    override init() {
+        pixel = 1 / markdownPixelScale
+    }
+
+    /// How far right of where its view is a fragment's text has to go.
+    func shift(of fragment: NSTextLayoutFragment) -> CGFloat {
+        let x = fragment.layoutFragmentFrame.minX
+        return (exactOffset ?? x) - (x / pixel).rounded(.down) * pixel
+    }
+
+    func textLayoutManager(
+        _ textLayoutManager: NSTextLayoutManager,
+        textLayoutFragmentFor location: any NSTextLocation,
+        in textElement: NSTextElement
+    ) -> NSTextLayoutFragment {
+        let fragment = MarkdownPlacedFragment(textElement: textElement, range: textElement.elementRange)
+        fragment.placement = self
+        return fragment
+    }
+}
+
+private final class MarkdownPlacedFragment: NSTextLayoutFragment {
+    nonisolated(unsafe) var placement: MarkdownTextPlacement?
+
+    override func draw(at point: CGPoint, in context: CGContext) {
+        var point = point
+        if let placement { point.x += placement.shift(of: self) }
+        super.draw(at: point, in: context)
+    }
+}
+
 @MainActor
 final class MarkdownTextHost {
     /// The text view: the one there is, or one taking the place of the drawn text.
@@ -94,14 +135,18 @@ final class MarkdownTextHost {
     private var foregroundColor = UIColor.label
     private var openLink: (@MainActor @Sendable (URL) -> Void)?
     private var renderingColors: [(range: NSRange, color: UIColor)] = []
+    /// Where text a table draws itself would be: this text has to land there.
+    private let placement: MarkdownTextPlacement?
 
-    init(textView: Bool = true) {
+    init(textView: Bool = true, placement: MarkdownTextPlacement? = nil) {
+        self.placement = placement
         if textView { shownTextView = makeTextView() }
     }
 
     private func makeTextView() -> InlineAttachmentTextView {
         let textView = RichTextViewPool.acquire(usingTextLayoutManager: true)
         textView.configureForDisplay()
+        if let placement { textView.textLayoutManager?.delegate = placement }
         // A first letter's overhang stays visible, as it does in a layout that doesn't clip.
         textView.clipsToBounds = false
         textView.redrawsOnChange(of: MarkdownColorTraits.all)
@@ -191,6 +236,7 @@ final class MarkdownTextHost {
             return
         }
         let controller = revealController ?? MarkdownRevealController()
+        controller.placement = placement
         revealController = controller
         controller.attach(textView, reveal: reveal, storageToPlain: text?.storageToPlain ?? [])
     }
