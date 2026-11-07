@@ -8,7 +8,6 @@
 
 import UIKit
 
-@MainActor
 struct MarkdownCodeBoxMetrics {
     /// Code against the body text.
     static let fontScale: CGFloat = 0.86
@@ -27,7 +26,7 @@ struct MarkdownCodeBoxMetrics {
 
     /// A line's height as a layout manager gives it, measured once for a size.
     var lineHeight: CGFloat {
-        if let height = Self.lineHeights[font.pointSize] { return height }
+        if let height = Self.lineHeights.value(for: font.pointSize) { return height }
         let storage = NSTextStorage(string: "0", attributes: [.font: font])
         let manager = NSLayoutManager()
         let container = NSTextContainer(size: CGSize(width: 1000, height: 1000))
@@ -35,11 +34,11 @@ struct MarkdownCodeBoxMetrics {
         manager.addTextContainer(container)
         storage.addLayoutManager(manager)
         let height = manager.usedRect(for: container).height
-        Self.lineHeights[font.pointSize] = height
+        Self.lineHeights.set(height, for: font.pointSize)
         return height
     }
 
-    private static var lineHeights: [CGFloat: CGFloat] = [:]
+    private static let lineHeights = MarkdownLockedCache<CGFloat, CGFloat>()
 
     /// From one line's text to the next's.
     var pitch: CGFloat { (20 * scale).rounded() }

@@ -74,6 +74,12 @@ final class MarkdownCodeHighlightLoader {
         task = nil
     }
 
+    /// This code is coloured already.
+    func didShow(_ code: String) {
+        self.code = code
+        highlighted = code
+    }
+
     func reset() {
         cancel()
         highlighted = nil

@@ -152,7 +152,7 @@ final class MarkdownCodeSheetController: UIViewController {
 
 /// Puts colours over text as rendering attributes: no layout comes of it.
 enum MarkdownCodeRenderingColors {
-    @MainActor
+    /// On any thread, while no one else has `manager`.
     static func set(_ runs: [(range: NSRange, color: UIColor)], on manager: NSTextLayoutManager) {
         guard let content = manager.textContentManager else { return }
         let start = content.documentRange.location

@@ -6,43 +6,53 @@
 //  only looked at. A text view costs a row a dozen views and several passes over its text; this
 //  costs one view and one layout. The first touch, or a pointer moving over it, asks for a real
 //  text view in its place, so selecting, links and the pointer are a text view's own. Scrolling
-//  doesn't: a scroll hit-tests every row passing under a resting pointer.
+//  doesn't: a scroll hit-tests every row passing under a resting pointer. It has no draw: a
+//  picture goes in its layer, drawn ahead on another thread if it can be.
 //
 
 import UIKit
 
 @MainActor
-final class MarkdownDrawnTextView: UIView, NSTextLayoutManagerDelegate {
+final class MarkdownDrawnTextView: UIView {
     /// How far past the text it draws: what a first letter or an italic overhangs.
-    static let overdraw: CGFloat = 4
+    nonisolated static let overdraw: CGFloat = 4
 
     /// Hit: gives the text view that takes its place.
     var onTouched: (() -> UITextView?)?
 
     /// Wraps at the width of its longest line (see `MarkdownTextHost`).
-    var narrowsToText = false
+    var narrowsToText = false {
+        didSet { if narrowsToText != oldValue { stack?.narrowsToText = narrowsToText } }
+    }
 
-    private var measured: (width: CGFloat, size: CGSize)?
-    private let storage = NSTextContentStorage()
-    let layoutManager = NSTextLayoutManager()
-    private let container = NSTextContainer(size: .zero)
+    private var stack: MarkdownTextStack?
+    /// May be another view's too, with the same text: laid out once, and only read after that.
+    private var stackIsPrepared = false
+    private var picture: MarkdownTextPicture?
+    /// What sits in the lines: a text view would place these, so this does.
+    private var hasAttachments = false
+    private var attachmentViews: [UIView] = []
+
+    /// How far right of where its frame says the text draws: a part of a pixel.
+    var textShift: CGFloat = 0 {
+        didSet { if textShift != oldValue { stack?.shift = textShift; setNeedsDisplay() } }
+    }
+
+    var layoutManager: NSTextLayoutManager? { stack?.layoutManager }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = false
         backgroundColor = nil
-        contentMode = .redraw
+        // A picture stays the size it is, and starts at the top left.
+        contentMode = .topLeft
         isAccessibilityElement = true
         accessibilityTraits = .staticText
-        container.lineFragmentPadding = 0
-        layoutManager.textContainer = container
-        layoutManager.delegate = self
-        storage.addTextLayoutManager(layoutManager)
         if UIDevice.current.userInterfaceIdiom != .phone {
             addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:))))
         }
         registerForTraitChanges(MarkdownColorTraits.all) { (view: MarkdownDrawnTextView, _: UITraitCollection) in
-            view.setNeedsDisplay()
+            view.layer.setNeedsDisplay()
         }
     }
 
@@ -52,84 +62,89 @@ final class MarkdownDrawnTextView: UIView, NSTextLayoutManagerDelegate {
     }
 
     func show(_ text: NSAttributedString, foregroundColor: UIColor) {
-        let filled = NSMutableAttributedString(attributedString: text)
-        let range = NSRange(location: 0, length: filled.length)
-        filled.enumerateAttribute(.foregroundColor, in: range) { value, run, _ in
-            if value == nil { filled.addAttribute(.foregroundColor, value: foregroundColor, range: run) }
+        if stack == nil || stackIsPrepared {
+            stack = MarkdownTextStack()
+            stackIsPrepared = false
         }
-        filled.enumerateAttribute(.font, in: range) { value, run, _ in
-            if value == nil { filled.addAttribute(.font, value: UIFont.preferredFont(forTextStyle: .body), range: run) }
-        }
-        Self.applyIntentsAsTextViewDoes(filled, in: range)
-        storage.performEditingTransaction {
-            storage.textStorage?.setAttributedString(filled)
-        }
+        stack?.narrowsToText = narrowsToText
+        stack?.shift = textShift
+        stack?.show(text, foregroundColor: foregroundColor)
         accessibilityLabel = text.string
-        measured = nil
+        hasAttachments = text.containsAttachments(in: NSRange(location: 0, length: text.length))
         setNeedsDisplay()
+        setNeedsLayout()
     }
 
-    /// A text view takes `inlinePresentationIntent` over the font: emphasis alone on a bold font
-    /// (in a heading) is the regular italic. Text in a storage of its own stays as it's given.
-    static func applyIntentsAsTextViewDoes(_ text: NSMutableAttributedString, in range: NSRange) {
-        text.enumerateAttribute(.inlinePresentationIntent, in: range) { value, run, _ in
-            guard let raw = value as? UInt, InlinePresentationIntent(rawValue: raw).contains(.emphasized),
-                  !InlinePresentationIntent(rawValue: raw).contains(.stronglyEmphasized) else { return }
-            text.enumerateAttribute(.font, in: run) { value, fontRun, _ in
-                guard let font = value as? UIFont else { return }
-                let traits = font.fontDescriptor.symbolicTraits
-                guard traits.contains(.traitBold), traits.contains(.traitItalic),
-                      let regular = font.fontDescriptor.withSymbolicTraits(traits.subtracting(.traitBold)) else { return }
-                text.addAttribute(.font, value: UIFont(descriptor: regular, size: font.pointSize), range: fontRun)
-            }
-        }
+    /// Takes text made and laid out ahead, and drawn if `picture` isn't nil.
+    func show(prepared: MarkdownTextStack, picture: MarkdownTextPicture?, label: String) {
+        stack = prepared
+        stackIsPrepared = true
+        narrowsToText = prepared.narrowsToText
+        accessibilityLabel = label
+        hasAttachments = false
+        setNeedsDisplay()
+        self.picture = picture
+        setNeedsLayout()
     }
 
     /// The text's size at `width`: all of it wide, or as wide as its longest line, laid out again
     /// there, with `narrowsToText`.
     func size(forWidth width: CGFloat) -> CGSize {
-        if let measured, measured.width == width { return measured.size }
-        lay(atWidth: width)
-        var size = CGSize(width: width, height: layoutManager.usageBoundsForTextContainer.height)
-        if narrowsToText {
-            let used = layoutManager.usageBoundsForTextContainer.width
-            if used < width - 0.5 {
-                lay(atWidth: used)
-                size = CGSize(width: used, height: layoutManager.usageBoundsForTextContainer.height)
+        guard let current = stack else { return .zero }
+        if stackIsPrepared, !current.isLaidOut(atWidth: width) {
+            stack = current.copy()
+            stackIsPrepared = false
+        }
+        guard let stack else { return .zero }
+        if !stack.isLaidOut(atWidth: width) {
+            setNeedsDisplay()
+            setNeedsLayout()
+        }
+        return stack.size(forWidth: width)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard hasAttachments || !attachmentViews.isEmpty else { return }
+        var placed: [UIView] = []
+        if hasAttachments, let layoutManager {
+            layoutManager.enumerateTextLayoutFragments(from: layoutManager.documentRange.location, options: [.ensuresLayout]) { fragment in
+                let frame = fragment.layoutFragmentFrame
+                let origin = CGPoint(x: markdownPixelFloor(frame.minX) + Self.overdraw, y: markdownPixelFloor(frame.minY) + Self.overdraw)
+                for provider in fragment.textAttachmentViewProviders {
+                    guard let view = provider.view else { continue }
+                    view.frame = fragment.frameForTextAttachment(at: provider.location).offsetBy(dx: origin.x, dy: origin.y)
+                    if view.superview !== self { addSubview(view) }
+                    placed.append(view)
+                }
+                return true
             }
         }
-        measured = (width, size)
-        return size
-    }
-
-    private func lay(atWidth width: CGFloat) {
-        if container.size.width != width {
-            container.size = CGSize(width: width, height: 0)
-            setNeedsDisplay()
+        for view in attachmentViews where view.superview === self && !placed.contains(where: { $0 === view }) {
+            view.removeFromSuperview()
         }
-        layoutManager.ensureLayout(for: layoutManager.documentRange)
+        attachmentViews = placed
     }
 
-    override func draw(_ rect: CGRect) {
-        guard let context = UIGraphicsGetCurrentContext() else { return }
-        let inset = Self.overdraw
-        layoutManager.enumerateTextLayoutFragments(from: layoutManager.documentRange.location, options: [.ensuresLayout]) { fragment in
-            let frame = fragment.layoutFragmentFrame
-            if frame.minY + inset > rect.maxY { return false }
-            // Down to the pixel grid, as a text view puts its fragment views.
-            fragment.draw(at: CGPoint(x: markdownPixelFloor(frame.minX) + inset, y: markdownPixelFloor(frame.minY) + inset), in: context)
-            return true
+    /// What shows differs now: the picture there is, if any, is no good.
+    override func setNeedsDisplay() {
+        picture = nil
+        layer.setNeedsDisplay()
+    }
+
+    /// The picture ahead if it's right for these traits; or it's drawn here.
+    override func display(_ layer: CALayer) {
+        let traits = traitCollection
+        let scale = traits.displayScale
+        if picture.map({ $0.scale != scale || !MarkdownColorTraits.resolveAlike($0.traits, traits) }) ?? true {
+            guard let stack else {
+                layer.contents = nil
+                return
+            }
+            picture = stack.picture(scale: scale, traits: traits)
         }
-    }
-
-    /// A link looks as its own attributes have it, as in a text view with no link attributes.
-    nonisolated func textLayoutManager(
-        _ textLayoutManager: NSTextLayoutManager,
-        renderingAttributesForLink link: Any,
-        at location: any NSTextLocation,
-        defaultAttributes renderingAttributes: [NSAttributedString.Key: Any] = [:]
-    ) -> [NSAttributedString.Key: Any]? {
-        [:]
+        layer.contentsScale = scale
+        layer.contents = picture?.image
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {

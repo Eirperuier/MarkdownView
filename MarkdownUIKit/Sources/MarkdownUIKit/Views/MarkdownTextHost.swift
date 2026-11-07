@@ -10,12 +10,20 @@ import RichTextCore
 import UIKit
 
 /// A layout's grid, in pixels per point. The screen's, not a window's: a height is measured
-/// off-window too.
-@MainActor
-var markdownPixelScale: CGFloat { max(1, UIScreen.main.scale) }
+/// off-window too. Off the main thread it's what the main thread last saw, which is there before
+/// anything is made ahead.
+nonisolated var markdownPixelScale: CGFloat {
+    if Thread.isMainThread {
+        let scale = MainActor.assumeIsolated { max(1, UIScreen.main.scale) }
+        markdownScreenScale = scale
+        return scale
+    }
+    return markdownScreenScale
+}
+
+private nonisolated(unsafe) var markdownScreenScale: CGFloat = 2
 
 /// To the nearest pixel: where a layout puts a frame's edges.
-@MainActor
 func markdownPixelRound(_ value: CGFloat) -> CGFloat {
     (value * markdownPixelScale).rounded() / markdownPixelScale
 }
@@ -23,20 +31,17 @@ func markdownPixelRound(_ value: CGFloat) -> CGFloat {
 /// Up to a pixel: a layout's size for text and symbols. It divides by a pixel's size as a layout
 /// does: at 3x an image's 16.666666666666668 pt comes to 17, not 16.67, which pushes what's next
 /// along by a pixel.
-@MainActor
 func markdownPixelCeil(_ value: CGFloat) -> CGFloat {
     let pixel = 1 / markdownPixelScale
     return (value / pixel).rounded(.up) * pixel
 }
 
-@MainActor
 func markdownPixelFloor(_ value: CGFloat) -> CGFloat {
     (value * markdownPixelScale).rounded(.down) / markdownPixelScale
 }
 
 extension CGRect {
     /// This rect with its edges on the pixel grid.
-    @MainActor
     func markdownPixelAligned() -> CGRect {
         let x0 = markdownPixelRound(minX)
         let y0 = markdownPixelRound(minY)
@@ -44,6 +49,14 @@ extension CGRect {
         let y1 = markdownPixelRound(maxY)
         return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
     }
+}
+
+/// In a line at a size that doesn't change by itself: needs no text view to tell of a new one.
+protocol MarkdownFixedInlineAttachment {}
+
+/// Draws itself into drawn text, in the box it has in a line, under the current traits.
+protocol MarkdownDrawnInlineAttachment {
+    func draw(in box: CGRect)
 }
 
 /// Keeps a text view's text where string drawing puts it. A text view floors each fragment's view
@@ -129,6 +142,8 @@ final class MarkdownTextHost {
     /// layouts for nothing.
     private var placesText = false
     private var hasHangingIndent = false
+    /// How far right of where its frame says drawn text draws: a part of a pixel.
+    var textShift: CGFloat = 0 { didSet { drawn?.textShift = textShift } }
     private var hugsText: Bool { placesText || hasHangingIndent }
     private var rightToLeftHeights: [CGFloat: CGFloat] = [:]
     private var revealController: MarkdownRevealController?
@@ -171,14 +186,18 @@ final class MarkdownTextHost {
     /// Whether drawn text can show all of this, with nothing but TextKit drawing it.
     private func canDraw(_ text: MarkdownText) -> Bool {
         guard !placesText, !isRightToLeft, !UIAccessibility.isVoiceOverRunning else { return false }
-        return Self.isDrawable(text.attributed)
+        return Self.isDrawable(text.attributed, allowingInlineViews: true)
     }
 
     /// Nothing in it needs a text view: no attachment, and no mark drawn apart from the text.
-    static func isDrawable(_ text: NSAttributedString) -> Bool {
+    /// - Parameter allowingInlineViews: what sits in a line at a fixed size is fine: the drawn text
+    ///   places those views itself.
+    nonisolated static func isDrawable(_ text: NSAttributedString, allowingInlineViews: Bool = false) -> Bool {
         var plain = true
         text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, _, stop in
-            if attributes[.attachment] != nil || attributes[.richTextPenMark] != nil
+            let attachment = attributes[.attachment]
+            let attachmentStays = attachment != nil && !(allowingInlineViews && attachment is any MarkdownFixedInlineAttachment)
+            if attachmentStays || attributes[.richTextPenMark] != nil
                 || (attributes[.underlineColor] != nil && attributes[.underlineStyle] == nil) {
                 plain = false
                 stop.pointee = true
@@ -187,14 +206,32 @@ final class MarkdownTextHost {
         return plain
     }
 
+    /// Whether a paragraph wraps by an indent of its own: a list item.
+    nonisolated static func hasHangingIndent(_ text: NSAttributedString) -> Bool {
+        var hangs = false
+        text.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: text.length)) { value, _, stop in
+            if let paragraph = value as? NSParagraphStyle, paragraph.headIndent != paragraph.firstLineHeadIndent {
+                hangs = true
+                stop.pointee = true
+            }
+        }
+        return hangs
+    }
+
     /// Replaces all that shows. `reveal` goes on before the text, or its fragments would be plain.
-    func apply(_ text: MarkdownText, style: MarkdownStyle, reveal: MarkdownReveal? = nil) {
+    /// `prepared`: this text made and laid out ahead.
+    func apply(_ text: MarkdownText, style: MarkdownStyle, reveal: MarkdownReveal? = nil, prepared: MarkdownTextStack? = nil, picture: MarkdownTextPicture? = nil) {
         prepare(text, style: style)
         if style.drawsTextUntilTouched, reveal == nil, shownTextView == nil, canDraw(text) {
             let drawn = drawn ?? MarkdownDrawnTextView()
             drawn.onTouched = { [weak self] in self?.textView }
-            drawn.narrowsToText = hasHangingIndent
-            drawn.show(text.attributed, foregroundColor: foregroundColor)
+            drawn.textShift = textShift
+            if let prepared {
+                drawn.show(prepared: prepared, picture: picture, label: text.attributed.string)
+            } else {
+                drawn.narrowsToText = hasHangingIndent
+                drawn.show(text.attributed, foregroundColor: foregroundColor)
+            }
             self.drawn = drawn
             return
         }
@@ -212,6 +249,7 @@ final class MarkdownTextHost {
     func update(_ text: MarkdownText, style: MarkdownStyle, reveal: MarkdownReveal? = nil) {
         prepare(text, style: style)
         if let drawn, reveal == nil, canDraw(text) {
+            drawn.textShift = textShift
             drawn.narrowsToText = hasHangingIndent
             drawn.show(text.attributed, foregroundColor: foregroundColor)
             if !renderingColors.isEmpty { applyRenderingColors() }
@@ -245,13 +283,7 @@ final class MarkdownTextHost {
         self.text = text
         isRightToLeft = style.layoutDirection == .rightToLeft
         placesText = style.typography.paragraphAlignment != .left && style.typography.paragraphAlignment != .natural
-        hasHangingIndent = false
-        text.attributed.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: text.attributed.length)) { value, _, stop in
-            if let paragraph = value as? NSParagraphStyle, paragraph.headIndent != paragraph.firstLineHeadIndent {
-                hasHangingIndent = true
-                stop.pointee = true
-            }
-        }
+        hasHangingIndent = Self.hasHangingIndent(text.attributed)
         rightToLeftHeights.removeAll()
         foregroundColor = style.resolvedTextColor
         openLink = style.openURL
@@ -288,6 +320,11 @@ final class MarkdownTextHost {
     func setRenderingColors(_ runs: [(range: NSRange, color: UIColor)]) {
         renderingColors = runs
         applyRenderingColors()
+    }
+
+    /// Colours a stack made ahead has on already: for a text view taking its place.
+    func holdRenderingColors(_ runs: [(range: NSRange, color: UIColor)]) {
+        renderingColors = runs
     }
 
     private func applyRenderingColors() {

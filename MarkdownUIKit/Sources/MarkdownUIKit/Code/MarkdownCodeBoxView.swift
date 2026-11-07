@@ -57,7 +57,7 @@ public final class MarkdownCodeBoxView: UIView, MarkdownCodeDisplay {
 
     /// A drawn text past this many lines would be one enormous picture: a text view lays out
     /// what's on screen.
-    private static let drawnLineLimit = 200
+    nonisolated static let drawnLineLimit = 200
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -141,35 +141,47 @@ public final class MarkdownCodeBoxView: UIView, MarkdownCodeDisplay {
 
     private func showLines() {
         let shown = lines.lines.joined(separator: "\n")
-        let attributed = NSAttributedString(string: shown, attributes: MarkdownCodeBlockView.attributes(
-            font: metrics.font,
-            line: metrics.font.lineHeight,
-            scrolls: true,
-            rowHeight: metrics.pitch
-        ))
-        let text = MarkdownText(
-            attributed: attributed,
-            revealTotal: code.count,
-            storageToPlain: Array(0..<shown.count),
-            topEdgeInset: 0,
-            bottomEdgeInset: 0
-        )
         var hostStyle = style
         hostStyle.typography.paragraphAlignment = .natural
         if lines.count > Self.drawnLineLimit { hostStyle.drawsTextUntilTouched = false }
+        host.textShift = codeOverhang
         if !hostIsShowing {
-            // Its fragments are made as its text goes in.
-            if !hostStyle.drawsTextUntilTouched, reveal == nil { offsetFragments(of: host.textView) }
-            host.apply(text, style: hostStyle, reveal: reveal)
+            let made = reveal == nil && hostStyle.drawsTextUntilTouched ? style.preparedTexts?.ready(code, kind: .code(language), depth: 0, category: style.contentSizeCategory) : nil
+            if let made, let text = made.text, let stack = made.stack {
+                host.holdRenderingColors(made.colors)
+                host.apply(text, style: hostStyle, prepared: stack, picture: made.picture)
+                if !made.colors.isEmpty { highlight.didShow(code) }
+            } else {
+                // Its fragments are made as its text goes in.
+                if !hostStyle.drawsTextUntilTouched, reveal == nil { offsetFragments(of: host.textView) }
+                host.apply(Self.text(lines: lines, code: code, metrics: metrics), style: hostStyle, reveal: reveal)
+            }
             hostIsShowing = true
         } else if shown != shownText {
-            host.update(text, style: hostStyle, reveal: reveal)
+            host.update(Self.text(lines: lines, code: code, metrics: metrics), style: hostStyle, reveal: reveal)
             // What changed wasn't only a tail: the old colours don't fit any more.
             if !shown.hasPrefix(shownText) { host.setRenderingColors([]) }
         } else {
             host.setReveal(reveal)
         }
         shownText = shown
+    }
+
+    /// The lines as text, on any thread.
+    nonisolated static func text(lines: MarkdownCodeLines, code: String, metrics: MarkdownCodeBoxMetrics) -> MarkdownText {
+        let shown = lines.lines.joined(separator: "\n")
+        return MarkdownText(
+            attributed: NSAttributedString(string: shown, attributes: MarkdownCodeBlockView.attributes(
+                font: metrics.font,
+                line: metrics.font.lineHeight,
+                scrolls: true,
+                rowHeight: metrics.pitch
+            )),
+            revealTotal: code.count,
+            storageToPlain: Array(0..<shown.count),
+            topEdgeInset: 0,
+            bottomEdgeInset: 0
+        )
     }
 
     // MARK: Highlighting
@@ -212,11 +224,20 @@ public final class MarkdownCodeBoxView: UIView, MarkdownCodeDisplay {
 
     /// Where the code's text starts, from the box's edge.
     private var codeStart: CGFloat {
-        MarkdownCodeBoxMetrics.border + gutterWidth + MarkdownCodeBoxMetrics.separator + metrics.codeLeading
+        Self.codeStart(lines: lines, metrics: metrics)
     }
 
     /// `codeStart` past a whole pixel: a view stands on pixels, and its fragments draw the rest.
-    private var codeOverhang: CGFloat { codeStart - markdownPixelFloor(codeStart) }
+    private var codeOverhang: CGFloat { Self.codeOverhang(lines: lines, metrics: metrics) }
+
+    nonisolated private static func codeStart(lines: MarkdownCodeLines, metrics: MarkdownCodeBoxMetrics) -> CGFloat {
+        MarkdownCodeBoxMetrics.border + metrics.gutterWidth(lines: lines.count) + MarkdownCodeBoxMetrics.separator + metrics.codeLeading
+    }
+
+    nonisolated static func codeOverhang(lines: MarkdownCodeLines, metrics: MarkdownCodeBoxMetrics) -> CGFloat {
+        let start = codeStart(lines: lines, metrics: metrics)
+        return start - markdownPixelFloor(start)
+    }
 
     /// Where the code goes: right of the gutter's line, inside the border.
     private var codeArea: CGRect {
@@ -271,6 +292,12 @@ public final class MarkdownCodeBoxView: UIView, MarkdownCodeDisplay {
     /// character is a plain one of a fixed width.
     private func longestLine() -> CGFloat {
         if let textWidth, textWidth.text == shownText { return textWidth.width }
+        let width = Self.longestLine(lines: lines, metrics: metrics)
+        textWidth = (shownText, width)
+        return width
+    }
+
+    nonisolated static func longestLine(lines: MarkdownCodeLines, metrics: MarkdownCodeBoxMetrics) -> CGFloat {
         let font = metrics.font
         let digit = metrics.digit
         var widest: CGFloat = 0
@@ -281,9 +308,7 @@ public final class MarkdownCodeBoxView: UIView, MarkdownCodeDisplay {
                 : (line as NSString).size(withAttributes: [.font: font]).width
             widest = max(widest, width)
         }
-        let width = markdownPixelCeil(widest + codeOverhang) + 1
-        textWidth = (shownText, width)
-        return width
+        return markdownPixelCeil(widest + codeOverhang(lines: lines, metrics: metrics)) + 1
     }
 
     // MARK: For a host

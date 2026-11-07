@@ -15,6 +15,7 @@
 //  `-chatCorpus text` a conversation of only text.
 //
 
+import MarkdownUIKit
 import SwiftUI
 import MessagingUI
 import Darwin
@@ -259,6 +260,7 @@ final class ChatBenchmark {
             await self.settle()
         }
 
+        ChatCards.hold(conversation.rows)
         await measure("scroll") {
             await self.sweep(reader: reader, conversation: conversation, distance: 20_000, speed: Self.scrollSpeed)
         }
@@ -496,6 +498,13 @@ final class ChatBenchmark {
             ("fcpu_over4", String(format: "%.4f", result.stats.frameCPU.over4ms)),
             ("fcpu_over8", String(format: "%.4f", result.stats.frameCPU.over8ms)),
             ("fcpu_over16", String(format: "%.4f", result.stats.frameCPU.over16ms)),
+            ("main_minstr", String(format: "%.0f", stats.frameWork.totalMillionInstructions)),
+            ("finstr_p50", String(format: "%.0f", stats.frameWork.instructionsP50)),
+            ("finstr_p95", String(format: "%.0f", stats.frameWork.instructionsP95)),
+            ("finstr_p99", String(format: "%.0f", stats.frameWork.instructionsP99)),
+            ("fcyc_p50", String(format: "%.0f", stats.frameWork.cyclesP50)),
+            ("fcyc_p95", String(format: "%.0f", stats.frameWork.cyclesP95)),
+            ("fcyc_p99", String(format: "%.0f", stats.frameWork.cyclesP99)),
             ("minstr", instructions / 1_000_000),
             ("mcycles", cycles / 1_000_000),
             ("frames", stats.frames),

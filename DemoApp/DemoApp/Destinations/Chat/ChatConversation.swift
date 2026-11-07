@@ -42,7 +42,11 @@ struct ChatRow: Identifiable, Equatable {
         case .block(let block):
             text = block.source
             revealCount = block.revealPlainTextCount
-            drawsInUIKit = known ?? ChatUIKitBlock.draws(block)
+            if case .customFence = block.kind {
+                drawsInUIKit = false
+            } else {
+                drawsInUIKit = known ?? ChatUIKitBlock.draws(block)
+            }
         }
     }
 
@@ -60,7 +64,7 @@ struct ChatRow: Identifiable, Equatable {
 final class ChatConversation {
     private struct Exchange {
         let id: Int
-        var splitter = MarkdownBlockSplitter()
+        var splitter = MarkdownBlockSplitter(customFence: { language, _ in language.hasPrefix("floo.") ? true : nil })
         /// Rows are built when the blocks change, not on every publish: an unchanged row
         /// keeps its id and text storage, so comparing it with the last publish is cheap.
         private(set) var rows: [ChatRow]

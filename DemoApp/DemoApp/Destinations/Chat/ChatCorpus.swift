@@ -87,8 +87,14 @@ enum ChatCorpus {
         prompts[index % prompts.count]
     }
 
+    /// `-chatCards YES`: every fifth reply ends in a card, a SwiftUI row among the UIKit ones.
+    static let hasCards = UserDefaults.standard.bool(forKey: "chatCards")
+    private static let cardNames = ["steps", "heart", "weather", "sleep", "rain", "cost"]
+
     static func reply(_ index: Int) -> String {
-        chosen[index % chosen.count]
+        let reply = chosen[index % chosen.count]
+        guard hasCards, index % 5 == 0 else { return reply }
+        return reply + "\n\n```floo.card\n" + cardNames[(index / 5) % cardNames.count] + "\n```\n"
     }
 
     /// Every reply back to back: a long answer to stream.

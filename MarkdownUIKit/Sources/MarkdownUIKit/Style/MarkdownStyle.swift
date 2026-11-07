@@ -211,6 +211,9 @@ public struct MarkdownStyle {
     /// Draws a block that isn't text inside text (a code fence in a quote). Nil keeps no room.
     public var nestedBlock: (@MainActor (_ block: any Markup, _ style: MarkdownStyle) -> RichTextAttachment?)?
 
+    /// Text made ahead for rows in this style, off the main thread; nil makes it as it shows.
+    public var preparedTexts: MarkdownPreparedTexts?
+
     /// Inside a quote: bold text and links black and white, not the theme's colour.
     var isQuoted = false
     /// Who hears that something in this text changed size by itself.

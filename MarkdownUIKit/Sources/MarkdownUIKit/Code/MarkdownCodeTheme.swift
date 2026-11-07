@@ -72,21 +72,20 @@ public extension FlooMotion {
 }
 
 /// One colour per token colour pair: a block has a dozen, however many tokens it has.
-@MainActor
 enum MarkdownCodeTokenColors {
     private struct Pair: Hashable {
         let light: MarkdownCodeColor
         let dark: MarkdownCodeColor
     }
 
-    private static var colors: [Pair: UIColor] = [:]
+    private static let colors = MarkdownLockedCache<Pair, UIColor>()
 
     static func color(light: MarkdownCodeColor, dark: MarkdownCodeColor) -> UIColor {
         let pair = Pair(light: light, dark: dark)
-        if let color = colors[pair] { return color }
+        if let color = colors.value(for: pair) { return color }
         let lightColor = uiColor(light), darkColor = uiColor(dark)
         let color = UIColor.floo(readable: UIColor { $0.userInterfaceStyle == .dark ? darkColor : lightColor })
-        colors[pair] = color
+        colors.set(color, for: pair)
         return color
     }
 

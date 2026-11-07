@@ -383,7 +383,7 @@ enum MarkdownSymbols {
 }
 
 /// A task's mark: filled and tinted when done, a ring in secondary when not.
-final class MarkdownTaskAttachment: MarkdownViewAttachment {
+final class MarkdownTaskAttachment: MarkdownViewAttachment, MarkdownFixedInlineAttachment {
     @MainActor
     init(id: AnyHashable, checked: Bool, size: CGFloat) {
         let view = MarkdownGlyphView()
@@ -401,7 +401,7 @@ final class MarkdownTaskAttachment: MarkdownViewAttachment {
 }
 
 /// A custom symbol bullet: a symbol on a disc `diameter` wide (the marker's width).
-final class MarkdownListSymbolAttachment: MarkdownViewAttachment {
+final class MarkdownListSymbolAttachment: MarkdownViewAttachment, MarkdownFixedInlineAttachment {
     @MainActor
     init(id: AnyHashable, systemName: String, diameter: CGFloat) {
         let view = MarkdownGlyphView()
@@ -426,7 +426,7 @@ final class MarkdownListSymbolAttachment: MarkdownViewAttachment {
 
 /// A custom link's leading symbol: at the text's size, in its colour, tapped as the link. Room
 /// after it is the NBSP in the text, which also holds it to the name at a line break.
-final class MarkdownInlineSymbolAttachment: MarkdownViewAttachment {
+final class MarkdownInlineSymbolAttachment: MarkdownViewAttachment, MarkdownFixedInlineAttachment {
     @MainActor
     init(id: AnyHashable, systemName: String, font: UIFont, color: UIColor, url: URL?, style: MarkdownStyle) {
         let view = MarkdownGlyphView()
@@ -448,7 +448,7 @@ final class MarkdownInlineSymbolAttachment: MarkdownViewAttachment {
 /// there's none. A square a little taller than the capitals, centred in the font's ascender to
 /// descender (set in it as glyphs are, it sits on the text's middle), with the same room each
 /// side whatever is beside it (CJK sets no space). Opens the link, as its text does.
-final class MarkdownSiteIconAttachment: MarkdownViewAttachment {
+final class MarkdownSiteIconAttachment: MarkdownViewAttachment, MarkdownFixedInlineAttachment {
     @MainActor
     init(id: AnyHashable, host: String, url: URL, font: UIFont, color: UIColor, style: MarkdownStyle) {
         let size = font.pointSize
@@ -482,7 +482,7 @@ final class MarkdownSiteIconAttachment: MarkdownViewAttachment {
 
 /// A citation chip: icon, label and "+N" in a capsule 18 high, pressed into the body's line box
 /// (a taller attachment would open the line up). Selects as one unit and copies as its label.
-final class MarkdownChipAttachment: MarkdownViewAttachment {
+final class MarkdownChipAttachment: MarkdownViewAttachment, MarkdownFixedInlineAttachment {
     private final class ChipView: MarkdownGlyphView {
         var label: NSAttributedString?
         var labelOrigin: CGPoint = .zero

@@ -149,9 +149,9 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate, M
 
     static let cornerRadius: CGFloat = 15
     /// A wrapped line's row: this above and below its text, 10 from each side.
-    static let lineInsets = UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
+    nonisolated static let lineInsets = UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
     /// A row when lines scroll sideways: no line in it wraps, so it's a fixed height.
-    static let scrollingRowHeight: CGFloat = 28
+    nonisolated static let scrollingRowHeight: CGFloat = 28
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -332,7 +332,7 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate, M
     /// taller than the monospaced font's own, and its wrapped lines are the font's: the difference
     /// goes under a paragraph, so text stays where the font puts it, and a line with a taller
     /// fallback font (Chinese in a comment) can grow.
-    static func attributes(font: UIFont, line: CGFloat, scrolls: Bool, rowHeight: CGFloat = scrollingRowHeight, rowPadding: CGFloat = lineInsets.top + lineInsets.bottom) -> [NSAttributedString.Key: Any] {
+    nonisolated static func attributes(font: UIFont, line: CGFloat, scrolls: Bool, rowHeight: CGFloat = scrollingRowHeight, rowPadding: CGFloat = lineInsets.top + lineInsets.bottom) -> [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
         if scrolls {
             paragraph.paragraphSpacing = rowHeight - font.lineHeight

@@ -24,10 +24,11 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
     /// The table changed height by itself: an image came in.
     var onHeightChange: (() -> Void)?
 
-    private let content = MarkdownTableContent()
+    private var content = MarkdownTableContent()
     private var style = MarkdownStyle()
     private var options: MarkdownTableOptions { style.table }
     private var metrics: MarkdownTableMetrics?
+    private var nextPrepared: MarkdownPreparedTable?
     private var geometries: [CGFloat: MarkdownTableGeometry] = [:]
     private var shown: MarkdownTableGeometry?
 
@@ -121,6 +122,8 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
         var given = style
         given.drawsTextUntilTouched = false
         let oldKey = self.style.table.textKey
+        let prepared = takePrepared()
+        if let prepared { content = prepared.content }
         guard content.update(source: source, style: given, inlineMath: inlineMath, displayMath: displayMath) else { return false }
         self.style = given
         metrics = MarkdownTableMetrics(options: given.table)
@@ -131,6 +134,7 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
             syncReplaced()
             syncHosts()
         }
+        if let prepared { geometries[prepared.width] = prepared.geometry }
         placeScroller()
         tapRecognizerUpdate()
         follow(reveal)
@@ -138,6 +142,16 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
         setNeedsLayout()
         if let changed { pendingChangedRow = min(pendingChangedRow ?? changed, changed) }
         return true
+    }
+
+    /// What the next `configure` starts from.
+    func willConfigure(prepared: MarkdownPreparedTable?) {
+        nextPrepared = prepared
+    }
+
+    private func takePrepared() -> MarkdownPreparedTable? {
+        defer { nextPrepared = nil }
+        return nextPrepared
     }
 
     /// A reveal coming to or leaving what shows, with no relayout.

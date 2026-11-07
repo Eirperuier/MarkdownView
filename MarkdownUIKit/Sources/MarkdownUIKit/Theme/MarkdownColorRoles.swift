@@ -180,10 +180,17 @@ public extension UIColor {
 
 public enum MarkdownColorTraits {
     /// The traits a colour here reads: to redraw what holds a resolved colour.
-    public static var all: [UITrait] {
-        UITraitCollection.systemTraitsAffectingColorAppearance + [
-            FlooThemeTrait.self, FlooAppearanceTrait.self, FlooOverGlassTrait.self, FlooSurfaceTrait.self,
-        ]
+    public static let all: [UITrait] = UITraitCollection.systemTraitsAffectingColorAppearance + [
+        FlooThemeTrait.self, FlooAppearanceTrait.self, FlooOverGlassTrait.self, FlooSurfaceTrait.self,
+    ]
+
+    /// Whether a colour here comes out the same under both.
+    static func resolveAlike(_ first: UITraitCollection, _ second: UITraitCollection) -> Bool {
+        !first.hasDifferentColorAppearance(comparedTo: second)
+            && first[FlooThemeTrait.self] == second[FlooThemeTrait.self]
+            && first[FlooAppearanceTrait.self] == second[FlooAppearanceTrait.self]
+            && first[FlooOverGlassTrait.self] == second[FlooOverGlassTrait.self]
+            && first[FlooSurfaceTrait.self] == second[FlooSurfaceTrait.self]
     }
 }
 

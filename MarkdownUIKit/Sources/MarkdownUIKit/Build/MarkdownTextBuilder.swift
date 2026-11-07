@@ -23,8 +23,42 @@ public struct MarkdownText {
     public let bottomEdgeInset: CGFloat
 }
 
-@MainActor
+/// Whether a text built off the main thread met something only that thread can make.
+final class MarkdownBuildGate: @unchecked Sendable {
+    var needsMainThread = false
+}
+
+/// A cache text being built on any thread can share.
+final class MarkdownLockedCache<Key: Hashable, Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Key: Value] = [:]
+
+    func value(for key: Key) -> Value? {
+        lock.lock()
+        defer { lock.unlock() }
+        return values[key]
+    }
+
+    func set(_ value: Value, for key: Key) {
+        lock.lock()
+        defer { lock.unlock() }
+        values[key] = value
+    }
+}
+
+/// What the main thread made, on its way out of `MainActor.assumeIsolated`.
+struct MarkdownMainThreadMade<Value>: @unchecked Sendable {
+    let value: Value
+}
+
 public enum MarkdownTextBuilder {
+    /// The same off the main thread: nil if the text has what only that thread can make.
+    static func buildOffMain(markdown: String, style: MarkdownStyle, listDepthOffset: Int, inlineMath: [String: String]?, displayMath: [UUID: String]?) -> MarkdownText? {
+        let gate = MarkdownBuildGate()
+        let text = build(markdown: markdown, style: style, listDepthOffset: listDepthOffset, inlineMath: inlineMath, displayMath: displayMath, gate: gate)
+        return gate.needsMainThread ? nil : text
+    }
+
     /// - Parameters:
     ///   - listDepthOffset: added to list depth, for an item re-parsed alone.
     ///   - plainOffsetBase: where this text starts in plain, for a fragment of a block.
@@ -37,6 +71,18 @@ public enum MarkdownTextBuilder {
         plainOffsetBase: Int = 0,
         inlineMath: [String: String]? = nil,
         displayMath: [UUID: String]? = nil
+    ) -> MarkdownText {
+        build(markdown: markdown, style: style, listDepthOffset: listDepthOffset, plainOffsetBase: plainOffsetBase, inlineMath: inlineMath, displayMath: displayMath, gate: MarkdownBuildGate())
+    }
+
+    private static func build(
+        markdown: String,
+        style: MarkdownStyle,
+        listDepthOffset: Int = 0,
+        plainOffsetBase: Int = 0,
+        inlineMath: [String: String]? = nil,
+        displayMath: [UUID: String]? = nil,
+        gate: MarkdownBuildGate
     ) -> MarkdownText {
         // Maths out: `$…$` to a placeholder and its LaTeX to storage.
         var inlineStorage = inlineMath ?? [:]
@@ -72,7 +118,8 @@ public enum MarkdownTextBuilder {
             plainOffsetBase: plainOffsetBase,
             inlineMath: inlineStorage,
             displayMath: displayStorage,
-            inlineFootnoteTokens: tokens
+            inlineFootnoteTokens: tokens,
+            gate: gate
         )
     }
 
@@ -104,7 +151,8 @@ public enum MarkdownTextBuilder {
         plainOffsetBase: Int,
         inlineMath: [String: String],
         displayMath: [UUID: String],
-        inlineFootnoteTokens: [Int: MarkdownFootnoteSyntax.InlineToken]
+        inlineFootnoteTokens: [Int: MarkdownFootnoteSyntax.InlineToken],
+        gate: MarkdownBuildGate = MarkdownBuildGate()
     ) -> MarkdownText {
         let visitor = MarkdownTextVisitor(
             style: style,
@@ -113,13 +161,15 @@ public enum MarkdownTextBuilder {
             displayMathStorage: displayMath,
             inlineFootnoteTokens: inlineFootnoteTokens,
             listDepthOffset: listDepthOffset,
-            plainOffsetBase: plainOffsetBase
+            plainOffsetBase: plainOffsetBase,
+            gate: gate
         )
         let made = visitor.makeText(document)
         // Decorations before anchors: a decoration only changes attributes and uses the map
         // as it is; an anchor moves storage.
         applyRangeDecorations(style.rangeDecorations, to: made.text, storageToPlain: made.storageToPlain)
-        let map = insertAnchors(style.inlineAnchors, into: made.text, storageToPlain: made.storageToPlain, style: style)
+        if !style.inlineAnchors.isEmpty, !Thread.isMainThread { gate.needsMainThread = true }
+        let map = gate.needsMainThread ? made.storageToPlain : insertAnchors(style.inlineAnchors, into: made.text, storageToPlain: made.storageToPlain, style: style)
 
         let children = Array(document.children)
         // An extended heading's subtitle is drawn a level down: its bottom room is that level's.
@@ -194,7 +244,10 @@ public enum MarkdownTextBuilder {
             let offsets = text.string.characterUTF16Offsets
             let location = lo < offsets.count ? offsets[lo] : text.length
             // A way in, not content: it doesn't copy.
-            let attachment = MarkdownBubbleAttachment(id: AnyHashable(1_000_000 + sequence), size: bubbleSize, url: anchor.url, style: style)
+            nonisolated(unsafe) let style = style
+            let attachment = MainActor.assumeIsolated {
+                MarkdownMainThreadMade(value: MarkdownBubbleAttachment(id: AnyHashable(1_000_000 + sequence), size: bubbleSize, url: anchor.url, style: style))
+            }.value
             text.insert(NSAttributedString(string: "\u{FFFC}", attributes: [
                 .attachment: attachment,
                 .inlineHostingAttachment: attachment,

@@ -69,7 +69,7 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
     private static let drawsText = UserDefaults.standard.bool(forKey: "chatDrawsText")
 
     /// The row's style. Links open as a SwiftUI row's do; under a probe they're only told.
-    static var style: MarkdownStyle {
+    static let style: MarkdownStyle = {
         var style = MarkdownStyle()
         style.drawsTextUntilTouched = drawsText
         // The box by default; `-chatCodeLook header` for what tests the header.
@@ -80,7 +80,7 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
             style.openURL = { ChatProbe.tellLink($0) }
         }
         return style
-    }
+    }()
 
     static func makeRowView() -> ChatUIKitRowView {
         ChatUIKitRowView()
@@ -93,7 +93,16 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
 
     func configure(_ view: ChatUIKitRowView, context: TiledUIKitCellContext) {
         view.onHeightChange = { context.heightDidChange() }
-        view.show(id: id, block: block, reveal: reveal, renderedHeights: renderedHeights)
+        view.show(id: id, block: block, reveal: reveal, renderedHeights: renderedHeights, traits: context.traits)
+    }
+
+    func isPreparingAhead(forWidth width: CGFloat, traits: UITraitCollection) -> Bool {
+        ChatUIKitBlockViews.isPreparing(block: block, width: width, traits: traits)
+    }
+
+    func prepareAhead(forWidth width: CGFloat, traits: UITraitCollection) {
+        guard !isStreaming else { return }
+        ChatUIKitBlockViews.prepare(block: block, width: width, traits: traits)
     }
 
     func height(forWidth width: CGFloat, traits: UITraitCollection) -> CGFloat {
@@ -240,11 +249,11 @@ final class ChatUIKitRowView: UIView {
     private weak var renderedHeights: ChatRenderedHeights?
     var onHeightChange: (() -> Void)?
 
-    func show(id: String, block: MarkdownStreamBlock, reveal: MarkdownReveal?, renderedHeights: ChatRenderedHeights) {
+    func show(id: String, block: MarkdownStreamBlock, reveal: MarkdownReveal?, renderedHeights: ChatRenderedHeights, traits: UITraitCollection) {
         self.renderedHeights = renderedHeights
         if rowID != id { reset() }
         rowID = id
-        let view = ChatUIKitBlockViews.view(id: id, block: block, reveal: reveal, traits: traitCollection)
+        let view = ChatUIKitBlockViews.view(id: id, block: block, reveal: reveal, traits: traits)
         view.onHeightChange = { [weak self] in
             self?.setNeedsLayout()
             self?.onHeightChange?()
@@ -253,10 +262,12 @@ final class ChatUIKitRowView: UIView {
             addSubview(view)
             blockView = view
         }
+        FrameMarks.note(String(describing: block.descriptor.kind).prefix(9))
         setNeedsLayout()
     }
 
     func reset() {
+        if blockView != nil { FrameMarks.note("left") }
         blockView?.onHeightChange = nil
         blockView?.setReveal(nil)
         blockView?.removeFromSuperview()
@@ -332,7 +343,14 @@ enum ChatUIKitBlockViews {
     static func height(id: String, block: MarkdownStreamBlock, reveal: MarkdownReveal?, width: CGFloat, traits: UITraitCollection) -> CGFloat {
         let key = HeightKey(id: id, source: block.source, width: width, category: traits.preferredContentSizeCategory)
         if let height = heights[key] { return height }
-        let inner = view(id: id, block: block, reveal: reveal, traits: traits).height(forWidth: ChatUIKitRowLayout.textWidth(in: width))
+        let textWidth = ChatUIKitRowLayout.textWidth(in: width)
+        let inner: CGFloat
+        if reveal == nil, entries[id] == nil, let made = preparedTexts.height(of: block, style: style(traits), width: textWidth) {
+            inner = made
+        } else {
+            FrameMarks.note("measured " + String(describing: block.descriptor.kind).prefix(9))
+            inner = view(id: id, block: block, reveal: reveal, traits: traits).height(forWidth: textWidth)
+        }
         let scale = max(1, traits.displayScale)
         let height = ((inner + ChatUIKitRowLayout.verticalPadding * 2) * scale).rounded(.up) / scale
         // An image's height comes late: the block keeps it, and knows when it's changed.
@@ -340,8 +358,20 @@ enum ChatUIKitBlockViews {
         return height
     }
 
+    private static let preparedTexts = MarkdownPreparedTexts()
+
+    static func isPreparing(block: MarkdownStreamBlock, width: CGFloat, traits: UITraitCollection) -> Bool {
+        preparedTexts.isPending(block, style: style(traits), width: ChatUIKitRowLayout.textWidth(in: width))
+    }
+
+    /// A row the list expects to show soon.
+    static func prepare(block: MarkdownStreamBlock, width: CGFloat, traits: UITraitCollection) {
+        preparedTexts.request(block, style: style(traits), width: ChatUIKitRowLayout.textWidth(in: width), traits: traits)
+    }
+
     private static func style(_ traits: UITraitCollection) -> MarkdownStyle {
         var style = ChatUIKitBlock.style
+        style.preparedTexts = preparedTexts
         if traits.preferredContentSizeCategory != .unspecified {
             style.contentSizeCategory = traits.preferredContentSizeCategory
         }

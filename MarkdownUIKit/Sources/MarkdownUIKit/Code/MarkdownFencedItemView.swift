@@ -42,7 +42,7 @@ final class MarkdownFencedItemView: UIView {
         var startsWithFence: Bool
     }
 
-    static func split(_ source: String) -> Split? {
+    nonisolated static func split(_ source: String) -> Split? {
         guard source.contains("```") || source.contains("~~~") else { return nil }
         let lines = source.components(separatedBy: "\n")
         // `- ```swift`: the fence is on the marker's line. Its closing line isn't the fence.
@@ -62,7 +62,7 @@ final class MarkdownFencedItemView: UIView {
     }
 
     /// The rest loses its common indent and becomes top level; the view restores the indent.
-    private static func dedented(_ lines: [String], keepingFirst: Bool = false) -> String {
+    nonisolated private static func dedented(_ lines: [String], keepingFirst: Bool = false) -> String {
         let measured = (keepingFirst ? Array(lines.dropFirst()) : lines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         let indent = measured.map { $0.prefix(while: { $0 == " " }).count }.min() ?? 0
         return lines.enumerated().map { index, line in

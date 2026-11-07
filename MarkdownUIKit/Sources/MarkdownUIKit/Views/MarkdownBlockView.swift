@@ -331,13 +331,16 @@ public final class MarkdownBlockView: UIView {
 
     private func showTable(_ source: String, style: MarkdownStyle, block: MarkdownStreamBlock) {
         let view: MarkdownTableView
+        var isShown = false
         if case .table(let shown) = layout {
             view = shown
+            isShown = true
         } else {
             view = MarkdownTableView()
             view.onHeightChange = { [weak self] in self?.contentChangedHeight() }
             addSubview(view)
         }
+        if reveal == nil, !isShown { view.willConfigure(prepared: style.preparedTexts?.takeTable(source, category: style.contentSizeCategory)) }
         if view.configure(source: source, style: style, reveal: reveal, inlineMath: block.inlineMathStorage, displayMath: block.displayMathStorage) {
             layout = .table(view)
         } else {
@@ -373,15 +376,39 @@ public final class MarkdownBlockView: UIView {
         mathGate.follow(reveal?.manager)
     }
 
-    private static func directiveFormula(_ source: String, in storage: [UUID: String]?) -> String? {
+    /// The formula a block of one formula shows, as `apply` finds it.
+    nonisolated static func displayFormula(of block: MarkdownStreamBlock) -> String? {
+        let source = block.descriptor.sourceText
+        switch block.descriptor.kind {
+        case .blockDirective(let name) where name == MarkdownTree.mathAttribute:
+            return directiveFormula(source, in: block.displayMathStorage)
+        case .mathBlock:
+            return MathParser.standaloneDisplayMath(in: source, unescapingCommonMarkEscapes: true)
+        default:
+            return nil
+        }
+    }
+
+    nonisolated private static func directiveFormula(_ source: String, in storage: [UUID: String]?) -> String? {
         guard let storage, let start = source.range(of: "uuid:") else { return nil }
         let rest = source[start.upperBound...]
         let value = rest.prefix { $0 != ")" }.trimmingCharacters(in: .whitespaces)
         return UUID(uuidString: value).flatMap { storage[$0] }
     }
 
+    /// Whether a block of the kinds drawn as text draws otherwise: a line per footnote, or a code
+    /// fence in an item.
+    nonisolated static func drawsApart(_ descriptor: MarkdownBlockDescriptor) -> Bool {
+        switch descriptor.kind {
+        case .paragraph: footnoteDefinitionLines(descriptor.sourceText) != nil
+        case .orderedList, .unorderedList: fencedSplit(descriptor) != nil
+        default: false
+        }
+    }
+
     private func showText(_ source: String, depth: Int, style: MarkdownStyle, block: MarkdownStreamBlock?) {
-        let text = MarkdownTextBuilder.build(markdown: source, style: style, listDepthOffset: depth, inlineMath: block?.inlineMathStorage, displayMath: block?.displayMathStorage)
+        let made = block == nil ? nil : style.preparedTexts?.ready(source, depth: depth, category: style.contentSizeCategory)
+        let text = made?.text ?? MarkdownTextBuilder.build(markdown: source, style: style, listDepthOffset: depth, inlineMath: block?.inlineMathStorage, displayMath: block?.displayMathStorage)
         let shown: MarkdownTextHost?
         if case .text(let host, _) = layout { shown = host } else { shown = nil }
         let host = shown ?? MarkdownTextHost(textView: !style.drawsTextUntilTouched)
@@ -389,7 +416,7 @@ public final class MarkdownBlockView: UIView {
             host.insets = UIEdgeInsets(top: text.topEdgeInset, left: 0, bottom: text.bottomEdgeInset, right: 0)
         }
         if shown == nil {
-            host.apply(text, style: style, reveal: reveal)
+            host.apply(text, style: style, reveal: reveal, prepared: made?.stack, picture: made?.picture)
             addSubview(host.view)
         } else {
             host.update(text, style: style, reveal: reveal)
@@ -399,7 +426,7 @@ public final class MarkdownBlockView: UIView {
     }
 
     /// A list item with a code fence, by what's before it and what's from it on.
-    private static func fencedSplit(_ descriptor: MarkdownBlockDescriptor) -> MarkdownFencedItemView.Split? {
+    nonisolated private static func fencedSplit(_ descriptor: MarkdownBlockDescriptor) -> MarkdownFencedItemView.Split? {
         guard descriptor.listItemContext != nil else { return nil }
         return MarkdownFencedItemView.split(descriptor.sourceText)
     }
@@ -461,7 +488,7 @@ public final class MarkdownBlockView: UIView {
     // MARK: Footnotes
 
     /// By definition line (a continuation joins the line before); nil unless the first is one.
-    private static func footnoteDefinitionLines(_ source: String) -> [String]? {
+    nonisolated private static func footnoteDefinitionLines(_ source: String) -> [String]? {
         let lines = source.components(separatedBy: "\n")
         guard let first = lines.first, MarkdownFootnoteIndex.definitionLine(first) != nil else { return nil }
         var groups: [String] = []

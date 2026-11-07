@@ -19,7 +19,6 @@ struct MarkdownTableMetrics {
     /// The line between rows.
     let separator: CGFloat
 
-    @MainActor
     init(options: MarkdownTableOptions) {
         if options.scrollsSideways {
             padding = options.cellPadding ?? UIEdgeInsets(top: 13, left: 0, bottom: 13, right: 8)
@@ -91,7 +90,6 @@ struct MarkdownTableGeometry {
     }
 }
 
-@MainActor
 enum MarkdownTableMeasure {
     /// How text takes room. Text a text view shows is measured by it.
     private static let options: NSStringDrawingOptions = [.usesLineFragmentOrigin]
@@ -126,7 +124,9 @@ enum MarkdownTableMeasure {
         if let natural = cell.natural { return natural }
         let size: CGSize
         if cell.needsTextView, let host = host(cell) {
-            size = host.textView.fittingSize(proposedWidth: unlimited, proposedHeight: nil)
+            // A host only ever comes on the main thread.
+            nonisolated(unsafe) let host = host
+            size = MainActor.assumeIsolated { host.textView.fittingSize(proposedWidth: unlimited, proposedHeight: nil) }
         } else {
             size = cell.drawing.boundingRect(with: CGSize(width: unlimited, height: unlimited), options: options, context: nil).size
         }
@@ -142,7 +142,8 @@ enum MarkdownTableMeasure {
         if natural.width <= width + textWidthSlack {
             raw = natural
         } else if cell.needsTextView, let host = host(cell) {
-            raw = host.textView.fittingSize(proposedWidth: width, proposedHeight: nil)
+            nonisolated(unsafe) let host = host
+            raw = MainActor.assumeIsolated { host.textView.fittingSize(proposedWidth: width, proposedHeight: nil) }
         } else {
             raw = cell.drawing.boundingRect(with: CGSize(width: width, height: unlimited), options: options, context: nil).size
         }

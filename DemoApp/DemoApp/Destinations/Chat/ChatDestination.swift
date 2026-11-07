@@ -6,6 +6,9 @@
 //  replies, block selection over the list and a benchmark.
 //
 
+import CardModel
+import CardRuntime
+import CardUI
 import SwiftUI
 import MarkdownView
 import MessagingUI
@@ -141,6 +144,7 @@ struct ChatDestination: View {
                 return ChatUIKitBlock(id: row.id, block: block, isStreaming: row.isStreaming, conversation: conversation, renderedHeights: renderedHeights)
             }
         }
+        .itemPrepareAhead { row in ChatCards.prepare(row) }
         .prependLoader(conversation.hasOlder ? .loader(perform: { [conversation] in
             await conversation.loadOlder(Self.pageSize, latency: Self.pageLatency)
         }) {
@@ -262,6 +266,15 @@ private struct ChatRowView: View {
 
     @ViewBuilder
     private func blockView(_ block: MarkdownStreamBlock) -> some View {
+        if case .customFence = block.kind {
+            ChatCardRow(id: row.id, block: block)
+        } else {
+            textBlockView(block)
+        }
+    }
+
+    @ViewBuilder
+    private func textBlockView(_ block: MarkdownStreamBlock) -> some View {
         let view = MarkdownStreamBlockView(block)
             // Rows are measured off screen before they show; math needs its real height then.
             .markdownDisplayMathRendersSynchronously()
@@ -278,5 +291,54 @@ private struct ChatRowView: View {
         } else {
             view
         }
+    }
+}
+
+/// A card in a chat: its language's source through CardView, in SwiftUI, as floo's chat draws it.
+private struct ChatCardRow: View {
+    let id: String
+    let block: MarkdownStreamBlock
+
+    var body: some View {
+        if let session = ChatCards.session(row: id, source: block.source) {
+            CardFrame(layout: CardLayout(size: .summary).fitted, widens: true) {
+                CardView(tree: session.tree)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardPreparer(ChatCards.preparer)
+        }
+    }
+}
+
+@MainActor
+enum ChatCards {
+    private static var sessions: [String: CardSession] = [:]
+    static let preparer = CardPreparer()
+
+    /// A card the list expects to show soon.
+    static func prepare(_ row: ChatRow) {
+        guard case .block(let block) = row.kind, case .customFence = block.kind,
+              let session = session(row: row.id, source: block.source) else { return }
+        preparer.prepare(session, size: .summary)
+    }
+
+    /// As a conversation holds its cards: evaluated before any is shown.
+    static func hold(_ rows: [ChatRow]) {
+        for row in rows {
+            if case .block(let block) = row.kind, case .customFence = block.kind {
+                _ = session(row: row.id, source: block.source)
+            }
+        }
+    }
+
+    static func session(row: String, source: String) -> CardSession? {
+        if let session = sessions[row] { return session }
+        let lines = source.split(separator: "\n").map(String.init)
+        guard let name = lines.dropFirst().first(where: { !$0.hasPrefix("```") }), let spec = FlooDemoCards.all[name] else { return nil }
+        let session = CardSession(data: FlooDemo.value(spec.data))
+        session.append(spec.source)
+        session.finish()
+        sessions[row] = session
+        return session
     }
 }

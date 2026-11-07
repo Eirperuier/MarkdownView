@@ -13,7 +13,6 @@ import MarkdownCore
 import RichTextCore
 import UIKit
 
-@MainActor
 enum MarkdownMath {
     /// The formula's pieces. `latex` is as written, with its delimiters; a tree's has none.
     static func piece(latex: String, kind: LaTeXMathPiece.Kind, xHeight: CGFloat, foreground: String) -> LaTeXMathPiece? {
@@ -176,46 +175,28 @@ final class MarkdownMathSourceView: UIView {
 }
 
 /// A formula in a line of text: one storage character, selected with the text around it. Copies
-/// as it was written, so pasting brings the formula back.
-final class MarkdownInlineMathAttachment: RichTextAttachment {
-    private let container: UIView
-    private let fittedSize: (CGSize) -> CGSize
+/// as it was written, so pasting brings the formula back. Made on any thread: its view waits for
+/// a text view to ask, and drawn text draws it instead.
+final class MarkdownInlineMathAttachment: RichTextAttachment, MarkdownFixedInlineAttachment, MarkdownDrawnInlineAttachment, @unchecked Sendable {
+    private let latex: String
     private let source: String
+    private let textFont: UIFont
+    private let xHeight: CGFloat
+    private let piece: LaTeXMathPiece?
+    private let imageLayout: (size: CGSize, imageOrigin: CGPoint)?
+    @MainActor private var container: UIView?
 
-    @MainActor
     init(id: AnyHashable, latex: String, style: MarkdownStyle) {
-        let textFont = MarkdownMath.font(.body, style: style)
-        let xHeight = MarkdownMath.font(style.inlineMathTextStyle, style: style).xHeight
+        textFont = MarkdownMath.font(.body, style: style)
+        xHeight = MarkdownMath.font(style.inlineMathTextStyle, style: style).xHeight
+        self.latex = latex
         let piece = MarkdownMath.piece(latex: latex, kind: .inlineEquation, xHeight: xHeight, foreground: MarkdownMath.foreground(in: UITraitCollection.current))
+        self.piece = piece
         source = latex.hasPrefix("$") || latex.hasPrefix("\\") ? latex : "$\(latex)$"
-        container = UIView()
-        container.isUserInteractionEnabled = false
-        container.clipsToBounds = true
         if let piece, let metrics = piece.metrics, piece.image != nil {
-            // TextKit puts the formula at a fractional place and the layer stays there: its
-            // snapped edge would cut a row of the image.
-            let view = MarkdownMathImageView()
-            view.imageMargin = 1
-            view.show(piece, latex: latex, xHeight: xHeight)
-            let layout = Self.layout(image: metrics.imageSize, offset: metrics.baselineOffset, font: textFont)
-            view.frame = CGRect(origin: layout.imageOrigin, size: metrics.imageSize).insetBy(dx: -view.imageMargin, dy: -view.imageMargin)
-            container.addSubview(view)
-            fittedSize = { _ in layout.size }
+            imageLayout = Self.layout(image: metrics.imageSize, offset: metrics.baselineOffset, font: textFont)
         } else {
-            let text = NSAttributedString(
-                string: (piece?.originalText ?? latex).trimmingCharacters(in: .newlines),
-                attributes: [.font: textFont, .foregroundColor: UIColor.floo(.markdownMath)]
-            )
-            let view = MarkdownMathSourceView()
-            view.text = text
-            view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            container.addSubview(view)
-            fittedSize = { proposal in
-                let size = text.boundingRect(with: CGSize(width: proposal.width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).size
-                // Its last line is a last line's height, not a whole step.
-                let height = size.height - MarkdownMath.lineStep(textFont) + MarkdownMath.lastLine(textFont).height
-                return CGSize(width: markdownPixelCeil(size.width), height: markdownPixelCeil(height))
-            }
+            imageLayout = nil
         }
         super.init(id: id, sizing: .fittingLineFragment)
     }
@@ -226,7 +207,6 @@ final class MarkdownInlineMathAttachment: RichTextAttachment {
 
     /// As a line of text holds the image: the line's room for it, moved by the formula's offset
     /// from the baseline, which makes the box taller by that much.
-    @MainActor
     private static func layout(image: CGSize, offset: CGFloat, font: UIFont) -> (size: CGSize, imageOrigin: CGPoint) {
         let last = MarkdownMath.lastLine(font)
         let line = max(last.height, image.height + last.below)
@@ -235,16 +215,65 @@ final class MarkdownInlineMathAttachment: RichTextAttachment {
         return (CGSize(width: markdownPixelCeil(image.width), height: height), CGPoint(x: 0, y: markdownPixelRound(top)))
     }
 
-    @MainActor
-    override var contentView: UIView { container }
+    override var fixedSize: CGSize? { imageLayout?.size }
+
+    func draw(in box: CGRect) {
+        guard let imageLayout, let piece, let metrics = piece.metrics, let image = piece.image else { return }
+        let rect = CGRect(x: box.minX + imageLayout.imageOrigin.x, y: box.minY + imageLayout.imageOrigin.y, width: metrics.imageSize.width, height: metrics.imageSize.height)
+        guard case .baked(let foreground) = piece.color else {
+            image.withTintColor(UIColor.floo(.markdownMath).resolvedColor(with: UITraitCollection.current), renderingMode: .alwaysOriginal).draw(in: rect)
+            return
+        }
+        let wanted = MarkdownMath.foreground(in: UITraitCollection.current)
+        let shown = wanted == foreground ? image : MarkdownMath.piece(latex: latex, kind: piece.kind, xHeight: xHeight, foreground: wanted)?.image
+        shown?.withRenderingMode(.alwaysOriginal).draw(in: rect)
+    }
 
     @MainActor
-    override func sizeThatFits(in proposal: CGSize) -> CGSize? { fittedSize(proposal) }
+    override var contentView: UIView {
+        if let container { return container }
+        let container = UIView()
+        container.isUserInteractionEnabled = false
+        container.clipsToBounds = true
+        if let piece, let metrics = piece.metrics, let imageLayout {
+            // TextKit puts the formula at a fractional place and the layer stays there: its
+            // snapped edge would cut a row of the image.
+            let view = MarkdownMathImageView()
+            view.imageMargin = 1
+            view.show(piece, latex: latex, xHeight: xHeight)
+            view.frame = CGRect(origin: imageLayout.imageOrigin, size: metrics.imageSize).insetBy(dx: -view.imageMargin, dy: -view.imageMargin)
+            container.addSubview(view)
+        } else {
+            let view = MarkdownMathSourceView()
+            view.text = sourceText
+            view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            container.addSubview(view)
+        }
+        self.container = container
+        return container
+    }
+
+    private var sourceText: NSAttributedString {
+        NSAttributedString(
+            string: (piece?.originalText ?? latex).trimmingCharacters(in: .newlines),
+            attributes: [.font: textFont, .foregroundColor: UIColor.floo(.markdownMath)]
+        )
+    }
+
+    @MainActor
+    override func sizeThatFits(in proposal: CGSize) -> CGSize? {
+        if let imageLayout { return imageLayout.size }
+        let text = sourceText
+        let size = text.boundingRect(with: CGSize(width: proposal.width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).size
+        // Its last line is a last line's height, not a whole step.
+        let height = size.height - MarkdownMath.lineStep(textFont) + MarkdownMath.lastLine(textFont).height
+        return CGSize(width: markdownPixelCeil(size.width), height: markdownPixelCeil(height))
+    }
 
     override func replacementText() -> NSAttributedString? { NSAttributedString(string: source) }
 }
 
-/// A formula on its own: in a horizontal scroller as wide as the text, with blank lines above and
+/// A formula on its own: in a horizontal scroller if it's wider than the text, with blank lines above and
 /// below it, centred in the height set aside for it, at the leading edge. Its height is known at
 /// once if it's drawn at once, or else it starts at the height set aside and may grow.
 @MainActor
@@ -252,9 +281,14 @@ final class MarkdownDisplayMathView: UIView {
     /// The height changed, after the formula came in late.
     var onHeightChange: (() -> Void)?
 
-    private let scroller = UIScrollView()
+    private var scroller: UIScrollView?
     private let imageView = MarkdownMathImageView()
-    private let sourceView = MarkdownMathSourceView()
+    private lazy var sourceView: MarkdownMathSourceView = {
+        let view = MarkdownMathSourceView()
+        (scroller ?? self).addSubview(view)
+        return view
+    }()
+    private var hasSourceView = false
     private var contentSize = CGSize.zero
     private var reserved: CGFloat = 0
     private var imageTop: CGFloat = 0
@@ -263,13 +297,7 @@ final class MarkdownDisplayMathView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        scroller.showsVerticalScrollIndicator = false
-        scroller.alwaysBounceVertical = false
-        scroller.contentInsetAdjustmentBehavior = .never
-        scroller.clipsToBounds = true
-        addSubview(scroller)
-        scroller.addSubview(imageView)
-        scroller.addSubview(sourceView)
+        addSubview(imageView)
     }
 
     required init?(coder: NSCoder) {
@@ -301,28 +329,34 @@ final class MarkdownDisplayMathView: UIView {
         }
     }
 
+    /// How tall a formula's image makes it, with the blank lines, on any thread.
+    nonisolated static func contentHeight(image: CGSize, font: UIFont) -> CGFloat {
+        let line = MarkdownMath.lineStep(font)
+        let imageLine = max(line, image.height + MarkdownMath.belowBaseline(font))
+        return markdownPixelCeil(line + imageLine + markdownPixelCeil(MarkdownMath.lastLine(font).height))
+    }
+
     private func show(_ piece: LaTeXMathPiece?, latex: String, font: UIFont, isPlaceholder: Bool = false) {
         let line = MarkdownMath.lineStep(font)
         let last = markdownPixelCeil(MarkdownMath.lastLine(font).height)
         if isPlaceholder {
             imageView.isHidden = true
-            sourceView.isHidden = true
+            if hasSourceView { sourceView.isHidden = true }
             contentSize = .zero
         } else if let piece, let metrics = piece.metrics, piece.image != nil {
             imageView.isHidden = false
-            sourceView.isHidden = true
+            if hasSourceView { sourceView.isHidden = true }
             imageView.show(piece, latex: latex, xHeight: font.xHeight)
             let image = metrics.imageSize
-            let below = MarkdownMath.belowBaseline(font)
-            let imageLine = max(line, image.height + below)
             // A tall formula goes up into the leading between the lines, down to the first
             // line's text.
             imageTop = max(MarkdownMath.secondBaseline(font) - image.height, MarkdownMath.lastLine(font).height)
-            contentSize = CGSize(width: image.width, height: markdownPixelCeil(line + imageLine + last))
+            contentSize = CGSize(width: image.width, height: Self.contentHeight(image: image, font: font))
             imageSize = image
         } else {
             // What LaTeX can't read: its source with the blank lines, in the formula's place.
             imageView.isHidden = true
+            hasSourceView = true
             sourceView.isHidden = false
             let text = NSAttributedString(
                 string: "\n\(piece?.originalText ?? latex)\n",
@@ -343,11 +377,37 @@ final class MarkdownDisplayMathView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        scroller.frame = bounds
+        placeScroller()
         let top = (bounds.height - contentSize.height) / 2
-        scroller.contentSize = CGSize(width: contentSize.width, height: bounds.height)
         imageView.frame = CGRect(x: 0, y: markdownPixelRound(top + imageTop), width: imageSize.width, height: imageSize.height)
-        sourceView.frame = CGRect(x: 0, y: markdownPixelRound(top), width: contentSize.width, height: contentSize.height)
+        if hasSourceView {
+            sourceView.frame = CGRect(x: 0, y: markdownPixelRound(top), width: contentSize.width, height: contentSize.height)
+        }
+    }
+
+    /// Only for what's too wide: a scroll view is the most a row costs.
+    private func placeScroller() {
+        let contents: [UIView] = hasSourceView ? [imageView, sourceView] : [imageView]
+        guard contentSize.width > bounds.width else {
+            if let scroller {
+                contents.forEach { addSubview($0) }
+                scroller.removeFromSuperview()
+                self.scroller = nil
+            }
+            return
+        }
+        let scroller = self.scroller ?? UIScrollView()
+        if self.scroller == nil {
+            scroller.showsVerticalScrollIndicator = false
+            scroller.alwaysBounceVertical = false
+            scroller.contentInsetAdjustmentBehavior = .never
+            scroller.clipsToBounds = true
+            addSubview(scroller)
+            contents.forEach { scroller.addSubview($0) }
+            self.scroller = scroller
+        }
+        scroller.frame = bounds
+        scroller.contentSize = CGSize(width: contentSize.width, height: bounds.height)
         if effectiveUserInterfaceLayoutDirection == .rightToLeft {
             scroller.contentOffset.x = max(0, contentSize.width - bounds.width)
         }

@@ -28,8 +28,9 @@ extension NSAttributedString.Key {
 
 private typealias InlineIntent = InlinePresentationIntent
 
-@MainActor
-struct MarkdownTextVisitor: @MainActor MarkupVisitor {
+/// Runs on any thread. What only the main thread can make (an attachment) goes through
+/// `attachmentString`: off that thread it gives the text up, and the gate says so.
+struct MarkdownTextVisitor: MarkupVisitor {
     typealias Result = NSMutableAttributedString
 
     let style: MarkdownStyle
@@ -43,6 +44,7 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     let inlineFootnoteTokens: [Int: MarkdownFootnoteSyntax.InlineToken]
     /// Added to list depth: a list item re-parsed alone has depth 0, so • / ◦ need it back.
     let listDepthOffset: Int
+    let gate: MarkdownBuildGate
     /// An attachment's identity across renders.
     private var attachmentCounter = 0
     /// Text storage character cursor.
@@ -60,8 +62,10 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
         displayMathStorage: [UUID: String],
         inlineFootnoteTokens: [Int: MarkdownFootnoteSyntax.InlineToken] = [:],
         listDepthOffset: Int = 0,
-        plainOffsetBase: Int = 0
+        plainOffsetBase: Int = 0,
+        gate: MarkdownBuildGate = MarkdownBuildGate()
     ) {
+        self.gate = gate
         self.style = style
         self.bodyFont = bodyFont
         self.inlineMathStorage = inlineMathStorage
@@ -505,14 +509,11 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
         guard style.linkSiteIcons, let host = Self.siteHost(of: url) else { return nil }
         appendMap(storageCount: 1, plainSpan: 0)
         revealCursor += 1
-        let content = attachmentString(MarkdownSiteIconAttachment(
-            id: nextAttachmentID(),
-            host: host,
-            url: url,
-            font: bodyFont,
-            color: linkColor,
-            style: style
-        ))
+        nonisolated(unsafe) let id = nextAttachmentID()
+        nonisolated(unsafe) let font = bodyFont
+        nonisolated(unsafe) let color = linkColor
+        nonisolated(unsafe) let style = style
+        let content = attachmentString { MarkdownSiteIconAttachment(id: id, host: host, url: url, font: font, color: color, style: style) }
         let glue = markRevealOffsets(NSMutableAttributedString(string: "\u{2060}", attributes: [.font: bodyFont]), start: revealCursor)
         appendMap(storageCount: 1, plainSpan: 0)
         revealCursor += 1
@@ -535,7 +536,12 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     private mutating func customInlineLinkContent(_ link: Markdown.Link) -> NSMutableAttributedString? {
         guard let builder = style.inlineLinkBuilder, let destination = link.destination else { return nil }
         let tint = linkColor
-        guard let built = builder(destination, link.plainText, tint) else { return nil }
+        guard Thread.isMainThread else {
+            gate.needsMainThread = true
+            return nil
+        }
+        let label = link.plainText
+        guard let built = MainActor.assumeIsolated({ MarkdownMainThreadMade(value: builder(destination, label, tint)) }).value else { return nil }
 
         // A first look: the text's length (less one NBSP after the symbol, counted apart)
         // decides 1:1 or anchored.
@@ -572,14 +578,12 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
                 appendMap(storageCount: 1, plainSpan: 0)
                 revealCursor += 1
                 // Only decoration: an icon doesn't copy.
-                content.append(attachmentString(MarkdownInlineSymbolAttachment(
-                    id: nextAttachmentID(),
-                    systemName: symbol,
-                    font: bodyFont,
-                    color: attributes[.foregroundColor] as? UIColor ?? tint,
-                    url: attributes[.link] as? URL,
-                    style: style
-                )))
+                nonisolated(unsafe) let id = nextAttachmentID()
+                nonisolated(unsafe) let font = bodyFont
+                nonisolated(unsafe) let color = attributes[.foregroundColor] as? UIColor ?? tint
+                nonisolated(unsafe) let url = attributes[.link] as? URL
+                nonisolated(unsafe) let style = style
+                content.append(attachmentString { MarkdownInlineSymbolAttachment(id: id, systemName: symbol, font: font, color: color, url: url, style: style) })
                 continue
             }
             let text = (built.string as NSString).substring(with: range)
@@ -632,17 +636,27 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
 
     // Blocks that aren't text are a seam for now (MarkdownBlockView's pending kinds).
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) -> NSMutableAttributedString {
-        let attachment = style.nestedBlock?(codeBlock, style) ?? MarkdownCodeAttachment(id: nextAttachmentID(), code: codeBlock, style: style)
-        return attachmentBlock(codeBlock, attachment: attachment)
+        nonisolated(unsafe) let codeBlock = codeBlock
+        nonisolated(unsafe) let id = nextAttachmentID()
+        nonisolated(unsafe) let style = style
+        return attachmentBlock(codeBlock) { style.nestedBlock?(codeBlock, style) ?? MarkdownCodeAttachment(id: id, code: codeBlock, style: style) }
     }
     mutating func visitTable(_ table: Markdown.Table) -> NSMutableAttributedString {
-        let attachment = style.nestedBlock?(table, style) ?? MarkdownTableAttachment(id: nextAttachmentID(), table: table, style: style, inlineMath: inlineMathStorage, displayMath: displayMathStorage)
-        return attachmentBlock(table, attachment: attachment)
+        nonisolated(unsafe) let table = table
+        nonisolated(unsafe) let id = nextAttachmentID()
+        nonisolated(unsafe) let style = style
+        nonisolated(unsafe) let inlineMath = inlineMathStorage
+        nonisolated(unsafe) let displayMath = displayMathStorage
+        return attachmentBlock(table) { style.nestedBlock?(table, style) ?? MarkdownTableAttachment(id: id, table: table, style: style, inlineMath: inlineMath, displayMath: displayMath) }
     }
 
     /// An HTML block shows as its source, as it does in MarkdownView: no web view for a row.
     mutating func visitHTMLBlock(_ htmlBlock: HTMLBlock) -> NSMutableAttributedString {
-        if let seam = style.nestedBlock?(htmlBlock, style) { return attachmentBlock(htmlBlock, attachment: seam) }
+        nonisolated(unsafe) let htmlBlock = htmlBlock
+        if style.nestedBlock != nil {
+            nonisolated(unsafe) let style = style
+            return attachmentBlock(htmlBlock) { style.nestedBlock!(htmlBlock, style) ?? MarkdownEmptyAttachment(id: AnyHashable(0), replacement: htmlBlock.format()) }
+        }
         let raw = htmlBlock.rawHTML
         appendMap(storageCount: raw.count, plainSpan: htmlBlock.markdownRevealPlainText.count)
         revealCursor += raw.count
@@ -650,36 +664,62 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     }
 
     mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) -> NSMutableAttributedString {
-        let attachment = style.nestedBlock?(thematicBreak, style) ?? MarkdownRuleAttachment(id: nextAttachmentID(), source: thematicBreak.format())
-        return attachmentBlock(thematicBreak, attachment: attachment)
+        nonisolated(unsafe) let thematicBreak = thematicBreak
+        nonisolated(unsafe) let id = nextAttachmentID()
+        nonisolated(unsafe) let style = style
+        nonisolated(unsafe) let source = thematicBreak.format()
+        return attachmentBlock(thematicBreak) { style.nestedBlock?(thematicBreak, style) ?? MarkdownRuleAttachment(id: id, source: source) }
     }
 
     mutating func visitBlockDirective(_ blockDirective: BlockDirective) -> NSMutableAttributedString {
+        nonisolated(unsafe) let blockDirective = blockDirective
         // A directive nothing renders shows its content as markdown: MarkdownView's vanishes.
         if blockDirective.name != MarkdownTree.mathAttribute {
-            if let seam = style.nestedBlock?(blockDirective, style) { return attachmentBlock(blockDirective, attachment: seam) }
+            if style.nestedBlock != nil {
+                nonisolated(unsafe) let style = style
+                return attachmentBlock(blockDirective) { style.nestedBlock!(blockDirective, style) ?? MarkdownEmptyAttachment(id: AnyHashable(0), replacement: blockDirective.format()) }
+            }
             guard let renderer = style.blockDirective(named: blockDirective.name) else { return descendInto(blockDirective) }
-            let view = renderer(MarkdownDirectiveRequest(blockDirective))
-            return attachmentBlock(blockDirective, attachment: MarkdownCustomViewAttachment(id: nextAttachmentID(), view: view, source: blockDirective.format()))
+            nonisolated(unsafe) let id = nextAttachmentID()
+            nonisolated(unsafe) let source = blockDirective.format()
+            return attachmentBlock(blockDirective) {
+                MarkdownCustomViewAttachment(id: id, view: renderer(MarkdownDirectiveRequest(blockDirective)), source: source)
+            }
         }
         if blockDirective.name == MarkdownTree.mathAttribute, style.nestedBlock == nil,
            let value = blockDirective.argumentText.parseNameValueArguments().first?.value,
            let id = UUID(uuidString: value), let latex = displayMathStorage[id] {
-            return attachmentBlock(blockDirective, attachment: MarkdownDisplayMathAttachment(id: nextAttachmentID(), latex: latex, style: style))
+            nonisolated(unsafe) let id = nextAttachmentID()
+            nonisolated(unsafe) let style = style
+            return attachmentBlock(blockDirective) { MarkdownDisplayMathAttachment(id: id, latex: latex, style: style) }
         }
         return blockSeam(blockDirective)
     }
 
     mutating func visitImage(_ image: Markdown.Image) -> NSMutableAttributedString {
-        if let seam = style.inlineImage?(image, style) { return attachmentBlock(image, attachment: seam) }
+        nonisolated(unsafe) let image = image
+        if style.inlineImage != nil, !Thread.isMainThread {
+            gate.needsMainThread = true
+            return NSMutableAttributedString()
+        }
+        if style.inlineImage != nil {
+            nonisolated(unsafe) let style = style
+            let seam = MainActor.assumeIsolated { MarkdownMainThreadMade(value: style.inlineImage?(image, style)) }.value
+            nonisolated(unsafe) let made = seam
+            if let made { return attachmentBlock(image) { made } }
+        }
         // By the URL's scheme: a host's renderer, the network's two, or a path from the base.
         // Anything else shows its description.
         let written = image.source.flatMap { URL(string: $0) }
         var url: URL?
         if let written {
             if let scheme = written.scheme, let renderer = style.imageRenderer(forScheme: scheme) {
-                let view = renderer(MarkdownImageRequest(url: written, alternativeText: MarkdownImageSource.alternativeText(of: image)))
-                return attachmentBlock(image, attachment: MarkdownCustomViewAttachment(id: nextAttachmentID(), view: view, source: image.format()))
+                nonisolated(unsafe) let id = nextAttachmentID()
+                nonisolated(unsafe) let source = image.format()
+                return attachmentBlock(image) {
+                    let view = renderer(MarkdownImageRequest(url: written, alternativeText: MarkdownImageSource.alternativeText(of: image)))
+                    return MarkdownCustomViewAttachment(id: id, view: view, source: source)
+                }
             }
             if let scheme = written.scheme?.lowercased(), scheme == "http" || scheme == "https" {
                 url = written
@@ -687,17 +727,19 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
                 url = MarkdownImageSource.resolved(written, against: base)
             }
         }
-        return attachmentBlock(image, attachment: MarkdownImageAttachment(id: nextAttachmentID(), image: image, url: url, style: style))
+        nonisolated(unsafe) let id = nextAttachmentID()
+        nonisolated(unsafe) let shownURL = url
+        nonisolated(unsafe) let style = style
+        return attachmentBlock(image) { MarkdownImageAttachment(id: id, image: image, url: shownURL, style: style) }
     }
 
     mutating func visitBlockQuote(_ blockQuote: BlockQuote) -> NSMutableAttributedString {
+        nonisolated(unsafe) let blockQuote = blockQuote
         // A quote inside another block: black and white inside, and its own decoration as an
         // attachment. A top-level one is MarkdownBlockView's.
-        attachmentBlock(blockQuote, attachment: MarkdownNestedQuoteAttachment(
-            id: nextAttachmentID(),
-            quote: blockQuote,
-            style: style
-        ))
+        nonisolated(unsafe) let id = nextAttachmentID()
+        nonisolated(unsafe) let style = style
+        return attachmentBlock(blockQuote) { MarkdownNestedQuoteAttachment(id: id, quote: blockQuote, style: style) }
     }
 
     mutating func visitUnorderedList(_ list: UnorderedList) -> NSMutableAttributedString {
@@ -709,10 +751,10 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     }
 
     /// One character for a block: its plain units anchored at its start. It copies as its source.
-    private mutating func attachmentBlock(_ markup: any Markup, attachment: RichTextAttachment) -> NSMutableAttributedString {
+    private mutating func attachmentBlock(_ markup: any Markup, make: @MainActor () -> RichTextAttachment) -> NSMutableAttributedString {
         appendMap(storageCount: 1, plainSpan: markup.markdownRevealPlainText.count)
         revealCursor += 1
-        return attachmentString(attachment)
+        return attachmentString(make)
     }
 
     /// A picture in an item starts at the item's content: it's narrower by that.
@@ -724,8 +766,11 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     }
 
     private mutating func blockSeam(_ markup: any Markup) -> NSMutableAttributedString {
-        let attachment = style.nestedBlock?(markup, style) ?? MarkdownEmptyAttachment(id: nextAttachmentID(), replacement: markup.format())
-        return attachmentBlock(markup, attachment: attachment)
+        nonisolated(unsafe) let markup = markup
+        nonisolated(unsafe) let id = nextAttachmentID()
+        nonisolated(unsafe) let style = style
+        nonisolated(unsafe) let replacement = markup.format()
+        return attachmentBlock(markup) { style.nestedBlock?(markup, style) ?? MarkdownEmptyAttachment(id: id, replacement: replacement) }
     }
 
     // MARK: - Putting together
@@ -778,8 +823,15 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
         return AnyHashable(attachmentCounter)
     }
 
-    private func attachmentString(_ attachment: RichTextAttachment) -> NSMutableAttributedString {
-        NSMutableAttributedString(string: "\u{FFFC}", attributes: [.attachment: attachment, .inlineHostingAttachment: attachment])
+    /// One storage character for what `make` makes on the main thread. Off it, nothing, and the
+    /// gate tells the builder this text has to be built there.
+    private func attachmentString(_ make: @MainActor () -> RichTextAttachment) -> NSMutableAttributedString {
+        guard Thread.isMainThread else {
+            gate.needsMainThread = true
+            return NSMutableAttributedString()
+        }
+        let attachment = MainActor.assumeIsolated { MarkdownMainThreadMade(value: make()) }.value
+        return NSMutableAttributedString(string: "\u{FFFC}", attributes: [.attachment: attachment, .inlineHostingAttachment: attachment])
     }
 
     /// Highlights across nodes: `baseAttributed` handles `==x==` a text node at a time, which
@@ -906,16 +958,16 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     }
 
     /// PingFang's line box less the main font's, by size.
-    private static var cjkLineBoxDeltaCache: [CGFloat: CGFloat] = [:]
+    private static let cjkLineBoxDeltaCache = MarkdownLockedCache<CGFloat, CGFloat>()
     private static func cjkLineBoxDelta(for font: UIFont) -> CGFloat {
-        if let cached = cjkLineBoxDeltaCache[font.pointSize] { return cached }
+        if let cached = cjkLineBoxDeltaCache.value(for: font.pointSize) { return cached }
         let primary = font.ascender - font.descender
         var fallback = primary
         if let pingfang = UIFont(name: "PingFangSC-Regular", size: font.pointSize) {
             fallback = pingfang.ascender - pingfang.descender
         }
         let delta = max(0, fallback - primary)
-        cjkLineBoxDeltaCache[font.pointSize] = delta
+        cjkLineBoxDeltaCache.set(delta, for: font.pointSize)
         return delta
     }
 
@@ -964,7 +1016,7 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
             // ≈ 11 units): anchored at its start, so a frontier past it shows the formula whole.
             appendMap(storageCount: 1, plainSpan: plain.distance(from: match.range.lowerBound, to: match.range.upperBound))
             revealCursor += 1
-            content.append(attachmentString(mathAttachment(latex: match.latex)))
+            content.append(mathAttachment(latex: match.latex))
             search = match.range.upperBound..<plain.endIndex
         }
         if search.lowerBound < plain.endIndex {
@@ -977,11 +1029,21 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     private mutating func treeMathContent(_ attributes: InlineAttributes) -> NSMutableAttributedString {
         appendMap(storageCount: 1, plainSpan: attributes.markdownRevealPlainText.count)
         revealCursor += 1
-        return attachmentString(mathAttachment(latex: attributes.plainText))
+        return mathAttachment(latex: attributes.plainText)
     }
 
-    private mutating func mathAttachment(latex: String) -> RichTextAttachment {
-        style.inlineMath?(latex, bodyFont) ?? MarkdownInlineMathAttachment(id: nextAttachmentID(), latex: latex, style: style)
+    private mutating func mathAttachment(latex: String) -> NSMutableAttributedString {
+        nonisolated(unsafe) let id = nextAttachmentID()
+        nonisolated(unsafe) let style = style
+        nonisolated(unsafe) let font = bodyFont
+        if !Thread.isMainThread, style.inlineMath == nil {
+            // A formula with an image needs no main thread. One that failed shows its source in a view.
+            let attachment = MarkdownInlineMathAttachment(id: id, latex: latex, style: style)
+            if attachment.fixedSize != nil {
+                return NSMutableAttributedString(string: "\u{FFFC}", attributes: [.attachment: attachment, .inlineHostingAttachment: attachment])
+            }
+        }
+        return attachmentString { style.inlineMath?(latex, font) ?? MarkdownInlineMathAttachment(id: id, latex: latex, style: style) }
     }
 
     private func firstInlineMath(in text: String, range: Range<String.Index>) -> (range: Range<String.Index>, latex: String)? {
@@ -999,14 +1061,12 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     /// A chip is an attachment, not text: it selects as one unit, copying its label, never a cut
     /// through its NBSP and word joiners. What folds and how it's labelled is all MarkdownLinkChips.
     private mutating func chipContent(group: MarkdownLinkChips.ChipGroup, plainSpan: Int) -> NSMutableAttributedString {
+        nonisolated(unsafe) let group = group
         appendMap(storageCount: 1, plainSpan: plainSpan)
         revealCursor += 1
-        return attachmentString(MarkdownChipAttachment(
-            id: nextAttachmentID(),
-            label: group.label,
-            urls: group.urls,
-            style: style
-        ))
+        nonisolated(unsafe) let id = nextAttachmentID()
+        nonisolated(unsafe) let style = style
+        return attachmentString { MarkdownChipAttachment(id: id, label: group.label, urls: group.urls, style: style) }
     }
 
     /// Emphasis on CJK leans (0.18, as MarkdownView's). Not with the obliqueness attribute:
@@ -1041,12 +1101,12 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
 
     /// The font with the 0.18 skew, kept: this goes character by character. Through CoreText:
     /// `UIFont(descriptor: …withMatrix…)` doesn't apply a matrix, CTFontCreateCopyWithAttributes does.
-    private static var obliqueFontCache: [UIFont: UIFont] = [:]
+    private static let obliqueFontCache = MarkdownLockedCache<UIFont, UIFont>()
     private static func obliqueFont(_ font: UIFont) -> UIFont {
-        if let hit = obliqueFontCache[font] { return hit }
+        if let hit = obliqueFontCache.value(for: font) { return hit }
         var matrix = CGAffineTransform(a: 1, b: 0, c: 0.18, d: 1, tx: 0, ty: 0)
         let skewed: UIFont = CTFontCreateCopyWithAttributes(font as CTFont, font.pointSize, &matrix, nil)
-        obliqueFontCache[font] = skewed
+        obliqueFontCache.set(skewed, for: font)
         return skewed
     }
 
@@ -1186,11 +1246,13 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     /// The marker: • / ◦ or a number in secondary, a symbol for a task. With its measured
     /// width, for the content's tab stop.
     private mutating func makeListMarker(_ listItem: ListItem) -> (NSMutableAttributedString, CGFloat) {
-        if let checkbox = listItem.checkbox {
+        if let found = listItem.checkbox {
+            nonisolated(unsafe) let checkbox = found
             // An attachment that fades in whole, like a chip. An image attachment was tried:
             // TextKit 2 gives those their own subview, which a per-character alpha can't reach.
             let size = bodyFont.pointSize
-            return (attachmentString(MarkdownTaskAttachment(id: nextAttachmentID(), checked: checkbox == .checked, size: size)), size)
+            nonisolated(unsafe) let id = nextAttachmentID()
+            return (attachmentString { MarkdownTaskAttachment(id: id, checked: checkbox == .checked, size: size) }, size)
         }
         // A custom bullet: an emoji is text (no harm to the tab); a symbol an attachment on a
         // disc, whose width is the disc's, or it'd eat the room before the content.
@@ -1201,7 +1263,8 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
                 return (NSMutableAttributedString(string: emoji, attributes: [.font: bodyFont]), width)
             case .symbol(let name):
                 let diameter = bodyFont.pointSize * 1.2
-                return (attachmentString(MarkdownListSymbolAttachment(id: nextAttachmentID(), systemName: name, diameter: diameter)), diameter)
+                nonisolated(unsafe) let id = nextAttachmentID()
+                return (attachmentString { MarkdownListSymbolAttachment(id: id, systemName: name, diameter: diameter) }, diameter)
             }
         }
         let markerText: String

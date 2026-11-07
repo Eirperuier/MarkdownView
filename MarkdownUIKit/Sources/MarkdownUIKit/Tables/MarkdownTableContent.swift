@@ -13,7 +13,6 @@ import Markdown
 import RichTextCore
 import UIKit
 
-@MainActor
 final class MarkdownTableCell {
     enum Alignment { case leading, center, trailing }
 
@@ -83,7 +82,7 @@ final class MarkdownTableCell {
         } else {
             let copy = NSMutableAttributedString(attributedString: string)
             if linked { copy.removeAttribute(.link, range: range) }
-            MarkdownDrawnTextView.applyIntentsAsTextViewDoes(copy, in: range)
+            MarkdownTextStack.applyIntentsAsTextViewDoes(copy, in: range)
             var underlined = false
             copy.enumerateAttribute(.underlineStyle, in: range) { value, _, stop in
                 if value != nil {
@@ -128,8 +127,9 @@ final class MarkdownTableCell {
 }
 
 /// A table's cells, kept up to date with its source.
-@MainActor
 final class MarkdownTableContent {
+    /// Made off the main thread: whether a cell had what only that thread can make.
+    let gate = MarkdownBuildGate()
     private(set) var rows: [[MarkdownTableCell]] = []
     private(set) var flat: [MarkdownTableCell] = []
     private(set) var columnCount = 0
@@ -315,7 +315,8 @@ final class MarkdownTableContent {
                 plainOffsetBase: offset,
                 inlineMath: inlineMath,
                 displayMath: displayMath,
-                inlineFootnoteTokens: tokens
+                inlineFootnoteTokens: tokens,
+                gate: gate
             )
             map = text.storageToPlain
             let result = NSMutableAttributedString(attributedString: text.attributed)
@@ -447,7 +448,6 @@ struct MarkdownTableUnderline {
     let color: UIColor
 
     /// Text kit's own layout, for the rare cell with an underline.
-    @MainActor
     static func bars(in text: NSAttributedString, width: CGFloat) -> [MarkdownTableUnderline] {
         let storage = NSTextStorage(attributedString: text)
         let manager = NSLayoutManager()

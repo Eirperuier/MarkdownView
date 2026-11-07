@@ -20,7 +20,7 @@ final class MarkdownQuoteView: UIView {
     private let barClip = UIView()
     private let ground = MarkdownColorView()
     private let bar = MarkdownColorView()
-    private let host = MarkdownTextHost()
+    private let host = MarkdownTextHost(textView: false)
     private var header: MarkdownCalloutHeaderView?
     private var style = MarkdownStyle()
     private let verticalPadding: CGFloat = 8
@@ -28,9 +28,12 @@ final class MarkdownQuoteView: UIView {
     private let barWidth: CGFloat = 4
     private let headerSpacing: CGFloat = 6
     private let cornerRadius: CGFloat = 3
+    nonisolated static let padding = (vertical: CGFloat(8), horizontal: CGFloat(20))
     private var reveal: MarkdownReveal?
     /// Text only grows into a text view already showing: a block's first build replaces it all.
     private var hasContent = false
+    private var prepared: MarkdownTextStack?
+    private var preparedPicture: MarkdownTextPicture?
     private lazy var decorationGate = MarkdownRevealGate { [weak self] isOpen, fades in
         self?.showDecoration(isOpen, fades: fades)
     }
@@ -45,7 +48,6 @@ final class MarkdownQuoteView: UIView {
         }
         barClip.isUserInteractionEnabled = false
         clip.addSubview(ground)
-        clip.addSubview(host.textView)
         barClip.addSubview(bar)
     }
 
@@ -65,7 +67,10 @@ final class MarkdownQuoteView: UIView {
         self.reveal = reveal
         let inner = Self.strippingQuoteMarkers(source)
         let split = MarkdownCallout.split(innerMarkdown: inner)
-        let text = MarkdownTextBuilder.build(markdown: split?.body ?? inner, style: style.quoted, inlineMath: inlineMath, displayMath: displayMath)
+        let made = reveal == nil && !hasContent ? style.preparedTexts?.ready(source, kind: .quote, depth: 0, category: style.contentSizeCategory) : nil
+        prepared = made?.stack
+        preparedPicture = made?.picture
+        let text = made?.text ?? MarkdownTextBuilder.build(markdown: split?.body ?? inner, style: style.quoted, inlineMath: inlineMath, displayMath: displayMath)
         apply(text, callout: split?.callout, style: style)
     }
 
@@ -80,21 +85,15 @@ final class MarkdownQuoteView: UIView {
 
     private func apply(_ text: MarkdownText, callout: MarkdownCallout?, style: MarkdownStyle) {
         self.style = style
-        #if targetEnvironment(macCatalyst)
-        // The last line's room, unless the last thing is a block with its own.
-        let storage = text.attributed
-        let endsInBlock = storage.length > 0 && storage.attribute(.attachment, at: storage.length - 1, effectiveRange: nil) != nil
-        let lastLineRoom = endsInBlock ? 0 : style.roomBelowLines ?? 0
-        #else
-        // A last line has no room below it here.
-        let lastLineRoom: CGFloat = 0
-        #endif
-        host.insets = UIEdgeInsets(top: text.topEdgeInset, left: 0, bottom: text.bottomEdgeInset + lastLineRoom, right: 0)
+        host.insets = Self.insets(of: text, style: style)
         if hasContent {
             host.update(text, style: style, reveal: reveal)
         } else {
-            host.apply(text, style: style, reveal: reveal)
+            host.apply(text, style: style, reveal: reveal, prepared: prepared, picture: preparedPicture)
+            clip.addSubview(host.view)
         }
+        prepared = nil
+        preparedPicture = nil
         hasContent = true
         if let callout {
             let tint = MarkdownInk.callout(callout.kind)
@@ -112,6 +111,20 @@ final class MarkdownQuoteView: UIView {
         }
         decorationGate.follow(reveal?.manager)
         setNeedsLayout()
+    }
+
+    /// The room around the text.
+    nonisolated static func insets(of text: MarkdownText, style: MarkdownStyle) -> UIEdgeInsets {
+        #if targetEnvironment(macCatalyst)
+        // The last line's room, unless the last thing is a block with its own.
+        let storage = text.attributed
+        let endsInBlock = storage.length > 0 && storage.attribute(.attachment, at: storage.length - 1, effectiveRange: nil) != nil
+        let lastLineRoom = endsInBlock ? 0 : style.roomBelowLines ?? 0
+        #else
+        // A last line has no room below it here.
+        let lastLineRoom: CGFloat = 0
+        #endif
+        return UIEdgeInsets(top: text.topEdgeInset, left: 0, bottom: text.bottomEdgeInset + lastLineRoom, right: 0)
     }
 
     /// A reveal coming to or leaving text that's shown.
@@ -177,7 +190,7 @@ final class MarkdownQuoteView: UIView {
 
     /// Takes a line's quote marker off (`>` after at most 3 spaces, then an optional space):
     /// in `> >` only one level.
-    private static func strippingQuoteMarkers(_ source: String) -> String {
+    nonisolated static func strippingQuoteMarkers(_ source: String) -> String {
         source
             .components(separatedBy: "\n")
             .map { line -> String in
