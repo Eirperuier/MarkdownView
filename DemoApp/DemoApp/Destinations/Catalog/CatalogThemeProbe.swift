@@ -14,6 +14,22 @@ import MarkdownUIKit
 import MarkdownView
 import UIKit
 
+/// A host's directive: its colours are the role's it asks for.
+@MainActor
+private final class CatalogProbeDirective: UIView {
+    init() {
+        super.init(frame: .zero)
+        backgroundColor = .floo(.accent)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize { CGSize(width: 120, height: 30) }
+}
+
 @MainActor
 enum CatalogThemeProbe {
     private static let elements: [(name: String, markdown: String)] = [
@@ -35,6 +51,12 @@ enum CatalogThemeProbe {
         ("bullet", "- A bullet\n- {star.fill} A symbol"),
         ("task", "- [x] Done\n- [ ] To do"),
         ("callout", "> [!note]\n> A note."),
+        ("rule", "---"),
+        ("html", "<div>\nSome html\n</div>"),
+        ("directive", "@note {\nA note.\n}"),
+        ("image.caption", "![A caption](https://\(CatalogImages.host)/square.png)"),
+        ("image.failed", "![Missing](https://\(CatalogImages.host)/missing.png)"),
+        ("image.fallback", "![A description](square.png)"),
     ]
 
     private struct Block {
@@ -69,6 +91,18 @@ enum CatalogThemeProbe {
         style.icons = MarkdownIcons(image: { host in
             host == "noicon.test" ? nil : UIImage(systemName: "seal.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 64))
         })
+        style.blockDirectives["note"] = { _ in CatalogProbeDirective() }
+        // Images known first: each block's height, and so its crop, is its last.
+        let loading = elements.flatMap { element -> [MarkdownUIKit.MarkdownBlockView] in
+            var splitter = MarkdownBlockSplitter()
+            return splitter.split(element.markdown).map { block in
+                let view = MarkdownUIKit.MarkdownBlockView()
+                view.configure(block, style: style)
+                return view
+            }
+        }
+        try? await Task.sleep(for: .milliseconds(800))
+        withExtendedLifetime(loading) {}
         var blocks: [Block] = []
         var y = top
         for element in elements {

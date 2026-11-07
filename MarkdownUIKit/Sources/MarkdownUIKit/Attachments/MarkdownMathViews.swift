@@ -142,7 +142,7 @@ final class MarkdownMathImageView: UIImageView {
 
 /// Source text where a formula didn't render.
 @MainActor
-private final class MarkdownMathSourceView: UIView {
+final class MarkdownMathSourceView: UIView {
     var text: NSAttributedString? { didSet { setNeedsDisplay() } }
     /// Set for lines on a fixed step; nil lets the text wrap.
     var lineStep: CGFloat?

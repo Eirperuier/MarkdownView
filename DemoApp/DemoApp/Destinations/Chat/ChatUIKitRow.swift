@@ -332,7 +332,8 @@ enum ChatUIKitBlockViews {
         let inner = view(id: id, block: block, reveal: reveal, traits: traits).height(forWidth: ChatUIKitRowLayout.textWidth(in: width))
         let scale = max(1, traits.displayScale)
         let height = ((inner + ChatUIKitRowLayout.verticalPadding * 2) * scale).rounded(.up) / scale
-        heights[key] = height
+        // An image's height comes late: the block keeps it, and knows when it's changed.
+        if !block.source.contains("![") { heights[key] = height }
         return height
     }
 

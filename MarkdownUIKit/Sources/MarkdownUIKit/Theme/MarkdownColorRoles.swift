@@ -71,6 +71,16 @@ public extension FlooColorRole {
     /// Bold text and links inside a quote: black and white, so the bar stays the one colour.
     static let markdownQuoteEmphasis = FlooColorRole("markdown.quoteEmphasis") { $0[.markdownText] }
 
+    // Blocks
+    /// A thematic break's line: faint grey, or a theme's secondary text.
+    static let markdownRule = FlooColorRole("markdown.rule") { ($0.sets(.secondaryLabel) ? $0[.secondaryLabel] : .systemGray).markdownOpacity(0.1) }
+    /// The caption under an image.
+    static let markdownImageCaption = FlooColorRole("markdown.imageCaption") { $0[.markdownSecondaryText] }
+    /// The mark where an image didn't load.
+    static let markdownImagePlaceholder = FlooColorRole("markdown.imagePlaceholder") { $0[.markdownSecondaryText] }
+    /// The spinner while an image loads.
+    static let markdownImageSpinner = FlooColorRole("markdown.imageSpinner") { $0[.markdownSecondaryText] }
+
     // Chips
     /// A chip's capsule.
     static let markdownChipFill = FlooColorRole("markdown.chipFill") { $0[.markdownInlineCode].markdownOpacity(0.1) }

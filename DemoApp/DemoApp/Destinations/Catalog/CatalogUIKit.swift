@@ -18,6 +18,7 @@ import UIKit
 final class CatalogUIKitFixtureView: UIView {
     private let blocks: [MarkdownUIKit.MarkdownBlockView]
     private let scale: CGFloat
+    var onHeightChange: (() -> Void)?
 
     init(fixture: CatalogFixture, scale: CGFloat, revealed: CatalogRevealed? = nil) {
         self.scale = scale
@@ -67,6 +68,13 @@ final class CatalogUIKitFixtureView: UIView {
         if let appearance = settings.appearance { traitOverrides.userInterfaceStyle = appearance }
         backgroundColor = settings.background
         blocks.forEach(addSubview)
+        // An image comes in late: the fixture grows with it, as a list's row does.
+        for block in blocks {
+            block.onHeightChange = { [weak self] in
+                self?.setNeedsLayout()
+                self?.onHeightChange?()
+            }
+        }
     }
 
     @available(*, unavailable)
@@ -88,6 +96,68 @@ final class CatalogUIKitFixtureView: UIView {
             block.frame = CGRect(x: 0, y: top, width: bounds.width, height: bottom - top)
             y += height
         }
+    }
+}
+
+/// The directive's renderer in CatalogFixture: text in 20 pt of room on half-strength yellow.
+@MainActor
+final class CatalogUIKitNote: UIView {
+    private let label = UILabel()
+
+    init(text: String) {
+        super.init(frame: .zero)
+        backgroundColor = UIColor.systemYellow.withAlphaComponent(0.5)
+        layer.cornerRadius = 12
+        layer.cornerCurve = .continuous
+        label.text = text
+        label.numberOfLines = 0
+        label.font = .preferredFont(forTextStyle: .body)
+        addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let fit = label.sizeThatFits(CGSize(width: size.width - 40, height: .greatestFiniteMagnitude))
+        return CGSize(width: fit.width + 40, height: fit.height + 40)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        label.frame = bounds.insetBy(dx: 20, dy: 20)
+    }
+}
+
+/// The image renderer in CatalogFixture: its description on a teal tile.
+@MainActor
+final class CatalogUIKitImageTile: UIView {
+    private let label = UILabel()
+
+    init(text: String) {
+        super.init(frame: .zero)
+        backgroundColor = .systemTeal
+        layer.cornerRadius = 8
+        layer.cornerCurve = .continuous
+        label.text = text
+        label.textColor = .white
+        label.font = .preferredFont(forTextStyle: .body)
+        label.textAlignment = .center
+        addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize { CGSize(width: 120, height: 60) }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        label.frame = bounds
     }
 }
 
@@ -205,10 +275,12 @@ struct CatalogUIKitSettings {
              .tableStripeColor, .tableSerif, .tableCellLooks, .tableDimsParentheticals, .tableCellsSelectable,
              .tableCellPadding, .tableCellOverlay, .tableRowBackground, .tableImage, .tableCellReplacement, .tableDecoration:
             break  // Tables aren't drawn yet.
-        case .imageRenderer, .baseURL:
-            break  // Images aren't drawn yet.
+        case .imageRenderer:
+            style.imageRenderers["catalog"] = { CatalogUIKitImageTile(text: $0.alternativeText ?? "") }
+        case .baseURL:
+            style.baseURL = URL(string: "https://\(CatalogImages.host)/")
         case .directive:
-            style.registeredDirectives.insert("note")
+            style.blockDirectives["note"] = { CatalogUIKitNote(text: $0.wrappedString) }
         case .editorStyle:
             break  // The SwiftUI path's own: not ported.
         // Text features

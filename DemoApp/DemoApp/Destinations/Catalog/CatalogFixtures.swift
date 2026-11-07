@@ -219,6 +219,10 @@ enum CatalogFixtures {
         .init("html.block", "HTML block", "<div class=\"note\">\nRaw HTML shows as its source.\n</div>"),
         .init("directive.custom", "Directive", knobs: [.directive], "@note {\nA note from a custom renderer.\n}"),
         .init("directive.unregistered", "Unknown directive", "@unknown {\nIts content as **markdown**.\n}"),
+        .init("nested.rule", "A rule in a quote and an item", "> Above\n>\n> ---\n>\n> Below\n\n- Item\n\n  ---\n- Next"),
+        .init("nested.html", "HTML in a quote and an item", "> Text\n>\n> <div>\n> Raw\n> </div>\n\n- Item\n\n  <div>\n  Raw\n  </div>\n- Next"),
+        .init("nested.directive", "A directive in a quote", knobs: [.directive], "> Text\n>\n> @note {\n> A note.\n> }"),
+        .init("nested.image", "Images in a quote and an item", waitsForImages: true, "> ![In a quote](https://\(CatalogImages.host)/wide.png)\n\n- ![In an item](https://\(CatalogImages.host)/wide.png)\n- ![Square](https://\(CatalogImages.host)/square.png)\n\n> > ![Deeper](https://\(CatalogImages.host)/square.png)"),
     ])
 
     // MARK: Footnotes

@@ -269,8 +269,8 @@ class MarkdownGlyphView: UIView {
 @MainActor
 enum MarkdownSymbols {
     /// A symbol at `pointSize`.
-    static func image(_ name: String, pointSize: CGFloat, weight: UIImage.SymbolWeight = .regular) -> UIImage? {
-        UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight))
+    static func image(_ name: String, pointSize: CGFloat, weight: UIImage.SymbolWeight = .regular, scale: UIImage.SymbolScale = .default) -> UIImage? {
+        UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight, scale: scale))
     }
 
     /// A symbol as a layout draws one, by frame or at a size that isn't one it was hinted for:
@@ -614,10 +614,17 @@ final class MarkdownNestedQuoteAttachment: RichTextAttachment {
         // A layout's line goes up to a pixel; TextKit's stays at the font's 20.29.
         if style.isQuoted, let serif = quoteStyle.defaultFont { quoteStyle.roomBelowLines = markdownPixelCeil(serif.lineHeight) - serif.lineHeight }
         #endif
+        // An image inside comes in late: this quote is measured again, and whatever it's in.
+        let lateSize = MarkdownLateSize()
+        quoteStyle.lateSize = lateSize
         view.configure(document: inner, callout: quote.callout?.callout, style: quoteStyle)
         quoteView = view
         source = quote.format()
         super.init(id: id, sizing: .fittingLineFragment)
+        lateSize.onChange = { [weak self, weak view, outer = style.lateSize] in
+            view?.textSizeDidChange()
+            self?.markdownSizeDidChange(outer)
+        }
     }
 
     required init?(coder: NSCoder) {

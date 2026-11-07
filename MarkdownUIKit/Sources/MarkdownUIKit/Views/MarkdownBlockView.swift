@@ -14,13 +14,13 @@ import UIKit
 
 /// Why a block draws nothing yet.
 public enum MarkdownPendingBlock: Equatable, Sendable {
-    case code, table, displayMath, image, rule, html, directive, other
+    case code, table, displayMath, other
 }
 
 /// One `MarkdownStreamBlock`, in UIKit.
 @MainActor
 public final class MarkdownBlockView: UIView {
-    /// The block's height changed by itself: a formula came in late.
+    /// The block's height changed by itself: a formula or an image came in late.
     public var onHeightChange: (() -> Void)?
 
     private enum Layout {
@@ -30,6 +30,9 @@ public final class MarkdownBlockView: UIView {
         case quote(MarkdownQuoteView)
         case footnotes([MarkdownTextHost])
         case math(MarkdownDisplayMathView)
+        case rule(MarkdownRuleView)
+        /// A directive's view, as wide as it says it fits.
+        case custom(UIView)
         case pending(MarkdownPendingBlock)
     }
 
@@ -38,11 +41,21 @@ public final class MarkdownBlockView: UIView {
     /// What a block is drawn from, to draw it again when its size category changes.
     private var rebuild: (() -> Void)?
     private var cachedHeight: (width: CGFloat, height: CGFloat)?
+    private let lateSize = MarkdownLateSize()
     private var reveal: MarkdownReveal?
     /// The block showing: the same one again grows what shows.
     private var shownBlockID: UUID?
+    /// What appears whole, once it's reached.
+    private var wholeView: UIView? {
+        switch layout {
+        case .math(let view): view
+        case .rule(let view): view
+        case .custom(let view): view
+        default: nil
+        }
+    }
     private lazy var mathGate = MarkdownRevealGate { [weak self] isOpen, fades in
-        guard let self, case .math(let view) = self.layout else { return }
+        guard let self, let view = self.wholeView else { return }
         let change = { view.alpha = isOpen ? 1 : 0 }
         if fades, let reveal = self.reveal {
             reveal.style.motion.animate(change)
@@ -60,7 +73,7 @@ public final class MarkdownBlockView: UIView {
     /// The text views inside, for a host's selection and hooks.
     public var textViews: [UITextView] {
         switch layout {
-        case .empty, .pending, .math: []
+        case .empty, .pending, .math, .rule, .custom: []
         case .text(let host, _): [host.textView]
         case .quote(let quote): [quote.textView]
         case .footnotes(let hosts): hosts.map(\.textView)
@@ -75,6 +88,7 @@ public final class MarkdownBlockView: UIView {
 
     public override init(frame: CGRect) {
         super.init(frame: frame)
+        lateSize.onChange = { [weak self] in self?.contentSizeDidChange() }
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: MarkdownBlockView, _: UITraitCollection) in
             guard view.style.contentSizeCategory == nil else { return }
             view.rebuild?()
@@ -104,26 +118,39 @@ public final class MarkdownBlockView: UIView {
         case .text(let host, _): host.setReveal(reveal)
         case .quote(let quote): quote.setReveal(reveal)
         case .footnotes(let hosts): hosts.forEach { $0.setReveal(reveal) }
-        case .math: mathGate.follow(reveal?.manager)
+        case .math, .rule, .custom: mathGate.follow(reveal?.manager)
         case .empty, .pending: break
         }
     }
 
+    /// An image in the text came in, or failed: measured again, and the list told.
+    private func contentSizeDidChange() {
+        switch layout {
+        case .text(let host, _): host.textSizeDidChange()
+        case .quote(let quote): quote.textSizeDidChange()
+        case .footnotes(let hosts): hosts.forEach { $0.textSizeDidChange() }
+        case .empty, .math, .rule, .custom, .pending: break
+        }
+        cachedHeight = nil
+        setNeedsLayout()
+        onHeightChange?()
+    }
+
     /// Whether this renderer draws all of a block. No for what isn't ported yet, and for text
     /// holding what isn't: a host shows those another way.
-    /// `drawsInlineImages`: the style has an `inlineImage`.
-    public nonisolated static func draws(_ block: MarkdownStreamBlock, drawsInlineImages: Bool = false) -> Bool {
+    public nonisolated static func draws(_ block: MarkdownStreamBlock) -> Bool {
         let source = block.descriptor.sourceText
         func holdsUnported() -> Bool {
             source.contains("```") || source.contains("~~~")
-                || (!drawsInlineImages && source.contains("!["))
         }
         switch block.descriptor.kind {
         case .heading, .paragraph, .orderedList, .unorderedList:
             return !holdsUnported()
         case .blockQuote:
             return !holdsUnported() && !source.contains("|")
-        case .codeBlock, .table, .mathBlock, .thematicBreak, .htmlBlock, .blockDirective, .unknown:
+        case .thematicBreak, .htmlBlock, .blockDirective:
+            return true
+        case .codeBlock, .table, .mathBlock, .unknown:
             return false
         }
     }
@@ -157,6 +184,12 @@ public final class MarkdownBlockView: UIView {
         case .math(let view):
             mathGate.stop()
             view.removeFromSuperview()
+        case .rule(let view):
+            mathGate.stop()
+            view.removeFromSuperview()
+        case .custom(let view):
+            mathGate.stop()
+            view.removeFromSuperview()
         }
         layout = .empty
         shownBlockID = nil
@@ -167,6 +200,7 @@ public final class MarkdownBlockView: UIView {
 
     private func resolved(_ style: MarkdownStyle) -> MarkdownStyle {
         var style = style
+        style.lateSize = lateSize
         if style.contentSizeCategory == nil, traitCollection.preferredContentSizeCategory != .unspecified {
             style.contentSizeCategory = traitCollection.preferredContentSizeCategory
         }
@@ -202,14 +236,12 @@ public final class MarkdownBlockView: UIView {
             // cmark joins adjacent definition lines into one paragraph.
             if let lines = Self.footnoteDefinitionLines(source) {
                 layout = .footnotes(makeFootnotes(lines: lines, style: style, reveal: reveal))
-            } else if Self.isOnlyImages(source), style.inlineImage == nil {
-                layout = .pending(.image)
             } else {
                 showText(source, depth: depth, style: style, block: block)
             }
         case .heading, .orderedList, .unorderedList:
             showText(Self.textBeforeFence(source, in: descriptor), depth: depth, style: style, block: block)
-        case .blockDirective(let name) where !style.registeredDirectives.contains(name) && name != MarkdownTree.mathAttribute:
+        case .blockDirective(let name) where style.blockDirective(named: name) == nil && name != MarkdownTree.mathAttribute:
             // A directive nothing renders shows its content as markdown.
             showText(source, depth: 0, style: style, block: block)
         case .blockDirective(let name) where name == MarkdownTree.mathAttribute:
@@ -219,8 +251,8 @@ public final class MarkdownBlockView: UIView {
             } else {
                 layout = .pending(.displayMath)
             }
-        case .blockDirective:
-            layout = .pending(.directive)
+        case .blockDirective(let name):
+            showDirective(name, source: source, style: style, block: block)
         case .codeBlock: layout = .pending(.code)
         case .table: layout = .pending(.table)
         case .mathBlock:
@@ -229,8 +261,13 @@ public final class MarkdownBlockView: UIView {
             } else {
                 layout = .pending(.displayMath)
             }
-        case .thematicBreak: layout = .pending(.rule)
-        case .htmlBlock: layout = .pending(.html)
+        case .thematicBreak:
+            let view = MarkdownRuleView()
+            addSubview(view)
+            layout = .rule(view)
+            mathGate.follow(reveal?.manager)
+        case .htmlBlock:
+            showText(source, depth: 0, style: style, block: block)
         case .unknown: layout = .pending(.other)
         }
         invalidateIntrinsicContentSize()
@@ -262,8 +299,10 @@ public final class MarkdownBlockView: UIView {
         case (.quote, .blockQuote): true
         case (.text, .heading), (.text, .orderedList), (.text, .unorderedList):
             true
+        case (.text, .htmlBlock):
+            true
         case (.text, .paragraph):
-            footnoteDefinitionLines(descriptor.sourceText) == nil && !isOnlyImages(descriptor.sourceText)
+            footnoteDefinitionLines(descriptor.sourceText) == nil
         default: false
         }
     }
@@ -278,6 +317,19 @@ public final class MarkdownBlockView: UIView {
         view.configure(latex: latex, style: style)
         addSubview(view)
         layout = .math(view)
+        mathGate.follow(reveal?.manager)
+    }
+
+    private func showDirective(_ name: String, source: String, style: MarkdownStyle, block: MarkdownStreamBlock) {
+        let content = MarkdownContent(source)
+        let document = content.parse(options: content.parseOptions(allowingBlockDirectives: true))
+        guard let directive = document.child(at: 0) as? BlockDirective, let renderer = style.blockDirective(named: name) else {
+            showText(source, depth: 0, style: style, block: block)
+            return
+        }
+        let view = renderer(MarkdownDirectiveRequest(directive))
+        addSubview(view)
+        layout = .custom(view)
         mathGate.follow(reveal?.manager)
     }
 
@@ -321,26 +373,6 @@ public final class MarkdownBlockView: UIView {
             } ?? source
         }
         return lines[..<fenceIndex].joined(separator: "\n")
-    }
-
-    /// A paragraph of nothing but images is a block that's not drawn yet.
-    private static func isOnlyImages(_ source: String) -> Bool {
-        guard source.contains("![") else { return false }
-        let document = Document(parsing: source)
-        guard document.childCount == 1, let paragraph = document.child(at: 0) as? Paragraph else { return false }
-        var sawImage = false
-        for child in paragraph.children {
-            if child is Markdown.Image {
-                sawImage = true
-            } else if let text = child as? Markdown.Text, text.string.allSatisfy(\.isWhitespace) {
-                continue
-            } else if child is SoftBreak || child is LineBreak {
-                continue
-            } else {
-                return false
-            }
-        }
-        return sawImage
     }
 
     // MARK: Footnotes
@@ -407,6 +439,10 @@ public final class MarkdownBlockView: UIView {
             height = quote.height(forWidth: width)
         case .math(let view):
             height = view.height(forWidth: width)
+        case .rule:
+            height = MarkdownRuleView.height
+        case .custom(let view):
+            height = markdownPixelCeil(view.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height)
         case .footnotes(let hosts):
             let lines = hosts.reduce(0) { $0 + $1.height(forWidth: width) }
             height = lines + CGFloat(max(0, hosts.count - 1)) * Self.footnoteSpacing + Self.footnotePadding * 2
@@ -434,6 +470,12 @@ public final class MarkdownBlockView: UIView {
             quote.frame = bounds
         case .math(let view):
             view.frame = bounds
+        case .rule(let view):
+            if view.frame != bounds { view.frame = bounds }
+        case .custom(let view):
+            let width = min(bounds.width, markdownPixelCeil(view.sizeThatFits(bounds.size).width))
+            let frame = CGRect(x: isRTL ? bounds.width - width : 0, y: 0, width: width, height: bounds.height)
+            if view.frame != frame { view.frame = frame }
         case .footnotes(let hosts):
             var y = Self.footnotePadding
             for host in hosts {

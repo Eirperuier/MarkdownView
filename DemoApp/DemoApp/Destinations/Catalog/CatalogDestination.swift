@@ -261,6 +261,11 @@ enum CatalogShots {
             // Off-window, as a list cell asks before it's shown.
             measured.height = view.height(forWidth: width)
             view.frame = CGRect(x: 0, y: top, width: width, height: measured.height)
+            view.onHeightChange = { [weak view] in
+                guard let view else { return }
+                measured.height = view.height(forWidth: width)
+                view.frame = CGRect(x: 0, y: top, width: width, height: measured.height)
+            }
             root = host
         } else {
             let host = UIHostingController(rootView: AnyView(

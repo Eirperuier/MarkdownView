@@ -136,14 +136,40 @@ final class MarkdownTextBuilderTests: XCTestCase {
         }
     }
 
-    func testAnImageOnlyParagraphIsPending() {
-        var splitter = MarkdownBlockSplitter()
-        for markdown in ["![Alt](square.png)", "![one](a.png) ![two](b.png)"] {
-            let view = MarkdownBlockView()
-            view.configure(splitter.split(markdown)[0], style: style)
-            XCTAssertEqual(view.pendingBlock, .image, markdown)
-            XCTAssertEqual(view.height(forWidth: 400), 0, markdown)
+    func testSimpleBlocksHaveAHeightOffWindow() {
+        var style = self.style
+        style.contentSizeCategory = .large
+        style.blockDirectives["note"] = { _ in
+            let view = UILabel()
+            view.text = "A note"
+            return view
         }
+        for markdown in ["---", "<div>\nhtml\n</div>", "@note {\nA note.\n}", "![Alt](square.png)", "![Alt](https://catalog.test/never.png)", "- ![Alt](square.png)", "> ---"] {
+            var splitter = MarkdownBlockSplitter()
+            let block = splitter.split(markdown)[0]
+            XCTAssertTrue(MarkdownBlockView.draws(block), markdown)
+            let view = MarkdownBlockView()
+            view.configure(block, style: style)
+            XCTAssertNil(view.pendingBlock, markdown)
+            XCTAssertGreaterThan(view.height(forWidth: 400), 0, markdown)
+        }
+    }
+
+    func testARuleIsItsLineAndItsRoom() {
+        var splitter = MarkdownBlockSplitter()
+        let view = MarkdownBlockView()
+        view.configure(splitter.split("---")[0], style: style)
+        XCTAssertEqual(view.height(forWidth: 400), 31)
+    }
+
+    func testARelativeImageWithNoBaseIsItsDescription() {
+        let text = MarkdownTextBuilder.build(markdown: "![Alt text only](square.png)", style: style)
+        XCTAssertNotNil(text.attributed.attribute(.attachment, at: 0, effectiveRange: nil) as? MarkdownImageAttachment)
+    }
+
+    func testRolesOfSimpleBlocksFollowTheirFallbacks() {
+        let light = UITraitCollection { $0.userInterfaceStyle = .light; $0.flooTheme = .system }
+        XCTAssertEqual(UIColor.floo(.markdownImageCaption).resolvedColor(with: light), UIColor.secondaryLabel.resolvedColor(with: light))
     }
 
     func testARightToLeftItemKeepsItsLines() {

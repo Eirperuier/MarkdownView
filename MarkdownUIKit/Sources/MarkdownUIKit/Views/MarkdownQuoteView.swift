@@ -121,6 +121,12 @@ final class MarkdownQuoteView: UIView {
         decorationGate.follow(reveal?.manager)
     }
 
+    /// What's in the text changed size by itself.
+    func textSizeDidChange() {
+        host.textSizeDidChange()
+        setNeedsLayout()
+    }
+
     /// Lets the text view go back to the pool.
     func releaseText() {
         decorationGate.stop()

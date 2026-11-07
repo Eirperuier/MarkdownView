@@ -187,8 +187,13 @@ public struct MarkdownStyle {
     public var interpretsTextSyntax = true
     public var rangeDecorations: [MarkdownRangeDecoration] = []
     public var inlineAnchors: [MarkdownInlineAnchor] = []
-    /// Directive names something renders; any other shows its content as markdown.
-    public var registeredDirectives: Set<String> = []
+    /// Directives something renders, by name; any other shows its content as markdown.
+    public var blockDirectives: [String: @MainActor (MarkdownDirectiveRequest) -> UIView] = [:]
+    /// Where a relative image path starts. Nil shows such an image's description.
+    public var baseURL: URL?
+    /// Images a URL scheme draws itself, in place of loading them. The view says its size in
+    /// `sizeThatFits(_:)`.
+    public var imageRenderers: [String: @MainActor (MarkdownImageRequest) -> UIView] = [:]
     /// Turns a link into custom text (a local file's icon and name); nil keeps the link.
     public var inlineLinkBuilder: (@MainActor (_ destination: String, _ label: String, _ tint: UIColor) -> NSAttributedString?)?
 
@@ -206,6 +211,8 @@ public struct MarkdownStyle {
 
     /// Inside a quote: bold text and links black and white, not the theme's colour.
     var isQuoted = false
+    /// Who hears that something in this text changed size by itself.
+    var lateSize: MarkdownLateSize?
 
     public init() {}
 }
@@ -218,6 +225,15 @@ extension MarkdownStyle {
         style.linkColor = nil
         style.strongColor = nil
         return style
+    }
+
+    /// A name as written, or in another case.
+    func blockDirective(named name: String) -> (@MainActor (MarkdownDirectiveRequest) -> UIView)? {
+        blockDirectives[name] ?? blockDirectives.first { $0.key.lowercased() == name.lowercased() }?.value
+    }
+
+    func imageRenderer(forScheme scheme: String) -> (@MainActor (MarkdownImageRequest) -> UIView)? {
+        imageRenderers[scheme] ?? imageRenderers.first { $0.key.lowercased() == scheme.lowercased() }?.value
     }
 
     var resolvedDefaultFont: UIFont {

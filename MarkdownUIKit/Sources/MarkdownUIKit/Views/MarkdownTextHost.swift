@@ -222,6 +222,13 @@ final class MarkdownTextHost {
         }
     }
 
+    /// What's in the text changed size by itself: nothing measured before holds.
+    func textSizeDidChange() {
+        shownTextView?.invalidateFittingSizes()
+        shownTextView?.setNeedsLayout()
+        rightToLeftHeights.removeAll()
+    }
+
     /// The text's own size at `width`, inside the insets.
     func fittingSize(width: CGFloat) -> CGSize {
         let inner = max(0, width - insets.left - insets.right)

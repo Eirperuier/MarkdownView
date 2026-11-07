@@ -633,13 +633,28 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     // Blocks that aren't text are a seam for now (MarkdownBlockView's pending kinds).
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) -> NSMutableAttributedString { blockSeam(codeBlock) }
     mutating func visitTable(_ table: Markdown.Table) -> NSMutableAttributedString { blockSeam(table) }
-    mutating func visitHTMLBlock(_ htmlBlock: HTMLBlock) -> NSMutableAttributedString { blockSeam(htmlBlock) }
-    mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) -> NSMutableAttributedString { blockSeam(thematicBreak) }
+
+    /// An HTML block shows as its source, as it does in MarkdownView: no web view for a row.
+    mutating func visitHTMLBlock(_ htmlBlock: HTMLBlock) -> NSMutableAttributedString {
+        if let seam = style.nestedBlock?(htmlBlock, style) { return attachmentBlock(htmlBlock, attachment: seam) }
+        let raw = htmlBlock.rawHTML
+        appendMap(storageCount: raw.count, plainSpan: htmlBlock.markdownRevealPlainText.count)
+        revealCursor += raw.count
+        return NSMutableAttributedString(string: raw, attributes: [.font: bodyFont])
+    }
+
+    mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) -> NSMutableAttributedString {
+        let attachment = style.nestedBlock?(thematicBreak, style) ?? MarkdownRuleAttachment(id: nextAttachmentID(), source: thematicBreak.format())
+        return attachmentBlock(thematicBreak, attachment: attachment)
+    }
 
     mutating func visitBlockDirective(_ blockDirective: BlockDirective) -> NSMutableAttributedString {
         // A directive nothing renders shows its content as markdown: MarkdownView's vanishes.
-        if !style.registeredDirectives.contains(blockDirective.name), blockDirective.name != MarkdownTree.mathAttribute {
-            return descendInto(blockDirective)
+        if blockDirective.name != MarkdownTree.mathAttribute {
+            if let seam = style.nestedBlock?(blockDirective, style) { return attachmentBlock(blockDirective, attachment: seam) }
+            guard let renderer = style.blockDirective(named: blockDirective.name) else { return descendInto(blockDirective) }
+            let view = renderer(MarkdownDirectiveRequest(blockDirective))
+            return attachmentBlock(blockDirective, attachment: MarkdownCustomViewAttachment(id: nextAttachmentID(), view: view, source: blockDirective.format()))
         }
         if blockDirective.name == MarkdownTree.mathAttribute, style.nestedBlock == nil,
            let value = blockDirective.argumentText.parseNameValueArguments().first?.value,
@@ -650,8 +665,23 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
     }
 
     mutating func visitImage(_ image: Markdown.Image) -> NSMutableAttributedString {
-        let attachment = style.inlineImage?(image, style) ?? MarkdownEmptyAttachment(id: nextAttachmentID())
-        return attachmentBlock(image, attachment: attachment)
+        if let seam = style.inlineImage?(image, style) { return attachmentBlock(image, attachment: seam) }
+        // By the URL's scheme: a host's renderer, the network's two, or a path from the base.
+        // Anything else shows its description.
+        let written = image.source.flatMap { URL(string: $0) }
+        var url: URL?
+        if let written {
+            if let scheme = written.scheme, let renderer = style.imageRenderer(forScheme: scheme) {
+                let view = renderer(MarkdownImageRequest(url: written, alternativeText: MarkdownImageSource.alternativeText(of: image)))
+                return attachmentBlock(image, attachment: MarkdownCustomViewAttachment(id: nextAttachmentID(), view: view, source: image.format()))
+            }
+            if let scheme = written.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+                url = written
+            } else if let base = style.baseURL {
+                url = MarkdownImageSource.resolved(written, against: base)
+            }
+        }
+        return attachmentBlock(image, attachment: MarkdownImageAttachment(id: nextAttachmentID(), image: image, url: url, style: style))
     }
 
     mutating func visitBlockQuote(_ blockQuote: BlockQuote) -> NSMutableAttributedString {
@@ -677,6 +707,14 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
         appendMap(storageCount: 1, plainSpan: markup.markdownRevealPlainText.count)
         revealCursor += 1
         return attachmentString(attachment)
+    }
+
+    /// A picture in an item starts at the item's content: it's narrower by that.
+    private func indentImages(in text: NSAttributedString, by indent: CGFloat) {
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+            guard let image = value as? MarkdownImageAttachment else { return }
+            image.lineIndent = max(image.lineIndent, indent)
+        }
     }
 
     private mutating func blockSeam(_ markup: any Markup) -> NSMutableAttributedString {
@@ -1088,6 +1126,8 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
             revealCursor -= 1
         }
 
+        indentImages(in: leading, by: contentIndent)
+        indentImages(in: trailing, by: contentIndent)
         // Made after the content: the CJK correction looks at the leading text.
         let itemStyle = itemParagraphStyle(for: leading, firstLineIndent: effectiveBaseIndent, contentIndent: contentIndent)
         itemStyle.tabStops = [NSTextTab(textAlignment: tabAlignment, location: contentIndent)]
