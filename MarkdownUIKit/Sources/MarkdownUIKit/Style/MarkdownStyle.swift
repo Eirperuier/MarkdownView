@@ -129,6 +129,9 @@ public struct MarkdownIcons {
 public struct MarkdownStyle {
     // Type
     public var typography = MarkdownTypography.standard
+    /// Text that's only looked at is drawn in one view; the first touch or pointer on it gets a
+    /// real text view. Off, it's always a text view.
+    public var drawsTextUntilTouched = false
     /// The size text resolves at; nil follows the view's traits.
     public var contentSizeCategory: UIContentSizeCategory?
     /// What a run names no font of its own in: spaces from soft breaks and the newlines between

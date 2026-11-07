@@ -292,13 +292,13 @@ public final class MarkdownBlockView: UIView {
         let text = MarkdownTextBuilder.build(markdown: source, style: style, listDepthOffset: depth, inlineMath: block?.inlineMathStorage, displayMath: block?.displayMathStorage)
         let shown: MarkdownTextHost?
         if case .text(let host, _) = layout { shown = host } else { shown = nil }
-        let host = shown ?? MarkdownTextHost()
+        let host = shown ?? MarkdownTextHost(textView: !style.drawsTextUntilTouched)
         if style.addsEdgeInsets {
             host.insets = UIEdgeInsets(top: text.topEdgeInset, left: 0, bottom: text.bottomEdgeInset, right: 0)
         }
         if shown == nil {
             host.apply(text, style: style, reveal: reveal)
-            addSubview(host.textView)
+            addSubview(host.view)
         } else {
             host.update(text, style: style, reveal: reveal)
         }

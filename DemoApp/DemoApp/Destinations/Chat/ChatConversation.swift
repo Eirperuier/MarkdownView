@@ -8,6 +8,7 @@
 
 import SwiftUI
 import MarkdownView
+import MessagingUI
 
 struct ChatRow: Identifiable, Equatable {
     enum Kind: Equatable {
@@ -37,7 +38,7 @@ struct ChatRow: Identifiable, Equatable {
         case .prompt(let prompt):
             text = prompt
             revealCount = 0
-            drawsInUIKit = false
+            drawsInUIKit = ChatRenderer.current == .uikit && TiledPerf.on("promptrow")
         case .block(let block):
             text = block.source
             revealCount = block.revealPlainTextCount
@@ -92,7 +93,12 @@ final class ChatConversation {
         }
     }
 
-    private(set) var rows: [ChatRow] = []
+    /// What the list shows, one exchange's rows changed at a time: no array to compare and diff.
+    @ObservationIgnored let list = TiledList<ChatRow>()
+    @ObservationIgnored static let usesList = TiledPerf.on("list")
+    /// The rows as one array, when the list isn't used: compared and diffed on each change.
+    private(set) var arrayRows: [ChatRow] = []
+    var rows: [ChatRow] { Self.usesList ? list.items : arrayRows }
     /// Exchanges before this one aren't loaded yet: a paged conversation shows its latest
     /// page first and loads older ones as the list reaches the top.
     private(set) var firstLoadedExchange = 0
@@ -121,13 +127,18 @@ final class ChatConversation {
     func loadOlder(_ count: Int, latency: Duration) async {
         guard hasOlder else { return }
         try? await Task.sleep(for: latency)
+        let before = firstLoadedExchange
         firstLoadedExchange = max(0, firstLoadedExchange - count)
-        publishRows()
+        if Self.usesList {
+            list.prepend(exchanges[firstLoadedExchange..<before].flatMap(\.rows))
+        } else {
+            publishRows()
+        }
     }
 
     /// Empties the list but keeps the exchanges, so `restore()` brings back the same rows (same ids).
     func hide() {
-        rows = []
+        if Self.usesList { list.reset([]) } else { arrayRows = [] }
         ChatUIKitBlockViews.dropViews(keepingHeights: true)
     }
 
@@ -140,14 +151,18 @@ final class ChatConversation {
         let id = (exchanges.last?.id ?? -1) + 1
         // The last streamed reply stops fading in; the new one starts.
         for index in exchanges.indices where exchanges[index].isStreaming {
-            exchanges[index].isStreaming = false
+            change(index) { $0.isStreaming = false }
         }
         var exchange = Exchange(id: id, prompt: ChatCorpus.prompt(id))
         exchange.isStreaming = true
         exchanges.append(exchange)
         coordinator.reset()
         generation = 0
-        publishRows()
+        if Self.usesList {
+            list.append(exchange.rows)
+        } else {
+            publishRows()
+        }
 
         // Parsing runs off the main actor; blocks arrive as each parse commits.
         let parser = MarkdownStreamParser()
@@ -167,14 +182,24 @@ final class ChatConversation {
 
     private func commit(_ blocks: [MarkdownStreamBlock], toExchange id: Int) {
         guard let index = exchanges.lastIndex(where: { $0.id == id }) else { return }
-        exchanges[index].setBlocks(blocks)
+        change(index) { $0.setBlocks(blocks) }
         generation += 1
         coordinator.syncBlocks(blocks.map { ($0.id, $0.revealPlainTextCount) }, generation: generation)
-        publishRows()
+        if !Self.usesList { publishRows() }
+    }
+
+    /// Changes one exchange, and only its rows in the list.
+    private func change(_ index: Int, _ body: (inout Exchange) -> Void) {
+        let old = exchanges[index].rows
+        body(&exchanges[index])
+        guard Self.usesList, index >= firstLoadedExchange else { return }
+        let before = index > firstLoadedExchange ? exchanges[index - 1].rows.last?.id : nil
+        list.replace(old, with: exchanges[index].rows, after: before)
     }
 
     private func publishRows() {
-        rows = exchanges[firstLoadedExchange...].flatMap(\.rows)
+        let rows = exchanges[firstLoadedExchange...].flatMap(\.rows)
+        if Self.usesList { list.reset(rows) } else { arrayRows = rows }
     }
 }
 

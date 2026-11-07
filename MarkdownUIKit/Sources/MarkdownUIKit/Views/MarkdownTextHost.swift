@@ -48,17 +48,52 @@ extension CGRect {
 
 @MainActor
 final class MarkdownTextHost {
-    let textView: InlineAttachmentTextView
+    /// The text view: the one there is, or one taking the place of the drawn text.
+    var textView: InlineAttachmentTextView {
+        if let shownTextView { return shownTextView }
+        let view = makeTextView()
+        shownTextView = view
+        if let drawn {
+            if let text { view.applyContent(NSMutableAttributedString(attributedString: text.attributed)) }
+            view.frame = drawn.frame.insetBy(dx: MarkdownDrawnTextView.overdraw, dy: MarkdownDrawnTextView.overdraw)
+            drawn.superview?.insertSubview(view, aboveSubview: drawn)
+            drawn.onTouched = nil
+            drawn.removeFromSuperview()
+            self.drawn = nil
+            if let text { finish(text) }
+        }
+        return view
+    }
+
+    /// What's in the block's views: the drawn text, or the text view.
+    var view: UIView { drawn ?? textView }
+
+    private var shownTextView: InlineAttachmentTextView?
+    private var drawn: MarkdownDrawnTextView?
     private let delegate = RichTextInteractionDelegate()
     private(set) var text: MarkdownText?
     /// The room a document gives it, or none.
     var insets = UIEdgeInsets.zero
     private var isRightToLeft = false
+    /// Its frame is as wide as its longest line: text placed in the room (centred lines) would go
+    /// elsewhere, and text with a hanging indent wraps by that width, a list item's last word
+    /// going down a line as in a SwiftUI row. All other text keeps all the room: laying it out
+    /// again at a narrower width, and then again as the frame takes that width, costs a row three
+    /// layouts for nothing.
+    private var placesText = false
+    private var hasHangingIndent = false
+    private var hugsText: Bool { placesText || hasHangingIndent }
     private var rightToLeftHeights: [CGFloat: CGFloat] = [:]
     private var revealController: MarkdownRevealController?
+    private var foregroundColor = UIColor.label
+    private var openLink: (@MainActor @Sendable (URL) -> Void)?
 
-    init() {
-        textView = RichTextViewPool.acquire(usingTextLayoutManager: true)
+    init(textView: Bool = true) {
+        if textView { shownTextView = makeTextView() }
+    }
+
+    private func makeTextView() -> InlineAttachmentTextView {
+        let textView = RichTextViewPool.acquire(usingTextLayoutManager: true)
         textView.configureForDisplay()
         // A first letter's overhang stays visible, as it does in a layout that doesn't clip.
         textView.clipsToBounds = false
@@ -66,17 +101,46 @@ final class MarkdownTextHost {
         delegate.textView = textView
         textView.delegate = delegate
         textView.textDragDelegate = delegate
+        textView.defaultForegroundColor = foregroundColor
+        delegate.openLink = openLink
+        return textView
     }
 
     func release() {
         revealController?.detach()
         revealController = nil
-        RichTextViewPool.release(textView)
+        if let shownTextView { RichTextViewPool.release(shownTextView) }
+        shownTextView = nil
+        drawn?.onTouched = nil
+        drawn?.removeFromSuperview()
+        drawn = nil
+    }
+
+    /// Whether drawn text can show all of this, with nothing but TextKit drawing it.
+    private func canDraw(_ text: MarkdownText) -> Bool {
+        guard !placesText, !isRightToLeft, !UIAccessibility.isVoiceOverRunning else { return false }
+        var plain = true
+        text.attributed.enumerateAttributes(in: NSRange(location: 0, length: text.attributed.length)) { attributes, _, stop in
+            if attributes[.attachment] != nil || attributes[.richTextPenMark] != nil
+                || (attributes[.underlineColor] != nil && attributes[.underlineStyle] == nil) {
+                plain = false
+                stop.pointee = true
+            }
+        }
+        return plain
     }
 
     /// Replaces all that shows. `reveal` goes on before the text, or its fragments would be plain.
     func apply(_ text: MarkdownText, style: MarkdownStyle, reveal: MarkdownReveal? = nil) {
         prepare(text, style: style)
+        if style.drawsTextUntilTouched, reveal == nil, shownTextView == nil, canDraw(text) {
+            let drawn = drawn ?? MarkdownDrawnTextView()
+            drawn.onTouched = { [weak self] in self?.textView }
+            drawn.narrowsToText = hasHangingIndent
+            drawn.show(text.attributed, foregroundColor: foregroundColor)
+            self.drawn = drawn
+            return
+        }
         setReveal(reveal)
         // applyContent trusts a same-text prefix to be the same: an update starts clean.
         if textView.textStorage.length > 0 {
@@ -90,6 +154,11 @@ final class MarkdownTextHost {
     /// the same keeps its layout, and its place in a reveal.
     func update(_ text: MarkdownText, style: MarkdownStyle, reveal: MarkdownReveal? = nil) {
         prepare(text, style: style)
+        if let drawn, reveal == nil, canDraw(text) {
+            drawn.narrowsToText = hasHangingIndent
+            drawn.show(text.attributed, foregroundColor: foregroundColor)
+            return
+        }
         setReveal(reveal)
         let tail = NSMutableAttributedString(attributedString: text.attributed)
         if textView.replaceTail(tail, nsPrefixLength: 0) == nil {
@@ -116,9 +185,19 @@ final class MarkdownTextHost {
     private func prepare(_ text: MarkdownText, style: MarkdownStyle) {
         self.text = text
         isRightToLeft = style.layoutDirection == .rightToLeft
+        placesText = style.typography.paragraphAlignment != .left && style.typography.paragraphAlignment != .natural
+        hasHangingIndent = false
+        text.attributed.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: text.attributed.length)) { value, _, stop in
+            if let paragraph = value as? NSParagraphStyle, paragraph.headIndent != paragraph.firstLineHeadIndent {
+                hasHangingIndent = true
+                stop.pointee = true
+            }
+        }
         rightToLeftHeights.removeAll()
-        textView.defaultForegroundColor = style.resolvedTextColor
-        delegate.openLink = style.openURL
+        foregroundColor = style.resolvedTextColor
+        openLink = style.openURL
+        shownTextView?.defaultForegroundColor = foregroundColor
+        delegate.openLink = openLink
     }
 
     private func finish(_ text: MarkdownText) {
@@ -128,6 +207,7 @@ final class MarkdownTextHost {
     }
 
     private func syncPenMarks() {
+        guard let textView = shownTextView else { return }
         guard let controller = revealController else {
             MarkdownPenOverlayView.sync(on: textView)
             return
@@ -140,7 +220,8 @@ final class MarkdownTextHost {
     /// The text's own size at `width`, inside the insets.
     func fittingSize(width: CGFloat) -> CGSize {
         let inner = max(0, width - insets.left - insets.right)
-        guard isRightToLeft else {
+        if let drawn { return drawn.size(forWidth: inner) }
+        guard isRightToLeft || (RichTextPerf.on("fit") && !hugsText) else {
             return textView.fittingSize(proposedWidth: inner, proposedHeight: nil)
         }
         // Right to left, a hanging indent makes the reported width too narrow, and cut to it an
@@ -161,6 +242,11 @@ final class MarkdownTextHost {
         let size = fittingSize(width: rect.width)
         let x = isRightToLeft ? rect.maxX - insets.right - size.width : rect.minX + insets.left
         let frame = CGRect(x: x, y: rect.minY + insets.top, width: size.width, height: size.height).markdownPixelAligned()
+        if let drawn {
+            let outer = frame.insetBy(dx: -MarkdownDrawnTextView.overdraw, dy: -MarkdownDrawnTextView.overdraw)
+            if drawn.frame != outer { drawn.frame = outer }
+            return
+        }
         if textView.frame != frame {
             textView.frame = frame
             MarkdownPenOverlayView.sync(on: textView)

@@ -410,10 +410,15 @@ final class ChatBenchmark {
         }
         // An interval per scenario, to line Instruments traces (Animation Hitches, say) up with it.
         let interval = Self.signposter.beginInterval("scenario", "\(scenario)")
+        // To time a `sample` of one scenario: stdout goes to a file, so it's flushed by hand.
+        print("BENCHSTART \(scenario)")
+        fflush(stdout)
         let start = CACurrentMediaTime()
         let cpuStart = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+        let counters = Self.processCounters()
         await body()
         let cpu = Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - cpuStart) / 1_000_000
+        let countersEnd = Self.processCounters()
         let wall = (CACurrentMediaTime() - start) * 1000
         Self.signposter.endInterval("scenario", interval)
         clock.onFrame = nil
@@ -430,7 +435,7 @@ final class ChatBenchmark {
             endFootprintMB: Self.footprintMB()
         )
         results.append(result)
-        print("BENCH", json(result))
+        print("BENCH", json(result, instructions: countersEnd.instructions - counters.instructions, cycles: countersEnd.cycles - counters.cycles))
     }
 
     /// Which rows the conversation is made of, under this renderer.
@@ -461,13 +466,32 @@ final class ChatBenchmark {
         try? await Task.sleep(for: .seconds(seconds))
     }
 
-    private func json(_ result: Result) -> String {
+    /// The process's instructions and cycles so far. CPU time moves with the cores' speed, which
+    /// a thread with less to do gets less of; these don't.
+    private static func processCounters() -> (instructions: UInt64, cycles: UInt64) {
+        typealias Rusage = @convention(c) (Int32, Int32, UnsafeMutablePointer<rusage_info_v4>) -> Int32
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "proc_pid_rusage") else { return (0, 0) }
+        var info = rusage_info_v4()
+        guard unsafeBitCast(symbol, to: Rusage.self)(getpid(), RUSAGE_INFO_V4, &info) == 0 else { return (0, 0) }
+        return (info.ri_instructions, info.ri_cycles)
+    }
+
+    private func json(_ result: Result, instructions: UInt64, cycles: UInt64) -> String {
         let stats = result.stats
         let fields: [(String, Any)] = [
             ("platform", "\"\(Self.platform)\""),
             ("scenario", "\"\(result.scenario)\""),
             ("wall_ms", String(format: "%.1f", result.wallMilliseconds)),
             ("cpu_ms", String(format: "%.1f", result.cpuMilliseconds)),
+            ("fcpu_p50", String(format: "%.2f", result.stats.frameCPU.p50Milliseconds)),
+            ("fcpu_p95", String(format: "%.2f", result.stats.frameCPU.p95Milliseconds)),
+            ("fcpu_p99", String(format: "%.2f", result.stats.frameCPU.p99Milliseconds)),
+            ("fcpu_max", String(format: "%.2f", result.stats.frameCPU.maxMilliseconds)),
+            ("fcpu_over4", String(format: "%.4f", result.stats.frameCPU.over4ms)),
+            ("fcpu_over8", String(format: "%.4f", result.stats.frameCPU.over8ms)),
+            ("fcpu_over16", String(format: "%.4f", result.stats.frameCPU.over16ms)),
+            ("minstr", instructions / 1_000_000),
+            ("mcycles", cycles / 1_000_000),
             ("frames", stats.frames),
             ("budget_ms", String(format: "%.2f", stats.budgetMilliseconds)),
             ("hitch_ms_per_s", String(format: "%.2f", stats.hitchMillisecondsPerSecond)),

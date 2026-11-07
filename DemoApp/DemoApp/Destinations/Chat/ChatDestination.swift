@@ -118,13 +118,28 @@ struct ChatDestination: View {
 
     // MARK: List
 
-    private var list: some View {
-        TiledView(items: conversation.rows, scrollPosition: $scrollPosition) { row in
+    private var tiled: TiledView<ChatRow, TiledCellContentWrapper<ChatRowCell>, Never, Never, Never, Never, Void> {
+        let cell = { [conversation, selection, renderedHeights] (row: ChatRow) in
             ChatRowCell(item: row, conversation: conversation, selection: selection, renderedHeights: renderedHeights)
         }
+        return ChatConversation.usesList
+            ? TiledView(list: conversation.list, scrollPosition: $scrollPosition, cellBuilder: cell)
+            : TiledView(items: conversation.arrayRows, scrollPosition: $scrollPosition, cellBuilder: cell)
+    }
+
+    private var list: some View {
+        tiled
         .itemUIKitCell { [conversation, renderedHeights] row -> (any TiledUIKitCellContent)? in
-            guard row.drawsInUIKit, case .block(let block) = row.kind else { return nil }
-            return ChatUIKitBlock(id: row.id, block: block, isStreaming: row.isStreaming, conversation: conversation, renderedHeights: renderedHeights)
+            guard row.drawsInUIKit else { return nil }
+            switch row.kind {
+            case .prompt(let text):
+                return ChatUIKitPrompt(id: row.id, text: text, renderedHeights: renderedHeights)
+            case .block(let block):
+                if let control = ChatRowControl.current {
+                    return ChatControlRow(source: block.source, control: control)
+                }
+                return ChatUIKitBlock(id: row.id, block: block, isStreaming: row.isStreaming, conversation: conversation, renderedHeights: renderedHeights)
+            }
         }
         .prependLoader(conversation.hasOlder ? .loader(perform: { [conversation] in
             await conversation.loadOlder(Self.pageSize, latency: Self.pageLatency)

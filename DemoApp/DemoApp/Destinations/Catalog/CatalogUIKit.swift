@@ -94,7 +94,11 @@ final class CatalogUIKitFixtureView: UIView {
 /// What the knobs set: a style, and what a host sets around it.
 @MainActor
 struct CatalogUIKitSettings {
-    var style = MarkdownStyle()
+    var style = {
+        var style = MarkdownStyle()
+        style.drawsTextUntilTouched = UserDefaults.standard.bool(forKey: "chatDrawsText")
+        return style
+    }()
     /// The app's accent: SwiftUI takes it from the asset catalog, a theme names it.
     var theme = FlooTheme.system.setting(.accent, to: UIColor(named: "AccentColor") ?? .systemBlue)
     var appearance: UIUserInterfaceStyle?

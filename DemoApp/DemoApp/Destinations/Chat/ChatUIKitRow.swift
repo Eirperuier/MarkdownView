@@ -55,7 +55,7 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
     /// Once, on the window: a trait override in each row has UIKit walk the row's views at every
     /// layout pass. The SwiftUI rows don't read it.
     static func applyTheme() {
-        guard ChatRenderer.current == .uikit else { return }
+        guard ChatRenderer.current == .uikit, TiledPerf.on("windowtheme") else { return }
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
             for window in scene.windows { window.traitOverrides.flooTheme = theme }
         }
@@ -65,9 +65,14 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
         ChatRenderer.current == .uikit && MarkdownUIKit.MarkdownBlockView.draws(block)
     }
 
+    /// `-chatDrawsText YES`: rows draw their text until touched. Off by default: a first click and
+    /// pointer on it haven't been tried with real events.
+    private static let drawsText = UserDefaults.standard.bool(forKey: "chatDrawsText")
+
     /// The row's style. Links open as a SwiftUI row's do; under a probe they're only told.
     static var style: MarkdownStyle {
         var style = MarkdownStyle()
+        style.drawsTextUntilTouched = drawsText
         if ChatProbe.file != nil {
             style.openURL = { print("LINK \($0)") }
         }
@@ -94,6 +99,123 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
 
     static func prepareForReuse(_ view: ChatUIKitRowView) {
         view.reset()
+    }
+}
+
+/// A prompt's row, as ChatRowView draws one: a bubble at the trailing edge, as wide as its text.
+@MainActor
+struct ChatUIKitPrompt: TiledUIKitCellContent {
+    let id: String
+    let text: String
+    let renderedHeights: ChatRenderedHeights
+
+    static func makeRowView() -> ChatUIKitPromptView {
+        ChatUIKitPromptView()
+    }
+
+    func configure(_ view: ChatUIKitPromptView, context: TiledUIKitCellContext) {
+        view.show(id: id, text: text, renderedHeights: renderedHeights)
+    }
+
+    func height(forWidth width: CGFloat, traits: UITraitCollection) -> CGFloat {
+        ChatUIKitPromptLayout.height(of: text, width: width, traits: traits)
+    }
+}
+
+extension FlooColorRole {
+    /// A prompt's bubble: the accent, faint.
+    static let chatPromptFill = FlooColorRole("chat.promptFill") { $0[.accent].withAlphaComponent(0.15) }
+}
+
+/// A prompt's sizes, as ChatRowView's padding.
+@MainActor
+enum ChatUIKitPromptLayout {
+    static let top: CGFloat = 24
+    static let bottom: CGFloat = 8
+    static let bubbleInsets = UIEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+    static let cornerRadius: CGFloat = 18
+
+    private struct Key: Hashable {
+        let text: String
+        let width: CGFloat
+        let category: UIContentSizeCategory
+    }
+
+    private static var textSizes: [Key: CGSize] = [:]
+    private static let measuringLabel = {
+        let label = UILabel()
+        label.numberOfLines = 0
+        return label
+    }()
+
+    /// The text's size in a row `width` wide.
+    static func textSize(of text: String, width: CGFloat, traits: UITraitCollection) -> CGSize {
+        let key = Key(text: text, width: width, category: traits.preferredContentSizeCategory)
+        if let size = textSizes[key] { return size }
+        let room = max(0, ChatUIKitRowLayout.textWidth(in: width) - bubbleInsets.left - bubbleInsets.right)
+        measuringLabel.font = font(traits)
+        measuringLabel.text = text
+        let fit = measuringLabel.sizeThatFits(CGSize(width: room, height: .greatestFiniteMagnitude))
+        let scale = max(1, traits.displayScale)
+        let size = CGSize(width: (min(fit.width, room) * scale).rounded(.up) / scale, height: (fit.height * scale).rounded(.up) / scale)
+        textSizes[key] = size
+        return size
+    }
+
+    static func height(of text: String, width: CGFloat, traits: UITraitCollection) -> CGFloat {
+        top + bottom + bubbleInsets.top + bubbleInsets.bottom + textSize(of: text, width: width, traits: traits).height
+    }
+
+    static func font(_ traits: UITraitCollection) -> UIFont {
+        .preferredFont(forTextStyle: .body, compatibleWith: traits)
+    }
+}
+
+@MainActor
+final class ChatUIKitPromptView: UIView {
+    private let bubble = UIView()
+    private let label = UILabel()
+    private var rowID: String?
+    private var text = ""
+    private weak var renderedHeights: ChatRenderedHeights?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        bubble.backgroundColor = .floo(.chatPromptFill)
+        bubble.layer.cornerRadius = ChatUIKitPromptLayout.cornerRadius
+        bubble.layer.cornerCurve = .continuous
+        label.numberOfLines = 0
+        label.textColor = .floo(.label)
+        addSubview(bubble)
+        bubble.addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show(id: String, text: String, renderedHeights: ChatRenderedHeights) {
+        self.renderedHeights = renderedHeights
+        rowID = id
+        self.text = text
+        label.text = text
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let font = ChatUIKitPromptLayout.font(traitCollection)
+        if label.font != font { label.font = font }
+        let insets = ChatUIKitPromptLayout.bubbleInsets
+        let size = ChatUIKitPromptLayout.textSize(of: text, width: bounds.width, traits: traitCollection)
+        let textWidth = ChatUIKitRowLayout.textWidth(in: bounds.width)
+        let scale = max(1, traitCollection.displayScale)
+        let textMaxX = ((bounds.width + textWidth) / 2 * scale).rounded() / scale
+        let bubbleWidth = size.width + insets.left + insets.right
+        bubble.frame = CGRect(x: textMaxX - bubbleWidth, y: ChatUIKitPromptLayout.top, width: bubbleWidth, height: size.height + insets.top + insets.bottom)
+        label.frame = CGRect(x: insets.left, y: insets.top, width: size.width, height: size.height)
+        if let rowID { renderedHeights?.sizes[rowID] = bounds.size }
     }
 }
 
