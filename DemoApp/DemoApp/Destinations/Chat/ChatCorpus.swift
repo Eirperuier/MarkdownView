@@ -45,6 +45,17 @@ enum ChatCorpus {
     ```
 
     Interaction after the code.
+
+    | Table name | Table value | Table third | Table fourth | Table fifth | Table sixth | Table seventh |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | Table plain words to select | [Table test link](https://example.com/table) | A longer cell of plain words in the third column of the table | Fourth cell | Fifth cell | Sixth cell | Seventh cell |
+    | Table second row | Second value | **Table bold** words | `table code` | Fifth two | Sixth two | Seventh two |
+    | Table third row | Third value | Third third | Fourth three | Fifth three | Sixth three | Seventh three |
+    | Table fourth row | Fourth value | Third four | Fourth four | Fifth four | Sixth four | Seventh four |
+    | Table fifth row | Fifth value | Third five | Fourth five | Fifth five | Sixth five | Seventh five |
+    | Table sixth row | Sixth value | Third six | Fourth six | Fifth six | Sixth six | Seventh six |
+
+    Interaction after the table.
     """]
 
     static func prompt(_ index: Int) -> String {

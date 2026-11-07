@@ -82,6 +82,8 @@ final class CatalogUIKitFixtureView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    private static let tableTextViews = UserDefaults.standard.bool(forKey: "catalogTableTextViews")
+
     func height(forWidth width: CGFloat) -> CGFloat {
         blocks.reduce(0) { $0 + $1.height(forWidth: width) }
     }
@@ -95,7 +97,69 @@ final class CatalogUIKitFixtureView: UIView {
             let bottom = ((y + height) * scale).rounded() / scale
             block.frame = CGRect(x: 0, y: top, width: bounds.width, height: bottom - top)
             y += height
+            // `-catalogTableTextViews YES`: nothing may move when a cell takes a text view.
+            if Self.tableTextViews, window != nil {
+                block.layoutIfNeeded()
+                block.tableView?.showAllCellsInTextViews()
+            }
         }
+    }
+}
+
+/// The image renderer for table cells in CatalogFixture: its description in caption, on a faint tile.
+@MainActor
+final class CatalogUIKitTableImage: UIView {
+    private let label = UILabel()
+
+    init(text: String) {
+        super.init(frame: .zero)
+        backgroundColor = .quaternaryLabel
+        layer.cornerRadius = 4
+        layer.cornerCurve = .continuous
+        label.text = text
+        label.font = .preferredFont(forTextStyle: .caption1)
+        addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let fit = label.sizeThatFits(size)
+        let scale = max(1, traitCollection.displayScale)
+        return CGSize(width: (fit.width * scale).rounded(.up) / scale + 8, height: (fit.height * scale).rounded(.up) / scale + 8)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        label.frame = bounds.insetBy(dx: 4, dy: 4)
+    }
+}
+
+/// The decoration in CatalogFixture: a line round the table, half on each side of its edges.
+@MainActor
+final class CatalogUIKitTableFrame: UIView {
+    private let line = CAShapeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        line.fillColor = nil
+        line.lineWidth = 1
+        line.strokeColor = UIColor(Color.blue.opacity(0.5)).cgColor
+        layer.addSublayer(line)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        line.frame = bounds
+        line.path = UIBezierPath(rect: bounds).cgPath
     }
 }
 
@@ -197,6 +261,8 @@ struct CatalogUIKitSettings {
             style.typography.body = body
             style.typography.headings = [h1, h2] + style.typography.headings.dropFirst(2)
             style.codeBlock.font = .init(.footnote)
+            style.table.headerFont = .init(.headline, weight: .semibold)
+            style.table.bodyFont = .init(.subheadline)
         case .fontBody:
             var body = MarkdownTypography.Style(.title3)
             body.design = .rounded
@@ -210,7 +276,15 @@ struct CatalogUIKitSettings {
             style.displayMathTextStyle = .title2
         case .fontCode:
             style.codeBlock.font = .init(.body)
-        case .fontQuote, .fontTable:
+        case .fontTable:
+            // A font's `bold()` is its bold trait: semibold on the system's.
+            var header = MarkdownTypography.Style(.callout, weight: .semibold)
+            header.design = .rounded
+            var body = MarkdownTypography.Style(.footnote)
+            body.design = .monospaced
+            style.table.headerFont = header
+            style.table.bodyFont = body
+        case .fontQuote:
             break  // Fonts of blocks that aren't drawn yet, or the SwiftUI path's alone.
         case .typographyDoc:
             style.typography.body = .init(.callout)
@@ -284,10 +358,64 @@ struct CatalogUIKitSettings {
         case .codeHighlighter: style.codeBlock.highlighter = MarkdownHighlightrHighlighter()
         case .codeFloo:
             break  // floo's own box: not ported.
-        case .tableGithub, .tableGrid, .tableScrollable, .tableHeaderColumn, .tableNoHeaderRow, .tableNoStripe,
-             .tableStripeColor, .tableSerif, .tableCellLooks, .tableDimsParentheticals, .tableCellsSelectable,
-             .tableCellPadding, .tableCellOverlay, .tableRowBackground, .tableImage, .tableCellReplacement, .tableDecoration:
-            break  // Tables aren't drawn yet.
+        case .tableGithub: style.table.look = .github
+        case .tableGrid: style.table.look = .grid
+        case .tableScrollable: style.table.scrollsSideways = true
+        case .tableHeaderColumn:
+            style.table.scrollsSideways = true
+            style.table.appearance.headerColumn = true
+        case .tableNoHeaderRow:
+            style.table.scrollsSideways = true
+            style.table.appearance.headerRow = false
+        case .tableNoStripe:
+            style.table.scrollsSideways = true
+            style.table.appearance.stripe = .none
+        case .tableStripeColor:
+            style.table.scrollsSideways = true
+            style.table.appearance.stripe = .color(UIColor(Color.mint.opacity(0.2)))
+        case .tableSerif:
+            style.table.scrollsSideways = true
+            style.table.appearance.fontDesign = .serif
+        case .tableCellLooks:
+            style.table.scrollsSideways = true
+            style.table.appearance.cells = [
+                MarkdownTableCellPosition(row: 1, column: 0): .init(fill: UIColor(MarkdownColorToken.fill("blue", strength: 1)!)),
+                MarkdownTableCellPosition(row: 1, column: 1): .init(fill: UIColor(MarkdownColorToken.fill("blue", strength: 2)!)),
+                MarkdownTableCellPosition(row: 1, column: 2): .init(fill: UIColor(MarkdownColorToken.fill("blue", strength: 3)!)),
+                MarkdownTableCellPosition(row: 2, column: 0): .init(alignment: .leading, tag: UIColor(Color.green)),
+                MarkdownTableCellPosition(row: 2, column: 1): .init(alignment: .center, fontDesign: .monospaced),
+                MarkdownTableCellPosition(row: 2, column: 2): .init(alignment: .trailing, fontDesign: .serif),
+                MarkdownTableCellPosition(row: 3, column: 0): .init(alignment: .justified),
+            ]
+        case .tableDimsParentheticals:
+            style.table.scrollsSideways = true
+            style.table.dimsHeaderParentheticals = true
+        case .tableCellsSelectable:
+            style.table.scrollsSideways = true
+        case .tableCellPadding:
+            break  // The default look sets its own padding over a host's, in the baseline too.
+        case .tableCellOverlay:
+            style.table.cellOverlay = { cell in
+                UIColor(Color.red.opacity(0.4)).setStroke()
+                UIBezierPath(rect: cell).stroke()
+            }
+        case .tableRowBackground:
+            style.table.rowBackground = UIColor(Color.yellow.opacity(0.15))
+        case .tableImage:
+            style.table.imageRenderer = { CatalogUIKitTableImage(text: $0.alternativeText ?? "image") }
+        case .tableCellReplacement:
+            style.table.scrollsSideways = true
+            style.table.replacedCells = [MarkdownTableCellPosition(row: 1, column: 1)]
+            style.table.replacement = { _ in
+                let label = UILabel()
+                label.text = "Replaced"
+                label.textColor = .systemRed
+                label.font = .preferredFont(forTextStyle: .body)
+                return label
+            }
+        case .tableDecoration:
+            style.table.scrollsSideways = true
+            style.table.decoration = { _ in CatalogUIKitTableFrame() }
         case .imageRenderer:
             style.imageRenderers["catalog"] = { CatalogUIKitImageTile(text: $0.alternativeText ?? "") }
         case .baseURL:

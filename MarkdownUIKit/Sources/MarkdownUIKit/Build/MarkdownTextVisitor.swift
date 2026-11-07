@@ -635,7 +635,10 @@ struct MarkdownTextVisitor: @MainActor MarkupVisitor {
         let attachment = style.nestedBlock?(codeBlock, style) ?? MarkdownCodeAttachment(id: nextAttachmentID(), code: codeBlock, style: style)
         return attachmentBlock(codeBlock, attachment: attachment)
     }
-    mutating func visitTable(_ table: Markdown.Table) -> NSMutableAttributedString { blockSeam(table) }
+    mutating func visitTable(_ table: Markdown.Table) -> NSMutableAttributedString {
+        let attachment = style.nestedBlock?(table, style) ?? MarkdownTableAttachment(id: nextAttachmentID(), table: table, style: style, inlineMath: inlineMathStorage, displayMath: displayMathStorage)
+        return attachmentBlock(table, attachment: attachment)
+    }
 
     /// An HTML block shows as its source, as it does in MarkdownView: no web view for a row.
     mutating func visitHTMLBlock(_ htmlBlock: HTMLBlock) -> NSMutableAttributedString {

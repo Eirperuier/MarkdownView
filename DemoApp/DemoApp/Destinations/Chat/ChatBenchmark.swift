@@ -443,7 +443,13 @@ final class ChatBenchmark {
         let rows = conversation.rows
         let uikit = rows.filter(\.drawsInUIKit).count
         let prompts = rows.filter { if case .prompt = $0.kind { true } else { false } }.count
-        print("BENCHMIX {\"renderer\":\"\(ChatRenderer.current.rawValue)\",\"corpus\":\"\(UserDefaults.standard.string(forKey: "chatCorpus") ?? "mixed")\",\"exchanges\":\(exchanges),\"rows\":\(rows.count),\"uikit\":\(uikit),\"swiftui\":\(rows.count - uikit),\"prompts\":\(prompts)}")
+        // What the hosted rows are, by kind.
+        var hosted: [String: Int] = [:]
+        for row in rows where !row.drawsInUIKit {
+            if case .block(let block) = row.kind { hosted[String(describing: block.descriptor.kind), default: 0] += 1 } else { hosted["prompt", default: 0] += 1 }
+        }
+        let hostedKinds = hosted.sorted { $0.key < $1.key }.map { "\"\($0.key)\":\($0.value)" }.joined(separator: ",")
+        print("BENCHMIX {\"renderer\":\"\(ChatRenderer.current.rawValue)\",\"corpus\":\"\(UserDefaults.standard.string(forKey: "chatCorpus") ?? "mixed")\",\"exchanges\":\(exchanges),\"rows\":\(rows.count),\"uikit\":\(uikit),\"swiftui\":\(rows.count - uikit),\"prompts\":\(prompts),\"hosted\":{\(hostedKinds)}}")
     }
 
     /// What the system charges the process for, in megabytes.

@@ -12,11 +12,6 @@ import Markdown
 import RichTextCore
 import UIKit
 
-/// Why a block draws nothing yet.
-public enum MarkdownPendingBlock: Equatable, Sendable {
-    case code, table, displayMath, other
-}
-
 /// One `MarkdownStreamBlock`, in UIKit.
 @MainActor
 public final class MarkdownBlockView: UIView {
@@ -35,7 +30,7 @@ public final class MarkdownBlockView: UIView {
         case custom(UIView)
         case code(MarkdownCodeBlockView)
         case fencedItem(MarkdownFencedItemView)
-        case pending(MarkdownPendingBlock)
+        case table(MarkdownTableView)
     }
 
     private var layout = Layout.empty
@@ -66,22 +61,23 @@ public final class MarkdownBlockView: UIView {
         }
     }
 
-    /// The block that isn't drawn yet, nil if it's drawn.
-    public var pendingBlock: MarkdownPendingBlock? {
-        if case .pending(let kind) = layout { return kind }
-        return nil
-    }
-
     /// The text views inside, for a host's selection and hooks.
     public var textViews: [UITextView] {
         switch layout {
-        case .empty, .pending, .math, .rule, .custom: []
+        case .empty, .math, .rule, .custom: []
         case .text(let host, _): [host.textView]
         case .quote(let quote): [quote.textView]
         case .footnotes(let hosts): hosts.map(\.textView)
         case .code(let view): view.textView.map { [$0] } ?? []
         case .fencedItem(let view): view.textViews
+        case .table(let view): view.textViews
         }
+    }
+
+    /// The table in this block, for a host's selection and hooks.
+    public var tableView: MarkdownTableView? {
+        if case .table(let view) = layout { return view }
+        return nil
     }
 
     /// The text this block came to: what a reveal needs. Nil for what isn't text.
@@ -124,8 +120,9 @@ public final class MarkdownBlockView: UIView {
         case .footnotes(let hosts): hosts.forEach { $0.setReveal(reveal) }
         case .code(let view): view.setReveal(reveal)
         case .fencedItem(let view): view.setReveal(reveal)
+        case .table(let view): view.setReveal(reveal)
         case .math, .rule, .custom: mathGate.follow(reveal?.manager)
-        case .empty, .pending: break
+        case .empty: break
         }
     }
 
@@ -135,29 +132,18 @@ public final class MarkdownBlockView: UIView {
         case .text(let host, _): host.textSizeDidChange()
         case .quote(let quote): quote.textSizeDidChange()
         case .footnotes(let hosts): hosts.forEach { $0.textSizeDidChange() }
-        case .empty, .math, .rule, .custom, .code, .fencedItem, .pending: break
+        case .table(let view): view.textSizeDidChange()
+        case .empty, .math, .rule, .custom, .code, .fencedItem: break
         }
         cachedHeight = nil
         setNeedsLayout()
         onHeightChange?()
     }
 
-    /// Whether this renderer draws all of a block. No for what isn't ported yet, and for text
-    /// holding what isn't: a host shows those another way.
+    /// Whether this renderer draws all of a block. It draws every kind there is: what it can't read
+    /// shows as text.
     public nonisolated static func draws(_ block: MarkdownStreamBlock) -> Bool {
-        let source = block.descriptor.sourceText
-        switch block.descriptor.kind {
-        case .heading, .paragraph, .orderedList, .unorderedList:
-            return true
-        case .blockQuote:
-            return !source.contains("|")
-        case .thematicBreak, .htmlBlock, .blockDirective:
-            return true
-        case .codeBlock:
-            return true
-        case .table, .mathBlock, .unknown:
-            return false
-        }
+        true
     }
 
     /// A whole text in one text view, as a document's text block is.
@@ -180,7 +166,7 @@ public final class MarkdownBlockView: UIView {
 
     private func clear() {
         switch layout {
-        case .empty, .pending: break
+        case .empty: break
         case .text(let host, _): host.release()
         case .quote(let quote):
             quote.releaseText()
@@ -200,6 +186,9 @@ public final class MarkdownBlockView: UIView {
             view.removeFromSuperview()
         case .fencedItem(let view):
             view.release()
+            view.removeFromSuperview()
+        case .table(let view):
+            view.prepareForReuse()
             view.removeFromSuperview()
         }
         layout = .empty
@@ -275,18 +264,19 @@ public final class MarkdownBlockView: UIView {
             if let latex = Self.directiveFormula(source, in: block.displayMathStorage) {
                 showMath(latex, style: style)
             } else {
-                layout = .pending(.displayMath)
+                showText(source, depth: 0, style: style, block: block)
             }
         case .blockDirective(let name):
             showDirective(name, source: source, style: style, block: block)
         case .codeBlock(let language):
             showCode(descriptor.plainText, language: language, style: style)
-        case .table: layout = .pending(.table)
+        case .table:
+            showTable(source, style: style, block: block)
         case .mathBlock:
             if let latex = MathParser.standaloneDisplayMath(in: source, unescapingCommonMarkEscapes: true) {
                 showMath(latex, style: style)
             } else {
-                layout = .pending(.displayMath)
+                showText(source, depth: 0, style: style, block: block)
             }
         case .thematicBreak:
             let view = MarkdownRuleView()
@@ -295,7 +285,8 @@ public final class MarkdownBlockView: UIView {
             mathGate.follow(reveal?.manager)
         case .htmlBlock:
             showText(source, depth: 0, style: style, block: block)
-        case .unknown: layout = .pending(.other)
+        case .unknown:
+            showText(source, depth: 0, style: style, block: block)
         }
         invalidateIntrinsicContentSize()
         setNeedsLayout()
@@ -323,7 +314,7 @@ public final class MarkdownBlockView: UIView {
     /// Only a text block or a quote that's still one goes on in the view it has.
     private static func keepsView(_ layout: Layout, for descriptor: MarkdownBlockDescriptor) -> Bool {
         switch (layout, descriptor.kind) {
-        case (.quote, .blockQuote): true
+        case (.quote, .blockQuote), (.table, .table): true
         case (.code, .codeBlock), (.fencedItem, .orderedList), (.fencedItem, .unorderedList):
             true
         case (.text, .heading):
@@ -335,6 +326,24 @@ public final class MarkdownBlockView: UIView {
         case (.text, .paragraph):
             footnoteDefinitionLines(descriptor.sourceText) == nil
         default: false
+        }
+    }
+
+    private func showTable(_ source: String, style: MarkdownStyle, block: MarkdownStreamBlock) {
+        let view: MarkdownTableView
+        if case .table(let shown) = layout {
+            view = shown
+        } else {
+            view = MarkdownTableView()
+            view.onHeightChange = { [weak self] in self?.contentChangedHeight() }
+            addSubview(view)
+        }
+        if view.configure(source: source, style: style, reveal: reveal, inlineMath: block.inlineMathStorage, displayMath: block.displayMathStorage) {
+            layout = .table(view)
+        } else {
+            view.removeFromSuperview()
+            layout = .empty
+            showText(source, depth: 0, style: style, block: block)
         }
     }
 
@@ -501,8 +510,10 @@ public final class MarkdownBlockView: UIView {
         if let cachedHeight, cachedHeight.width == width { return cachedHeight.height }
         let height: CGFloat
         switch layout {
-        case .empty, .pending:
+        case .empty:
             height = 0
+        case .table(let view):
+            height = view.height(forWidth: width)
         case .text(let host, let leading):
             height = host.height(forWidth: width - leading)
         case .quote(let quote):
@@ -533,8 +544,10 @@ public final class MarkdownBlockView: UIView {
         super.layoutSubviews()
         let isRTL = style.layoutDirection == .rightToLeft
         switch layout {
-        case .empty, .pending:
+        case .empty:
             break
+        case .table(let view):
+            if view.frame != bounds { view.frame = bounds }
         case .text(let host, let leading):
             let rect = isRTL
                 ? CGRect(x: 0, y: 0, width: bounds.width - leading, height: bounds.height)

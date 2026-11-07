@@ -44,7 +44,7 @@ enum ChatProbe {
                 // What a UI test can't see: how many rows upgraded, whether text is selected.
                 if words.count > 1 {
                     let selected = RichTextActiveSelection.isActive
-                    try? "upgrades=\(MarkdownDrawnTextStats.upgrades) selected=\(selected) listOffset=\(reader.contentOffsetY()) codeOffset=\(codeOffset())".write(toFile: String(words[1]), atomically: true, encoding: .utf8)
+                    try? "upgrades=\(MarkdownDrawnTextStats.upgrades) selected=\(selected) listOffset=\(reader.contentOffsetY()) codeOffset=\(codeOffset()) tableOffset=\(tableOffset()) tableTextViews=\(tableTextViews())".write(toFile: String(words[1]), atomically: true, encoding: .utf8)
                 }
             case "pasteboard":
                 if words.count > 1 {
@@ -68,6 +68,33 @@ enum ChatProbe {
         }
         guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.windows.first }).first else { return -1 }
         return find(window)?.contentOffset.x ?? -1
+    }
+
+    private static func tables() -> [MarkdownTableView] {
+        func find(_ view: UIView, into found: inout [MarkdownTableView]) {
+            if let table = view as? MarkdownTableView {
+                found.append(table)
+                return
+            }
+            view.subviews.forEach { find($0, into: &found) }
+        }
+        var found: [MarkdownTableView] = []
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            scene.windows.forEach { find($0, into: &found) }
+        }
+        return found
+    }
+
+    /// How far a table in the window is scrolled sideways, the furthest.
+    private static func tableOffset() -> CGFloat {
+        tables().map { table in
+            table.subviews.compactMap { ($0 as? UIScrollView)?.contentOffset.x }.max() ?? 0
+        }.max() ?? 0
+    }
+
+    /// Text views in tables in the window.
+    private static func tableTextViews() -> Int {
+        tables().reduce(0) { $0 + $1.textViews.count }
     }
 
     /// Selects the word at a point in the window, as a drag would leave it. Injected mouse events

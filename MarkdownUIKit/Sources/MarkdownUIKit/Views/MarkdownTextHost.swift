@@ -126,8 +126,13 @@ final class MarkdownTextHost {
     /// Whether drawn text can show all of this, with nothing but TextKit drawing it.
     private func canDraw(_ text: MarkdownText) -> Bool {
         guard !placesText, !isRightToLeft, !UIAccessibility.isVoiceOverRunning else { return false }
+        return Self.isDrawable(text.attributed)
+    }
+
+    /// Nothing in it needs a text view: no attachment, and no mark drawn apart from the text.
+    static func isDrawable(_ text: NSAttributedString) -> Bool {
         var plain = true
-        text.attributed.enumerateAttributes(in: NSRange(location: 0, length: text.attributed.length)) { attributes, _, stop in
+        text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, _, stop in
             if attributes[.attachment] != nil || attributes[.richTextPenMark] != nil
                 || (attributes[.underlineColor] != nil && attributes[.underlineStyle] == nil) {
                 plain = false

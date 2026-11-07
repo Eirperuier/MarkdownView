@@ -71,7 +71,7 @@ final class MarkdownDrawnTextView: UIView, NSTextLayoutManagerDelegate {
 
     /// A text view takes `inlinePresentationIntent` over the font: emphasis alone on a bold font
     /// (in a heading) is the regular italic. Text in a storage of its own stays as it's given.
-    private static func applyIntentsAsTextViewDoes(_ text: NSMutableAttributedString, in range: NSRange) {
+    static func applyIntentsAsTextViewDoes(_ text: NSMutableAttributedString, in range: NSRange) {
         text.enumerateAttribute(.inlinePresentationIntent, in: range) { value, run, _ in
             guard let raw = value as? UInt, InlinePresentationIntent(rawValue: raw).contains(.emphasized),
                   !InlinePresentationIntent(rawValue: raw).contains(.stronglyEmphasized) else { return }

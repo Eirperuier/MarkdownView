@@ -21,7 +21,7 @@ final class MarkdownRevealTests: XCTestCase {
         var second = MarkdownBlockSplitter()
         XCTAssertTrue(MarkdownBlockView.draws(second.split("Some **text**.")[0]))
         var third = MarkdownBlockSplitter()
-        XCTAssertFalse(MarkdownBlockView.draws(third.split("| a |\n|---|\n| b |")[0]))
+        XCTAssertTrue(MarkdownBlockView.draws(third.split("| a |\n|---|\n| b |")[0]))
     }
 
     /// The same block growing keeps its text view and what's in its storage: only the end changes.

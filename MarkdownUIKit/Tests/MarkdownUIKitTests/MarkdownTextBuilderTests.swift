@@ -125,11 +125,7 @@ final class MarkdownTextBuilderTests: XCTestCase {
             let view = MarkdownBlockView()
             view.configure(block, style: style)
             let off = view.height(forWidth: 400)
-            if view.pendingBlock != nil {
-                XCTAssertEqual(off, 0)
-            } else {
-                XCTAssertGreaterThan(off, 0, block.source)
-            }
+            XCTAssertGreaterThan(off, 0, block.source)
             let parent = UIView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
             parent.addSubview(view)
             XCTAssertEqual(view.height(forWidth: 400), off, block.source)
@@ -150,7 +146,6 @@ final class MarkdownTextBuilderTests: XCTestCase {
             XCTAssertTrue(MarkdownBlockView.draws(block), markdown)
             let view = MarkdownBlockView()
             view.configure(block, style: style)
-            XCTAssertNil(view.pendingBlock, markdown)
             XCTAssertGreaterThan(view.height(forWidth: 400), 0, markdown)
         }
     }

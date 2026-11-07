@@ -33,6 +33,12 @@ private final class CatalogProbeDirective: UIView {
 @MainActor
 enum CatalogThemeProbe {
     private static let elements: [(name: String, markdown: String)] = [
+        // First: the document is taller than the window's picture.
+        ("table", tableSource),
+        ("table.scrolls", tableSource),
+        ("table.github", tableSource),
+        ("table.grid", tableSource),
+        ("table.touched", tableSource),
         ("text", "Plain body text."),
         ("link", "[A link](https://example.com) in text."),
         ("strong", "Some **bold** text."),
@@ -64,6 +70,20 @@ enum CatalogThemeProbe {
         ("image.fallback", "![A description](square.png)"),
     ]
 
+    private static let tableSource = "| Name | **Bold** |\n| --- | --- |\n| [A link](https://example.com) | `code` |\n| Plain | Words |\n| More | Words |"
+
+    /// A table's look under its name; anything else the probe's own.
+    private static func style(for element: String, base: MarkdownStyle) -> MarkdownStyle {
+        var style = base
+        switch element {
+        case "table.scrolls": style.table.scrollsSideways = true
+        case "table.github": style.table.look = .github
+        case "table.grid": style.table.look = .grid
+        default: break
+        }
+        return style
+    }
+
     private struct Block {
         let name: String
         let view: MarkdownUIKit.MarkdownBlockView
@@ -80,7 +100,7 @@ enum CatalogThemeProbe {
         let top: CGFloat = 160
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = dark ? .dark : .light
-        window.frame = CGRect(x: 0, y: 0, width: width, height: 2000)
+        window.frame = CGRect(x: 0, y: 0, width: width, height: 2400)
         let root = UIViewController()
         // What text is worked out to read on: rows, over a page. On the Mac the rows are a veil.
         root.view.backgroundColor = .systemBackground
@@ -115,10 +135,15 @@ enum CatalogThemeProbe {
             var splitter = MarkdownBlockSplitter()
             for block in splitter.split(element.markdown) {
                 let view = MarkdownUIKit.MarkdownBlockView()
-                view.configure(block, style: style)
+                view.configure(block, style: Self.style(for: element.name, base: style))
                 root.view.addSubview(view)
                 let height = view.height(forWidth: width - 40)
                 view.frame = CGRect(x: 20, y: y, width: width - 40, height: height)
+                if element.name == "table.touched" {
+                    // Its cells' colours in text views too: their fragments must stay.
+                    view.layoutIfNeeded()
+                    view.tableView?.showAllCellsInTextViews()
+                }
                 blocks.append(Block(name: element.name, view: view, crop: CGRect(x: 0, y: y, width: width, height: height)))
                 y += height + 6
             }

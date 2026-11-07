@@ -2,9 +2,8 @@
 //  ChatUIKitRow.swift
 //  DemoApp
 //
-//  A chat row with no SwiftUI in it, under `-chatRenderer uikit`: headings, paragraphs, lists,
-//  quotes and footnotes through MarkdownUIKit. Everything else stays a SwiftUI row in the same
-//  list. It lays out as ChatRowView does, so the page looks the same.
+//  A chat row with no SwiftUI in it, under `-chatRenderer uikit`: every block through MarkdownUIKit.
+//  It lays out as ChatRowView does, so the page looks the same.
 //
 
 import FlooUIKit
@@ -74,6 +73,7 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
         var style = MarkdownStyle()
         style.drawsTextUntilTouched = drawsText
         style.codeBlock.scrollsSideways = UserDefaults.standard.bool(forKey: "chatCodeScrolls")
+        style.table.scrollsSideways = UserDefaults.standard.bool(forKey: "chatTableScrolls")
         if ChatProbe.file != nil {
             style.openURL = { ChatProbe.tellLink($0) }
         }

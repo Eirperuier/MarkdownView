@@ -81,6 +81,46 @@ public extension FlooColorRole {
     /// The spinner while an image loads.
     static let markdownImageSpinner = FlooColorRole("markdown.imageSpinner") { $0[.markdownSecondaryText] }
 
+    // Tables
+    /// A cell's text.
+    static let markdownTableText = FlooColorRole("markdown.tableText") { $0[.markdownText] }
+    /// A header cell's text.
+    static let markdownTableHeaderText = FlooColorRole("markdown.tableHeaderText") { $0[.markdownTableText] }
+    /// What's in brackets in a header that dims them.
+    static let markdownTableHeaderDimmed = FlooColorRole("markdown.tableHeaderDimmed") { $0[.markdownSecondaryText] }
+    /// The line between rows.
+    static let markdownTableSeparator = FlooColorRole("markdown.tableSeparator") { theme in
+        // A divider's colour on every platform; the Mac's `separator` is fainter.
+        theme.sets(.separator) ? theme[.separator] : UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 84 / 255, green: 84 / 255, blue: 88 / 255, alpha: 0.6)
+                : UIColor(red: 60 / 255, green: 60 / 255, blue: 67 / 255, alpha: 0.29)
+        }
+    }
+    /// Every other row's stripe, in a table that scrolls.
+    static let markdownTableStripe = FlooColorRole("markdown.tableStripe") { $0[.markdownTertiaryText].markdownOpacity(0.08) }
+    /// GitHub's look: the lines round its cells, GitHub's colours, half strength.
+    static let markdownTableGitHubBorder = FlooColorRole("markdown.tableGitHubBorder") { _ in
+        Self.gitHubColor(light: (209, 217, 224), dark: (61, 68, 67)).markdownOpacity(0.5)
+    }
+    /// GitHub's look: odd rows' ground, under the header too.
+    static let markdownTableGitHubRow = FlooColorRole("markdown.tableGitHubRow") { theme in
+        theme.sets(.background) ? theme[.background] : Self.gitHubColor(light: (255, 255, 255), dark: (14, 17, 22))
+    }
+    /// GitHub's look: even rows' ground.
+    static let markdownTableGitHubAlternateRow = FlooColorRole("markdown.tableGitHubAlternateRow") { theme in
+        theme.sets(.background) ? theme[.markdownTableStripe] : Self.gitHubColor(light: (246, 248, 250), dark: (21, 27, 35))
+    }
+    /// The grid look's lines round its cells.
+    static let markdownTableGridBorder = FlooColorRole("markdown.tableGridBorder") { $0[.markdownTableText] }
+
+    private static func gitHubColor(light: (CGFloat, CGFloat, CGFloat), dark: (CGFloat, CGFloat, CGFloat)) -> UIColor {
+        UIColor { traits in
+            let value = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: value.0 / 255, green: value.1 / 255, blue: value.2 / 255, alpha: 1)
+        }
+    }
+
     // Chips
     /// A chip's capsule.
     static let markdownChipFill = FlooColorRole("markdown.chipFill") { $0[.markdownInlineCode].markdownOpacity(0.1) }
