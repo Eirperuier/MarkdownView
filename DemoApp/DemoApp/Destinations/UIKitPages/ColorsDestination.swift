@@ -4,7 +4,8 @@
 //
 //  Markdown's colour system: every role (MarkdownColorCatalog), each as it resolves under a
 //  theme and an appearance, beside Markdown drawn in the same theme. Changing either recolours
-//  both with nothing laid out again, as a theme does in the app.
+//  both with nothing laid out again, as a theme does in the app. The sample shows the blocks,
+//  or every highlight and pen mark in every named colour, with text on each.
 //
 
 import FlooUIKit
@@ -29,6 +30,7 @@ final class ColorsViewController: UIViewController {
 
     private let themePicker = UISegmentedControl(items: themes.map(\.name))
     private let appearancePicker = UISegmentedControl(items: ["Auto", "Light", "Dark"])
+    private let samplePicker = UISegmentedControl(items: ["Blocks", "Highlights", "Pens"])
     private let page = UIView()
     private let scroll = UIScrollView()
     private let sample = MarkdownBlockStackView()
@@ -38,13 +40,22 @@ final class ColorsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         // The page's own colour too, so the whole page is in the theme, its bar as well.
-        view.backgroundColor = .floo(.background)
+        // On the Mac the role is clear and the window's own shows: a page in Light over a dark
+        // window would draw dark text on dark. The system's page colour under it, in the
+        // appearance chosen.
+        view.backgroundColor = UIColor { traits in
+            UIColor.floo(.background).resolvedColor(with: traits).composited(on: .systemBackground.resolvedColor(with: traits))
+        }
 
-        themePicker.selectedSegmentIndex = 0
-        appearancePicker.selectedSegmentIndex = 0
+        // `-colorsTheme 2 -colorsAppearance 2 -colorsSample 1` opens on those, to check by eye.
+        let defaults = UserDefaults.standard
+        themePicker.selectedSegmentIndex = min(defaults.integer(forKey: "colorsTheme"), Self.themes.count - 1)
+        appearancePicker.selectedSegmentIndex = min(defaults.integer(forKey: "colorsAppearance"), 2)
         themePicker.addAction(UIAction { [weak self] _ in self?.applyTheme() }, for: .valueChanged)
         appearancePicker.addAction(UIAction { [weak self] _ in self?.applyTheme() }, for: .valueChanged)
-        let bar = UIStackView(arrangedSubviews: [themePicker, appearancePicker])
+        samplePicker.selectedSegmentIndex = min(defaults.integer(forKey: "colorsSample"), 2)
+        samplePicker.addAction(UIAction { [weak self] _ in self?.showSample() }, for: .valueChanged)
+        let bar = UIStackView(arrangedSubviews: [themePicker, appearancePicker, samplePicker])
         bar.spacing = 12
         bar.alignment = .center
         page.translatesAutoresizingMaskIntoConstraints = false
@@ -74,14 +85,20 @@ final class ColorsViewController: UIViewController {
                 rows.append(row)
             }
         }
-        var splitter = MarkdownBlockSplitter()
-        sample.show(splitter.split(Self.sampleMarkdown))
+        showSample()
 
         // Hex values are read under the page's traits: again whenever a colour could change.
         page.registerForTraitChanges(MarkdownColorTraits.all) { [weak self] (_: UIView, _: UITraitCollection) in
             self?.rows.forEach { $0.refresh() }
         }
         applyTheme()
+    }
+
+    private func showSample() {
+        let markdown = [Self.sampleMarkdown, Self.highlightsMarkdown, Self.pensMarkdown][max(0, samplePicker.selectedSegmentIndex)]
+        var splitter = MarkdownBlockSplitter()
+        sample.show(splitter.split(markdown))
+        sample.contentOffset = .zero
     }
 
     private func applyTheme() {
@@ -149,6 +166,68 @@ final class ColorsViewController: UIViewController {
     ---
 
     [^1]: A footnote's text.
+    """
+
+    /// Every highlight: the default, then each named colour as a ground, with the text in that
+    /// colour on it, as a marker, and as text alone.
+    private static let highlightsMarkdown = """
+    ### Highlights
+    ==The default highlight==, and ==**strong**, *emphasis*, [a link](https://example.com) and `code` on it==.
+
+    ^[Text in the accent](color: accent) on ^[an accent highlight](highlight: accent, color: accent), and :marker[the default marker].
+
+    - ^[gray highlight](highlight: gray), ^[in its colour](highlight: gray, color: gray), :marker[a gray marker]{color=gray} and ^[gray text](color: gray)
+    - ^[slate highlight](highlight: slate), ^[in its colour](highlight: slate, color: slate), :marker[a slate marker]{color=slate} and ^[slate text](color: slate)
+    - ^[purple highlight](highlight: purple), ^[in its colour](highlight: purple, color: purple), :marker[a purple marker]{color=purple} and ^[purple text](color: purple)
+    - ^[blue highlight](highlight: blue), ^[in its colour](highlight: blue, color: blue), :marker[a blue marker]{color=blue} and ^[blue text](color: blue)
+    - ^[cyan highlight](highlight: cyan), ^[in its colour](highlight: cyan, color: cyan), :marker[a cyan marker]{color=cyan} and ^[cyan text](color: cyan)
+    - ^[mint highlight](highlight: mint), ^[in its colour](highlight: mint, color: mint), :marker[a mint marker]{color=mint} and ^[mint text](color: mint)
+    - ^[green highlight](highlight: green), ^[in its colour](highlight: green, color: green), :marker[a green marker]{color=green} and ^[green text](color: green)
+    - ^[lemon highlight](highlight: lemon), ^[in its colour](highlight: lemon, color: lemon), :marker[a lemon marker]{color=lemon} and ^[lemon text](color: lemon)
+    - ^[yellow highlight](highlight: yellow), ^[in its colour](highlight: yellow, color: yellow), :marker[a yellow marker]{color=yellow} and ^[yellow text](color: yellow)
+    - ^[red highlight](highlight: red), ^[in its colour](highlight: red, color: red), :marker[a red marker]{color=red} and ^[red text](color: red)
+    - ^[orange highlight](highlight: orange), ^[in its colour](highlight: orange, color: orange), :marker[a orange marker]{color=orange} and ^[orange text](color: orange)
+    - ^[brown highlight](highlight: brown), ^[in its colour](highlight: brown, color: brown), :marker[a brown marker]{color=brown} and ^[brown text](color: brown)
+    - ^[teal highlight](highlight: teal), ^[in its colour](highlight: teal, color: teal), :marker[a teal marker]{color=teal} and ^[teal text](color: teal)
+    - ^[indigo highlight](highlight: indigo), ^[in its colour](highlight: indigo, color: indigo), :marker[a indigo marker]{color=indigo} and ^[indigo text](color: indigo)
+    - ^[pink highlight](highlight: pink), ^[in its colour](highlight: pink, color: pink), :marker[a pink marker]{color=pink} and ^[pink text](color: pink)
+
+    > A quote with ==a highlight== and :marker[a marker] in it.
+    """
+
+    /// Every pen: each kind in its default ink, each in the named inks, line styles, the inks by
+    /// meaning, and callouts.
+    private static let pensMarkdown = """
+    ### Pens
+    :circle[circled] :wavy[wavy] :box[boxed] :marker[marker] :u[underlined] :s[struck] in their own inks.
+
+    - :circle[red]{color=red} :wavy[wavy]{color=red} :box[boxed]{color=red} :u[underlined]{color=red} :s[struck]{color=red}
+    - :circle[orange]{color=orange} :wavy[wavy]{color=orange} :box[boxed]{color=orange} :u[underlined]{color=orange} :s[struck]{color=orange}
+    - :circle[yellow]{color=yellow} :wavy[wavy]{color=yellow} :box[boxed]{color=yellow} :u[underlined]{color=yellow} :s[struck]{color=yellow}
+    - :circle[green]{color=green} :wavy[wavy]{color=green} :box[boxed]{color=green} :u[underlined]{color=green} :s[struck]{color=green}
+    - :circle[blue]{color=blue} :wavy[wavy]{color=blue} :box[boxed]{color=blue} :u[underlined]{color=blue} :s[struck]{color=blue}
+    - :circle[purple]{color=purple} :wavy[wavy]{color=purple} :box[boxed]{color=purple} :u[underlined]{color=purple} :s[struck]{color=purple}
+    - :circle[gray]{color=gray} :wavy[wavy]{color=gray} :box[boxed]{color=gray} :u[underlined]{color=gray} :s[struck]{color=gray}
+    - :circle[accent]{color=accent} :wavy[wavy]{color=accent} :box[boxed]{color=accent} :u[underlined]{color=accent} :s[struck]{color=accent}
+
+    Lines: :u[single] :u[thick]{style=thick} :u[double]{style=double} :u[dotted]{style=dot} :u[dashed]{style=dash} :u[wavy]{style=wavy}.
+
+    By meaning: :wavy[error]{color=error} :circle[warning]{color=warning} :box[success]{color=success} :u[info]{color=info}, and ^[error text](color: error), ^[success text](color: success).
+
+    > [!note] Note
+    > A callout in each kind.
+
+    > [!tip] Tip
+    > Its body.
+
+    > [!important] Important
+    > Its body.
+
+    > [!warning] Warning
+    > Its body.
+
+    > [!caution] Caution
+    > Its body.
     """
 }
 

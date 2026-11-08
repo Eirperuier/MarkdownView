@@ -1,3 +1,4 @@
+import FlooColor
 import FlooUIKit
 @testable import MarkdownUIKit
 import UIKit
@@ -27,5 +28,38 @@ final class MarkdownColorRolesTests: XCTestCase {
         let themed = traits(theme)
         XCTAssertEqual(UIColor.floo(.markdownLink).resolvedColor(with: themed), UIColor.systemGreen.resolvedColor(with: themed))
         XCTAssertEqual(UIColor.floo(.accent).resolvedColor(with: themed), UIColor.systemBlue.resolvedColor(with: themed))
+    }
+
+    func testAHighlightStaysFaintUnderATheme() {
+        // A derived theme moves fills apart from its surface: a highlight keeps its alpha, so
+        // the text on it still has the surface's contrast.
+        let dark = traits(.tinted(.systemPurple), style: .dark)
+        var alpha: CGFloat = 0
+        MarkdownInk.highlightFill("yellow")!.resolvedColor(with: dark).getRed(nil, green: nil, blue: nil, alpha: &alpha)
+        XCTAssertEqual(alpha, 0.32, accuracy: 0.01)
+    }
+
+    func testTextOnAHighlightReads() {
+        // Yellow on a yellow ground: made to read on the ground as drawn; white on it already does.
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            let traits = traits(.system, style: style)
+            let ground = MarkdownInk.highlightFill("yellow")!
+            let drawn = SRGBColor(ground.resolvedColor(with: traits).composited(on: .systemBackground.resolvedColor(with: traits)))
+            let text = UIColor.markdown(text: MarkdownInk.text("yellow")!, onGround: ground).resolvedColor(with: traits)
+            XCTAssertGreaterThanOrEqual(ReadableColor.contrast(SRGBColor(text), on: drawn), 59.5, "\(style.rawValue)")
+        }
+        let dark = traits(.system, style: .dark)
+        let white = UIColor.white
+        XCTAssertEqual(UIColor.markdown(text: white, onGround: MarkdownInk.highlightFill("yellow")!).resolvedColor(with: dark), white)
+    }
+
+    func testANameIsOneColourEverywhere() {
+        // A word, a pen and a theme's choice in red agree.
+        let theme = FlooTheme.system.setting(.markdownInk(.red), to: .systemPink)
+        let themed = traits(theme)
+        XCTAssertEqual(MarkdownInk.text("red")?.resolvedColor(with: themed), UIColor.systemPink.resolvedColor(with: themed))
+        XCTAssertEqual(MarkdownInk.pen("red")?.resolvedColor(with: themed), UIColor.systemPink.resolvedColor(with: themed))
+        XCTAssertEqual(MarkdownInk.pen("error")?.resolvedColor(with: themed), UIColor.floo(.destructive).resolvedColor(with: themed))
+        XCTAssertEqual(MarkdownInk.callout(.caution).resolvedColor(with: themed), UIColor.floo(.destructive).resolvedColor(with: themed))
     }
 }

@@ -87,7 +87,8 @@ final class MarkdownPenOverlayView: UIView {
             let opacity = alpha(mark)
             guard opacity > 0 else { continue }
             context.saveGState()
-            context.setAlpha(opacity * PenMarkGeometry.defaultInk(for: mark.mark.kind).opacity)
+            // A marker's band is a highlight's ground, faint already.
+            context.setAlpha(mark.mark.kind == .marker ? opacity : opacity * PenMarkGeometry.defaultInk(for: mark.mark.kind).opacity)
             let ink = Self.ink(for: mark, text: text).resolvedColor(with: UITraitCollection.current).cgColor
             for segment in segments(for: mark.range, text: text, manager: manager, origin: origin) {
                 for stroke in PenMarkGeometry.strokes(for: mark.mark, in: segment.rect, baseline: segment.baseline) {
@@ -229,11 +230,12 @@ final class MarkdownPenOverlayView: UIView {
             guard mark.range.location < text.length else { return .floo(.markdownText) }
             return text.attribute(.foregroundColor, at: mark.range.location, effectiveRange: nil) as? UIColor ?? .floo(.markdownText)
         }
+        if mark.mark.kind == .marker { return MarkdownInk.marker(mark.mark.color) }
         switch mark.mark.color ?? fallback {
         case "foreground": return foreground()
         case "accent": return .floo(.markdownPenAccent)
         case let token:
-            if let color = mark.mark.color.flatMap(MarkdownInk.chosenPen) ?? MarkdownInk.pen(token) { return color }
+            if let color = MarkdownInk.pen(token) { return color }
             if fallback == "foreground" { return foreground() }
             return MarkdownInk.pen(fallback) ?? .floo(.markdownText)
         }

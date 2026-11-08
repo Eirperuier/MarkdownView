@@ -31,12 +31,13 @@ let package = Package(
                 .product(name: "SwaTexRender", package: "SwaTex"),
                 .product(name: "SwiftDrawCore", package: "floo-SwiftDraw"),
                 .product(name: "FlooUIKit", package: "floo-uikit"),
+                .product(name: "FlooColor", package: "floo-uikit"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "MarkdownUIKitTests",
-            dependencies: ["MarkdownUIKit"],
+            dependencies: ["MarkdownUIKit", .product(name: "FlooColor", package: "floo-uikit")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

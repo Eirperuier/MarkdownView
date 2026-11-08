@@ -11,8 +11,10 @@
 //  picture is the same as MarkdownView's.
 //
 
+import FlooColor
 import FlooUIKit
 import MarkdownCore
+import os
 import UIKit
 
 public extension FlooColorRole {
@@ -41,7 +43,7 @@ public extension FlooColorRole {
     /// The ground behind inline code.
     static let markdownInlineCodeFill = FlooColorRole("markdown.inlineCodeFill") { $0[.markdownInlineCode].markdownOpacity(0.1) }
     /// The ground behind `==highlighted==` text: the document palette's yellow.
-    static let markdownHighlight = FlooColorRole("markdown.highlight") { _ in MarkdownInk.highlightFill("yellow") ?? .clear }
+    static let markdownHighlight = FlooColorRole("markdown.highlight") { $0[.markdownHighlight(.yellow)] }
 
     // Lists
     /// Bullets and numbers.
@@ -158,6 +160,54 @@ public extension FlooColorRole {
     static let markdownPenAccent = FlooColorRole("markdown.penAccent") { $0[.accent] }
     /// Text in the `accent` colour.
     static let markdownAccentText = FlooColorRole("markdown.accentText") { $0[.accent] }
+
+    // Named colours
+    /// The colour a name stands for wherever the text names it: `{red}`, a pen's `red`, a
+    /// callout's. One per name, so a word, a mark and a callout in red agree. Made to read on the
+    /// surface where it's drawn.
+    static func markdownInk(_ name: MarkdownInkName) -> FlooColorRole { MarkdownInkRoles.inks[name.rawValue]! }
+    /// The ground of a highlight in that colour (`==x=={red}`, a marker's): faint, so the text
+    /// on it reads, and the text is made to read on it besides.
+    static func markdownHighlight(_ name: MarkdownInkName) -> FlooColorRole { MarkdownInkRoles.grounds[name.rawValue]! }
+
+    // Callouts
+    static let markdownCalloutNote = FlooColorRole("markdown.callout.note") { $0[.info] }
+    static let markdownCalloutTip = FlooColorRole("markdown.callout.tip") { $0[.success] }
+    static let markdownCalloutImportant = FlooColorRole("markdown.callout.important") { $0[.markdownInk(.purple)] }
+    static let markdownCalloutWarning = FlooColorRole("markdown.callout.warning") { $0[.warning] }
+    static let markdownCalloutCaution = FlooColorRole("markdown.callout.caution") { $0[.destructive] }
+
+    /// A callout's tint, by kind.
+    static func markdownCallout(_ kind: MarkdownCallout.Kind) -> FlooColorRole {
+        switch kind {
+        case .note: .markdownCalloutNote
+        case .tip: .markdownCalloutTip
+        case .important: .markdownCalloutImportant
+        case .warning: .markdownCalloutWarning
+        case .caution: .markdownCalloutCaution
+        }
+    }
+}
+
+/// The colours text can name: the document palette in Craft's order, then the rest a pen knows.
+public enum MarkdownInkName: String, CaseIterable, Sendable {
+    case gray, slate, purple, blue, cyan, mint, green, lemon, yellow, red, orange, brown, teal, indigo, pink
+
+    /// A token's name: `grey` is `gray`; nil for one that isn't a name.
+    public init?(token: String) {
+        self.init(rawValue: token == "grey" ? "gray" : token)
+    }
+}
+
+/// The named colours' roles, made once: a role's fallback is the palette's shade, or the
+/// system's colour for a name the palette hasn't.
+private enum MarkdownInkRoles {
+    static let inks: [String: FlooColorRole] = Dictionary(uniqueKeysWithValues: MarkdownInkName.allCases.map { name in
+        (name.rawValue, FlooColorRole("markdown.ink.\(name.rawValue)") { _ in MarkdownInk.paletteInk(name) })
+    })
+    static let grounds: [String: FlooColorRole] = Dictionary(uniqueKeysWithValues: MarkdownInkName.allCases.map { name in
+        (name.rawValue, FlooColorRole("markdown.highlight.\(name.rawValue)") { _ in MarkdownInk.paletteGround(name) })
+    })
 }
 
 public extension UIColor {
@@ -194,85 +244,160 @@ public enum MarkdownColorTraits {
     }
 }
 
-/// The colours text names: the document palette, a pen's inks and callouts'.
+/// The colours text names, all from roles: the named colours, the status roles for what a name
+/// means (`error`, `success`), `#hex` as written; then made to read where they're drawn.
 enum MarkdownInk {
-    /// Text in a palette name or `#hex`; nil for a token it doesn't know (the text keeps its colour).
+    /// The role a token names: a colour's name, or what it means.
+    static func role(_ token: String) -> FlooColorRole? {
+        switch token {
+        case "negative", "error", "danger": .destructive
+        case "warning": .warning
+        case "positive", "success": .success
+        case "info": .info
+        default: MarkdownInkName(token: token).map { .markdownInk($0) }
+        }
+    }
+
+    /// Text in a named colour, a meaning or `#hex`; nil for a token it doesn't know (the text
+    /// keeps its colour).
     static func text(_ token: String) -> UIColor? {
         if token == "accent" { return .floo(.markdownAccentText) }
         if let hex = MarkdownColorToken.hexValue(token) { return .markdown(named: rgb(hex)) }
-        guard let shade = MarkdownColorToken.shades[token] else { return nil }
-        return .markdown(named: adaptive(light: shade.light, dark: shade.dark, alpha: 1))
+        return role(token).map { .markdown(named: .floo($0)) }
     }
 
-    /// A highlight's ground: the hue, faint (a little stronger in dark).
+    /// A highlight's ground in a named colour, a meaning or `#hex`.
     static func highlightFill(_ token: String) -> UIColor? {
-        if token == "accent" { return .floo(.markdownAccentText).markdownOpacity(0.22) }
-        if let hex = MarkdownColorToken.hexValue(token) { return .floo(fill: rgb(hex).markdownOpacity(0.3)) }
-        guard let shade = MarkdownColorToken.shades[token] else { return nil }
-        return .floo(fill: adaptive(light: shade.dark, dark: shade.dark, alpha: 0.3, darkAlpha: 0.32))
+        if token == "accent" { return .markdown(ground: UIColor.floo(.markdownAccentText).markdownOpacity(0.22)) }
+        if let hex = MarkdownColorToken.hexValue(token) { return .markdown(ground: rgb(hex).markdownOpacity(0.3)) }
+        if let name = MarkdownInkName(token: token) { return .markdown(ground: .floo(.markdownHighlight(name))) }
+        return role(token).map { .markdown(ground: faint(.floo($0))) }
     }
 
     /// `:color[…]`'s text: only a token it knows takes a colour; any other stays ordinary text.
     static func markedText(_ token: String?) -> UIColor? {
-        guard let token else { return nil }
-        if token == "accent" { return .floo(.markdownAccentText) }
-        return pen(token) ?? text(token)
+        token.flatMap(text)
     }
 
-    /// Named, by meaning, or `#hex`. `accent` and `foreground` are the caller's to read.
+    /// A pen's ink by name, meaning or `#hex`, as text in that colour is. `accent` and
+    /// `foreground` are the caller's to read.
     static func pen(_ token: String) -> UIColor? {
         switch token {
-        case "red", "negative", "error", "danger": .markdown(named: .systemRed)
-        case "orange", "warning": .markdown(named: .systemOrange)
-        case "yellow": .markdown(named: .systemYellow)
-        case "green", "positive", "success": .markdown(named: .systemGreen)
-        case "mint": .markdown(named: .systemMint)
-        case "teal": .markdown(named: .systemTeal)
-        case "cyan": .markdown(named: .systemCyan)
-        case "blue", "info": .markdown(named: .systemBlue)
-        case "indigo": .markdown(named: .systemIndigo)
-        case "purple": .markdown(named: .systemPurple)
-        case "pink": .markdown(named: .systemPink)
-        case "brown": .markdown(named: .systemBrown)
-        case "gray", "grey": .markdown(named: .systemGray)
         case "secondary": .floo(.markdownSecondaryText)
         case "primary": .floo(.markdownText)
-        case let hex where hex.hasPrefix("#"): MarkdownColorToken.hexValue(hex).map { .markdown(named: rgb($0)) }
-        default: nil
-        }
-    }
-
-    /// The ink a mark's own `color` names: the pen's system colours, then the palette, so a
-    /// mark and a text in `red` agree. Nil for a token neither knows, which `pen(_:)` may read.
-    static func chosenPen(_ token: String) -> UIColor? {
-        switch token {
-        case "blue": .markdown(named: .systemBlue)
-        case "green": .markdown(named: .systemGreen)
-        case "orange": .markdown(named: .systemOrange)
-        case "purple": .markdown(named: .systemPurple)
-        case "gray", "grey": .markdown(named: .systemGray)
         default: text(token)
         }
     }
 
+    /// A marker's band: a highlight's ground, so `:marker[x]` and `==x==` in one colour agree.
+    /// A token it doesn't know draws the marker's yellow.
+    static func marker(_ token: String?) -> UIColor {
+        token.flatMap(highlightFill) ?? .floo(.markdownHighlight)
+    }
+
     static func callout(_ kind: MarkdownCallout.Kind) -> UIColor {
-        switch kind {
-        case .note: .markdown(named: .systemBlue)
-        case .tip: .markdown(named: .systemGreen)
-        case .important: .markdown(named: .systemPurple)
-        case .warning: .markdown(named: .systemOrange)
-        case .caution: .markdown(named: .systemRed)
+        .markdown(named: .floo(.markdownCallout(kind)))
+    }
+
+    // Fallbacks
+
+    /// A named colour's text: the palette's shade, darker in light so a pale hue reads; the
+    /// system's colour for a name the palette hasn't.
+    static func paletteInk(_ name: MarkdownInkName) -> UIColor {
+        if let shade = MarkdownColorToken.shades[name.rawValue] {
+            return adaptive(light: rgb(shade.light), dark: rgb(shade.dark))
         }
+        return systemColor(name)
+    }
+
+    /// A named colour's highlight: the hue's bright shade, faint (a little stronger in dark).
+    static func paletteGround(_ name: MarkdownInkName) -> UIColor {
+        if let shade = MarkdownColorToken.shades[name.rawValue] { return faint(rgb(shade.dark)) }
+        return faint(systemColor(name))
+    }
+
+    private static func systemColor(_ name: MarkdownInkName) -> UIColor {
+        switch name {
+        case .teal: .systemTeal
+        case .indigo: .systemIndigo
+        case .pink: .systemPink
+        default: .systemGray
+        }
+    }
+
+    /// A colour as a highlight's ground: 30%, 32% in dark.
+    private static func faint(_ color: UIColor) -> UIColor {
+        UIColor { traits in color.resolvedColor(with: traits).withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.32 : 0.3) }
     }
 
     private static func rgb(_ value: UInt32) -> UIColor {
         UIColor(red: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
 
-    private static func adaptive(light: UInt32, dark: UInt32, alpha: CGFloat, darkAlpha: CGFloat? = nil) -> UIColor {
-        let lightColor = rgb(light).withAlphaComponent(alpha)
-        let darkColor = rgb(dark).withAlphaComponent(darkAlpha ?? alpha)
-        return UIColor { $0.userInterfaceStyle == .dark ? darkColor : lightColor }
+    private static func adaptive(light: UIColor, dark: UIColor) -> UIColor {
+        UIColor { $0.userInterfaceStyle == .dark ? dark : light }
+    }
+}
+
+public extension UIColor {
+    /// A highlight's ground as the theme draws fills: apart from the surface it's on, and as
+    /// translucent as it was, so the text on it still shows through to the surface's contrast.
+    static func markdown(ground color: UIColor) -> UIColor {
+        UIColor { traits in
+            let resolved = color.resolvedColor(with: traits)
+            var alpha: CGFloat = 1
+            resolved.getRed(nil, green: nil, blue: nil, alpha: &alpha)
+            return traits.flooTheme.fill(resolved, on: traits.flooSurface, with: traits).withAlphaComponent(alpha)
+        }
+    }
+
+    /// `text` made to read on a highlight's `ground` as it's drawn over the surface: itself
+    /// where it reads (Lc 60, 75 with Increase Contrast), else its hue at the lightness nearest
+    /// its own that does.
+    static func markdown(text: UIColor, onGround ground: UIColor) -> UIColor {
+        UIColor { traits in MarkdownOnGround.color(text.resolvedColor(with: traits), on: ground.resolvedColor(with: traits), traits: traits) }
+    }
+}
+
+/// Text on a highlight, worked out once per pair: a dynamic colour resolves on every draw.
+private enum MarkdownOnGround {
+    private struct Key: Hashable {
+        let text: SRGBColor
+        let textAlpha: Double
+        let drawn: SRGBColor
+        let target: Double
+    }
+
+    private static let made = OSAllocatedUnfairLock(initialState: [Key: UIColor]())
+
+    static func color(_ text: UIColor, on ground: UIColor, traits: UITraitCollection) -> UIColor {
+        let drawn = ground.composited(on: surface(traits))
+        var alpha: CGFloat = 1
+        text.getRed(nil, green: nil, blue: nil, alpha: &alpha)
+        let target: Double = traits.accessibilityContrast == .high ? 75 : 60
+        let key = Key(text: SRGBColor(text), textAlpha: Double(alpha), drawn: SRGBColor(drawn), target: target)
+        if let known = made.withLock({ $0[key] }) { return known }
+        let result: UIColor
+        if ReadableColor.contrast(SRGBColor(text.composited(on: drawn)), on: key.drawn) >= target {
+            result = text
+        } else {
+            result = UIColor(ReadableColor.keeping(key.text, on: key.drawn, targetLc: target))
+        }
+        made.withLock {
+            if $0.count > 512 { $0.removeAll() }
+            $0[key] = result
+        }
+        return result
+    }
+
+    /// What's under the ground, opaque: the page, and the surface where a theme sets one.
+    private static func surface(_ traits: UITraitCollection) -> UIColor {
+        let theme = traits.flooTheme
+        var under = UIColor.systemBackground.resolvedColor(with: traits)
+        if theme.sets(.background) { under = theme.resolved(.background, with: traits).composited(on: under) }
+        let surface = traits.flooSurface
+        if surface != .background, theme.sets(surface) { under = theme.resolved(surface, with: traits).composited(on: under) }
+        return under
     }
 }
 
@@ -306,6 +431,8 @@ public enum MarkdownColorCatalog {
         ]),
         Group(title: "Chips", roles: [.markdownChipFill, .markdownChipText, .markdownChipCount]),
         Group(title: "Bubbles", roles: [.markdownBubbleFill, .markdownBubbleIcon]),
-        Group(title: "Marks", roles: [.markdownPenAccent, .markdownAccentText]),
+        Group(title: "Named Colours", roles: MarkdownInkName.allCases.map { .markdownInk($0) } + [.markdownAccentText, .markdownPenAccent]),
+        Group(title: "Highlights", roles: MarkdownInkName.allCases.map { .markdownHighlight($0) }),
+        Group(title: "Callouts", roles: MarkdownCallout.Kind.allCases.map { .markdownCallout($0) }),
     ]
 }

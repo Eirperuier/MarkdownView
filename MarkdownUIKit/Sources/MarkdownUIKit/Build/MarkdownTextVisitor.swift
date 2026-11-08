@@ -24,6 +24,8 @@ extension NSAttributedString.Key {
     /// (a heading's over a word's bold), so the traits go on last. It stays in storage: TextKit
     /// reads it too (measured: emphasis in a bold heading is drawn in the regular italic).
     fileprivate static let markdownIntent = NSAttributedString.Key.inlinePresentationIntent
+    /// A highlight's ground on its text, for the last step to make the text read on it.
+    fileprivate static let markdownHighlightGround = NSAttributedString.Key("MarkdownHighlightGround")
 }
 
 private typealias InlineIntent = InlinePresentationIntent
@@ -439,15 +441,20 @@ struct MarkdownTextVisitor: MarkupVisitor {
         }
         if let highlight = inlineStyle.highlight {
             if let token = highlight {
-                if let fill = MarkdownInk.highlightFill(token) { merged[.backgroundColor] = fill }
+                if let fill = MarkdownInk.highlightFill(token) {
+                    merged[.backgroundColor] = fill
+                    merged[.markdownHighlightGround] = fill
+                }
             } else {
                 merged[.backgroundColor] = style.resolvedHighlightFill
+                merged[.markdownHighlightGround] = style.resolvedHighlightFill
                 if inlineStyle.color == nil, let text = style.highlightText { merged[.foregroundColor] = text }
             }
         }
         if let pen = inlineStyle.pen {
             let seed = MarkdownPenMarkSyntax.contentSeed(attributes.plainText)
             merged[.richTextPenMark] = MarkdownPenMarkSyntax.encodeAttributeValue(kind: pen, color: inlineStyle.ink, seed: seed)
+            if pen == .marker { merged[.markdownHighlightGround] = MarkdownInk.marker(inlineStyle.ink) }
         }
         content.merge(merged)
         return content
@@ -875,6 +882,7 @@ struct MarkdownTextVisitor: MarkupVisitor {
                 guard attributes[.attachment] == nil else { return }
                 if attributes[.font] == nil { content.addAttribute(.font, value: bodyFont, range: range) }
                 content.addAttribute(.backgroundColor, value: style.resolvedHighlightFill, range: range)
+                content.addAttribute(.markdownHighlightGround, value: style.resolvedHighlightFill, range: range)
                 if let text = style.highlightText { content.addAttribute(.foregroundColor, value: text, range: range) }
             }
         }
@@ -920,6 +928,7 @@ struct MarkdownTextVisitor: MarkupVisitor {
         for m in matches {
             let inner = NSRange(location: offsets[m.innerStart], length: offsets[m.innerEnd] - offsets[m.innerStart])
             attributed.addAttribute(.backgroundColor, value: style.resolvedHighlightFill, range: inner)
+            attributed.addAttribute(.markdownHighlightGround, value: style.resolvedHighlightFill, range: inner)
             if let text = style.highlightText { attributed.addAttribute(.foregroundColor, value: text, range: inner) }
         }
         for m in matches.reversed() {
@@ -938,6 +947,7 @@ struct MarkdownTextVisitor: MarkupVisitor {
                 if let color = MarkdownInk.markedText(m.color) { attributed.addAttribute(.foregroundColor, value: color, range: inner) }
             } else {
                 attributed.addAttribute(.richTextPenMark, value: MarkdownPenMarkSyntax.encodeAttributeValue(m), range: inner)
+                if m.kind == .marker { attributed.addAttribute(.markdownHighlightGround, value: MarkdownInk.marker(m.color), range: inner) }
             }
         }
         for m in matches.reversed() {
@@ -1345,6 +1355,15 @@ struct MarkdownTextVisitor: MarkupVisitor {
             if attributes[.paragraphStyle] == nil { text.addAttribute(.paragraphStyle, value: defaultParagraph, range: range) }
             if attributes[.foregroundColor] == nil { text.addAttribute(.foregroundColor, value: textColor, range: range) }
         }
+        // Text on a highlight, its own colour or the text's, made to read on the ground.
+        text.enumerateAttribute(.markdownHighlightGround, in: full) { value, range, _ in
+            guard let ground = value as? UIColor else { return }
+            text.enumerateAttribute(.foregroundColor, in: range) { color, colorRange, _ in
+                guard let color = color as? UIColor else { return }
+                text.addAttribute(.foregroundColor, value: UIColor.markdown(text: color, onGround: ground), range: colorRange)
+            }
+        }
+        text.removeAttribute(.markdownHighlightGround, range: full)
         if let room = style.roomBelowLines {
             text.enumerateAttributes(in: full) { attributes, range, _ in
                 // A block in an attachment has its own lines.
