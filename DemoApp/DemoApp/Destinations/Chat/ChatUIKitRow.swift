@@ -54,7 +54,7 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
     /// Once, on the window: a trait override in each row has UIKit walk the row's views at every
     /// layout pass. The SwiftUI rows don't read it.
     static func applyTheme() {
-        guard ChatRenderer.current == .uikit, TiledPerf.on("windowtheme") else { return }
+        guard ChatRenderer.current == .uikit else { return }
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
             for window in scene.windows { window.traitOverrides.flooTheme = theme }
         }
@@ -346,6 +346,7 @@ enum ChatUIKitBlockViews {
         let textWidth = ChatUIKitRowLayout.textWidth(in: width)
         let inner: CGFloat
         if reveal == nil, entries[id] == nil, let made = preparedTexts.height(of: block, style: style(traits), width: textWidth) {
+            FrameMarks.note("preparedHeight")
             inner = made
         } else {
             FrameMarks.note("measured " + String(describing: block.descriptor.kind).prefix(9))

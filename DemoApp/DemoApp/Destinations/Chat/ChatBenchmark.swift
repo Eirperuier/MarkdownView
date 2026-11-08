@@ -391,6 +391,7 @@ final class ChatBenchmark {
     private static let signposter = OSSignposter(subsystem: "DemoApp", category: "ChatBenchmark")
 
     private func measure(_ scenario: String, _ body: () async -> Void) async {
+        FrameMarks.scenario = scenario
         if let only = Self.onlyScenarios, !only.contains(scenario) {
             // Untimed, but the clock still drives the scenarios that scroll frame by frame.
             clock.start()

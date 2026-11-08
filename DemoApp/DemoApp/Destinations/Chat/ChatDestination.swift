@@ -125,9 +125,7 @@ struct ChatDestination: View {
         let cell = { [conversation, selection, renderedHeights] (row: ChatRow) in
             ChatRowCell(item: row, conversation: conversation, selection: selection, renderedHeights: renderedHeights)
         }
-        return ChatConversation.usesList
-            ? TiledView(list: conversation.list, scrollPosition: $scrollPosition, cellBuilder: cell)
-            : TiledView(items: conversation.arrayRows, scrollPosition: $scrollPosition, cellBuilder: cell)
+        return TiledView(list: conversation.list, scrollPosition: $scrollPosition, cellBuilder: cell)
     }
 
     private var list: some View {

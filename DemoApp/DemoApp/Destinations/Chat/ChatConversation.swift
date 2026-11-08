@@ -38,7 +38,7 @@ struct ChatRow: Identifiable, Equatable {
         case .prompt(let prompt):
             text = prompt
             revealCount = 0
-            drawsInUIKit = ChatRenderer.current == .uikit && TiledPerf.on("promptrow")
+            drawsInUIKit = ChatRenderer.current == .uikit
         case .block(let block):
             text = block.source
             revealCount = block.revealPlainTextCount
@@ -99,10 +99,7 @@ final class ChatConversation {
 
     /// What the list shows, one exchange's rows changed at a time: no array to compare and diff.
     @ObservationIgnored let list = TiledList<ChatRow>()
-    @ObservationIgnored static let usesList = TiledPerf.on("list")
-    /// The rows as one array, when the list isn't used: compared and diffed on each change.
-    private(set) var arrayRows: [ChatRow] = []
-    var rows: [ChatRow] { Self.usesList ? list.items : arrayRows }
+    var rows: [ChatRow] { list.items }
     /// Exchanges before this one aren't loaded yet: a paged conversation shows its latest
     /// page first and loads older ones as the list reaches the top.
     private(set) var firstLoadedExchange = 0
@@ -133,16 +130,12 @@ final class ChatConversation {
         try? await Task.sleep(for: latency)
         let before = firstLoadedExchange
         firstLoadedExchange = max(0, firstLoadedExchange - count)
-        if Self.usesList {
-            list.prepend(exchanges[firstLoadedExchange..<before].flatMap(\.rows))
-        } else {
-            publishRows()
-        }
+        list.prepend(exchanges[firstLoadedExchange..<before].flatMap(\.rows))
     }
 
     /// Empties the list but keeps the exchanges, so `restore()` brings back the same rows (same ids).
     func hide() {
-        if Self.usesList { list.reset([]) } else { arrayRows = [] }
+        list.reset([])
         ChatUIKitBlockViews.dropViews(keepingHeights: true)
     }
 
@@ -162,11 +155,7 @@ final class ChatConversation {
         exchanges.append(exchange)
         coordinator.reset()
         generation = 0
-        if Self.usesList {
-            list.append(exchange.rows)
-        } else {
-            publishRows()
-        }
+        list.append(exchange.rows)
 
         // Parsing runs off the main actor; blocks arrive as each parse commits.
         let parser = MarkdownStreamParser()
@@ -189,21 +178,20 @@ final class ChatConversation {
         change(index) { $0.setBlocks(blocks) }
         generation += 1
         coordinator.syncBlocks(blocks.map { ($0.id, $0.revealPlainTextCount) }, generation: generation)
-        if !Self.usesList { publishRows() }
     }
 
     /// Changes one exchange, and only its rows in the list.
     private func change(_ index: Int, _ body: (inout Exchange) -> Void) {
         let old = exchanges[index].rows
         body(&exchanges[index])
-        guard Self.usesList, index >= firstLoadedExchange else { return }
+        guard index >= firstLoadedExchange else { return }
         let before = index > firstLoadedExchange ? exchanges[index - 1].rows.last?.id : nil
         list.replace(old, with: exchanges[index].rows, after: before)
     }
 
     private func publishRows() {
         let rows = exchanges[firstLoadedExchange...].flatMap(\.rows)
-        if Self.usesList { list.reset(rows) } else { arrayRows = rows }
+        list.reset(rows)
     }
 }
 

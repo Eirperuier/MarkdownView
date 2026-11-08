@@ -68,6 +68,8 @@ struct FrameCPU {
 @MainActor
 enum FrameMarks {
     static var isOn = false
+    /// The scenario the frames are of, for the report.
+    static var scenario = ""
     private static var current: [String] = []
     private static var frames: [(cycles: Double, marks: String)] = []
 
@@ -87,9 +89,9 @@ enum FrameMarks {
         let p95 = sorted[Int(Double(sorted.count - 1) * 0.95)]
         var slow: [String: [Double]] = [:]
         for frame in frames where frame.cycles >= p95 { slow[frame.marks, default: []].append(frame.cycles) }
-        print("SLOWEST p95 \(Int(p95 / 100_000)) of \(sorted.count) frames, in 0.1M cycles")
+        print("SLOWEST \(scenario): p95 \(Int(p95 / 100_000)) of \(sorted.count) frames, in 0.1M cycles")
         for (marks, cycles) in slow.sorted(by: { $0.value.count > $1.value.count }).prefix(24) {
-            print("SLOW n\(cycles.count) median \(Int(cycles.sorted()[cycles.count / 2] / 100_000)) [\(marks)]")
+            print("SLOW \(scenario) n\(cycles.count) median \(Int(cycles.sorted()[cycles.count / 2] / 100_000)) [\(marks)]")
         }
     }
 }
