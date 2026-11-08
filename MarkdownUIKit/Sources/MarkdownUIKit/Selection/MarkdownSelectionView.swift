@@ -24,10 +24,14 @@ public protocol MarkdownSelectionSource: AnyObject {
     var selectionVisibleRows: [Int] { get }
     /// The rows of the message `row` is in: a selection stays inside one.
     func selectionMessageRows(containing row: Int) -> ClosedRange<Int>
+    /// Where a row on screen is, in the list's coordinates: a press anywhere in it selects, not
+    /// only on its text. Nil: from its texts' top to their bottom, the list's width across.
+    func selectionFrame(ofRow row: Int) -> CGRect?
 }
 
 public extension MarkdownSelectionSource {
     func selectionMessageRows(containing row: Int) -> ClosedRange<Int> { 0...max(0, selectionRowCount - 1) }
+    func selectionFrame(ofRow row: Int) -> CGRect? { nil }
 }
 
 final class MarkdownTextPosition: UITextPosition {
@@ -133,17 +137,53 @@ public final class MarkdownSelectionView: UIView, UITextInput {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// Text on screen, and anywhere while something's selected (its handles, and a tap away that
-    /// clears it); elsewhere the rows' own views.
+    /// Text on screen and the rest of its row, and anywhere while something's selected (its
+    /// handles, and a tap away that clears it). What a row's own view takes a touch for (a
+    /// button, a table scrolling sideways) keeps it; elsewhere the rows' own views.
     public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, let source else { return nil }
         if let selection, !selection.isEmpty { return self }
-        for row in source.selectionVisibleRows {
+        let rows = source.selectionVisibleRows
+        for row in rows {
             for text in texts(row) ?? [] where text.frame(in: self).insetBy(dx: -4, dy: -4).contains(point) {
                 return self
             }
         }
+        for row in rows where rowFrame(row)?.contains(point) == true {
+            return rowTakesTouch(at: point, with: event) ? nil : self
+        }
         return nil
+    }
+
+    /// A row on screen, across its whole width.
+    private func rowFrame(_ row: Int) -> CGRect? {
+        if let frame = source?.selectionFrame(ofRow: row), let list { return list.convert(frame, to: self) }
+        let frames = (texts(row) ?? []).map { $0.frame(in: self) }
+        guard let first = frames.first else { return nil }
+        let band = frames.dropFirst().reduce(first) { $0.union($1) }
+        return CGRect(x: bounds.minX, y: band.minY, width: bounds.width, height: band.height)
+    }
+
+    /// Whether what's under `point` in the rows takes a touch itself.
+    private func rowTakesTouch(at point: CGPoint, with event: UIEvent?) -> Bool {
+        guard let list else { return false }
+        let inList = convert(point, to: list)
+        for cell in list.subviews.reversed() where cell !== self && !cell.isHidden && cell.frame.contains(inList) {
+            guard let hit = cell.hitTest(cell.convert(inList, from: list), with: event) else { continue }
+            // The cell's own content view counts as the row: its long press is the row's,
+            // which a press on text gives the selection anyway.
+            let top = (cell as? UICollectionViewCell)?.contentView ?? cell
+            var view: UIView? = hit
+            while let current = view, current !== cell, current !== top {
+                if current is UIControl { return true }
+                if let scroll = current as? UIScrollView, scroll.isScrollEnabled,
+                   scroll.contentSize.width > scroll.bounds.width + 0.5 { return true }
+                if current.gestureRecognizers?.contains(where: \.isEnabled) == true { return true }
+                view = current.superview
+            }
+            return false
+        }
+        return false
     }
 
     private func fit(to list: UIScrollView) {
@@ -650,3 +690,4 @@ final class MarkdownSelectionTokenizer: UITextInputStringTokenizer {
         character == 0x0A || character == 0x2029 || character == 0x0D
     }
 }
+

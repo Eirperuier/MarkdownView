@@ -168,6 +168,12 @@ final class MarkdownDrawnTextView: UIView {
         bounds.insetBy(dx: Self.overdraw, dy: Self.overdraw).contains(point)
     }
 
+    /// Where the text is, not the room drawn around it: what's reached by its frame lands on it.
+    override var accessibilityFrame: CGRect {
+        get { UIAccessibility.convertToScreenCoordinates(bounds.insetBy(dx: Self.overdraw, dy: Self.overdraw), in: self) }
+        set {}
+    }
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard isUserInteractionEnabled, !isHidden, alpha > 0.01, self.point(inside: point, with: event) else { return nil }
         guard event?.type == .touches, let textView = onTouched?() else { return self }

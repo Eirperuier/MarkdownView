@@ -169,6 +169,24 @@ final class SelectionUITests: XCTestCase {
         XCTAssertTrue(selected.hasPrefix("本周睡眠报告"), "the selection didn't follow the scroll to the message's start")
     }
 
+    /// A press beside a row's text, in the empty part of its row, starts selecting there too.
+    func testPressBesideTheTextSelects() {
+        let item = row("A list item with plain words")
+        let last = row("Interaction last paragraph")
+        Thread.sleep(forTimeInterval: 1)
+        let window = app.windows.firstMatch.frame
+        // To the right of the item's words, well clear of them.
+        let beside = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: window.maxX - 24, dy: item.frame.midY))
+        XCTAssertGreaterThan(window.maxX - 24, item.frame.maxX + 40, "the item's words reach the press")
+        let end = point(in: last, x: 120).withOffset(CGVector(dx: 0, dy: UIDevice.current.userInterfaceIdiom == .phone ? 40 : 0))
+        beside.press(forDuration: 1.0, thenDragTo: end)
+        Thread.sleep(forTimeInterval: 1)
+        let selected = ask("selection", ".selection") ?? ""
+        print("SEL beside <<\(selected)>>")
+        XCTAssertTrue(selected.contains("words"), "the selection doesn't start at the item's end")
+        XCTAssertTrue(selected.contains("Interaction la"), "the selection doesn't reach the next paragraph")
+    }
+
     func testDoubleTapSelectsAWord() {
         let first = row("Interaction first paragraph")
         Thread.sleep(forTimeInterval: 1)

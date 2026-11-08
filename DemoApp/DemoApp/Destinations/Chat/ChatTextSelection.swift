@@ -133,6 +133,16 @@ final class ChatTextSelection: MarkdownSelectionSource {
     /// Rows' texts as they were on screen, or would be: a selection asks for them often.
     private var offscreenTexts: [OffscreenKey: [MarkdownUIKit.MarkdownSelectableText]] = [:]
 
+    /// A row's cell: a press anywhere in it selects.
+    func selectionFrame(ofRow row: Int) -> CGRect? {
+        guard let list else { return nil }
+        for cell in list.visibleCells {
+            guard let rowView = Self.rowView(in: cell.contentView), let id = rowView.rowID, rowIndex[id] == row else { continue }
+            return cell.frame
+        }
+        return nil
+    }
+
     /// The block rows on screen, by index.
     private func shownRows() -> [Int: any ChatSelectableRowView] {
         guard let list else { return [:] }
