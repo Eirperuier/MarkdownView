@@ -34,7 +34,7 @@ struct ChatDestination: View {
         selection.motion = AppMotion.markdown
         return selection
     }()
-    @State private var heightCache = ChatHeightCache()
+    private var heightCache: ChatHeightCache { .shared }
     @State private var renderedHeights = ChatRenderedHeights()
     @State private var benchmark = ChatBenchmark()
     @State private var streamTask: Task<Void, Never>?

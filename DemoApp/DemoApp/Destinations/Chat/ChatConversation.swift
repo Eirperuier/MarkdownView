@@ -87,8 +87,10 @@ final class ChatConversation {
                 guard case .block(let block) = row.kind else { return nil }
                 return (block.id, (block.source, row.drawsInUIKit))
             }, uniquingKeysWith: { first, _ in first })
-            rows = [rows[0]] + blocks.map { block in
-                let rowID = rowIDs[block.id] ?? "\(id)#\(block.id.uuidString)"
+            rows = [rows[0]] + blocks.enumerated().map { index, block in
+                // A finished reply's rows are known by place, as stored messages are: the same
+                // conversation opened again has the same ids, and its heights are found.
+                let rowID = rowIDs[block.id] ?? (isStreaming ? "\(id)#\(block.id.uuidString)" : "\(id)#\(index)")
                 ids[block.id] = rowID
                 let known = previous[block.id].flatMap { $0.0 == block.source ? $0.1 : nil }
                 return ChatRow(id: rowID, exchange: id, kind: .block(block), isStreaming: isStreaming, drawsInUIKit: known)

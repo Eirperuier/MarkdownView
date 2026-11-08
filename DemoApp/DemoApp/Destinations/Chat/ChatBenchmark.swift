@@ -21,18 +21,32 @@ import MessagingUI
 import Darwin
 import os
 
-/// Measured heights by row content and width, fed back to the list as height hints.
-/// Keyed by content, as flowith's cache was: a row that changed (a streaming block)
-/// must not get its old height back.
+/// Measured heights by row, content, width and text size, fed back to the list as height
+/// hints, and kept on disk as a chat that's stored locally keeps them with its messages: a
+/// conversation opened again, in this run or the next, lays out with no row measured. Keyed by
+/// content, as flowith's cache was: a row that changed (a streaming block) must not get its old
+/// height back.
 @MainActor
 final class ChatHeightCache {
-    private var heights: [Key: CGFloat] = [:]
+    /// One for the app, as a store of messages is: a page shown again finds what it measured.
+    /// A benchmark keeps its own, in memory, so a run measures what it means to.
+    static let shared = ChatHeightCache(file: ChatBenchmark.autorunExchanges == nil ? defaultFile : nil)
+
+    private static var defaultFile: URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("chat-row-heights.json")
+    }
+
+    private var heights: [String: CGFloat] = [:]
+    private let file: URL?
+    private var saveQueued = false
     var isEnabled = true
 
-    private struct Key: Hashable {
-        let id: String
-        let content: Int
-        let width: Int
+    init(file: URL? = nil) {
+        self.file = file
+        if let file, let data = try? Data(contentsOf: file),
+           let stored = try? JSONDecoder().decode([String: CGFloat].self, from: data) {
+            heights = stored
+        }
     }
 
     func height(for row: ChatRow, width: CGFloat) -> CGFloat? {
@@ -40,20 +54,39 @@ final class ChatHeightCache {
     }
 
     func record(_ height: CGFloat, for row: ChatRow, width: CGFloat) {
-        heights[key(row, width)] = height
+        let key = key(row, width)
+        guard heights[key] != height else { return }
+        heights[key] = height
+        save()
     }
 
     func removeAll() {
         heights = [:]
+        save()
     }
 
-    private func key(_ row: ChatRow, _ width: CGFloat) -> Key {
-        let content: Int
-        switch row.kind {
-        case .prompt(let text): content = text.hashValue
-        case .block(let block): content = block.source.hashValue
+    /// Written once a burst of measuring settles, off the main thread.
+    private func save() {
+        guard let file, !saveQueued else { return }
+        saveQueued = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [self] in
+            saveQueued = false
+            guard let data = try? JSONEncoder().encode(heights) else { return }
+            DispatchQueue.global(qos: .utility).async { try? data.write(to: file, options: .atomic) }
         }
-        return Key(id: row.id, content: content, width: Int(width.rounded()))
+    }
+
+    /// The same across runs: Swift's `hashValue` is seeded per process.
+    private func key(_ row: ChatRow, _ width: CGFloat) -> String {
+        let content: String
+        switch row.kind {
+        case .prompt(let text): content = text
+        case .block(let block): content = block.source
+        }
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in content.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3 }
+        let category = UIApplication.shared.preferredContentSizeCategory.rawValue
+        return "\(row.id)|\(String(hash, radix: 36))|\(Int(width.rounded()))|\(category)"
     }
 }
 

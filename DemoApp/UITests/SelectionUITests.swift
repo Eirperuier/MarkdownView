@@ -50,7 +50,8 @@ final class SelectionUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1)
         print("SEL first \(first.frame) item \(item.frame)")
         // A drag on a phone selects a little above the finger.
-        let end = point(in: item, x: 60).withOffset(CGVector(dx: 0, dy: UIDevice.current.userInterfaceIdiom == .phone ? 40 : 0))
+        // Well inside the item's words: an end on a word's edge selects up to it or not by a hair.
+        let end = point(in: item, x: 120).withOffset(CGVector(dx: 0, dy: UIDevice.current.userInterfaceIdiom == .phone ? 40 : 0))
         point(in: first, x: 30).press(forDuration: 1.0, thenDragTo: end)
         Thread.sleep(forTimeInterval: 1)
         let selected = ask("selection", ".selection") ?? ""
