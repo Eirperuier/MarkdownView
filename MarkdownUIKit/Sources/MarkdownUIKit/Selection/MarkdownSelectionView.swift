@@ -22,6 +22,12 @@ public protocol MarkdownSelectionSource: AnyObject {
     func selectionOffscreenTexts(ofRow row: Int) -> [MarkdownSelectableText]
     /// The rows on screen.
     var selectionVisibleRows: [Int] { get }
+    /// The rows of the message `row` is in: a selection stays inside one.
+    func selectionMessageRows(containing row: Int) -> ClosedRange<Int>
+}
+
+public extension MarkdownSelectionSource {
+    func selectionMessageRows(containing row: Int) -> ClosedRange<Int> { 0...max(0, selectionRowCount - 1) }
 }
 
 final class MarkdownTextPosition: UITextPosition {
@@ -82,6 +88,21 @@ public final class MarkdownSelectionView: UIView, UITextInput {
     private var selection: MarkdownTextRange?
     private var contentSizeObservation: NSKeyValueObservation?
     private lazy var linkTap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+    /// Three taps or clicks: the line under them.
+    private lazy var lineTap: UITapGestureRecognizer = {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tappedThrice(_:)))
+        tap.numberOfTapsRequired = 3
+        return tap
+    }()
+    /// Where a finger or pointer extending the selection is, in the list's visible frame.
+    private var dragPoint: CGPoint?
+    /// The end a drag doesn't move, while one extends the selection.
+    private var dragAnchor: MarkdownTextPosition?
+    private var autoScroll: CADisplayLink?
+    /// The drag under way has scrolled the list: while it holds at the edge, the selection is
+    /// what scrolling made it, not what the interaction would make of the finger.
+    private var didAutoScroll = false
+    private var followedGestures: Set<ObjectIdentifier> = []
 
     /// Lies over `list`'s content and selects in it.
     public init(list: UIScrollView, source: MarkdownSelectionSource) {
@@ -99,7 +120,9 @@ public final class MarkdownSelectionView: UIView, UITextInput {
         // only (hitTest), and the list scrolls under it as it would under the rows.
         interaction.textInput = self
         addInteraction(interaction)
+        followInteractionGestures()
         addGestureRecognizer(linkTap)
+        addGestureRecognizer(lineTap)
         contentSizeObservation = list.observe(\.contentSize, options: [.initial, .new]) { [weak self] list, _ in
             MainActor.assumeIsolated { self?.fit(to: list) }
         }
@@ -182,7 +205,49 @@ public final class MarkdownSelectionView: UIView, UITextInput {
 
     public var selectedTextRange: UITextRange? {
         get { selection }
-        set { selection = newValue as? MarkdownTextRange }
+        set {
+            followInteractionGestures()
+            if didAutoScroll, let point = dragPoint, edgeSpeed(at: point) != 0 { return }
+            selection = (newValue as? MarkdownTextRange).map { keptInOneMessage($0, after: selection) }
+        }
+    }
+
+    /// Follows the interaction's own gestures, which it adds as it needs them: a drag near the
+    /// list's edge scrolls it.
+    private func followInteractionGestures() {
+        let recognizers = (gestureRecognizers ?? []) + interaction.gesturesForFailureRequirements
+        for recognizer in recognizers where recognizer !== linkTap && recognizer !== lineTap && !followedGestures.contains(ObjectIdentifier(recognizer)) {
+            followedGestures.insert(ObjectIdentifier(recognizer))
+            recognizer.addTarget(self, action: #selector(followed(_:)))
+        }
+    }
+
+    /// `range` with its moving end inside the message its other end is in. A drag moving an
+    /// end is remembered, for scrolling at the list's edge.
+    private func keptInOneMessage(_ range: MarkdownTextRange, after old: MarkdownTextRange?) -> MarkdownTextRange {
+        guard rowCount > 0 else { return range }
+        // The anchor is the end that stayed (a drag past it swaps the ends); a new range's is
+        // its start. While a drag extends it, the end nearer the finger is the one it moves.
+        func same(_ a: MarkdownTextPosition, _ b: MarkdownTextPosition) -> Bool { a.row == b.row && a.offset == b.offset }
+        var anchorIsFrom = true
+        if let list, let point = dragPoint, !range.isEmpty,
+           let finger = closestPosition(to: list.convert(CGPoint(x: point.x + list.contentOffset.x, y: point.y + list.contentOffset.y), to: self)) {
+            anchorIsFrom = abs(offset(from: finger, to: range.to)) <= abs(offset(from: finger, to: range.from))
+        } else if let old, !same(range.from, old.from), !same(range.from, old.to), same(range.to, old.from) || same(range.to, old.to) {
+            anchorIsFrom = false
+        }
+        let anchor = anchorIsFrom ? range.from : range.to
+        dragAnchor = dragPoint != nil && !range.isEmpty ? anchor : nil
+        let moving = anchorIsFrom ? range.to : range.from
+        let clamped = clampToMessage(moving, of: anchor.row)
+        return MarkdownTextRange(anchor, clamped)
+    }
+
+    private func clampToMessage(_ position: MarkdownTextPosition, of row: Int) -> MarkdownTextPosition {
+        guard let rows = source?.selectionMessageRows(containing: max(0, min(row, rowCount - 1))) else { return position }
+        if position.row < rows.lowerBound { return MarkdownTextPosition(row: rows.lowerBound, offset: 0) }
+        if position.row > rows.upperBound { return MarkdownTextPosition(row: rows.upperBound, offset: length(rows.upperBound)) }
+        return position
     }
 
     public var markedTextRange: UITextRange? { nil }
@@ -190,7 +255,7 @@ public final class MarkdownSelectionView: UIView, UITextInput {
     public func setMarkedText(_ markedText: String?, selectedRange: NSRange) {}
     public func unmarkText() {}
     public weak var inputDelegate: UITextInputDelegate?
-    public lazy var tokenizer: UITextInputTokenizer = UITextInputStringTokenizer(textInput: self)
+    public lazy var tokenizer: UITextInputTokenizer = MarkdownSelectionTokenizer(view: self)
     public var hasText: Bool { rowCount > 0 }
     public func insertText(_ text: String) {}
     public func deleteBackward() {}
@@ -374,11 +439,107 @@ public final class MarkdownSelectionView: UIView, UITextInput {
         return false
     }
 
-    /// Every row, from the first's start to the last's end.
+    /// The whole message the selection is in, or the first on screen.
     public override func selectAll(_ sender: Any?) {
-        guard rowCount > 0 else { return }
+        guard rowCount > 0, let range = messageRange(containing: selection?.from.row ?? source?.selectionVisibleRows.first ?? 0) else { return }
         inputDelegate?.selectionWillChange(self)
-        selection = MarkdownTextRange(MarkdownTextPosition(row: 0, offset: 0), MarkdownTextPosition(row: rowCount - 1, offset: length(rowCount - 1)))
+        selection = range
+        inputDelegate?.selectionDidChange(self)
+    }
+
+    /// Selects the message `row` is in.
+    public func selectMessage(containing row: Int) {
+        guard let range = messageRange(containing: row) else { return }
+        inputDelegate?.selectionWillChange(self)
+        selection = range
+        inputDelegate?.selectionDidChange(self)
+    }
+
+    /// Every row of the message `row` is in.
+    func messageRange(containing row: Int) -> MarkdownTextRange? {
+        guard rowCount > 0, let rows = source?.selectionMessageRows(containing: max(0, min(row, rowCount - 1))) else { return nil }
+        return MarkdownTextRange(MarkdownTextPosition(row: rows.lowerBound, offset: 0), MarkdownTextPosition(row: rows.upperBound, offset: length(rows.upperBound)))
+    }
+
+    /// The row's raw text, as positions count it.
+    func rowString(_ row: Int) -> NSString { string(row) }
+    var rowsCount: Int { rowCount }
+
+    @objc private func tappedThrice(_ recognizer: UITapGestureRecognizer) {
+        guard let position = closestPosition(to: recognizer.location(in: self)),
+              let line = tokenizer.rangeEnclosingPosition(position, with: .paragraph, inDirection: .storage(.forward)) as? MarkdownTextRange else { return }
+        if !isFirstResponder { becomeFirstResponder() }
+        inputDelegate?.selectionWillChange(self)
+        selection = line
+        inputDelegate?.selectionDidChange(self)
+    }
+
+    // MARK: Scrolling at the edge
+
+
+
+    @objc private func followed(_ recognizer: UIGestureRecognizer) {
+        guard let list else { return }
+        switch recognizer.state {
+        case .began, .changed:
+            if recognizer.state == .began { didAutoScroll = false }
+            let point = recognizer.location(in: list)
+            dragPoint = CGPoint(x: point.x - list.contentOffset.x, y: point.y - list.contentOffset.y)
+            if autoScroll == nil {
+                let link = CADisplayLink(target: self, selector: #selector(scrollTick))
+                link.add(to: .main, forMode: .common)
+                autoScroll = link
+            }
+        default:
+            dragPoint = nil
+            dragAnchor = nil
+            didAutoScroll = false
+            autoScroll?.invalidate()
+            autoScroll = nil
+        }
+    }
+
+    /// How fast a drag at `point` (in the list's visible frame) scrolls it: up is negative, 0
+    /// away from its edges, 1 at or past one.
+    private func edgeSpeed(at point: CGPoint) -> CGFloat {
+        guard let list else { return 0 }
+        // The edges are what's seen: a list's content insets can stand for other things (a
+        // virtual content's ends), its safe area is what bars cover.
+        let seen = list.safeAreaInsets
+        let top = seen.top, bottom = list.bounds.height - seen.bottom
+        let zone: CGFloat = 44
+        if point.y < top + zone { return -min(1, (top + zone - point.y) / zone) }
+        if point.y > bottom - zone { return min(1, (point.y - (bottom - zone)) / zone) }
+        return 0
+    }
+
+    /// The list moves while a drag holds near its top or bottom, faster the nearer the edge,
+    /// and the moving end follows what comes under the finger.
+    @objc private func scrollTick() {
+        guard let list, let point = dragPoint, let anchor = dragAnchor, let selection, !selection.isEmpty else { return }
+        let inset = list.adjustedContentInset
+        let speed = edgeSpeed(at: point)
+        guard speed != 0 else { return }
+        // The message ends there: nothing past it to take, so the list stays.
+        if let rows = source?.selectionMessageRows(containing: anchor.row) {
+            let edgeRow = speed < 0 ? rows.lowerBound : rows.upperBound
+            let moving = selection.from.row == anchor.row && selection.from.offset == anchor.offset ? selection.to : selection.from
+            let atEdge = speed < 0 ? (moving.row == rows.lowerBound && moving.offset == 0) : (moving.row == rows.upperBound && moving.offset >= length(rows.upperBound))
+            if atEdge, source?.selectionVisibleRows.contains(edgeRow) == true { return }
+        }
+        let step = speed * speed.magnitude * 18
+        let minY = -inset.top
+        let maxY = max(minY, list.contentSize.height - list.bounds.height + inset.bottom)
+        let y = max(minY, min(maxY, list.contentOffset.y + step))
+        guard abs(y - list.contentOffset.y) > 0.01 else { return }
+        list.contentOffset.y = y
+        list.layoutIfNeeded()
+        didAutoScroll = true
+        let inContent = CGPoint(x: point.x + list.contentOffset.x, y: point.y + list.contentOffset.y)
+        guard let under = closestPosition(to: list.convert(inContent, to: self)) as? MarkdownTextPosition else { return }
+        let kept = clampToMessage(under, of: anchor.row)
+        inputDelegate?.selectionWillChange(self)
+        self.selection = MarkdownTextRange(anchor, kept)
         inputDelegate?.selectionDidChange(self)
     }
 
@@ -403,5 +564,77 @@ public final class MarkdownSelectionView: UIView, UITextInput {
                 }
             }
         }
+    }
+}
+
+/// Words, sentences and paragraphs in a row's own text, the one positions count: a row's text
+/// as copied is another length. A paragraph ends at a newline: a table's row, a list's item.
+/// The document is the message.
+@MainActor
+final class MarkdownSelectionTokenizer: UITextInputStringTokenizer {
+    private unowned let view: MarkdownSelectionView
+
+    init(view: MarkdownSelectionView) {
+        self.view = view
+        super.init(textInput: view)
+    }
+
+    override func rangeEnclosingPosition(_ position: UITextPosition, with granularity: UITextGranularity, inDirection direction: UITextDirection) -> UITextRange? {
+        guard let position = position as? MarkdownTextPosition, position.row >= 0, position.row < view.rowsCount else { return nil }
+        if granularity == .document { return view.messageRange(containing: position.row) }
+        guard granularity != .character, let range = Self.range(in: view.rowString(position.row), at: position.offset, granularity: granularity) else {
+            return super.rangeEnclosingPosition(position, with: granularity, inDirection: direction)
+        }
+        return MarkdownTextRange(MarkdownTextPosition(row: position.row, offset: range.location), MarkdownTextPosition(row: position.row, offset: NSMaxRange(range)))
+    }
+
+    override func isPosition(_ position: UITextPosition, withinTextUnit granularity: UITextGranularity, inDirection direction: UITextDirection) -> Bool {
+        guard granularity != .character, let position = position as? MarkdownTextPosition, position.row >= 0, position.row < view.rowsCount else {
+            return super.isPosition(position, withinTextUnit: granularity, inDirection: direction)
+        }
+        if granularity == .document { return true }
+        return Self.range(in: view.rowString(position.row), at: position.offset, granularity: granularity) != nil
+    }
+
+    override func isPosition(_ position: UITextPosition, atBoundary granularity: UITextGranularity, inDirection direction: UITextDirection) -> Bool {
+        guard granularity != .character, let position = position as? MarkdownTextPosition, position.row >= 0, position.row < view.rowsCount else {
+            return super.isPosition(position, atBoundary: granularity, inDirection: direction)
+        }
+        let string = view.rowString(position.row)
+        if position.offset == 0 || position.offset == string.length { return true }
+        guard let range = Self.range(in: string, at: position.offset, granularity: granularity) else { return true }
+        return position.offset == range.location || position.offset == NSMaxRange(range)
+    }
+
+    /// The unit around `offset` in `string`; nil between units (spaces between words).
+    static func range(in string: NSString, at offset: Int, granularity: UITextGranularity) -> NSRange? {
+        let length = string.length
+        guard length > 0 else { return NSRange(location: 0, length: 0) }
+        let at = max(0, min(offset, length))
+        // The paragraph: between newlines.
+        var start = at, end = at
+        while start > 0, !isBreak(string.character(at: start - 1)) { start -= 1 }
+        while end < length, !isBreak(string.character(at: end)) { end += 1 }
+        let paragraph = NSRange(location: start, length: end - start)
+        switch granularity {
+        case .paragraph, .line: return paragraph
+        case .word, .sentence:
+            var found: NSRange?
+            let options: NSString.EnumerationOptions = granularity == .word ? .byWords : .bySentences
+            string.enumerateSubstrings(in: paragraph, options: [options, .substringNotRequired]) { _, range, _, stop in
+                if at >= range.location, at <= NSMaxRange(range) {
+                    // At a boundary, the unit after it.
+                    if at == NSMaxRange(range), found != nil { stop.pointee = true; return }
+                    found = range
+                    if at < NSMaxRange(range) { stop.pointee = true }
+                }
+            }
+            return found
+        default: return nil
+        }
+    }
+
+    private static func isBreak(_ character: unichar) -> Bool {
+        character == 0x0A || character == 0x2029 || character == 0x0D
     }
 }

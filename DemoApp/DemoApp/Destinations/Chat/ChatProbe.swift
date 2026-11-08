@@ -9,7 +9,7 @@
 //      scroll <delta>      moves the list, up for a negative delta
 //      send                streams a reply
 //      select <x> <y>      selects the sentence at a point in the window
-//      selectall <file>    selects every row and writes what it copies
+//      selectall <file>    selects the last message on screen and writes what it copies
 //      quit                exits
 //
 //  A link tapped under a probe prints `LINK <url>` and opens nothing.

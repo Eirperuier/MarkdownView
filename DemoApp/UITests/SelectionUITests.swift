@@ -112,6 +112,61 @@ final class SelectionUITests: XCTestCase {
         XCTAssertTrue(selected.contains("a\tb\tc\nlo"), "the drag doesn't reach the last row")
     }
 
+    /// Three taps select the line the tap is on, and nothing past it.
+    func testTripleTapSelectsALine() {
+        let first = row("Interaction first paragraph")
+        Thread.sleep(forTimeInterval: 1)
+        first.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        Thread.sleep(forTimeInterval: 1)
+        let selected = ask("selection", ".selection") ?? ""
+        print("SEL line <<\(selected)>>")
+        XCTAssertEqual(selected, "Interaction first paragraph with plain words to select in it.")
+    }
+
+    private static let prompts = [
+        "How do I keep a chat list", "帮我总结一下这周的睡眠数据", "difference between a spring",
+        "splits markdown into blocks", "Compare the three options", "Explain the integral",
+    ]
+
+    /// A drag up past a reply's start stops there: the prompt above isn't taken.
+    func testSelectionStaysInOneMessage() {
+        let first = row("Interaction first paragraph")
+        Thread.sleep(forTimeInterval: 1)
+        let item = row("A list item with plain words")
+        let above = point(in: first, x: 30).withOffset(CGVector(dx: 0, dy: -90))
+        point(in: item, x: 60).press(forDuration: 1.0, thenDragTo: above)
+        Thread.sleep(forTimeInterval: 1)
+        let selected = ask("selection", ".selection") ?? ""
+        print("SEL message <<\(selected)>>")
+        XCTAssertTrue(selected.contains("Interaction first paragraph"), "the drag doesn't reach the reply's start")
+        for prompt in Self.prompts { XCTAssertFalse(selected.contains(prompt), "the selection went into a prompt") }
+    }
+
+    private func listOffset() -> Double {
+        let state = ask("state", ".state") ?? ""
+        let value = state.split(separator: " ").first { $0.hasPrefix("listOffset=") }?.dropFirst("listOffset=".count)
+        return value.flatMap { Double($0) } ?? .nan
+    }
+
+    /// A drag held at the list's top scrolls it, and the selection follows.
+    func testDragAtTheEdgeScrolls() {
+        launch(corpus: "blocks.headings")
+        let start = app.elementInMiddle(saying: "A paragraph after a thematic break")
+        let before = listOffset()
+        let top = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paged'")).firstMatch
+        let edgeY = top.exists ? top.frame.maxY + 14 : app.windows.firstMatch.frame.minY + 140
+        let window = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+        let edge = window.withOffset(CGVector(dx: start.frame.minX + 40, dy: edgeY))
+        point(in: start, x: 60).press(forDuration: 1.0, thenDragTo: edge, withVelocity: .default, thenHoldForDuration: 2.5)
+        Thread.sleep(forTimeInterval: 1)
+        let after = listOffset()
+        let selected = ask("selection", ".selection") ?? ""
+        print("SEL edge \(before) -> \(after) <<\(selected)>>")
+        XCTAssertLessThan(after, before - 40, "the list didn't scroll up")
+        XCTAssertGreaterThan(after, before - 1500, "the list scrolled on past the message")
+        XCTAssertTrue(selected.hasPrefix("本周睡眠报告"), "the selection didn't follow the scroll to the message's start")
+    }
+
     func testDoubleTapSelectsAWord() {
         let first = row("Interaction first paragraph")
         Thread.sleep(forTimeInterval: 1)

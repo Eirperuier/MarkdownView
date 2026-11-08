@@ -49,9 +49,10 @@ final class ChatTextSelection: MarkdownSelectionSource {
     }
 
     /// What's selected, for a probe.
-    /// Every row selected.
+    /// The last message on screen selected whole.
     func selectAll() {
-        view?.selectAll(nil)
+        guard let last = selectionVisibleRows.last else { return }
+        view?.selectMessage(containing: last)
     }
 
     var selectedText: String? {
@@ -80,6 +81,21 @@ final class ChatTextSelection: MarkdownSelectionSource {
     func selectionTexts(ofRow row: Int) -> [MarkdownUIKit.MarkdownSelectableText]? {
         _ = rows
         return shownRows()[row]?.selectableTexts
+    }
+
+    /// A prompt is a message; a reply's blocks together are one.
+    func selectionMessageRows(containing row: Int) -> ClosedRange<Int> {
+        let rows = rows
+        guard rows.indices.contains(row) else { return 0...max(0, rows.count - 1) }
+        func key(_ index: Int) -> String {
+            if case .prompt = rows[index].kind { return "\(rows[index].exchange)p" }
+            return "\(rows[index].exchange)r"
+        }
+        let message = key(row)
+        var low = row, high = row
+        while low > 0, key(low - 1) == message { low -= 1 }
+        while high < rows.count - 1, key(high + 1) == message { high += 1 }
+        return low...high
     }
 
     func selectionOffscreenTexts(ofRow row: Int) -> [MarkdownUIKit.MarkdownSelectableText] {
