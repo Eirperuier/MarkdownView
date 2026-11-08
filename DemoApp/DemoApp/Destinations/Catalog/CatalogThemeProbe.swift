@@ -114,7 +114,6 @@ enum CatalogThemeProbe {
         window.isHidden = false
 
         var style = MarkdownStyle()
-        style.rendersDisplayMathSynchronously = true
         style.linkSiteIcons = true
         style.codeBlock.highlighter = MarkdownHighlightrHighlighter()
         style.icons = MarkdownIcons(image: { host in

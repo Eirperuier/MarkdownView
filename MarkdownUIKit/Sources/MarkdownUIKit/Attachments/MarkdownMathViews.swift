@@ -2,25 +2,20 @@
 //  MarkdownMathViews.swift
 //  MarkdownUIKit
 //
-//  Maths as plain views: LaTeXCore gives an image and its metrics, a UIImageView shows it. A
+//  Maths as plain views: SwaTex gives an image and its metrics, a UIImageView shows it. A
 //  template image takes the role's colour as a tint. A formula with `\color` has its colours in
 //  the image, so it's drawn again when the role's colour changes. What LaTeX can't read shows
 //  as its source.
 //
 
-import LaTeXCore
 import MarkdownCore
 import RichTextCore
 import UIKit
 
 enum MarkdownMath {
-    /// The formula's pieces. `latex` is as written, with its delimiters; a tree's has none.
-    static func piece(latex: String, kind: LaTeXMathPiece.Kind, xHeight: CGFloat, foreground: String) -> LaTeXMathPiece? {
-        let options = LaTeXMathOptions(displayScale: markdownPixelScale, explicitColorForeground: foreground)
-        let size = LaTeXMathSize.xHeight(xHeight)
-        let pieces = LaTeXMathRenderer.render(.equations(latex), size: size, options: options)
-        if let equation = pieces.first(where: { $0.kind != .text }) { return equation }
-        return LaTeXMathRenderer.render(kind == .displayEquation ? .display(latex) : .inline(latex), size: size, options: options).first
+    /// The formula drawn. `latex` is as written, with its delimiters; a tree's has none.
+    static func piece(latex: String, kind: MarkdownMathPiece.Kind, xHeight: CGFloat, foreground: String) -> MarkdownMathPiece {
+        MarkdownMathRenderer.piece(latex: latex, kind: kind, xHeight: xHeight, foreground: foreground, scale: markdownPixelScale)
     }
 
     /// The colour a formula with `\color` draws its other glyphs in. A colour's opacity stays
@@ -72,7 +67,7 @@ enum MarkdownMath {
 @MainActor
 final class MarkdownMathImageView: UIImageView {
     private var latex = ""
-    private var kind = LaTeXMathPiece.Kind.inlineEquation
+    private var kind = MarkdownMathPiece.Kind.inlineEquation
     private var xHeight: CGFloat = 0
     private var foreground: String?
     private var isBaked = false
@@ -92,7 +87,7 @@ final class MarkdownMathImageView: UIImageView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func show(_ piece: LaTeXMathPiece, latex: String, xHeight: CGFloat) {
+    func show(_ piece: MarkdownMathPiece, latex: String, xHeight: CGFloat) {
         self.latex = latex
         self.kind = piece.kind
         self.xHeight = xHeight
@@ -121,9 +116,7 @@ final class MarkdownMathImageView: UIImageView {
         let wanted = MarkdownMath.foreground(in: traitCollection)
         guard wanted != foreground else { return }
         foreground = wanted
-        if let piece = MarkdownMath.piece(latex: latex, kind: kind, xHeight: xHeight, foreground: wanted) {
-            image = withMargin(piece.image)
-        }
+        image = withMargin(MarkdownMath.piece(latex: latex, kind: kind, xHeight: xHeight, foreground: wanted).image)
     }
 
     private func withMargin(_ image: UIImage?) -> UIImage? {
@@ -182,8 +175,8 @@ final class MarkdownInlineMathAttachment: RichTextAttachment, MarkdownFixedInlin
     private let source: String
     private let textFont: UIFont
     private let xHeight: CGFloat
-    private let piece: LaTeXMathPiece?
-    private let imageLayout: (size: CGSize, imageOrigin: CGPoint)?
+    private let piece: MarkdownMathPiece?
+    private let imageLayout: (size: CGSize, imageOrigin: CGPoint, descent: CGFloat)?
     @MainActor private var container: UIView?
 
     init(id: AnyHashable, latex: String, style: MarkdownStyle) {
@@ -193,7 +186,7 @@ final class MarkdownInlineMathAttachment: RichTextAttachment, MarkdownFixedInlin
         let piece = MarkdownMath.piece(latex: latex, kind: .inlineEquation, xHeight: xHeight, foreground: MarkdownMath.foreground(in: UITraitCollection.current))
         self.piece = piece
         source = latex.hasPrefix("$") || latex.hasPrefix("\\") ? latex : "$\(latex)$"
-        if let piece, let metrics = piece.metrics, piece.image != nil {
+        if let metrics = piece.metrics, piece.image != nil {
             imageLayout = Self.layout(image: metrics.imageSize, offset: metrics.baselineOffset, font: textFont)
         } else {
             imageLayout = nil
@@ -205,17 +198,23 @@ final class MarkdownInlineMathAttachment: RichTextAttachment, MarkdownFixedInlin
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// As a line of text holds the image: the line's room for it, moved by the formula's offset
-    /// from the baseline, which makes the box taller by that much.
-    private static func layout(image: CGSize, offset: CGFloat, font: UIFont) -> (size: CGSize, imageOrigin: CGPoint) {
+    /// As a line of text holds the image, its baseline on the line's: the box reaches up to the
+    /// text's ascent or the formula's, whichever is taller, and down to the text's descent or the
+    /// formula's depth, whichever is deeper. It says how far down, so it sits exactly there.
+    private static func layout(image: CGSize, offset: CGFloat, font: UIFont) -> (size: CGSize, imageOrigin: CGPoint, descent: CGFloat) {
         let last = MarkdownMath.lastLine(font)
-        let line = max(last.height, image.height + last.below)
-        let height = markdownPixelCeil(line + abs(offset))
-        let top = max(0, line - last.below - image.height) + max(0, -offset)
-        return (CGSize(width: markdownPixelCeil(image.width), height: height), CGPoint(x: 0, y: markdownPixelRound(top)))
+        let depth = -offset
+        let ascent = max(image.height - depth, last.height - last.below)
+        let descent = max(depth, last.below)
+        let height = markdownPixelCeil(ascent + descent)
+        // What rounding adds goes on top: the bottom stays where the descent puts it.
+        let top = height - descent - image.height + depth
+        return (CGSize(width: markdownPixelCeil(image.width), height: height), CGPoint(x: 0, y: markdownPixelRound(top)), descent)
     }
 
     override var fixedSize: CGSize? { imageLayout?.size }
+
+    override var fixedDescent: CGFloat? { imageLayout?.descent }
 
     func draw(in box: CGRect) {
         guard let imageLayout, let piece, let metrics = piece.metrics, let image = piece.image else { return }
@@ -225,7 +224,7 @@ final class MarkdownInlineMathAttachment: RichTextAttachment, MarkdownFixedInlin
             return
         }
         let wanted = MarkdownMath.foreground(in: UITraitCollection.current)
-        let shown = wanted == foreground ? image : MarkdownMath.piece(latex: latex, kind: piece.kind, xHeight: xHeight, foreground: wanted)?.image
+        let shown = wanted == foreground ? image : MarkdownMath.piece(latex: latex, kind: piece.kind, xHeight: xHeight, foreground: wanted).image
         shown?.withRenderingMode(.alwaysOriginal).draw(in: rect)
     }
 
@@ -274,13 +273,9 @@ final class MarkdownInlineMathAttachment: RichTextAttachment, MarkdownFixedInlin
 }
 
 /// A formula on its own: in a horizontal scroller if it's wider than the text, with blank lines above and
-/// below it, centred in the height set aside for it, at the leading edge. Its height is known at
-/// once if it's drawn at once, or else it starts at the height set aside and may grow.
+/// below it, centred in the height set aside for it, at the leading edge.
 @MainActor
 final class MarkdownDisplayMathView: UIView {
-    /// The height changed, after the formula came in late.
-    var onHeightChange: (() -> Void)?
-
     private var scroller: UIScrollView?
     private let imageView = MarkdownMathImageView()
     private lazy var sourceView: MarkdownMathSourceView = {
@@ -293,7 +288,6 @@ final class MarkdownDisplayMathView: UIView {
     private var reserved: CGFloat = 0
     private var imageTop: CGFloat = 0
     private var imageSize = CGSize.zero
-    private var renderTask: Task<Void, Never>?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -304,29 +298,11 @@ final class MarkdownDisplayMathView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit { renderTask?.cancel() }
-
+    /// Drawn at once: SwaTex lays a formula out in microseconds, so its height is known now.
     func configure(latex: String, style: MarkdownStyle) {
-        renderTask?.cancel()
         let font = MarkdownMath.font(style.displayMathTextStyle, style: style)
         reserved = MarkdownDisplayMathHeight.reserved(for: latex)
-        let foreground = MarkdownMath.foreground(in: traitCollection)
-        let options = LaTeXMathOptions(displayScale: markdownPixelScale, explicitColorForeground: foreground)
-        let input = LaTeXMathInput.equations(latex)
-        let size = LaTeXMathSize.xHeight(font.xHeight)
-        if let cached = LaTeXMathRenderer.cached(input, size: size, options: options) {
-            show(cached.first { $0.kind != .text } ?? cached.first, latex: latex, font: font)
-        } else if style.rendersDisplayMathSynchronously {
-            show(MarkdownMath.piece(latex: latex, kind: .displayEquation, xHeight: font.xHeight, foreground: foreground), latex: latex, font: font)
-        } else {
-            show(nil, latex: latex, font: font, isPlaceholder: true)
-            renderTask = Task { [weak self] in
-                let pieces = await LaTeXMathRenderer.renderAsync(input, size: size, options: options)
-                guard !Task.isCancelled, let self else { return }
-                self.show(pieces.first { $0.kind != .text } ?? pieces.first, latex: latex, font: font)
-                self.onHeightChange?()
-            }
-        }
+        show(MarkdownMath.piece(latex: latex, kind: .displayEquation, xHeight: font.xHeight, foreground: MarkdownMath.foreground(in: traitCollection)), latex: latex, font: font)
     }
 
     /// How tall a formula's image makes it, with the blank lines, on any thread.
@@ -336,14 +312,10 @@ final class MarkdownDisplayMathView: UIView {
         return markdownPixelCeil(line + imageLine + markdownPixelCeil(MarkdownMath.lastLine(font).height))
     }
 
-    private func show(_ piece: LaTeXMathPiece?, latex: String, font: UIFont, isPlaceholder: Bool = false) {
+    private func show(_ piece: MarkdownMathPiece?, latex: String, font: UIFont) {
         let line = MarkdownMath.lineStep(font)
         let last = markdownPixelCeil(MarkdownMath.lastLine(font).height)
-        if isPlaceholder {
-            imageView.isHidden = true
-            if hasSourceView { sourceView.isHidden = true }
-            contentSize = .zero
-        } else if let piece, let metrics = piece.metrics, piece.image != nil {
+        if let piece, let metrics = piece.metrics, piece.image != nil {
             imageView.isHidden = false
             if hasSourceView { sourceView.isHidden = true }
             imageView.show(piece, latex: latex, xHeight: font.xHeight)
@@ -425,7 +397,6 @@ final class MarkdownDisplayMathAttachment: RichTextAttachment {
         mathView = MarkdownDisplayMathView()
         super.init(id: id, sizing: .fittingLineFragment)
         mathView.configure(latex: latex, style: style)
-        mathView.onHeightChange = { [weak self] in self?.contentSizeDidChange() }
     }
 
     required init?(coder: NSCoder) {

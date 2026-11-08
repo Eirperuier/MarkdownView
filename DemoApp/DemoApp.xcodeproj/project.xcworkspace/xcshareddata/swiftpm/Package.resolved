@@ -1,5 +1,5 @@
 {
-  "originHash" : "94556cd0afd0fe97d9d564241ce0f717c049ba3de64afe6317806c8e8faaaf70",
+  "originHash" : "6ac7cd9a0276724e752d0cb63e70ffa0623cc9fb0c84220950b91d51cd773812",
   "pins" : [
     {
       "identity" : "grdb.swift",
@@ -35,6 +35,14 @@
       "state" : {
         "revision" : "e7415c5e6b4fd9b78874bb956aad8a42b08e9966",
         "version" : "4.20.0"
+      }
+    },
+    {
+      "identity" : "swatex",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PhraseHQ/SwaTex.git",
+      "state" : {
+        "revision" : "153738a2bcdcb62450ead9ab292989e3de0a449f"
       }
     },
     {

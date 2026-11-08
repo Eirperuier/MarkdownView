@@ -147,6 +147,12 @@ enum ChatCorpus {
         $$
         \begin{pmatrix} a & b \\ c & d \end{pmatrix}^{-1} = \frac{1}{ad - bc} \begin{pmatrix} d & -b \\ -c & a \end{pmatrix}
         $$
+
+        速度 \(v = \frac{\text{距离}}{\text{时间}}\)，当 \(x \to 0\) 时：
+
+        $$
+        f(x) = \begin{cases} 1 & \text{若 } x > 0 \\ 0 & \text{否则} \end{cases} \qquad E_{\text{总}} = \sum_i E_{\text{分}, i}
+        $$
         """#),
         ("images", #"""
         ![A landscape](https://catalog.test/wide.png)

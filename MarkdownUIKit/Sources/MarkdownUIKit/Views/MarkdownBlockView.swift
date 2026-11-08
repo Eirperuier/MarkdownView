@@ -401,15 +401,6 @@ public final class MarkdownBlockView: UIView {
 
     private func showMath(_ latex: String, style: MarkdownStyle) {
         let view = MarkdownDisplayMathView()
-        view.onHeightChange = { [weak self] in
-            self?.cachedHeight = nil
-            self?.setNeedsLayout()
-            self?.onHeightChange?()
-        }
-        // A whole block is drawn now if it wasn't ahead: a formula coming in late would change
-        // its height on screen and move all below it. One still streaming can come late.
-        var style = style
-        if reveal == nil { style.rendersDisplayMathSynchronously = true }
         view.configure(latex: latex, style: style)
         addSubview(view)
         layout = .math(view)

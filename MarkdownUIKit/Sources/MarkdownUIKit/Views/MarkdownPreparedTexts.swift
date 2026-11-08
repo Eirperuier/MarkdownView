@@ -10,7 +10,6 @@
 //
 
 @_spi(MarkdownMath) import MarkdownCore
-import LaTeXCore
 import Markdown
 import UIKit
 
@@ -213,9 +212,9 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
     /// them asks there as it does anyway.
     private struct Formulas {
         let block: MarkdownStreamBlock
-        let options: LaTeXMathOptions
-        let inlineSize: LaTeXMathSize
-        let displaySize: LaTeXMathSize
+        let foreground: String
+        let inlineXHeight: CGFloat
+        let displayXHeight: CGFloat
     }
 
     /// What's kept: a screen holds a few dozen rows. A text a row shows stays with the row too.
@@ -261,12 +260,11 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
     @MainActor
     private func requestFormulas(of block: MarkdownStreamBlock, style: MarkdownStyle, traits: UITraitCollection) {
         guard block.inlineMathStorage?.isEmpty == false || MarkdownBlockView.displayFormula(of: block) != nil else { return }
-        let options = LaTeXMathOptions(displayScale: markdownPixelScale, explicitColorForeground: MarkdownMath.foreground(in: traits))
         let request = Formulas(
             block: block,
-            options: options,
-            inlineSize: .xHeight(MarkdownMath.font(style.inlineMathTextStyle, style: style).xHeight),
-            displaySize: .xHeight(MarkdownMath.font(style.displayMathTextStyle, style: style).xHeight)
+            foreground: MarkdownMath.foreground(in: traits),
+            inlineXHeight: MarkdownMath.font(style.inlineMathTextStyle, style: style).xHeight,
+            displayXHeight: MarkdownMath.font(style.displayMathTextStyle, style: style).xHeight
         )
         lock.lock()
         defer { lock.unlock() }
@@ -303,12 +301,12 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
     private static func draw(_ formulas: Formulas) {
         let block = formulas.block
         if let latex = MarkdownBlockView.displayFormula(of: block) {
-            _ = LaTeXMathRenderer.render(.equations(latex), size: formulas.displaySize, options: formulas.options)
+            _ = MarkdownMath.piece(latex: latex, kind: .displayEquation, xHeight: formulas.displayXHeight, foreground: formulas.foreground)
         }
         let source = block.descriptor.sourceText
         for (id, latex) in block.inlineMathStorage ?? [:]
         where source.contains(MarkdownInlineMathPlaceholder.prefix + id + MarkdownInlineMathPlaceholder.suffix) {
-            _ = LaTeXMathRenderer.render(.equations(latex), size: formulas.inlineSize, options: formulas.options)
+            _ = MarkdownMath.piece(latex: latex, kind: .inlineEquation, xHeight: formulas.inlineXHeight, foreground: formulas.foreground)
         }
     }
 
@@ -550,8 +548,8 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
     private static func makeFormula(_ request: Request) -> Result {
         let style = request.style
         let font = MarkdownMath.font(style.displayMathTextStyle, style: style)
-        guard let piece = MarkdownMath.piece(latex: request.key.source, kind: .displayEquation, xHeight: font.xHeight, foreground: MarkdownMath.foreground(in: UITraitCollection.current)),
-              let metrics = piece.metrics, piece.image != nil else {
+        let piece = MarkdownMath.piece(latex: request.key.source, kind: .displayEquation, xHeight: font.xHeight, foreground: MarkdownMath.foreground(in: UITraitCollection.current))
+        guard let metrics = piece.metrics, piece.image != nil else {
             return Result()
         }
         let content = MarkdownDisplayMathView.contentHeight(image: metrics.imageSize, font: font)

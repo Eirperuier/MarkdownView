@@ -16,7 +16,8 @@ let package = Package(
         // MarkdownView's fork of it: a visitor reads its nodes.
         .package(url: "https://github.com/Eirperuier/swift-markdown.git", revision: "daac37a4170ddb163eb2db53f97d0cf1ee742c18"),
         .package(path: "../../markdown-uikit-deps/floo-RichText"),
-        .package(path: "../../markdown-uikit-deps/floo-LaTeXSwiftUI"),
+        // Formulas: KaTeX's layout in Swift, CJK from the system's fonts.
+        .package(url: "https://github.com/PhraseHQ/SwaTex.git", revision: "153738a2bcdcb62450ead9ab292989e3de0a449f"),
         .package(path: "../../markdown-uikit-deps/floo-SwiftDraw"),
         .package(path: "../../floo-uikit"),
     ],
@@ -27,7 +28,7 @@ let package = Package(
                 .product(name: "MarkdownCore", package: "MarkdownView"),
                 .product(name: "Markdown", package: "swift-markdown"),
                 .product(name: "RichTextCore", package: "floo-RichText"),
-                .product(name: "LaTeXCore", package: "floo-LaTeXSwiftUI"),
+                .product(name: "SwaTexRender", package: "SwaTex"),
                 .product(name: "SwiftDrawCore", package: "floo-SwiftDraw"),
                 .product(name: "FlooUIKit", package: "floo-uikit"),
             ],

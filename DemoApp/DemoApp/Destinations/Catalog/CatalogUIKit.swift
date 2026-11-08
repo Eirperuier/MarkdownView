@@ -243,8 +243,6 @@ struct CatalogUIKitSettings {
     var isQuoteDecorated = false
 
     init() {
-        // The baseline's stream blocks draw their formulas at once too.
-        style.rendersDisplayMathSynchronously = true
         style.icons = MarkdownIcons(image: { host in
             // One fixed picture, or none for the host that shows the fallback.
             host == "noicon.test" ? nil : UIImage(systemName: "seal.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 64))

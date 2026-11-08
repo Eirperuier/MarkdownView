@@ -148,9 +148,6 @@ public struct MarkdownStyle {
     public var inlineMathTextStyle = UIFont.TextStyle.body
     /// The same for a formula on its own, and the font of the lines around it.
     public var displayMathTextStyle = UIFont.TextStyle.body
-    /// Draws a formula on its own at once. False: it comes in late unless it's cached, in the
-    /// room set aside for it.
-    public var rendersDisplayMathSynchronously = false
 
     // Layout
     /// Between a paragraph's lines.
