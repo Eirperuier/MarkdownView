@@ -275,3 +275,37 @@ enum MarkdownInk {
         return UIColor { $0.userInterfaceStyle == .dark ? darkColor : lightColor }
     }
 }
+
+/// Every colour role Markdown draws with, by what it's for: for a page that shows the colour
+/// system, or a theme editor that sets them.
+public enum MarkdownColorCatalog {
+    public struct Group: Sendable {
+        public let title: String
+        public let roles: [FlooColorRole]
+    }
+
+    public static let groups: [Group] = [
+        Group(title: "Text", roles: [
+            .markdownText, .markdownSecondaryText, .markdownTertiaryText, .markdownLink, .markdownStrong,
+            .markdownSubtitle, .markdownFootnoteText, .markdownMath,
+        ]),
+        Group(title: "Inline Code and Highlights", roles: [.markdownInlineCode, .markdownInlineCodeFill, .markdownHighlight]),
+        Group(title: "Lists", roles: [
+            .markdownListMarker, .markdownTaskDone, .markdownTaskOpen, .markdownSymbolBullet, .markdownOnSymbolBullet,
+        ]),
+        Group(title: "Quotes", roles: [.markdownQuote, .markdownQuoteFill, .markdownQuoteEmphasis]),
+        Group(title: "Blocks", roles: [.markdownRule, .markdownImagePlaceholder, .markdownImageFill]),
+        Group(title: "Code", roles: [
+            .markdownCodeBoxFill, .markdownCodeBoxGutter, .markdownCodeBoxBorder, .markdownCodeBoxSeparator,
+            .markdownCodeBoxLineNumber,
+        ]),
+        Group(title: "Tables", roles: [
+            .markdownTableText, .markdownTableHeaderText, .markdownTableHeaderDimmed, .markdownTableSeparator,
+            .markdownTableStripe, .markdownTableGitHubBorder, .markdownTableGitHubRow, .markdownTableGitHubAlternateRow,
+            .markdownTableGridBorder,
+        ]),
+        Group(title: "Chips", roles: [.markdownChipFill, .markdownChipText, .markdownChipCount]),
+        Group(title: "Bubbles", roles: [.markdownBubbleFill, .markdownBubbleIcon]),
+        Group(title: "Marks", roles: [.markdownPenAccent, .markdownAccentText]),
+    ]
+}
