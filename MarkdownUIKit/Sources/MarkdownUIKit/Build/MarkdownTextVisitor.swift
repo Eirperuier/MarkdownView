@@ -513,7 +513,7 @@ struct MarkdownTextVisitor: MarkupVisitor {
         nonisolated(unsafe) let font = bodyFont
         nonisolated(unsafe) let color = linkColor
         nonisolated(unsafe) let style = style
-        let content = attachmentString { MarkdownSiteIconAttachment(id: id, host: host, url: url, font: font, color: color, style: style) }
+        let content = anyThreadAttachmentString(MarkdownSiteIconAttachment(id: id, host: host, url: url, font: font, color: color, style: style))
         let glue = markRevealOffsets(NSMutableAttributedString(string: "\u{2060}", attributes: [.font: bodyFont]), start: revealCursor)
         appendMap(storageCount: 1, plainSpan: 0)
         revealCursor += 1
@@ -583,7 +583,7 @@ struct MarkdownTextVisitor: MarkupVisitor {
                 nonisolated(unsafe) let color = attributes[.foregroundColor] as? UIColor ?? tint
                 nonisolated(unsafe) let url = attributes[.link] as? URL
                 nonisolated(unsafe) let style = style
-                content.append(attachmentString { MarkdownInlineSymbolAttachment(id: id, systemName: symbol, font: font, color: color, url: url, style: style) })
+                content.append(anyThreadAttachmentString(MarkdownInlineSymbolAttachment(id: id, systemName: symbol, font: font, color: color, url: url, style: style)))
                 continue
             }
             let text = (built.string as NSString).substring(with: range)
@@ -821,6 +821,11 @@ struct MarkdownTextVisitor: MarkupVisitor {
 
     /// One storage character for what `make` makes on the main thread. Off it, nothing, and the
     /// gate tells the builder this text has to be built there.
+    /// An attachment made on any thread: text with it can be built ahead.
+    private func anyThreadAttachmentString(_ attachment: RichTextAttachment) -> NSMutableAttributedString {
+        NSMutableAttributedString(string: "\u{FFFC}", attributes: [.attachment: attachment, .inlineHostingAttachment: attachment])
+    }
+
     private func attachmentString(_ make: @MainActor () -> RichTextAttachment) -> NSMutableAttributedString {
         guard Thread.isMainThread else {
             gate.needsMainThread = true
@@ -1062,7 +1067,7 @@ struct MarkdownTextVisitor: MarkupVisitor {
         revealCursor += 1
         nonisolated(unsafe) let id = nextAttachmentID()
         nonisolated(unsafe) let style = style
-        return attachmentString { MarkdownChipAttachment(id: id, label: group.label, urls: group.urls, style: style) }
+        return anyThreadAttachmentString(MarkdownChipAttachment(id: id, label: group.label, urls: group.urls, style: style))
     }
 
     /// Emphasis on CJK leans (0.18, as MarkdownView's). Not with the obliqueness attribute:
@@ -1248,7 +1253,7 @@ struct MarkdownTextVisitor: MarkupVisitor {
             // TextKit 2 gives those their own subview, which a per-character alpha can't reach.
             let size = bodyFont.pointSize
             nonisolated(unsafe) let id = nextAttachmentID()
-            return (attachmentString { MarkdownTaskAttachment(id: id, checked: checkbox == .checked, size: size) }, size)
+            return (anyThreadAttachmentString(MarkdownTaskAttachment(id: id, checked: checkbox == .checked, size: size)), size)
         }
         // A custom bullet: an emoji is text (no harm to the tab); a symbol an attachment on a
         // disc, whose width is the disc's, or it'd eat the room before the content.
@@ -1260,7 +1265,7 @@ struct MarkdownTextVisitor: MarkupVisitor {
             case .symbol(let name):
                 let diameter = bodyFont.pointSize * 1.2
                 nonisolated(unsafe) let id = nextAttachmentID()
-                return (attachmentString { MarkdownListSymbolAttachment(id: id, systemName: name, diameter: diameter) }, diameter)
+                return (anyThreadAttachmentString(MarkdownListSymbolAttachment(id: id, systemName: name, diameter: diameter)), diameter)
             }
         }
         let markerText: String

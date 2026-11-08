@@ -52,7 +52,15 @@ final class MarkdownTextStack: NSObject, NSTextLayoutManagerDelegate, @unchecked
             storage.textStorage?.setAttributedString(text)
         }
         measured = nil
+        var views = false
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, stop in
+            if value is MarkdownViewAttachment { views = true; stop.pointee = true }
+        }
+        hasViewAttachments = views
     }
+
+    /// Whether views go over its picture: drawn text puts them there.
+    private(set) var hasViewAttachments = false
 
     /// The same text in objects of its own, to lay out apart.
     func copy() -> MarkdownTextStack {

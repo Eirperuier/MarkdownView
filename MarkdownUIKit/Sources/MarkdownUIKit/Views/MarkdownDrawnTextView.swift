@@ -32,6 +32,17 @@ final class MarkdownDrawnTextView: UIView {
     /// What sits in the lines: a text view would place these, so this does.
     private var hasAttachments = false
     private var attachmentViews: [UIView] = []
+    /// Views made here for view attachments, by attachment.
+    private var ownViews: [ObjectIdentifier: UIView] = [:]
+
+    private func ownView(for attachment: NSTextAttachment?) -> UIView? {
+        guard let attachment = attachment as? MarkdownViewAttachment else { return nil }
+        let key = ObjectIdentifier(attachment)
+        if let known = ownViews[key] { return known }
+        let made = attachment.makeView()
+        ownViews[key] = made
+        return made
+    }
 
     /// How far right of where its frame says the text draws: a part of a pixel.
     var textShift: CGFloat = 0 {
@@ -70,6 +81,7 @@ final class MarkdownDrawnTextView: UIView {
         stack?.shift = textShift
         stack?.show(text, foregroundColor: foregroundColor)
         accessibilityLabel = text.string
+        ownViews.removeAll()
         hasAttachments = text.containsAttachments(in: NSRange(location: 0, length: text.length))
         setNeedsDisplay()
         setNeedsLayout()
@@ -81,7 +93,8 @@ final class MarkdownDrawnTextView: UIView {
         stackIsPrepared = true
         narrowsToText = prepared.narrowsToText
         accessibilityLabel = label
-        hasAttachments = false
+        ownViews.removeAll()
+        hasAttachments = prepared.hasViewAttachments
         setNeedsDisplay()
         self.picture = picture
         setNeedsLayout()
@@ -112,7 +125,9 @@ final class MarkdownDrawnTextView: UIView {
                 let frame = fragment.layoutFragmentFrame
                 let origin = CGPoint(x: markdownPixelFloor(frame.minX) + Self.overdraw, y: markdownPixelFloor(frame.minY) + Self.overdraw)
                 for provider in fragment.textAttachmentViewProviders {
-                    guard let view = provider.view else { continue }
+                    // A view attachment of a fixed size has no view from its provider here: this
+                    // view makes its own, as the same text may show in others too.
+                    guard let view = provider.view ?? ownView(for: provider.textAttachment) else { continue }
                     view.frame = fragment.frameForTextAttachment(at: provider.location).offsetBy(dx: origin.x, dy: origin.y)
                     if view.superview !== self { addSubview(view) }
                     placed.append(view)

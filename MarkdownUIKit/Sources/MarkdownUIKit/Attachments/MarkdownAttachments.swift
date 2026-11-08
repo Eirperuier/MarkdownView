@@ -11,9 +11,12 @@ import MarkdownCore
 import RichTextCore
 import UIKit
 
-/// A view with a fixed size in a line.
-class MarkdownViewAttachment: RichTextAttachment {
-    private let view: UIView
+/// A view with a fixed size in a line. One that's `MarkdownFixedInlineAttachment` is made on
+/// any thread, its view only when something shows it, on the main thread: text with it is built
+/// and laid out ahead, and drawn text puts the view over its picture.
+class MarkdownViewAttachment: RichTextAttachment, @unchecked Sendable {
+    nonisolated(unsafe) private var make: (@MainActor () -> UIView)?
+    nonisolated(unsafe) private var view: UIView?
     private let size: CGSize
     private let replacement: NSAttributedString?
 
@@ -25,12 +28,40 @@ class MarkdownViewAttachment: RichTextAttachment {
         super.init(id: id, sizing: .fittingLineFragment)
     }
 
+    /// On any thread: `make` runs on the main thread, once, when the view's first asked for.
+    init(id: AnyHashable, size: CGSize, replacement: String? = nil, make: @escaping @MainActor () -> UIView) {
+        self.make = make
+        self.size = size
+        self.replacement = replacement.map { NSAttributedString(string: $0) }
+        super.init(id: id, sizing: .fittingLineFragment)
+    }
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     @MainActor
-    override var contentView: UIView { view }
+    override var contentView: UIView {
+        if let view { return view }
+        let made = makeView()
+        view = made
+        return made
+    }
+
+    /// A view of its own for whoever shows it: text made ahead can show in several views at once.
+    @MainActor
+    func makeView() -> UIView {
+        make?() ?? UIView()
+    }
+
+    /// The same, with a view of its own: a text view puts each attachment's view in itself.
+    func copyForAnotherView() -> MarkdownViewAttachment? {
+        guard let make else { return nil }
+        return MarkdownViewAttachment(id: id, size: size, replacement: replacement?.string, make: make)
+    }
+
+    /// Known without a view: it lays out with none, off the main thread too.
+    override var fixedSize: CGSize? { self is any MarkdownFixedInlineAttachment ? size : nil }
 
     @MainActor
     override func sizeThatFits(in proposal: CGSize) -> CGSize? { size }
@@ -268,8 +299,8 @@ class MarkdownGlyphView: UIView {
 
 @MainActor
 enum MarkdownSymbols {
-    /// A symbol at `pointSize`.
-    static func image(_ name: String, pointSize: CGFloat, weight: UIImage.SymbolWeight = .regular, scale: UIImage.SymbolScale = .default) -> UIImage? {
+    /// A symbol at `pointSize`, on any thread.
+    nonisolated static func image(_ name: String, pointSize: CGFloat, weight: UIImage.SymbolWeight = .regular, scale: UIImage.SymbolScale = .default) -> UIImage? {
         UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight, scale: scale))
     }
 
@@ -384,15 +415,16 @@ enum MarkdownSymbols {
 
 /// A task's mark: filled and tinted when done, a ring in secondary when not.
 final class MarkdownTaskAttachment: MarkdownViewAttachment, MarkdownFixedInlineAttachment {
-    @MainActor
     init(id: AnyHashable, checked: Bool, size: CGFloat) {
-        let view = MarkdownGlyphView()
-        let image = MarkdownSymbols.image(checked ? "checkmark.circle.fill" : "circle", pointSize: size)
-        view.image = image
-        view.color = .floo(checked ? .markdownTaskDone : .markdownTaskOpen)
+        nonisolated(unsafe) let image = MarkdownSymbols.image(checked ? "checkmark.circle.fill" : "circle", pointSize: size)
         let bounds = image?.size ?? CGSize(width: size, height: size)
-        view.imageFrame = CGRect(origin: .zero, size: bounds)
-        super.init(id: id, view: view, size: bounds, replacement: checked ? "[x]" : "[ ]")
+        super.init(id: id, size: bounds, replacement: checked ? "[x]" : "[ ]") {
+            let view = MarkdownGlyphView()
+            view.image = image
+            view.color = .floo(checked ? .markdownTaskDone : .markdownTaskOpen)
+            view.imageFrame = CGRect(origin: .zero, size: bounds)
+            return view
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -402,21 +434,22 @@ final class MarkdownTaskAttachment: MarkdownViewAttachment, MarkdownFixedInlineA
 
 /// A custom symbol bullet: a symbol on a disc `diameter` wide (the marker's width).
 final class MarkdownListSymbolAttachment: MarkdownViewAttachment, MarkdownFixedInlineAttachment {
-    @MainActor
     init(id: AnyHashable, systemName: String, diameter: CGFloat) {
-        let view = MarkdownGlyphView()
-        view.color = .floo(.markdownOnSymbolBullet)
-        view.capsuleColor = .floo(.markdownSymbolBullet)
         // A layout sizes the disc up to a half point.
         let side = markdownPixelCeil(diameter)
         let box = CGRect(x: 0, y: 0, width: side, height: side)
-        if let symbol = MarkdownSymbols.scaled(systemName, pointSize: diameter * 0.52, weight: .semibold, in: box) {
-            view.show(symbol)
-            view.drawsImageAsVector = symbol.outline != nil
-            view.vectorSnapsDown = true
-        }
         // It copies as a standard bullet.
-        super.init(id: id, view: view, size: box.size, replacement: "- ")
+        super.init(id: id, size: box.size, replacement: "- ") {
+            let view = MarkdownGlyphView()
+            view.color = .floo(.markdownOnSymbolBullet)
+            view.capsuleColor = .floo(.markdownSymbolBullet)
+            if let symbol = MarkdownSymbols.scaled(systemName, pointSize: diameter * 0.52, weight: .semibold, in: box) {
+                view.show(symbol)
+                view.drawsImageAsVector = symbol.outline != nil
+                view.vectorSnapsDown = true
+            }
+            return view
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -427,16 +460,19 @@ final class MarkdownListSymbolAttachment: MarkdownViewAttachment, MarkdownFixedI
 /// A custom link's leading symbol: at the text's size, in its colour, tapped as the link. Room
 /// after it is the NBSP in the text, which also holds it to the name at a line break.
 final class MarkdownInlineSymbolAttachment: MarkdownViewAttachment, MarkdownFixedInlineAttachment {
-    @MainActor
     init(id: AnyHashable, systemName: String, font: UIFont, color: UIColor, url: URL?, style: MarkdownStyle) {
-        let view = MarkdownGlyphView()
-        let image = MarkdownSymbols.image(systemName, pointSize: font.pointSize)
-        view.image = image
-        view.color = color
+        nonisolated(unsafe) let image = MarkdownSymbols.image(systemName, pointSize: font.pointSize)
+        nonisolated(unsafe) let color = color
+        nonisolated(unsafe) let open = style.openURL
         let bounds = image?.size ?? .zero
-        view.imageFrame = CGRect(origin: .zero, size: bounds)
-        if let url, let open = style.openURL { view.onTap = { open(url) } }
-        super.init(id: id, view: view, size: bounds)
+        super.init(id: id, size: bounds) {
+            let view = MarkdownGlyphView()
+            view.image = image
+            view.color = color
+            view.imageFrame = CGRect(origin: .zero, size: bounds)
+            if let url, let open { view.onTap = { open(url) } }
+            return view
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -449,30 +485,34 @@ final class MarkdownInlineSymbolAttachment: MarkdownViewAttachment, MarkdownFixe
 /// descender (set in it as glyphs are, it sits on the text's middle), with the same room each
 /// side whatever is beside it (CJK sets no space). Opens the link, as its text does.
 final class MarkdownSiteIconAttachment: MarkdownViewAttachment, MarkdownFixedInlineAttachment {
-    @MainActor
     init(id: AnyHashable, host: String, url: URL, font: UIFont, color: UIColor, style: MarkdownStyle) {
         let size = font.pointSize
         let side = (size * 1.07).rounded()
         let room = (size * 0.2).rounded()
         let height = max(font.ascender - font.descender, side)
         let box = CGRect(x: room, y: (height - side) / 2, width: side, height: side)
-        let view = MarkdownGlyphView()
-        let textSize = style.resolvedBodyTextSize
-        if let icon = style.icons?.image(host) {
-            view.show(MarkdownSymbols.fit(icon, in: box, textSize: textSize))
-            view.color = .floo(.markdownText)
-            view.drawsImageAsVector = icon.isSymbolImage
-        } else {
-            style.icons?.prefetch?(host)
-            let inset = side / 16
-            if let globe = MarkdownSymbols.image("globe", pointSize: side).map({ MarkdownSymbols.fit($0, in: box.insetBy(dx: inset, dy: inset), textSize: textSize) }) {
-                view.show(globe)
+        nonisolated(unsafe) let style = style
+        nonisolated(unsafe) let color = color
+        // The icon's asked for as the view's made: it may have come by then.
+        super.init(id: id, size: CGSize(width: side + room * 2, height: height)) {
+            let view = MarkdownGlyphView()
+            let textSize = style.resolvedBodyTextSize
+            if let icon = style.icons?.image(host) {
+                view.show(MarkdownSymbols.fit(icon, in: box, textSize: textSize))
+                view.color = .floo(.markdownText)
+                view.drawsImageAsVector = icon.isSymbolImage
+            } else {
+                style.icons?.prefetch?(host)
+                let inset = side / 16
+                if let globe = MarkdownSymbols.image("globe", pointSize: side).map({ MarkdownSymbols.fit($0, in: box.insetBy(dx: inset, dy: inset), textSize: textSize) }) {
+                    view.show(globe)
+                }
+                view.color = color
+                view.drawsImageAsVector = true
             }
-            view.color = color
-            view.drawsImageAsVector = true
+            if let open = style.openURL { view.onTap = { open(url) } }
+            return view
         }
-        if let open = style.openURL { view.onTap = { open(url) } }
-        super.init(id: id, view: view, size: CGSize(width: side + room * 2, height: height))
     }
 
     required init?(coder: NSCoder) {
@@ -497,15 +537,13 @@ final class MarkdownChipAttachment: MarkdownViewAttachment, MarkdownFixedInlineA
         }
     }
 
-    @MainActor
     init(id: AnyHashable, label: String, urls: [String], style: MarkdownStyle) {
         let category = style.contentSizeCategory.map { UITraitCollection(preferredContentSizeCategory: $0) }
-        let view = ChipView()
-        let text = NSAttributedString(string: label.count > 28 ? String(label.prefix(27)) + "…" : label, attributes: [
+        nonisolated(unsafe) let text = NSAttributedString(string: label.count > 28 ? String(label.prefix(27)) + "…" : label, attributes: [
             .font: UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: category),
             .foregroundColor: UIColor.floo(.markdownChipText),
         ])
-        let more = urls.count > 1 ? NSAttributedString(string: "+\(urls.count - 1)", attributes: [
+        nonisolated(unsafe) let more = urls.count > 1 ? NSAttributedString(string: "+\(urls.count - 1)", attributes: [
             .font: UIFont.preferredFont(forTextStyle: .caption2, compatibleWith: category),
             .foregroundColor: UIColor.floo(.markdownChipCount),
         ]) : nil
@@ -528,35 +566,41 @@ final class MarkdownChipAttachment: MarkdownViewAttachment, MarkdownFixedInlineA
         // The row is on the pixel grid in the capsule, the icon centred in the row as it falls.
         let rowHeight = max(iconSide, textSize.height, moreSize.height)
         let iconBox = CGRect(x: padding, y: markdownPixelRound((height - rowHeight) / 2) + (rowHeight - iconSide) / 2, width: iconSide, height: iconSide)
-        let bodySize = style.resolvedBodyTextSize
-        if let icon = style.icons?.image(key) {
-            view.show(MarkdownSymbols.fit(icon, in: iconBox, textSize: bodySize))
-            view.color = .floo(.markdownText)
-            view.imageCornerRadius = 3
-            view.drawsImageAsVector = icon.isSymbolImage
-        } else {
-            style.icons?.prefetch?(key)
-            let image = style.icons?.placeholder?() ?? MarkdownSymbols.image("globe", pointSize: iconSide, weight: .medium)
-            if let fitted = image.map({ MarkdownSymbols.fit($0, in: iconBox, textSize: bodySize) }) {
-                view.show(fitted)
-            } else {
-                view.imageFrame = iconBox
-            }
-            view.color = .floo(.markdownChipText)
-            view.drawsImageAsVector = image?.isSymbolImage ?? false
-        }
-        view.capsuleColor = .floo(.markdownChipFill)
-        view.label = text
         // A half pixel goes up.
         func pixelY(_ value: CGFloat) -> CGFloat { (value * markdownPixelScale - 0.5 - 1e-6).rounded(.up) / markdownPixelScale }
-        view.labelOrigin = CGPoint(x: padding + iconSide + spacing, y: pixelY((height - textSize.height) / 2))
-        view.count = more
-        view.countOrigin = CGPoint(x: padding + iconSide + spacing + textSize.width + spacing, y: pixelY((height - moreSize.height) / 2))
-        // A tap throws the synthetic chip URL; the host decides (a sheet, say).
-        if let open = style.openURL, let url = MarkdownLinkChips.chipURL(for: urls) {
-            view.onTap = { open(url) }
+        let labelOrigin = CGPoint(x: padding + iconSide + spacing, y: pixelY((height - textSize.height) / 2))
+        let countOrigin = CGPoint(x: padding + iconSide + spacing + textSize.width + spacing, y: pixelY((height - moreSize.height) / 2))
+        nonisolated(unsafe) let style = style
+        super.init(id: id, size: CGSize(width: width, height: height), replacement: label) {
+            let view = ChipView()
+            let bodySize = style.resolvedBodyTextSize
+            if let icon = style.icons?.image(key) {
+                view.show(MarkdownSymbols.fit(icon, in: iconBox, textSize: bodySize))
+                view.color = .floo(.markdownText)
+                view.imageCornerRadius = 3
+                view.drawsImageAsVector = icon.isSymbolImage
+            } else {
+                style.icons?.prefetch?(key)
+                let image = style.icons?.placeholder?() ?? MarkdownSymbols.image("globe", pointSize: iconSide, weight: .medium)
+                if let fitted = image.map({ MarkdownSymbols.fit($0, in: iconBox, textSize: bodySize) }) {
+                    view.show(fitted)
+                } else {
+                    view.imageFrame = iconBox
+                }
+                view.color = .floo(.markdownChipText)
+                view.drawsImageAsVector = image?.isSymbolImage ?? false
+            }
+            view.capsuleColor = .floo(.markdownChipFill)
+            view.label = text
+            view.labelOrigin = labelOrigin
+            view.count = more
+            view.countOrigin = countOrigin
+            // A tap throws the synthetic chip URL; the host decides (a sheet, say).
+            if let open = style.openURL, let url = MarkdownLinkChips.chipURL(for: urls) {
+                view.onTap = { open(url) }
+            }
+            return view
         }
-        super.init(id: id, view: view, size: CGSize(width: width, height: height), replacement: label)
     }
 
     required init?(coder: NSCoder) {

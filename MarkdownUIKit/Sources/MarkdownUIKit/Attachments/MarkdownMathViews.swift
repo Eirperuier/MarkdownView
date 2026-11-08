@@ -194,6 +194,21 @@ final class MarkdownInlineMathAttachment: RichTextAttachment, MarkdownFixedInlin
         super.init(id: id, sizing: .fittingLineFragment)
     }
 
+    private init(copying other: MarkdownInlineMathAttachment) {
+        latex = other.latex
+        source = other.source
+        textFont = other.textFont
+        xHeight = other.xHeight
+        piece = other.piece
+        imageLayout = other.imageLayout
+        super.init(id: other.id, sizing: .fittingLineFragment)
+    }
+
+    /// The same formula, with a view of its own for another text view.
+    func copyForAnotherView() -> MarkdownInlineMathAttachment {
+        MarkdownInlineMathAttachment(copying: self)
+    }
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }

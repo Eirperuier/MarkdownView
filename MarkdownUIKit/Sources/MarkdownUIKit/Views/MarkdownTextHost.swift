@@ -109,7 +109,7 @@ final class MarkdownTextHost {
         shownTextView = view
         if let drawn {
             MarkdownDrawnTextStats.upgrades += 1
-            if let text { view.applyContent(NSMutableAttributedString(attributedString: text.attributed)) }
+            if let text { view.applyContent(Self.ownAttachments(text.attributed)) }
             view.frame = drawn.frame.insetBy(dx: MarkdownDrawnTextView.overdraw, dy: MarkdownDrawnTextView.overdraw)
             drawn.superview?.insertSubview(view, aboveSubview: drawn)
             drawn.onTouched = nil
@@ -207,6 +207,22 @@ final class MarkdownTextHost {
         return plain
     }
 
+    /// The text with attachments of its own where they'd hold a view: text made ahead may show in
+    /// several text views at once, and each puts an attachment's view in itself.
+    static func ownAttachments(_ text: NSAttributedString) -> NSMutableAttributedString {
+        let copy = NSMutableAttributedString(attributedString: text)
+        copy.enumerateAttribute(.attachment, in: NSRange(location: 0, length: copy.length)) { value, range, _ in
+            let fresh: RichTextAttachment?
+            switch value {
+            case let attachment as MarkdownViewAttachment: fresh = attachment.copyForAnotherView()
+            case let attachment as MarkdownInlineMathAttachment: fresh = attachment.copyForAnotherView()
+            default: fresh = nil
+            }
+            if let fresh { copy.addAttributes([.attachment: fresh, .inlineHostingAttachment: fresh], range: range) }
+        }
+        return copy
+    }
+
     /// Whether a paragraph wraps by an indent of its own: a list item. Its text then takes the
     /// width of its longest line, as a SwiftUI row's does. Not with an item's second paragraph
     /// (indented the same on every line): a SwiftUI row never had one, and narrowed to the
@@ -248,7 +264,7 @@ final class MarkdownTextHost {
         if textView.textStorage.length > 0 {
             textView.applyContent(NSMutableAttributedString())
         }
-        textView.applyContent(NSMutableAttributedString(attributedString: text.attributed))
+        textView.applyContent(Self.ownAttachments(text.attributed))
         finish(text)
     }
 
@@ -267,7 +283,7 @@ final class MarkdownTextHost {
         let tail = NSMutableAttributedString(attributedString: text.attributed)
         if textView.replaceTail(tail, nsPrefixLength: 0) == nil {
             textView.applyContent(NSMutableAttributedString())
-            textView.applyContent(NSMutableAttributedString(attributedString: text.attributed))
+            textView.applyContent(Self.ownAttachments(text.attributed))
         }
         finish(text)
     }
