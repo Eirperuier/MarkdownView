@@ -21,6 +21,7 @@ final class ChatJumpWatch: NSObject {
     private var lastHeights: [String: CGFloat] = [:]
     private var lastContentHeight: CGFloat = 0
     private var lastPlaces: [String: String] = [:]
+    private var lastItemHeights: [Int: (y: CGFloat, h: CGFloat)] = [:]
     private var frame = 0
     private let path = "/tmp/md-jump.log"
 
@@ -44,7 +45,7 @@ final class ChatJumpWatch: NSObject {
             guard let row = Self.rowView(in: cell.contentView), let id = row.rowID, let block = row.blockView else { continue }
             let rect = block.convert(block.bounds, to: window)
             if !cell.isHidden, rect.intersects(window.bounds) { now[id] = rect }
-            places[id] = "cell \(Int(cell.frame.minY - offset)) h \(Int(cell.frame.height)) ip \(list.indexPath(for: cell).map { "\($0.item)" } ?? "-") blockY \(Int(block.frame.minY)) rowY \(Int(row.frame.minY)) rowH \(Int(row.frame.height)) inCell \(row.isDescendant(of: cell)) cellObj \(ObjectIdentifier(cell).hashValue % 10000)"
+            places[id] = "cell \(Int(cell.frame.minY - offset)) h \(Int(cell.frame.height)) ip \(list.indexPath(for: cell).map { "\($0.item)" } ?? "-") blockY \(Int(block.frame.minY)) rowY \(Int(row.frame.minY)) rowH \(Int(row.frame.height)) inCell \(row.isDescendant(of: cell)) cellObj \(ObjectIdentifier(cell).hashValue % 10000) sub \(Int(cell.layer.sublayerTransform.m42)) cellT \(Int(cell.transform.ty)) rowT \(Int(row.transform.ty)) contentY \(Int(cell.contentView.frame.minY)) list \(Int(list.convert(CGPoint(x: 0, y: offset), to: window).y))"
         }
         var jumps: [String] = []
         // Rows laid out off screen too: one above that changes height moves what's on screen.
@@ -60,14 +61,39 @@ final class ChatJumpWatch: NSObject {
             jumps.append("contentSize dh \(String(format: "%.1f", list.contentSize.height - lastContentHeight))")
         }
         lastHeights = heights
-        lastPlaces = places
         lastContentHeight = list.contentSize.height
+        var moves = 0
         for (id, rect) in now {
             guard let before = last[id] else { continue }
             let dy = rect.minY - (before.minY - moved)
             let dh = rect.height - before.height
-            if abs(dy) > 0.5 || abs(dh) > 0.5 { jumps.append("\(Self.kind(id)) \(id) dy \(String(format: "%.1f", dy)) dh \(String(format: "%.1f", dh)) at \(Int(rect.minY)) now[\(places[id] ?? "")] before[\(lastPlaces[id] ?? "")]") }
+            if abs(dy) > 0.5 || abs(dh) > 0.5 {
+                moves += 1
+                jumps.append("\(Self.kind(id)) \(id) dy \(String(format: "%.1f", dy)) dh \(String(format: "%.1f", dh)) at \(Int(rect.minY)) now[\(places[id] ?? "")] before[\(lastPlaces[id] ?? "")]")
+            }
         }
+        lastPlaces = places
+        // Rows above the screen, laid out: one that changed height pushes what's on screen.
+        let items = list.indexPathsForVisibleItems.map(\.item)
+        var itemHeights: [Int: (y: CGFloat, h: CGFloat)] = [:]
+        if let first = items.min(), let lastItem = items.max(), list.numberOfSections > 0 {
+            for item in max(0, first - 40)...lastItem where item < list.numberOfItems(inSection: 0) {
+                if let attributes = list.collectionViewLayout.layoutAttributesForItem(at: IndexPath(item: item, section: 0)) {
+                    itemHeights[item] = (attributes.frame.minY, attributes.frame.height)
+                }
+            }
+        }
+        if moves > 0 {
+            var changed: [String] = []
+            for (item, now) in itemHeights.sorted(by: { $0.key < $1.key }) {
+                guard let before = lastItemHeights[item] else { continue }
+                if abs(now.h - before.h) > 0.5 || abs(now.y - before.y) > 0.5 {
+                    changed.append("ip \(item) y \(Int(before.y - offset))->\(Int(now.y - offset)) h \(String(format: "%.1f", before.h))->\(String(format: "%.1f", now.h))")
+                }
+            }
+            jumps.append("ITEMS " + (changed.isEmpty ? "none changed" : changed.prefix(24).joined(separator: ", ")))
+        }
+        lastItemHeights = itemHeights
         if frame % 120 == 0 { jumps.append("alive offset \(Int(offset)) rows \(now.count)") }
         if !jumps.isEmpty {
             let state = "tracking \(list.isTracking) dragging \(list.isDragging) decel \(list.isDecelerating) moved \(String(format: "%.1f", moved))"
