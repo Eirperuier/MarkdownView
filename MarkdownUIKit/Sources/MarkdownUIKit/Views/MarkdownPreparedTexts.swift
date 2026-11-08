@@ -289,6 +289,9 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
     /// A block that may show soon, in a row `width` wide. Does nothing if it's made already.
     @MainActor
     public func request(_ block: MarkdownStreamBlock, style: MarkdownStyle, width: CGFloat, traits: UITraitCollection) {
+        // The queue measures on the screen's grid, which only the main thread can read: read here
+        // first, or a block made before anything on the main thread asked lands on another grid.
+        _ = markdownPixelScale
         requestFormulas(of: block, style: style, traits: traits)
         requestImages(of: block, style: style)
         guard let job = Self.job(for: block, style: style) else { return }

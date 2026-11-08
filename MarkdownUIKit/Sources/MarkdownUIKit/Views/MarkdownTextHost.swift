@@ -10,8 +10,8 @@ import RichTextCore
 import UIKit
 
 /// A layout's grid, in pixels per point. The screen's, not a window's: a height is measured
-/// off-window too. Off the main thread it's what the main thread last saw, which is there before
-/// anything is made ahead.
+/// off-window too. Off the main thread it's what the main thread last saw: whatever makes text
+/// ahead reads it on the main thread before it starts.
 nonisolated var markdownPixelScale: CGFloat {
     if Thread.isMainThread {
         let scale = MainActor.assumeIsolated { max(1, UIScreen.main.scale) }
