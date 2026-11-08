@@ -17,8 +17,9 @@ public protocol MarkdownSelectionSource: AnyObject {
     var selectionRowCount: Int { get }
     /// A row's texts as laid out, in reading order, if it's on screen.
     func selectionTexts(ofRow row: Int) -> [MarkdownSelectableText]?
-    /// A row's text as copied, for one off screen: its texts' strings joined by newlines.
-    func selectionString(ofRow row: Int) -> String
+    /// A row's texts for one off screen, the same as it would have on screen: what they say and
+    /// copy as, with no geometry asked of them.
+    func selectionOffscreenTexts(ofRow row: Int) -> [MarkdownSelectableText]
     /// The rows on screen.
     var selectionVisibleRows: [Int] { get }
 }
@@ -149,10 +150,14 @@ public final class MarkdownSelectionView: UIView, UITextInput {
         source?.selectionTexts(ofRow: row)
     }
 
+    /// On screen or not: for what a row says and copies, not where.
+    private func anyTexts(_ row: Int) -> [MarkdownSelectableText] {
+        guard row >= 0, row < rowCount else { return [] }
+        return texts(row) ?? source?.selectionOffscreenTexts(ofRow: row) ?? []
+    }
+
     private func string(_ row: Int) -> NSString {
-        guard row >= 0, row < rowCount else { return "" }
-        if let texts = texts(row) { return texts.map(\.string).joined(separator: "\n") as NSString }
-        return (source?.selectionString(ofRow: row) ?? "") as NSString
+        MarkdownSelectableText.joined(anyTexts(row)) as NSString
     }
 
     private func length(_ row: Int) -> Int { string(row).length }
@@ -203,12 +208,30 @@ public final class MarkdownSelectionView: UIView, UITextInput {
         let from = clamp(range.from), to = clamp(range.to)
         var pieces: [String] = []
         for row in from.row...max(from.row, to.row) {
-            let text = string(row)
             let start = row == from.row ? from.offset : 0
-            let end = row == to.row ? to.offset : text.length
-            pieces.append(end > start ? text.substring(with: NSRange(location: start, length: end - start)) : "")
+            let end = row == to.row ? to.offset : length(row)
+            pieces.append(copied(row: row, from: start, to: end))
         }
         return pieces.joined(separator: "\n")
+    }
+
+    /// A row's text from `start` to `end`, as copied: each of its texts as it copies, with what
+    /// joins them (a tab between a table row's cells).
+    private func copied(row: Int, from start: Int, to end: Int) -> String {
+        guard end > start else { return "" }
+        let texts = anyTexts(row)
+        var out = ""
+        var at = 0
+        for text in texts {
+            let length = text.length
+            let low = max(start, at), high = min(end, at + length)
+            if high > low { out += text.copied(NSRange(location: low - at, length: high - low)) }
+            // The separator after it, if the range goes past it.
+            if at + length < end, at + length >= start { out.append(text.separator) }
+            at += length + 1
+            if at >= end { break }
+        }
+        return out
     }
 
     public func textRange(from fromPosition: UITextPosition, to toPosition: UITextPosition) -> UITextRange? {
@@ -347,7 +370,16 @@ public final class MarkdownSelectionView: UIView, UITextInput {
 
     public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(copy(_:)) { return selection.map { !$0.isEmpty } ?? false }
+        if action == #selector(selectAll(_:)) { return rowCount > 0 }
         return false
+    }
+
+    /// Every row, from the first's start to the last's end.
+    public override func selectAll(_ sender: Any?) {
+        guard rowCount > 0 else { return }
+        inputDelegate?.selectionWillChange(self)
+        selection = MarkdownTextRange(MarkdownTextPosition(row: 0, offset: 0), MarkdownTextPosition(row: rowCount - 1, offset: length(rowCount - 1)))
+        inputDelegate?.selectionDidChange(self)
     }
 
     public override func copy(_ sender: Any?) {

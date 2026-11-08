@@ -9,6 +9,7 @@
 //      scroll <delta>      moves the list, up for a negative delta
 //      send                streams a reply
 //      select <x> <y>      selects the sentence at a point in the window
+//      selectall <file>    selects every row and writes what it copies
 //      quit                exits
 //
 //  A link tapped under a probe prints `LINK <url>` and opens nothing.
@@ -45,6 +46,11 @@ enum ChatProbe {
                 if words.count > 1 {
                     let selected = RichTextActiveSelection.isActive
                     try? "upgrades=\(MarkdownDrawnTextStats.upgrades) selected=\(selected) listOffset=\(reader.contentOffsetY()) tableOffset=\(tableOffset()) tableTextViews=\(tableTextViews()) codeOffset=\(codeOffset())".write(toFile: String(words[1]), atomically: true, encoding: .utf8)
+                }
+            case "selectall":
+                if words.count > 1 {
+                    ChatTextSelection.shared.selectAll()
+                    try? (ChatTextSelection.shared.selectedText ?? "<none>").write(toFile: String(words[1]), atomically: true, encoding: .utf8)
                 }
             case "selection":
                 if words.count > 1 {

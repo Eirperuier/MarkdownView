@@ -49,6 +49,11 @@ final class ChatTextSelection: MarkdownSelectionSource {
     }
 
     /// What's selected, for a probe.
+    /// Every row selected.
+    func selectAll() {
+        view?.selectAll(nil)
+    }
+
     var selectedText: String? {
         guard let view, let range = view.selectedTextRange, !range.isEmpty else { return nil }
         return view.text(in: range)
@@ -74,28 +79,48 @@ final class ChatTextSelection: MarkdownSelectionSource {
 
     func selectionTexts(ofRow row: Int) -> [MarkdownUIKit.MarkdownSelectableText]? {
         _ = rows
-        return shownRows()[row]?.blockView?.selectableTexts
+        return shownRows()[row]?.selectableTexts
     }
 
-    func selectionString(ofRow row: Int) -> String {
+    func selectionOffscreenTexts(ofRow row: Int) -> [MarkdownUIKit.MarkdownSelectableText] {
         let rows = rows
-        guard rows.indices.contains(row) else { return "" }
+        guard rows.indices.contains(row), let list else { return [] }
         switch rows[row].kind {
         case .prompt(let text):
-            return text
+            let string = NSAttributedString(string: text, attributes: [.font: ChatUIKitPromptLayout.font(list.traitCollection)])
+            return [MarkdownUIKit.MarkdownSelectableText(drawn: string, frame: .zero, in: list)]
         case .block(let block):
-            if let view = ChatUIKitBlockViews.existingView(id: rows[row].id) {
-                return view.selectableTexts.map(\.string).joined(separator: "\n")
+            let width = ChatUIKitRowLayout.textWidth(in: list.bounds.width)
+            let key = OffscreenKey(id: rows[row].id, source: block.source, width: width, category: list.traitCollection.preferredContentSizeCategory)
+            if let known = offscreenTexts[key] { return known }
+            // The row's view, laid out as a row would: its text is then the same as on screen.
+            let view = ChatUIKitBlockViews.view(id: rows[row].id, block: block, reveal: nil, traits: list.traitCollection)
+            if view.superview == nil {
+                let size = CGSize(width: width, height: view.height(forWidth: width))
+                if view.bounds.size != size { view.frame = CGRect(origin: .zero, size: size) }
+                view.layoutIfNeeded()
             }
-            guard MarkdownUIKit.MarkdownBlockView.draws(block) else { return "" }
-            return ChatUIKitBlockViews.plainText(of: block)
+            let texts = view.selectableTexts.map { $0.detached(in: list) }
+            if offscreenTexts.count > 2048 { offscreenTexts.removeAll() }
+            offscreenTexts[key] = texts
+            return texts
         }
     }
 
+    private struct OffscreenKey: Hashable {
+        let id: String
+        let source: String
+        let width: CGFloat
+        let category: UIContentSizeCategory
+    }
+
+    /// Rows' texts as they were on screen, or would be: a selection asks for them often.
+    private var offscreenTexts: [OffscreenKey: [MarkdownUIKit.MarkdownSelectableText]] = [:]
+
     /// The block rows on screen, by index.
-    private func shownRows() -> [Int: ChatUIKitRowView] {
+    private func shownRows() -> [Int: any ChatSelectableRowView] {
         guard let list else { return [:] }
-        var shown: [Int: ChatUIKitRowView] = [:]
+        var shown: [Int: any ChatSelectableRowView] = [:]
         for cell in list.visibleCells {
             guard let rowView = Self.rowView(in: cell.contentView), let id = rowView.rowID, let index = rowIndex[id] else { continue }
             shown[index] = rowView
@@ -103,8 +128,8 @@ final class ChatTextSelection: MarkdownSelectionSource {
         return shown
     }
 
-    private static func rowView(in view: UIView, depth: Int = 0) -> ChatUIKitRowView? {
-        if let row = view as? ChatUIKitRowView { return row }
+    private static func rowView(in view: UIView, depth: Int = 0) -> (any ChatSelectableRowView)? {
+        if let row = view as? any ChatSelectableRowView { return row }
         guard depth < 3 else { return nil }
         for subview in view.subviews {
             if let row = rowView(in: subview, depth: depth + 1) { return row }
@@ -112,3 +137,17 @@ final class ChatTextSelection: MarkdownSelectionSource {
         return nil
     }
 }
+
+/// A row's view whose text a selection across rows takes.
+@MainActor
+protocol ChatSelectableRowView: UIView {
+    var rowID: String? { get }
+    /// Its text as laid out, in reading order.
+    var selectableTexts: [MarkdownUIKit.MarkdownSelectableText] { get }
+}
+
+extension ChatUIKitRowView: ChatSelectableRowView {
+    var selectableTexts: [MarkdownUIKit.MarkdownSelectableText] { blockView?.selectableTexts ?? [] }
+}
+
+extension ChatUIKitPromptView: ChatSelectableRowView {}

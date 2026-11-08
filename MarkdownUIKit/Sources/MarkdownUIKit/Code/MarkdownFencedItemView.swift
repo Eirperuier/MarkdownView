@@ -144,6 +144,11 @@ final class MarkdownFencedItemView: UIView {
         rest.forEach { $0.prepareForReuse() }
     }
 
+    /// Its text, then its code's and the rest's, for a selection across blocks.
+    var selectableTexts: [MarkdownSelectableText] {
+        (hostIsShowing ? host.selectableText.map { [$0] } ?? [] : []) + rest.flatMap(\.selectableTexts)
+    }
+
     var textViews: [UITextView] {
         [host.textView] + rest.flatMap(\.textViews)
     }

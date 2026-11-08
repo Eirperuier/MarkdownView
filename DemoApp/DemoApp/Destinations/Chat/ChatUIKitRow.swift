@@ -197,7 +197,7 @@ enum ChatUIKitPromptLayout {
 final class ChatUIKitPromptView: UIView {
     private let bubble = UIView()
     private let label = UILabel()
-    private var rowID: String?
+    private(set) var rowID: String?
     private var text = ""
     private weak var renderedHeights: ChatRenderedHeights?
 
@@ -238,6 +238,12 @@ final class ChatUIKitPromptView: UIView {
         bubble.frame = CGRect(x: textMaxX - bubbleWidth, y: ChatUIKitPromptLayout.top, width: bubbleWidth, height: size.height + insets.top + insets.bottom)
         label.frame = CGRect(x: insets.left, y: insets.top, width: size.width, height: size.height)
         if let rowID { renderedHeights?.sizes[rowID] = bounds.size }
+    }
+
+    /// The prompt as the label lays it out.
+    var selectableTexts: [MarkdownUIKit.MarkdownSelectableText] {
+        let string = NSAttributedString(string: text, attributes: [.font: ChatUIKitPromptLayout.font(traitCollection)])
+        return [MarkdownUIKit.MarkdownSelectableText(drawn: string, frame: label.frame, in: bubble)]
     }
 }
 
@@ -369,11 +375,6 @@ enum ChatUIKitBlockViews {
     /// The row's view if it has one, without making it.
     static func existingView(id: String) -> MarkdownUIKit.MarkdownBlockView? {
         entries[id]?.view
-    }
-
-    /// A block's text as a row would show it, for a selection reaching a row with no view.
-    static func plainText(of block: MarkdownStreamBlock) -> String {
-        MarkdownUIKit.MarkdownTextBuilder.build(markdown: block.source, style: ChatUIKitBlock.style).attributed.string
     }
 
     static func height(id: String, block: MarkdownStreamBlock, reveal: MarkdownReveal?, width: CGFloat, traits: UITraitCollection) -> CGFloat {

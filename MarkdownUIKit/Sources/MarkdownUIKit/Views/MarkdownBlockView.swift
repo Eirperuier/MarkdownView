@@ -44,6 +44,8 @@ public final class MarkdownBlockView: UIView {
     private var reveal: MarkdownReveal?
     /// The block showing: the same one again grows what shows.
     private var shownBlockID: UUID?
+    /// A lone picture as copied: as it was written.
+    private var imageCopy = ""
     /// What appears whole, once it's reached.
     private var wholeView: UIView? {
         switch layout {
@@ -81,8 +83,13 @@ public final class MarkdownBlockView: UIView {
     /// layout of yet, and what isn't text, isn't in it.
     public var selectableTexts: [MarkdownSelectableText] {
         switch layout {
-        case .empty, .math, .rule, .custom, .code, .fencedItem, .table, .image: []
+        case .empty, .rule, .custom: []
         case .text(let host, _): host.selectableText.map { [$0] } ?? []
+        case .math(let view): [view.selectableText]
+        case .image(let view, _): [MarkdownSelectableText(whole: imageCopy, frame: view.frame, in: self)]
+        case .code(let view): view.selectableText.map { [$0] } ?? []
+        case .fencedItem(let view): view.selectableTexts
+        case .table(let view): view.selectableTexts
         case .quote(let quote): quote.selectableText.map { [$0] } ?? []
         case .footnotes(let hosts): hosts.compactMap(\.selectableText)
         }
@@ -373,6 +380,7 @@ public final class MarkdownBlockView: UIView {
         )
         view.onSizeChange = { [weak self] in self?.contentSizeDidChange() }
         addSubview(view)
+        imageCopy = found.image.format()
         let edge: CGFloat = style.addsEdgeInsets ? 5 : 0
         layout = .image(view, insets: UIEdgeInsets(top: edge, left: 0, bottom: edge, right: 0))
         view.fetch(lateSize: lateSize)

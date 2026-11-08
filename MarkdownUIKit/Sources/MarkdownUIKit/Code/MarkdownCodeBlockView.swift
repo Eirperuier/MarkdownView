@@ -725,6 +725,7 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate, M
 
     /// The text view inside, made if it isn't there yet.
     var textView: UITextView? { hostIsShowing ? host.textView : nil }
+    var selectableText: MarkdownSelectableText? { hostIsShowing ? host.selectableText : nil }
 
     /// The code's layout fragments, for what proves nothing was laid out again.
     var layoutFragmentIDs: [ObjectIdentifier] { hostIsShowing ? host.layoutFragmentIDs : [] }

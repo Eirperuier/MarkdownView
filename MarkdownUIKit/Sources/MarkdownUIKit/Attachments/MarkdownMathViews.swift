@@ -303,6 +303,15 @@ final class MarkdownDisplayMathView: UIView {
     private var reserved: CGFloat = 0
     private var imageTop: CGFloat = 0
     private var imageSize = CGSize.zero
+    private var latex = ""
+
+    /// For a selection across blocks: the formula, selected whole, copied as it was written.
+    var selectableText: MarkdownSelectableText {
+        let shown: UIView = hasSourceView && !sourceView.isHidden ? sourceView : imageView
+        let (body, _) = MarkdownMathRenderer.stripped(latex, kind: .displayEquation)
+        let tex = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return MarkdownSelectableText(whole: "$$\n\(tex)\n$$", frame: shown.frame, in: shown.superview ?? self)
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -315,6 +324,7 @@ final class MarkdownDisplayMathView: UIView {
 
     /// Drawn at once: SwaTex lays a formula out in microseconds, so its height is known now.
     func configure(latex: String, style: MarkdownStyle) {
+        self.latex = latex
         let font = MarkdownMath.font(style.displayMathTextStyle, style: style)
         reserved = MarkdownDisplayMathHeight.reserved(for: latex)
         show(MarkdownMath.piece(latex: latex, kind: .displayEquation, xHeight: font.xHeight, foreground: MarkdownMath.foreground(in: traitCollection)), latex: latex, font: font)

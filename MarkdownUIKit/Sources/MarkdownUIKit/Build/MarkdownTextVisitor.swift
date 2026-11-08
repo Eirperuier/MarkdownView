@@ -1204,12 +1204,14 @@ struct MarkdownTextVisitor: MarkupVisitor {
 
         marker.merge(paragraphOnly)  // The marker keeps its colour and font, and takes the paragraph's style.
         let result = marker
+        let markerEnd = result.length
         // A tab to contentIndent, then a word joiner (U+2060, no break on either side, UAX14
         // LB11). A list row was two columns, its marker never apart from its content. In one text
         // flow a tab is a legal break, so a wide first unit (a file link's icon, NBSP and long
         // name) would go to the next line and leave the marker alone. The joiner holds them: a
         // token too wide breaks inside its line, as the two columns did.
         result.append(NSAttributedString(string: "\t\u{2060}", attributes: itemAttributes))
+        result.addAttribute(.markdownListMarkerCopy, value: Self.copiedMarker(listItem, depthOffset: listDepthOffset), range: NSRange(location: 0, length: markerEnd + 2))
         if leading.length > 0 {
             leading.merge(itemAttributes)
             result.append(leading)
@@ -1242,6 +1244,22 @@ struct MarkdownTextVisitor: MarkupVisitor {
         let paragraph = itemParagraphStyle(for: content, firstLineIndent: contentIndent, contentIndent: contentIndent)
         content.merge([.paragraphStyle: paragraph as NSParagraphStyle, .font: bodyFont])
         return content
+    }
+
+    /// A list item's marker as Markdown writes it, indented two spaces a level.
+    private static func copiedMarker(_ listItem: ListItem, depthOffset: Int) -> String {
+        var depth = depthOffset
+        var parent = listItem.parent
+        while let current = parent {
+            if current is ListItem { depth += 1 }
+            parent = current.parent
+        }
+        let indent = String(repeating: "  ", count: max(0, depth))
+        let task = listItem.checkbox.map { $0 == .checked ? "[x] " : "[ ] " } ?? ""
+        if let ordered = listItem.parent as? OrderedList {
+            return indent + "\(Int(ordered.startIndex) + listItem.indexInParent). " + task
+        }
+        return indent + "- " + task
     }
 
     /// The marker: • / ◦ or a number in secondary, a symbol for a task. With its measured
@@ -1354,6 +1372,8 @@ public extension NSAttributedString.Key {
     /// A run that's one SF Symbol, from a custom inline link builder: its value is the symbol's
     /// name, its text U+FFFC.
     static let markdownInlineSymbol = NSAttributedString.Key("MarkdownInlineSymbol")
+    /// On a list item's marker and the tab after it: what it copies as, Markdown's own marker.
+    static let markdownListMarkerCopy = NSAttributedString.Key("MarkdownListMarkerCopy")
 }
 
 extension NSMutableAttributedString {

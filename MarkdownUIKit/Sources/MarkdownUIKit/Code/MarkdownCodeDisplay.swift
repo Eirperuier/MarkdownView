@@ -18,6 +18,8 @@ protocol MarkdownCodeDisplay: UIView {
     var onHeightChange: (() -> Void)? { get set }
     /// The text view inside, if the code is in one.
     var textView: UITextView? { get }
+    /// The code as laid out, for a selection across blocks.
+    var selectableText: MarkdownSelectableText? { get }
     func configure(code: String, language: String?, style: MarkdownStyle, reveal: MarkdownReveal?)
     func setReveal(_ reveal: MarkdownReveal?)
     func prepareForReuse()

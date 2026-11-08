@@ -40,6 +40,8 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
     /// Cells with a text view for being touched, oldest first.
     private var touched: [MarkdownTableCellPosition] = []
     private var replacedViews: [MarkdownTableCellPosition: UIView] = [:]
+    /// Drawn cells' text laid out for a selection, while the cell and where it's drawn stay.
+    private var drawnSelectables: [MarkdownTableCellPosition: (cell: MarkdownTableCell, rect: CGRect, text: MarkdownSelectableText)] = [:]
     private var decoration: UIView?
     private var pageObservation: NSKeyValueObservation?
     private var tapRecognizer: UITapGestureRecognizer?
@@ -181,6 +183,43 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
 
     /// The text views inside, for a host's selection and hooks.
     public var textViews: [UITextView] { hosts.values.map(\.host.textView) }
+
+    /// Its cells' text where it's drawn, row by row, for a selection across blocks: a tab
+    /// between a row's cells, a newline after the row. Every cell counts, shown yet or not, so a
+    /// row's text stays the same as a reveal goes on.
+    public var selectableTexts: [MarkdownSelectableText] {
+        guard let geometry = shown else { return [] }
+        var texts: [MarkdownSelectableText] = []
+        for (row, cells) in content.rows.enumerated() where geometry.textFrames.indices.contains(row) {
+            let frames = geometry.textFrames[row]
+            var rowTexts: [MarkdownSelectableText] = []
+            for (index, cell) in cells.enumerated() where frames.indices.contains(index) {
+                rowTexts.append(selectableText(of: cell, frame: frames[index]).separated(by: "\t"))
+            }
+            if !rowTexts.isEmpty { rowTexts[rowTexts.count - 1] = rowTexts[rowTexts.count - 1].separated(by: "\n") }
+            texts += rowTexts
+        }
+        return texts
+    }
+
+    private func selectableText(of cell: MarkdownTableCell, frame: CGRect) -> MarkdownSelectableText {
+        if let view = replacedViews[cell.position] {
+            return MarkdownSelectableText(whole: cell.string.string, frame: view.frame, in: canvas)
+        }
+        // Only a text view shows it: its layout.
+        if cell.needsTextView, let text = hosts[cell.position]?.host.selectableText { return text }
+        // Drawn, or in a text view that lands where it's drawn.
+        let inner = cell.tag == nil ? frame : frame.insetBy(dx: MarkdownTableMetrics.tagPadding.width, dy: MarkdownTableMetrics.tagPadding.height)
+        var rect = inner
+        if let fit = cell.hairOverFit(width: inner.width, scale: traitCollection.displayScale) {
+            rect.origin.x += fit.offset
+            rect.size.width = fit.width + 0.001
+        }
+        if let known = drawnSelectables[cell.position], known.cell === cell, known.rect == rect { return known.text }
+        let text = MarkdownSelectableText(drawn: cell.string, frame: rect, in: canvas)
+        drawnSelectables[cell.position] = (cell, rect, text)
+        return text
+    }
 
     /// The cell at a point in the view; nil outside the cells. A point between two columns is
     /// the nearer one's.
