@@ -38,7 +38,7 @@ final class MarkdownDrawnTextView: UIView {
     private var ownViews: [ObjectIdentifier: UIView] = [:]
 
     private func ownView(for attachment: NSTextAttachment?) -> UIView? {
-        guard let attachment = attachment as? MarkdownViewAttachment else { return nil }
+        guard let attachment = attachment as? any MarkdownOwnViewAttachment else { return nil }
         let key = ObjectIdentifier(attachment)
         if let known = ownViews[key] { return known }
         let made = attachment.makeView()

@@ -54,6 +54,17 @@ extension CGRect {
 /// In a line at a size that doesn't change by itself: needs no text view to tell of a new one.
 protocol MarkdownFixedInlineAttachment {}
 
+/// Sized for its line on any thread (`sizesOnAnyThread`): drawn text lays it out with no view,
+/// and places one of its own.
+protocol MarkdownLineFittingAttachment {}
+
+/// Makes a view for whoever shows it: text made ahead can show in several views at once.
+protocol MarkdownOwnViewAttachment: AnyObject {
+    @MainActor func makeView() -> UIView
+    /// The same, with a view of its own; nil if it can't give one.
+    func copyForAnotherView() -> RichTextAttachment?
+}
+
 /// Draws itself into drawn text, in the box it has in a line, under the current traits.
 protocol MarkdownDrawnInlineAttachment {
     func draw(in box: CGRect)
@@ -200,7 +211,8 @@ final class MarkdownTextHost {
         var plain = true
         text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, _, stop in
             let attachment = attributes[.attachment]
-            let attachmentStays = attachment != nil && !(allowingInlineViews && attachment is any MarkdownFixedInlineAttachment)
+            let attachmentStays = attachment != nil && !(allowingInlineViews
+                && (attachment is any MarkdownFixedInlineAttachment || attachment is any MarkdownLineFittingAttachment))
             // Drawn text draws pen marks and underlines of their own into its picture; string
             // drawing can't.
             let marksStay = !allowingInlineViews && (attributes[.richTextPenMark] != nil
@@ -220,8 +232,8 @@ final class MarkdownTextHost {
         copy.enumerateAttribute(.attachment, in: NSRange(location: 0, length: copy.length)) { value, range, _ in
             let fresh: RichTextAttachment?
             switch value {
-            case let attachment as MarkdownViewAttachment: fresh = attachment.copyForAnotherView()
             case let attachment as MarkdownInlineMathAttachment: fresh = attachment.copyForAnotherView()
+            case let attachment as any MarkdownOwnViewAttachment: fresh = attachment.copyForAnotherView()
             default: fresh = nil
             }
             if let fresh { copy.addAttributes([.attachment: fresh, .inlineHostingAttachment: fresh], range: range) }

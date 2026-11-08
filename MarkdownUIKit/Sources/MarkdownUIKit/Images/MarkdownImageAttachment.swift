@@ -64,6 +64,14 @@ enum MarkdownImageMetrics {
     static let panelAspect: CGFloat = 3 / 4
     /// A panel with text beside it: as wide as this, a line high, so the text doesn't move far.
     static let inlinePanelWidth: CGFloat = 50
+
+    /// A picture that's come, at its own size up to `width` and the height limit.
+    static func size(of loaded: MarkdownLoadedImage, width: CGFloat) -> CGSize {
+        guard loaded.size.width > 0 else { return .zero }
+        // Down to a pixel: a hair over the line's room would send it to a line of its own.
+        let shown = markdownPixelFloor(min(width, loaded.maxWidth))
+        return CGSize(width: shown, height: min(maxHeight, (shown * loaded.size.height / loaded.size.width).rounded()))
+    }
 }
 
 /// The picture and what stands for it, which is drawn by the view itself. A shown picture is one
@@ -148,13 +156,7 @@ final class MarkdownImageView: UIView {
         case .text:
             size = measure(fallback, width: width)
         case .loaded(let loaded):
-            guard loaded.size.width > 0 else {
-                size = .zero
-                break
-            }
-            // Down to a pixel: a hair over the line's room would send it to a line of its own.
-            let shown = markdownPixelFloor(min(width, loaded.maxWidth))
-            size = CGSize(width: shown, height: min(MarkdownImageMetrics.maxHeight, (shown * loaded.size.height / loaded.size.width).rounded()))
+            size = MarkdownImageMetrics.size(of: loaded, width: width)
         }
         fit = (width, size)
         return size
@@ -362,6 +364,62 @@ final class MarkdownImageAttachment: RichTextAttachment {
     override func sizeThatFits(in proposal: CGSize) -> CGSize? {
         imageView.fittedSize(width: max(0, proposal.width - lineIndent))
     }
+
+    override func replacementText() -> NSAttributedString? { NSAttributedString(string: source) }
+}
+
+/// A picture that's come already, made on any thread: its size needs no view, so text with it is
+/// built and laid out ahead, and drawn text places its view.
+final class MarkdownLoadedImageAttachment: RichTextAttachment, MarkdownLineFittingAttachment, MarkdownOwnViewAttachment, @unchecked Sendable {
+    private let loaded: MarkdownLoadedImage
+    private let isAlone: Bool
+    private let alternativeText: String?
+    private let source: String
+    nonisolated(unsafe) private let style: MarkdownStyle
+    nonisolated(unsafe) private var view: UIView?
+    /// Where this line starts inside the text: a list item's. TextKit proposes the whole width.
+    nonisolated(unsafe) var lineIndent: CGFloat = 0
+
+    init(id: AnyHashable, loaded: MarkdownLoadedImage, isAlone: Bool, alternativeText: String?, source: String, style: MarkdownStyle) {
+        self.loaded = loaded
+        self.isAlone = isAlone
+        self.alternativeText = alternativeText
+        self.source = source
+        self.style = style
+        super.init(id: id, sizing: .fittingLineFragment)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var sizesOnAnyThread: Bool { true }
+
+    override func size(forLineWidth width: CGFloat) -> CGSize? {
+        MarkdownImageMetrics.size(of: loaded, width: max(0, width - lineIndent))
+    }
+
+    @MainActor
+    override var contentView: UIView {
+        if let view { return view }
+        let made = makeView()
+        view = made
+        return made
+    }
+
+    @MainActor
+    func makeView() -> UIView {
+        MarkdownImageView(content: .loaded(loaded), isAlone: isAlone, alternativeText: alternativeText, fallbackText: nil, style: style)
+    }
+
+    func copyForAnotherView() -> RichTextAttachment? {
+        let copy = MarkdownLoadedImageAttachment(id: id, loaded: loaded, isAlone: isAlone, alternativeText: alternativeText, source: source, style: style)
+        copy.lineIndent = lineIndent
+        return copy
+    }
+
+    @MainActor
+    override func sizeThatFits(in proposal: CGSize) -> CGSize? { size(forLineWidth: proposal.width) }
 
     override func replacementText() -> NSAttributedString? { NSAttributedString(string: source) }
 }

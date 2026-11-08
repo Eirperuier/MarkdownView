@@ -14,7 +14,7 @@ import UIKit
 /// A view with a fixed size in a line. One that's `MarkdownFixedInlineAttachment` is made on
 /// any thread, its view only when something shows it, on the main thread: text with it is built
 /// and laid out ahead, and drawn text puts the view over its picture.
-class MarkdownViewAttachment: RichTextAttachment, @unchecked Sendable {
+class MarkdownViewAttachment: RichTextAttachment, MarkdownOwnViewAttachment, @unchecked Sendable {
     nonisolated(unsafe) private var make: (@MainActor () -> UIView)?
     nonisolated(unsafe) private var view: UIView?
     private let size: CGSize
@@ -55,7 +55,7 @@ class MarkdownViewAttachment: RichTextAttachment, @unchecked Sendable {
     }
 
     /// The same, with a view of its own: a text view puts each attachment's view in itself.
-    func copyForAnotherView() -> MarkdownViewAttachment? {
+    func copyForAnotherView() -> RichTextAttachment? {
         guard let make else { return nil }
         return MarkdownViewAttachment(id: id, size: size, replacement: replacement?.string, make: make)
     }

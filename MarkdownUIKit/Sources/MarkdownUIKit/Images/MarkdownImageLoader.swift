@@ -8,6 +8,7 @@
 //
 
 import MarkdownCore
+import os
 import SwiftDrawCore
 import UIKit
 
@@ -34,6 +35,25 @@ final class MarkdownImageLoader {
 
     /// What's known now: a height is asked for synchronously.
     func state(of url: URL) -> State? { known[url] }
+
+    /// What's come, readable on any thread: text built ahead lays a picture out at its size.
+    private nonisolated static let anyThread = OSAllocatedUnfairLock(initialState: AnyThread())
+
+    private struct AnyThread: @unchecked Sendable {
+        var loaded: [URL: MarkdownLoadedImage] = [:]
+        var generation = 0
+    }
+
+    /// The picture at `url` if it's come, on any thread.
+    nonisolated static func loaded(_ url: URL) -> MarkdownLoadedImage? {
+        anyThread.withLock { $0.loaded[url] }
+    }
+
+    /// Counts up each time a picture comes or fails: text built before then may now be built
+    /// with it.
+    nonisolated static var generation: Int {
+        anyThread.withLock { $0.generation }
+    }
 
     func load(_ url: URL, done: @escaping @MainActor (State) -> Void) {
         if let state = known[url] { return done(state) }
@@ -64,12 +84,17 @@ final class MarkdownImageLoader {
     /// A failure is remembered, or each chunk of a stream would fetch again; a tap asks anew.
     func retry(_ url: URL, done: @escaping @MainActor (State) -> Void) {
         known[url] = nil
+        Self.anyThread.withLock { _ = $0.loaded.removeValue(forKey: url) }
         load(url, done: done)
     }
 
-    private func finish(_ url: URL, _ loaded: MarkdownLoadedImage?) {
+    func finish(_ url: URL, _ loaded: MarkdownLoadedImage?) {
         let state: State = loaded.map { .loaded($0) } ?? .failed
         known[url] = state
+        Self.anyThread.withLock {
+            $0.loaded[url] = loaded
+            $0.generation += 1
+        }
         let waiters = waiting.removeValue(forKey: url) ?? []
         waiters.forEach { $0(state) }
     }

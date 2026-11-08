@@ -54,7 +54,7 @@ final class MarkdownTextStack: NSObject, NSTextLayoutManagerDelegate, @unchecked
         measured = nil
         var views = false
         text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, stop in
-            if value is MarkdownViewAttachment { views = true; stop.pointee = true }
+            if value is any MarkdownOwnViewAttachment { views = true; stop.pointee = true }
         }
         hasViewAttachments = views
     }
@@ -243,6 +243,9 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
         var used: UInt64
         /// Footnote definitions' lines, each made as text is.
         var lines: [Made]? = nil
+        /// Not built ahead while a picture it shows was on its way: built again once one's come.
+        /// The loader's generation then: nil if it showed none on their way.
+        var imageGeneration: Int? = nil
     }
 
     private struct Request {
@@ -293,7 +296,8 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         if let known = made[key], known.width == width,
-           known.picture.map({ MarkdownColorTraits.resolveAlike($0.traits, traits) }) ?? true { return }
+           known.picture.map({ MarkdownColorTraits.resolveAlike($0.traits, traits) }) ?? true,
+           known.imageGeneration.map({ $0 == MarkdownImageLoader.generation }) ?? true { return }
         guard !pending.contains(where: { $0.key == key && $0.width == width }) else { return }
         pending.append(Request(key: key, block: block, style: style, width: width, traits: traits))
         if pending.count > Self.pendingCapacity { pending.removeFirst() }
@@ -440,6 +444,7 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
             let request = pending.removeFirst()
             working = request.key
             lock.unlock()
+            let imageGeneration = MarkdownImageLoader.generation
             let made = autoreleasepool {
                 var made = Result()
                 // What's resolved as it's built, a formula's colour, is resolved for these traits.
@@ -451,7 +456,8 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
             working = nil
             forget(request.key)
             let lines = made.lines.map { $0.map { Made(text: $0.text, stack: $0.stack, picture: $0.picture, table: nil, colors: [], width: request.width, height: $0.height, used: clock) } }
-            self.made[request.key] = Made(text: made.text, stack: made.stack, picture: made.picture, table: made.table, colors: made.colors, width: request.width, height: made.height, used: clock, lines: lines)
+            let waits = made.text == nil && made.table == nil && request.block.descriptor.sourceText.contains("![")
+            self.made[request.key] = Made(text: made.text, stack: made.stack, picture: made.picture, table: made.table, colors: made.colors, width: request.width, height: made.height, used: clock, lines: lines, imageGeneration: waits ? imageGeneration : nil)
             bytesInPictures += made.picture?.byteCount ?? 0
             bytesInPictures += made.lines?.reduce(0) { $0 + ($1.picture?.byteCount ?? 0) } ?? 0
             while self.made.count > Self.capacity || bytesInPictures > Self.pictureBytes,
@@ -552,8 +558,11 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
             return Result(text: text)
         }
         let insets = MarkdownQuoteView.insets(of: text, style: style)
-        // A callout's header is a view's to measure.
-        let height = split?.callout == nil ? drawn.height + insets.top + insets.bottom + padding.vertical * 2 : nil
+        var height = drawn.height + insets.top + insets.bottom + padding.vertical * 2
+        if let callout = split?.callout {
+            let header = MarkdownCalloutHeaderLayout(callout, tint: MarkdownInk.callout(callout.kind), style: style)
+            height += header.size(forWidth: max(0, request.width - padding.horizontal * 2)).height + MarkdownQuoteView.headerSpacing
+        }
         return Result(text: text, stack: drawn.stack, picture: picture(of: drawn.stack, request: request), height: height)
     }
 

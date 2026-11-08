@@ -26,7 +26,8 @@ final class MarkdownQuoteView: UIView {
     private let verticalPadding: CGFloat = 8
     private let horizontalPadding: CGFloat = 20
     private let barWidth: CGFloat = 4
-    private let headerSpacing: CGFloat = 6
+    private let headerSpacing: CGFloat = MarkdownQuoteView.headerSpacing
+    nonisolated static let headerSpacing: CGFloat = 6
     private let cornerRadius: CGFloat = 3
     nonisolated static let padding = (vertical: CGFloat(8), horizontal: CGFloat(20))
     private var reveal: MarkdownReveal?
@@ -209,14 +210,69 @@ final class MarkdownQuoteView: UIView {
     }
 }
 
+/// A callout header's text and icon, and its size: on any thread, so a quote made ahead knows
+/// its height.
+struct MarkdownCalloutHeaderLayout: @unchecked Sendable {
+    let title: NSAttributedString?
+    let icon: UIImage?
+    let font: UIFont
+    static let spacing: CGFloat = 6
+
+    init(_ callout: MarkdownCallout, tint: UIColor, style: MarkdownStyle) {
+        let category = style.contentSizeCategory.map { UITraitCollection(preferredContentSizeCategory: $0) }
+        let body = UIFont.preferredFont(forTextStyle: .body, compatibleWith: category)
+        // The quote's font: serif at body's size. Its body text sets its own.
+        let semibold = UIFont.systemFont(ofSize: body.pointSize, weight: .semibold)
+        font = semibold.fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: body.pointSize) } ?? semibold
+        icon = MarkdownSymbols.image(callout.kind.symbol, pointSize: body.pointSize, weight: .regular)
+        title = NSAttributedString(string: callout.title, attributes: [.font: font, .foregroundColor: tint])
+    }
+
+    init() {
+        title = nil
+        icon = nil
+        font = .preferredFont(forTextStyle: .body)
+    }
+
+    /// The text's baseline in its frame. On the Mac a layout keeps it on the pixel grid and its
+    /// line has the leading under it. On iOS it stays where the font says, without the leading,
+    /// and what's drawn from it falls on the nearest pixel.
+    var textMetrics: (ascent: CGFloat, descent: CGFloat) {
+        #if targetEnvironment(macCatalyst)
+        let ascent = markdownPixelFloor(font.ascender)
+        return (ascent, markdownPixelCeil(title?.size().height ?? 0) - ascent)
+        #else
+        return (font.ascender, -font.descender)
+        #endif
+    }
+
+    /// Above and below the shared baseline: the text's and the icon's, whichever is more.
+    var metrics: (ascent: CGFloat, descent: CGFloat) {
+        var (ascent, descent) = textMetrics
+        if let icon {
+            let below = icon.baselineOffsetFromBottom ?? 0
+            ascent = max(ascent, icon.size.height - below)
+            descent = max(descent, below)
+        }
+        return (ascent, descent)
+    }
+
+    func size(forWidth width: CGFloat) -> CGSize {
+        let iconWidth = icon?.size.width ?? 0
+        let available = max(0, width - iconWidth - Self.spacing)
+        let textSize = title?.boundingRect(with: CGSize(width: available, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).size ?? .zero
+        let textWidth = markdownPixelCeil(textSize.width)
+        let lines = max(0, markdownPixelCeil(textSize.height) - markdownPixelCeil(title?.size().height ?? 0))
+        let metrics = self.metrics
+        return CGSize(width: iconWidth + Self.spacing + textWidth, height: markdownPixelCeil(metrics.ascent + metrics.descent) + lines)
+    }
+}
+
 /// A callout's title line: its kind's icon and title, semibold, in its colour, on one baseline.
 @MainActor
 final class MarkdownCalloutHeaderView: UIView {
-    private var title: NSAttributedString?
-    private var icon: UIImage?
+    private var layout = MarkdownCalloutHeaderLayout()
     private var tint = UIColor.label
-    private var font = UIFont.preferredFont(forTextStyle: .body)
-    private let spacing: CGFloat = 6
     static let overhang: CGFloat = 1
 
     override init(frame: CGRect) {
@@ -234,53 +290,17 @@ final class MarkdownCalloutHeaderView: UIView {
     }
 
     func configure(_ callout: MarkdownCallout, tint: UIColor, style: MarkdownStyle) {
-        let category = style.contentSizeCategory.map { UITraitCollection(preferredContentSizeCategory: $0) }
-        let body = UIFont.preferredFont(forTextStyle: .body, compatibleWith: category)
-        // The quote's font: serif at body's size. Its body text sets its own.
-        let semibold = UIFont.systemFont(ofSize: body.pointSize, weight: .semibold)
-        font = semibold.fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: body.pointSize) } ?? semibold
         self.tint = tint
-        icon = MarkdownSymbols.image(callout.kind.symbol, pointSize: body.pointSize, weight: .regular)
-        title = NSAttributedString(string: callout.title, attributes: [.font: font, .foregroundColor: tint])
+        layout = MarkdownCalloutHeaderLayout(callout, tint: tint, style: style)
         setNeedsDisplay()
     }
 
-    /// The text's baseline in its frame. On the Mac a layout keeps it on the pixel grid and its
-    /// line has the leading under it. On iOS it stays where the font says, without the leading,
-    /// and what's drawn from it falls on the nearest pixel.
-    private var textMetrics: (ascent: CGFloat, descent: CGFloat) {
-        #if targetEnvironment(macCatalyst)
-        let ascent = markdownPixelFloor(font.ascender)
-        return (ascent, markdownPixelCeil(title?.size().height ?? 0) - ascent)
-        #else
-        return (font.ascender, -font.descender)
-        #endif
-    }
-
-    /// Above and below the shared baseline: the text's and the icon's, whichever is more.
-    private var metrics: (ascent: CGFloat, descent: CGFloat) {
-        var (ascent, descent) = textMetrics
-        if let icon {
-            let below = icon.baselineOffsetFromBottom ?? 0
-            ascent = max(ascent, icon.size.height - below)
-            descent = max(descent, below)
-        }
-        return (ascent, descent)
-    }
-
-    func size(forWidth width: CGFloat) -> CGSize {
-        let iconWidth = icon?.size.width ?? 0
-        let available = max(0, width - iconWidth - spacing)
-        let textSize = title?.boundingRect(with: CGSize(width: available, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).size ?? .zero
-        let textWidth = markdownPixelCeil(textSize.width)
-        let lines = max(0, markdownPixelCeil(textSize.height) - markdownPixelCeil(title?.size().height ?? 0))
-        let metrics = self.metrics
-        return CGSize(width: iconWidth + spacing + textWidth, height: markdownPixelCeil(metrics.ascent + metrics.descent) + lines)
-    }
+    func size(forWidth width: CGFloat) -> CGSize { layout.size(forWidth: width) }
 
     override func draw(_ rect: CGRect) {
         UIGraphicsGetCurrentContext()?.translateBy(x: Self.overhang, y: 0)
-        let metrics = self.metrics
+        let metrics = layout.metrics
+        let icon = layout.icon, title = layout.title, textMetrics = layout.textMetrics, spacing = MarkdownCalloutHeaderLayout.spacing
         if let icon {
             let below = icon.baselineOffsetFromBottom ?? 0
             let y = markdownPixelRound(metrics.ascent - icon.size.height + below)

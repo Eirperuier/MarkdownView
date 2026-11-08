@@ -723,6 +723,20 @@ struct MarkdownTextVisitor: MarkupVisitor {
             }
             url = style.fetchedImageURL(written)
         }
+        // A picture that's come is made on any thread: text with it is built ahead.
+        if let url, let loaded = MarkdownImageLoader.loaded(url) {
+            let attachment = MarkdownLoadedImageAttachment(
+                id: nextAttachmentID(),
+                loaded: loaded,
+                isAlone: image.parent is Paragraph && image.parent?.childCount == 1,
+                alternativeText: MarkdownImageSource.alternativeText(of: image),
+                source: image.format(),
+                style: style
+            )
+            appendMap(storageCount: 1, plainSpan: image.markdownRevealPlainText.count)
+            revealCursor += 1
+            return anyThreadAttachmentString(attachment)
+        }
         nonisolated(unsafe) let id = nextAttachmentID()
         nonisolated(unsafe) let shownURL = url
         nonisolated(unsafe) let style = style
@@ -756,8 +770,11 @@ struct MarkdownTextVisitor: MarkupVisitor {
     /// A picture in an item starts at the item's content: it's narrower by that.
     private func indentImages(in text: NSAttributedString, by indent: CGFloat) {
         text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
-            guard let image = value as? MarkdownImageAttachment else { return }
-            image.lineIndent = max(image.lineIndent, indent)
+            if let image = value as? MarkdownImageAttachment {
+                image.lineIndent = max(image.lineIndent, indent)
+            } else if let image = value as? MarkdownLoadedImageAttachment {
+                image.lineIndent = max(image.lineIndent, indent)
+            }
         }
     }
 
