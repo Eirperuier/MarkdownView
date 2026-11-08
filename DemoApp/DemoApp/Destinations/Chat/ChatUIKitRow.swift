@@ -265,6 +265,7 @@ final class ChatUIKitRowView: UIView {
         rowID = id
         let view = ChatUIKitBlockViews.view(id: id, block: block, reveal: reveal, traits: traits)
         view.onHeightChange = { [weak self] in
+            ChatUIKitBlockViews.forgetHeight(id: id)
             self?.setNeedsLayout()
             self?.onHeightChange?()
         }
@@ -332,7 +333,8 @@ enum ChatUIKitBlockViews {
 
     private static let capacity = 96
     private static var entries: [String: Entry] = [:]
-    private static var heights: [HeightKey: CGFloat] = [:]
+    /// By row, then by what it was measured for.
+    private static var heights: [String: [HeightKey: CGFloat]] = [:]
     private static var clock: UInt64 = 0
 
     /// A conversation's rows went: as the list's hosts go with their items, these go with them.
@@ -376,21 +378,30 @@ enum ChatUIKitBlockViews {
 
     static func height(id: String, block: MarkdownStreamBlock, reveal: MarkdownReveal?, width: CGFloat, traits: UITraitCollection) -> CGFloat {
         let key = HeightKey(id: id, source: block.source, width: width, category: traits.preferredContentSizeCategory)
-        if let height = heights[key] { return height }
+        if let height = heights[id]?[key] { return height }
         let textWidth = ChatUIKitRowLayout.textWidth(in: width)
         let inner: CGFloat
+        var settled = true
         if reveal == nil, entries[id] == nil, let made = preparedTexts.height(of: block, style: style(traits), width: textWidth) {
             FrameMarks.note("preparedHeight")
             inner = made
         } else {
             FrameMarks.note("measured " + String(describing: block.descriptor.kind).prefix(9))
-            inner = view(id: id, block: block, reveal: reveal, traits: traits).height(forWidth: textWidth)
+            let view = view(id: id, block: block, reveal: reveal, traits: traits)
+            inner = view.height(forWidth: textWidth)
+            settled = !view.isWaitingForImages
         }
         let scale = max(1, traits.displayScale)
         let height = ((inner + ChatUIKitRowLayout.verticalPadding * 2) * scale).rounded(.up) / scale
-        // An image's height comes late: the block keeps it, and knows when it's changed.
-        if !block.source.contains("![") { heights[key] = height }
+        // A picture still coming changes the height: it's kept once they've all come, and goes
+        // when one changes (a failed one tapped to try again).
+        if settled { heights[id, default: [:]][key] = height }
         return height
+    }
+
+    /// A row's block changed height by itself: what was kept for it is measured again.
+    static func forgetHeight(id: String) {
+        heights[id] = nil
     }
 
     private static let preparedTexts = MarkdownPreparedTexts()
