@@ -120,7 +120,7 @@ final class MarkdownColorView: UIView {
 /// An image at its natural size is a view, as a hosted image is. One scaled from a bigger size
 /// is drawn, as a vector, on the pixel grid; a view of it would blur.
 @MainActor
-class MarkdownGlyphView: UIView {
+class MarkdownGlyphView: UIView, MarkdownTouchTaking {
     private final class Canvas: UIView {
         weak var owner: MarkdownGlyphView?
 
@@ -179,6 +179,9 @@ class MarkdownGlyphView: UIView {
     }
     /// Its frame in this view, nil for all of it.
     var capsuleFrame: CGRect? { didSet { setNeedsLayout() } }
+    /// One with a tap of its own takes it.
+    func takesTouch(at point: CGPoint) -> Bool { onTap != nil }
+
     var onTap: (() -> Void)? {
         didSet {
             guard onTap != nil, tapRecognizer == nil else { return }

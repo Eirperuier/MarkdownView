@@ -11,7 +11,7 @@ final class SelectionUITests: XCTestCase {
         launch(corpus: "interactionText")
     }
 
-    private func launch(corpus: String) {
+    private func launch(corpus: String, extra: [String] = []) {
         for suffix in ["", ".selection", ".pasteboard"] { try? FileManager.default.removeItem(atPath: probe + suffix) }
         app?.terminate()
         app = XCUIApplication()
@@ -19,7 +19,7 @@ final class SelectionUITests: XCTestCase {
             "-AppleLanguages", "(en)", "-ApplePersistenceIgnoreState", "YES",
             "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatCorpus", corpus,
             "-chatDrawsText", "YES", "-chatProbe", probe,
-        ]
+        ] + extra
         app.launch()
     }
 
@@ -185,6 +185,17 @@ final class SelectionUITests: XCTestCase {
         print("SEL beside <<\(selected)>>")
         XCTAssertTrue(selected.contains("words"), "the selection doesn't start at the item's end")
         XCTAssertTrue(selected.contains("Interaction la"), "the selection doesn't reach the next paragraph")
+    }
+
+    /// With the switch off, only text starts a selection.
+    func testPressBesideTheTextSelectsNothingWhenOff() {
+        launch(corpus: "interactionText", extra: ["-chatSelectsFromWholeRow", "NO"])
+        let item = row("A list item with plain words")
+        Thread.sleep(forTimeInterval: 1)
+        let window = app.windows.firstMatch.frame
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: window.maxX - 24, dy: item.frame.midY)).press(forDuration: 1.0)
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertEqual(ask("selection", ".selection"), "<none>")
     }
 
     func testDoubleTapSelectsAWord() {

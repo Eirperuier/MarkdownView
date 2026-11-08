@@ -82,7 +82,7 @@ public struct MarkdownCodeBlockStyle {
 }
 
 @MainActor
-public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate, MarkdownCodeDisplay {
+public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate, MarkdownCodeDisplay, MarkdownTouchTaking {
     /// The block changed height by itself: a mode switched.
     var onHeightChange: (() -> Void)?
 
@@ -645,6 +645,8 @@ public final class MarkdownCodeBlockView: UIView, UIGestureRecognizerDelegate, M
         if region(at: point) != nil { return self }
         return super.hitTest(point, with: event)
     }
+
+    public func takesTouch(at point: CGPoint) -> Bool { region(at: point) != nil }
 
     private func region(at point: CGPoint) -> MarkdownCodeRegion? {
         if let region = header.region(at: convert(point, to: header)) { return region }

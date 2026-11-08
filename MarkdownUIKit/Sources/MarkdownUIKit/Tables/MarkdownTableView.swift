@@ -20,7 +20,7 @@ import RichTextCore
 import UIKit
 
 @MainActor
-public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
+public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate, MarkdownTouchTaking {
     /// The table changed height by itself: an image came in.
     var onHeightChange: (() -> Void)?
 
@@ -248,6 +248,9 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
         geometries.removeAll()
         setNeedsLayout()
     }
+
+    /// A host that's told of taps on cells has them.
+    public func takesTouch(at point: CGPoint) -> Bool { options.onCellTap != nil }
 
     private func tapRecognizerUpdate() {
         if options.onCellTap != nil, tapRecognizer == nil {

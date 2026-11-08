@@ -29,6 +29,15 @@ public protocol MarkdownSelectionSource: AnyObject {
     func selectionFrame(ofRow row: Int) -> CGRect?
 }
 
+/// A view in a row that takes a touch itself at some points (a button on it): a selection that
+/// starts anywhere in a row leaves those points to it. Controls and views scrolling sideways
+/// are left their touches without this.
+@MainActor
+public protocol MarkdownTouchTaking: UIView {
+    /// `point` is in this view's coordinates.
+    func takesTouch(at point: CGPoint) -> Bool
+}
+
 public extension MarkdownSelectionSource {
     func selectionMessageRows(containing row: Int) -> ClosedRange<Int> { 0...max(0, selectionRowCount - 1) }
     func selectionFrame(ofRow row: Int) -> CGRect? { nil }
@@ -108,6 +117,9 @@ public final class MarkdownSelectionView: UIView, UITextInput {
     private var didAutoScroll = false
     private var followedGestures: Set<ObjectIdentifier> = []
 
+    /// A press anywhere in a row starts selecting, at the text nearest it; false: only on text.
+    public var selectsFromWholeRow = true
+
     /// Lies over `list`'s content and selects in it.
     public init(list: UIScrollView, source: MarkdownSelectionSource) {
         self.list = list
@@ -149,7 +161,7 @@ public final class MarkdownSelectionView: UIView, UITextInput {
                 return self
             }
         }
-        for row in rows where rowFrame(row)?.contains(point) == true {
+        for row in rows where selectsFromWholeRow && rowFrame(row)?.contains(point) == true {
             return rowTakesTouch(at: point, with: event) ? nil : self
         }
         return nil
@@ -175,10 +187,13 @@ public final class MarkdownSelectionView: UIView, UITextInput {
             let top = (cell as? UICollectionViewCell)?.contentView ?? cell
             var view: UIView? = hit
             while let current = view, current !== cell, current !== top {
+                // Only what says so: a recognizer alone (a hover upgrading drawn text) isn't a
+                // reason, and text's own views are under every row's text.
                 if current is UIControl { return true }
-                if let scroll = current as? UIScrollView, scroll.isScrollEnabled,
+                if let scroll = current as? UIScrollView, !(scroll is UITextView), scroll.isScrollEnabled,
                    scroll.contentSize.width > scroll.bounds.width + 0.5 { return true }
-                if current.gestureRecognizers?.contains(where: \.isEnabled) == true { return true }
+                if let taking = current as? any MarkdownTouchTaking,
+                   taking.takesTouch(at: taking.convert(inList, from: list)) { return true }
                 view = current.superview
             }
             return false
@@ -444,10 +459,11 @@ public final class MarkdownSelectionView: UIView, UITextInput {
         return boxes.map { MarkdownSelectionRect($0.rect, start: $0.start, end: $0.end) }
     }
 
-    /// The nearest text on screen, by height first, and the place in it nearest `point`.
+    /// The nearest text on screen, by height first, then across (a table's cells side by side),
+    /// and the place in it nearest `point`.
     public func closestPosition(to point: CGPoint) -> UITextPosition? {
         guard let source else { return nil }
-        var best: (distance: CGFloat, row: Int, offset: Int)?
+        var best: (distance: CGFloat, across: CGFloat, row: Int, offset: Int)?
         for row in source.selectionVisibleRows {
             guard let texts = texts(row) else { continue }
             var start = 0
@@ -455,8 +471,9 @@ public final class MarkdownSelectionView: UIView, UITextInput {
                 let frame = text.frame(in: self)
                 if !frame.isNull {
                     let distance = point.y < frame.minY ? frame.minY - point.y : max(0, point.y - frame.maxY)
-                    if best.map({ distance < $0.distance }) ?? true {
-                        best = (distance, row, start + text.offset(closestTo: point, in: self))
+                    let across = point.x < frame.minX ? frame.minX - point.x : max(0, point.x - frame.maxX)
+                    if best.map({ distance < $0.distance || (distance == $0.distance && across < $0.across) }) ?? true {
+                        best = (distance, across, row, start + text.offset(closestTo: point, in: self))
                     }
                 }
                 start += text.length + 1

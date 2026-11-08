@@ -77,7 +77,7 @@ enum MarkdownImageMetrics {
 /// The picture and what stands for it, which is drawn by the view itself. A shown picture is one
 /// image view, its corners its own: nothing's clipped offscreen.
 @MainActor
-final class MarkdownImageView: UIView {
+final class MarkdownImageView: UIView, MarkdownTouchTaking {
     enum Content {
         case loading(URL)
         case loaded(MarkdownLoadedImage)
@@ -253,6 +253,9 @@ final class MarkdownImageView: UIView {
         }
         isUserInteractionEnabled = true
     }
+
+    /// A failed picture takes a tap, to try again.
+    func takesTouch(at point: CGPoint) -> Bool { retry != nil }
 
     func disableRetry() {
         retry = nil

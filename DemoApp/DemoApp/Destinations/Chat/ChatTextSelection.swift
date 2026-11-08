@@ -18,6 +18,13 @@ final class ChatTextSelection: MarkdownSelectionSource {
     static let isOn = ChatRenderer.current == .uikit
         && (UserDefaults.standard.object(forKey: "chatSelectsAcrossBlocks") == nil || UserDefaults.standard.bool(forKey: "chatSelectsAcrossBlocks"))
 
+    /// A press anywhere in a row selects, not only on its text: `chatSelectsFromWholeRow`, on
+    /// unless it's set off (the bar's switch keeps it).
+    static let wholeRowKey = "chatSelectsFromWholeRow"
+    var selectsFromWholeRow: Bool = UserDefaults.standard.object(forKey: wholeRowKey) == nil || UserDefaults.standard.bool(forKey: wholeRowKey) {
+        didSet { view?.selectsFromWholeRow = selectsFromWholeRow }
+    }
+
     weak var conversation: ChatConversation?
     private weak var list: UICollectionView?
     private var view: MarkdownSelectionView?
@@ -34,6 +41,7 @@ final class ChatTextSelection: MarkdownSelectionSource {
         view?.removeFromSuperview()
         self.list = list
         let view = MarkdownSelectionView(list: list, source: self)
+        view.selectsFromWholeRow = selectsFromWholeRow
         view.openURL = { url in ChatUIKitBlock.style.openURL?(url) ?? UIApplication.shared.open(url) }
         self.view = view
     }

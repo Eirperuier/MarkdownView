@@ -40,6 +40,7 @@ struct ChatDestination: View {
     @State private var streamTask: Task<Void, Never>?
     @State private var exchanges = 100
     @State private var paged = false
+    @AppStorage(ChatTextSelection.wholeRowKey) private var selectsFromWholeRow = true
 
     /// A paged conversation shows this many exchanges at first and loads this many more
     /// each time the list reaches the top, after `pageLatency` (a fetch).
@@ -109,6 +110,16 @@ struct ChatDestination: View {
                 Toggle("Paged", isOn: $paged)
                     .fixedSize()
                     .onChange(of: paged) { seed() }
+                if ChatTextSelection.isOn {
+                    Menu {
+                        Toggle("Select from Anywhere in a Row", isOn: $selectsFromWholeRow)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .fixedSize()
+                    .accessibilityLabel("Selection Options")
+                    .onChange(of: selectsFromWholeRow) { ChatTextSelection.shared.selectsFromWholeRow = selectsFromWholeRow }
+                }
                 Button(streamTask == nil ? "Send" : "Stop") {
                     streamTask == nil ? send() : stop()
                 }
