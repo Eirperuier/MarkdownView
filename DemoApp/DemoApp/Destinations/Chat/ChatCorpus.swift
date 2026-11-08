@@ -20,7 +20,167 @@ enum ChatCorpus {
     /// `-chatCorpus interactionAligned`: cells centred and at the right, and headings: text that
     /// lands between pixels, for changing over.
     private static let isInteractionAligned = UserDefaults.standard.string(forKey: "chatCorpus") == "interactionAligned"
-    private static var chosen: [String] { isInteractionAligned ? interactionAlignedReplies : isInteractionTable ? interactionTableReplies : isInteractionText ? interactionTextReplies : isInteraction ? interactionReplies : isTextOnly ? textReplies : replies }
+    /// `-chatCorpus blocks.<kind>`: only that kind's reply, to look at it alone.
+    private static let blockKind = UserDefaults.standard.string(forKey: "chatCorpus").flatMap { $0.hasPrefix("blocks.") ? String($0.dropFirst(7)) : nil }
+    private static var chosen: [String] {
+        if let blockKind { return blockReplies.filter { $0.kind == blockKind }.map(\.text) }
+        return isInteractionAligned ? interactionAlignedReplies : isInteractionTable ? interactionTableReplies : isInteractionText ? interactionTextReplies : isInteraction ? interactionReplies : isTextOnly ? textReplies : replies + blockReplies.map(\.text)
+    }
+
+    /// One reply for each kind of block and extension MarkdownView draws, so the chat shows them all.
+    private static let blockReplies: [(kind: String, text: String)] = [
+        ("headings", #"""
+        # 本周睡眠报告
+        # A week of sleep, night by night
+
+        Headings set the shape of a long answer.
+
+        ## Second level heading
+        ### Third level heading
+        #### Fourth level heading
+        ##### Fifth level heading
+        ###### Sixth level heading
+
+        ---
+
+        A paragraph after a thematic break.
+        """#),
+        ("inline", #"""
+        Plain **bold** *italic* ***both*** ~~struck~~ and **~~bold struck~~**. 这是**粗体**，这是*斜体*，这是~~删除线~~。
+
+        Call `moved(by:)` then `print`, and `代码` in **bold `code` here**. A ==highlighted phrase==, and ==across **bold** and `code` too==.
+
+        ^[gray](color: gray) ^[blue](color: blue) ^[green](color: green) ^[red](color: red) ^[orange](color: orange), and ^[default](highlight) ^[yellow](highlight: yellow) ^[**nested bold**](highlight: purple).
+
+        Line one<br>line two, and <kbd>raw</kbd> stays source. Emoji 🚀✅🎉 and 中文、English mixed.
+        """#),
+        ("links", #"""
+        Visit https://example.com/path and mail hello@example.com or call +1 415 555 0100.
+
+        Read [the docs](https://catalog.test/docs) and [the blog](https://catalog.test/blog) today.
+
+        Cited [Apple](https://catalog.test/a "cite") and folded [Swift](https://catalog.test/b "cite") [GitHub](https://catalog.test/c "cite"), and a tool result [Report](flowith-tool://file/report "cite") in a line.
+        """#),
+        ("lists", #"""
+        - [ ] To do
+        - [x] Done
+        - [ ] With **bold** and `code`
+          - [x] Nested done
+
+        7. Seven
+        8. Eight
+           - Bullet inside
+           - Another
+        9. Nine
+
+        - First paragraph
+
+          Second paragraph of the item
+        - {🚀} Emoji bullet
+        - {star.fill} SF Symbol bullet
+        - {✅}中文不加空格也行
+        """#),
+        ("quotes", #"""
+        > A plain quote with **bold**.
+        >
+        > > A nested quote inside it.
+
+        > [!note]
+        > A note.
+
+        > [!tip] A longer custom title goes here
+        > Body with **bold**, `code` and a [link](https://example.com).
+
+        > [!important]
+        > Important.
+
+        > [!warning]
+        > A warning.
+
+        > [!caution]
+        > A caution.
+        """#),
+        ("code", #"""
+        ```kotlin
+        fun main() = println("kotlin")
+        ```
+
+        ```js
+        console.log("js")
+        ```
+
+        ```unknownlang
+        unknown language keeps its text
+        ```
+
+        ```swift
+        let long = "A long line of code that goes well past the width of a phone, to see how it wraps or scrolls in the box."
+        ```
+        """#),
+        ("tables", #"""
+        | Left | Center | Right |
+        | :-- | :-: | --: |
+        | a | b | c |
+        | longer text | longer text | longer text |
+
+        | Name | Value |
+        | --- | --- |
+        | **Bold** | `code` |
+        | [link](https://example.com) | *italic* |
+        | first<br>second | $x^2$ |
+
+        | One | Two | Three | Four | Five | Six | Seven |
+        | --- | --- | --- | --- | --- | --- | --- |
+        | A sentence long enough to make the table wider than the screen | a | b | c | d | e | f |
+        """#),
+        ("math", #"""
+        Euler's identity \(e^{i\pi} + 1 = 0\) and $x^2 + y^2 = z^2$ in text, 公式 \(\frac{a}{b}\) 混排。
+
+        $$
+        \int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}
+        $$
+
+        $$
+        \sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6} \quad \text{and} \quad \prod_{k=1}^{n} \left(1 + \frac{1}{k}\right) = n + 1 \quad \text{and some more terms to be wide}
+        $$
+
+        $$
+        \begin{pmatrix} a & b \\ c & d \end{pmatrix}^{-1} = \frac{1}{ad - bc} \begin{pmatrix} d & -b \\ -c & a \end{pmatrix}
+        $$
+        """#),
+        ("images", #"""
+        ![A landscape](https://catalog.test/wide.png)
+
+        ![one](https://catalog.test/square.png) ![two](https://catalog.test/wide.png)
+
+        ![A drawing](https://catalog.test/drawing.svg)
+
+        ![Missing](https://catalog.test/missing.png)
+        """#),
+        ("pen", #"""
+        A :circle[circled] word, :wavy[a wave], :box[a box] and :marker[a marker] in text. 中文 :circle[圈画] :wavy[波浪] :box[方框] :marker[荧光笔]。
+
+        :circle[blue]{color=blue} :wavy[green]{color=green} :box[orange]{color=orange} :marker[pink]{color=pink}
+
+        :u[single] :u[thick]{style=thick} :u[double]{style=double} :u[wavy]{style=wavy} and :s[single] :s[double]{style=double} :s[colored]{style=double color=red}
+        """#),
+        ("footnotes", #"""
+        A sentence with a note[^1] and another[^named], and an inline note^[The note's text] in it.
+
+        [^1]: The first definition.
+        [^named]: The second one, with **bold**.
+        """#),
+        ("raw", #"""
+        <div class="note">
+        Raw HTML shows as its source.
+        </div>
+
+        @unknown {
+        Its content as **markdown**.
+        }
+        """#),
+    ]
+
 
     private static let interactionAlignedReplies = ["""
     # Aligned title heading

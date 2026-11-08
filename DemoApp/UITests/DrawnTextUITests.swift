@@ -17,7 +17,7 @@ final class DrawnTextUITests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments = [
             "-AppleLanguages", "(en)", "-ApplePersistenceIgnoreState", "YES",
-            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatCorpus", corpus,
+            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatSelectsAcrossBlocks", "NO", "-chatCorpus", corpus,
             "-chatDrawsText", drawn ? "YES" : "NO", "-chatProbe", probe,
         ]
         app.launch()
@@ -141,7 +141,7 @@ final class DrawnTextUITests: XCTestCase {
     func testChangingOverAHeadingDoesNotShow() {
         app.terminate()
         launch(drawn: true, corpus: "interactionAligned")
-        let element = waitForRow("Aligned title heading")
+        let element = app.elementInMiddle(saying: "Aligned title heading")
         let frame = element.frame
         let before = XCUIScreen.main.screenshot().image
         element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()

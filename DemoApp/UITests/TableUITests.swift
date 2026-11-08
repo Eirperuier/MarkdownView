@@ -16,7 +16,7 @@ final class TableUITests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments = [
             "-AppleLanguages", "(en)", "-ApplePersistenceIgnoreState", "YES",
-            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatCorpus", corpus,
+            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatSelectsAcrossBlocks", "NO", "-chatSiteIcons", "NO", "-chatCorpus", corpus,
             "-chatDrawsText", drawn ? "YES" : "NO", "-chatTableScrolls", scrolls ? "YES" : "NO", "-chatProbe", probe,
         ]
         app.launch()
@@ -46,21 +46,9 @@ final class TableUITests: XCTestCase {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", words, words)).firstMatch
     }
 
-    /// A cell by what it says, on screen, scrolled to if it has to be: a reply repeats, so
-    /// there are others above it.
+    /// A cell by what it says, in the middle of the screen.
     private func cell(_ words: String) -> XCUIElement {
-        let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", words, words))
-        XCTAssertTrue(matches.firstMatch.waitForExistence(timeout: 20), "no cell with \(words)")
-        for _ in 0..<10 {
-            for index in 0..<matches.count where matches.element(boundBy: index).isHittable {
-                Thread.sleep(forTimeInterval: 0.5)
-                return matches.element(boundBy: index)
-            }
-            app.swipeUp()
-            Thread.sleep(forTimeInterval: 0.5)
-        }
-        XCTFail("no cell with \(words) on screen")
-        return matches.firstMatch
+        app.elementInMiddle(saying: words)
     }
 
     private func middle(of element: XCUIElement) -> XCUICoordinate {

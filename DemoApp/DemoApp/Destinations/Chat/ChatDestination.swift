@@ -62,6 +62,9 @@ struct ChatDestination: View {
         }
         .task {
             ChatUIKitBlock.applyTheme()
+            ChatTextSelection.shared.conversation = conversation
+            // The corpus's pictures, served in the app.
+            CatalogImages.install()
             selection.itemsProvider = { [conversation] in
                 conversation.rows.map {
                     switch $0.kind {
@@ -276,6 +279,10 @@ private struct ChatRowView: View {
         let view = MarkdownStreamBlockView(block)
             // Rows are measured off screen before they show; math needs its real height then.
             .markdownDisplayMathRendersSynchronously()
+            // As Floo's chat has them.
+            .markdownLinkSiteIcons(ChatUIKitBlock.siteIcons)
+            .markdownTableScrollable(ChatUIKitBlock.tableScrolls)
+            .markdownFootnotes(CatalogNotes.footnotes)
             .environment(\.markdownSelectableTextHooks, selection.hooks(for: row.id))
             .frame(maxWidth: .infinity, alignment: .leading)
         if row.isStreaming {

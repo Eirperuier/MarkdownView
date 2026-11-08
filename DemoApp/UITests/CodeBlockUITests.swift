@@ -17,7 +17,7 @@ final class CodeBlockUITests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments = [
             "-AppleLanguages", "(en)", "-ApplePersistenceIgnoreState", "YES",
-            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatCorpus", "interaction",
+            "-chatOpen", "YES", "-chatRenderer", "uikit", "-chatSelectsAcrossBlocks", "NO", "-chatCorpus", "interaction",
             "-chatDrawsText", drawn ? "YES" : "NO", "-chatCodeScrolls", scrolls ? "YES" : "NO", "-chatProbe", probe,
             "-chatCodeLook", header ? "header" : "box",
         ]

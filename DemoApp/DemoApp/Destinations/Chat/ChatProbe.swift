@@ -46,6 +46,10 @@ enum ChatProbe {
                     let selected = RichTextActiveSelection.isActive
                     try? "upgrades=\(MarkdownDrawnTextStats.upgrades) selected=\(selected) listOffset=\(reader.contentOffsetY()) tableOffset=\(tableOffset()) tableTextViews=\(tableTextViews()) codeOffset=\(codeOffset())".write(toFile: String(words[1]), atomically: true, encoding: .utf8)
                 }
+            case "selection":
+                if words.count > 1 {
+                    try? (ChatTextSelection.shared.selectedText ?? "<none>").write(toFile: String(words[1]), atomically: true, encoding: .utf8)
+                }
             case "pasteboard":
                 if words.count > 1 {
                     try? (UIPasteboard.general.string ?? "").write(toFile: String(words[1]), atomically: true, encoding: .utf8)
@@ -132,6 +136,17 @@ enum ChatProbe {
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
         try? data.write(to: URL(fileURLWithPath: path))
+        // Which rows drew it: UIKit's, or SwiftUI's.
+        func count(_ view: UIView) -> (uikit: Int, all: Int) {
+            if view is ChatUIKitRowView { return (1, 1) }
+            if view is UICollectionViewCell, !view.isHidden {
+                let inner: (uikit: Int, all: Int) = view.subviews.map(count).reduce((0, 0)) { ($0.0 + $1.0, $0.1 + $1.1) }
+                return (inner.uikit, max(1, inner.all))
+            }
+            return view.subviews.map(count).reduce((0, 0)) { ($0.0 + $1.0, $0.1 + $1.1) }
+        }
+        let rows: (uikit: Int, all: Int) = count(window)
+        try? "uikit block rows \(rows.uikit) of \(rows.all) cells".write(toFile: path + ".rows", atomically: true, encoding: .utf8)
         print("PROBE shot \(path)")
     }
 }

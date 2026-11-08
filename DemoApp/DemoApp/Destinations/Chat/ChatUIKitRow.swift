@@ -68,14 +68,24 @@ struct ChatUIKitBlock: TiledUIKitCellContent {
     /// pointer on it haven't been tried with real events.
     private static let drawsText = UserDefaults.standard.bool(forKey: "chatDrawsText")
 
+    /// Tables scroll sideways, as Floo's chat's do; `-chatTableScrolls NO` wraps them.
+    static let tableScrolls = UserDefaults.standard.object(forKey: "chatTableScrolls") == nil || UserDefaults.standard.bool(forKey: "chatTableScrolls")
+
+    /// Links have their site's icon, as in Floo's chat; `-chatSiteIcons NO` leaves them plain.
+    static let siteIcons = UserDefaults.standard.object(forKey: "chatSiteIcons") == nil || UserDefaults.standard.bool(forKey: "chatSiteIcons")
+
     /// The row's style. Links open as a SwiftUI row's do; under a probe they're only told.
     static let style: MarkdownStyle = {
         var style = MarkdownStyle()
         style.drawsTextUntilTouched = drawsText
+        style.selectsAcrossBlocks = ChatTextSelection.isOn
         // The box by default; `-chatCodeLook header` for what tests the header.
         if UserDefaults.standard.string(forKey: "chatCodeLook") == "header" { style.codeBlock.look = .header }
         style.codeBlock.scrollsSideways = UserDefaults.standard.bool(forKey: "chatCodeScrolls")
-        style.table.scrollsSideways = UserDefaults.standard.bool(forKey: "chatTableScrolls")
+        style.table.scrollsSideways = tableScrolls
+        // As Floo's chat has them.
+        style.linkSiteIcons = siteIcons
+        style.footnotes = CatalogNotes.footnotes
         if ChatProbe.file != nil {
             style.openURL = { ChatProbe.tellLink($0) }
         }
@@ -244,8 +254,8 @@ enum ChatUIKitRowLayout {
 
 @MainActor
 final class ChatUIKitRowView: UIView {
-    private var blockView: MarkdownUIKit.MarkdownBlockView?
-    private var rowID: String?
+    private(set) var blockView: MarkdownUIKit.MarkdownBlockView?
+    private(set) var rowID: String?
     private weak var renderedHeights: ChatRenderedHeights?
     var onHeightChange: (() -> Void)?
 
@@ -264,6 +274,19 @@ final class ChatUIKitRowView: UIView {
         }
         FrameMarks.note(String(describing: block.descriptor.kind).prefix(9))
         setNeedsLayout()
+        ChatTextSelection.shared.rowsDidChange()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            ChatTextSelection.shared.attach(from: self)
+            if ChatJumpWatch.isOn {
+                var ancestor = superview
+                while let current = ancestor, !(current is UICollectionView) { ancestor = current.superview }
+                if let list = ancestor as? UICollectionView { ChatJumpWatch.shared.attach(list) }
+            }
+        }
     }
 
     func reset() {
@@ -274,6 +297,7 @@ final class ChatUIKitRowView: UIView {
         blockView = nil
         rowID = nil
         onHeightChange = nil
+        ChatTextSelection.shared.rowsDidChange()
     }
 
     override func layoutSubviews() {
@@ -338,6 +362,16 @@ enum ChatUIKitBlockViews {
         entries[id] = Entry(view: view, source: block.source, used: clock)
         evict()
         return view
+    }
+
+    /// The row's view if it has one, without making it.
+    static func existingView(id: String) -> MarkdownUIKit.MarkdownBlockView? {
+        entries[id]?.view
+    }
+
+    /// A block's text as a row would show it, for a selection reaching a row with no view.
+    static func plainText(of block: MarkdownStreamBlock) -> String {
+        MarkdownUIKit.MarkdownTextBuilder.build(markdown: block.source, style: ChatUIKitBlock.style).attributed.string
     }
 
     static func height(id: String, block: MarkdownStreamBlock, reveal: MarkdownReveal?, width: CGFloat, traits: UITraitCollection) -> CGFloat {
