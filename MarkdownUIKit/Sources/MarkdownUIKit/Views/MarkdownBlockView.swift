@@ -31,6 +31,8 @@ public final class MarkdownBlockView: UIView {
         case code(any MarkdownCodeDisplay)
         case fencedItem(MarkdownFencedItemView)
         case table(MarkdownTableView)
+        /// A paragraph that's one picture: no text to lay out. Its insets above and below.
+        case image(MarkdownImageView, insets: UIEdgeInsets)
     }
 
     private var layout = Layout.empty
@@ -48,6 +50,7 @@ public final class MarkdownBlockView: UIView {
         case .math(let view): view
         case .rule(let view): view
         case .custom(let view): view
+        case .image(let view, _): view
         default: nil
         }
     }
@@ -64,7 +67,7 @@ public final class MarkdownBlockView: UIView {
     /// The text views inside, for a host's selection and hooks.
     public var textViews: [UITextView] {
         switch layout {
-        case .empty, .math, .rule, .custom: []
+        case .empty, .math, .rule, .custom, .image: []
         case .text(let host, _): [host.textView]
         case .quote(let quote): [quote.textView]
         case .footnotes(let hosts): hosts.map(\.textView)
@@ -78,12 +81,15 @@ public final class MarkdownBlockView: UIView {
     /// layout of yet, and what isn't text, isn't in it.
     public var selectableTexts: [MarkdownSelectableText] {
         switch layout {
-        case .empty, .math, .rule, .custom, .code, .fencedItem, .table: []
+        case .empty, .math, .rule, .custom, .code, .fencedItem, .table, .image: []
         case .text(let host, _): host.selectableText.map { [$0] } ?? []
         case .quote(let quote): quote.selectableText.map { [$0] } ?? []
         case .footnotes(let hosts): hosts.compactMap(\.selectableText)
         }
     }
+
+    /// Whether a picture it shows is still on its way: its height then changes when it comes.
+    public var isWaitingForImages: Bool { !lateSize.waiting.isEmpty }
 
     /// The table in this block, for a host's selection and hooks.
     public var tableView: MarkdownTableView? {
@@ -132,7 +138,7 @@ public final class MarkdownBlockView: UIView {
         case .code(let view): view.setReveal(reveal)
         case .fencedItem(let view): view.setReveal(reveal)
         case .table(let view): view.setReveal(reveal)
-        case .math, .rule, .custom: mathGate.follow(reveal?.manager)
+        case .math, .rule, .custom, .image: mathGate.follow(reveal?.manager)
         case .empty: break
         }
     }
@@ -144,7 +150,7 @@ public final class MarkdownBlockView: UIView {
         case .quote(let quote): quote.textSizeDidChange()
         case .footnotes(let hosts): hosts.forEach { $0.textSizeDidChange() }
         case .table(let view): view.textSizeDidChange()
-        case .empty, .math, .rule, .custom, .code, .fencedItem: break
+        case .empty, .math, .rule, .custom, .code, .fencedItem, .image: break
         }
         cachedHeight = nil
         setNeedsLayout()
@@ -201,8 +207,11 @@ public final class MarkdownBlockView: UIView {
         case .table(let view):
             view.prepareForReuse()
             view.removeFromSuperview()
+        case .image(let view, _):
+            view.removeFromSuperview()
         }
         layout = .empty
+        lateSize.reset()
         shownBlockID = nil
         reveal = nil
         cachedHeight = nil
@@ -247,6 +256,8 @@ public final class MarkdownBlockView: UIView {
             // cmark joins adjacent definition lines into one paragraph.
             if let lines = Self.footnoteDefinitionLines(source) {
                 layout = .footnotes(makeFootnotes(lines: lines, style: style, reveal: reveal))
+            } else if depth == 0, let image = Self.loneImage(source, style: style) {
+                showImage(image, style: style)
             } else {
                 showText(source, depth: depth, style: style, block: block)
             }
@@ -338,6 +349,34 @@ public final class MarkdownBlockView: UIView {
             footnoteDefinitionLines(descriptor.sourceText) == nil
         default: false
         }
+    }
+
+    /// A paragraph that's only a picture fetched from a URL: what a text would draw, with no
+    /// text to lay out. Its height is the picture's, known as soon as the picture is.
+    nonisolated static func loneImage(_ source: String, style: MarkdownStyle) -> (image: Markdown.Image, url: URL)? {
+        guard style.inlineImage == nil, source.hasPrefix("!["), !source.dropFirst(2).contains("![") else { return nil }
+        let document = Document(parsing: source)
+        guard document.childCount == 1, let paragraph = document.child(at: 0) as? Paragraph, paragraph.childCount == 1,
+              let image = paragraph.child(at: 0) as? Markdown.Image,
+              let written = image.source.flatMap({ URL(string: $0) }),
+              let url = style.fetchedImageURL(written) else { return nil }
+        return (image, url)
+    }
+
+    private func showImage(_ found: (image: Markdown.Image, url: URL), style: MarkdownStyle) {
+        let view = MarkdownImageView(
+            content: MarkdownImageView.content(for: found.url),
+            isAlone: true,
+            alternativeText: MarkdownImageSource.alternativeText(of: found.image),
+            fallbackText: nil,
+            style: style
+        )
+        view.onSizeChange = { [weak self] in self?.contentSizeDidChange() }
+        addSubview(view)
+        let edge: CGFloat = style.addsEdgeInsets ? 5 : 0
+        layout = .image(view, insets: UIEdgeInsets(top: edge, left: 0, bottom: edge, right: 0))
+        view.fetch(lateSize: lateSize)
+        mathGate.follow(reveal?.manager)
     }
 
     private func showTable(_ source: String, style: MarkdownStyle, block: MarkdownStreamBlock) {
@@ -573,6 +612,8 @@ public final class MarkdownBlockView: UIView {
             height = MarkdownRuleView.height
         case .custom(let view):
             height = markdownPixelCeil(view.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height)
+        case .image(let view, let insets):
+            height = insets.top + view.fittedSize(width: width).height + insets.bottom
         case .footnotes(let hosts):
             let lines = hosts.reduce(0) { $0 + $1.height(forWidth: width) }
             height = lines + CGFloat(max(0, hosts.count - 1)) * Self.footnoteSpacing + Self.footnotePadding * 2
@@ -611,6 +652,19 @@ public final class MarkdownBlockView: UIView {
         case .custom(let view):
             let width = min(bounds.width, markdownPixelCeil(view.sizeThatFits(bounds.size).width))
             let frame = CGRect(x: isRTL ? bounds.width - width : 0, y: 0, width: width, height: bounds.height)
+            if view.frame != frame { view.frame = frame }
+        case .image(let view, let insets):
+            // Where TextKit puts it in a line of its own: at the paragraph's alignment.
+            let size = view.fittedSize(width: bounds.width)
+            let room = bounds.width - size.width
+            let x: CGFloat
+            switch style.typography.paragraphAlignment {
+            case .center: x = markdownPixelRound(room / 2)
+            case .right: x = room
+            case .left: x = 0
+            default: x = isRTL ? room : 0
+            }
+            let frame = CGRect(x: x, y: insets.top, width: size.width, height: size.height)
             if view.frame != frame { view.frame = frame }
         case .footnotes(let hosts):
             var y = Self.footnotePadding

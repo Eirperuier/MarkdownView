@@ -17,6 +17,13 @@ import UIKit
 @MainActor
 final class MarkdownLateSize {
     var onChange: (() -> Void)?
+    /// Pictures still on their way: until they've come, a height measured now changes.
+    private(set) var waiting: Set<ObjectIdentifier> = []
+
+    func wait(for object: AnyObject) { waiting.insert(ObjectIdentifier(object)) }
+    func done(with object: AnyObject) { waiting.remove(ObjectIdentifier(object)) }
+    /// What's shown went: what it waited for doesn't count.
+    func reset() { waiting.removeAll() }
 }
 
 /// What a custom image renderer is given.
@@ -253,12 +260,73 @@ final class MarkdownImageView: UIView {
     private var retry: (() -> Void)?
 
     @objc private func tapped() { retry?() }
+
+    // MARK: Fetching
+
+    private weak var lateSize: MarkdownLateSize?
+
+    /// Fetches what it shows if that's still on its way, and tries again on a tap if it failed.
+    /// `lateSize` knows it's waiting until it's come.
+    func fetch(lateSize: MarkdownLateSize?) {
+        self.lateSize = lateSize
+        switch content {
+        case .loading(let url):
+            lateSize?.wait(for: self)
+            load(url, retrying: false)
+        case .failed(let url):
+            allowRetry(url)
+        case .loaded, .text:
+            break
+        }
+    }
+
+    private func load(_ url: URL, retrying: Bool) {
+        let done: @MainActor (MarkdownImageLoader.State) -> Void = { [weak self] state in
+            self?.finish(url, state)
+        }
+        if retrying {
+            MarkdownImageLoader.shared.retry(url, done: done)
+        } else {
+            MarkdownImageLoader.shared.load(url, done: done)
+        }
+    }
+
+    private func finish(_ url: URL, _ state: MarkdownImageLoader.State) {
+        lateSize?.done(with: self)
+        switch state {
+        case .loaded(let loaded):
+            disableRetry()
+            show(.loaded(loaded))
+        case .failed:
+            allowRetry(url)
+            show(.failed(url))
+        }
+    }
+
+    private func allowRetry(_ url: URL) {
+        enableRetry { [weak self] in
+            guard let self else { return }
+            self.disableRetry()
+            self.show(.loading(url))
+            self.lateSize?.wait(for: self)
+            self.load(url, retrying: true)
+        }
+    }
+
+    /// What it shows first: the picture if it's come already.
+    static func content(for url: URL?) -> Content {
+        guard let url else { return .text }
+        switch MarkdownImageLoader.shared.state(of: url) {
+        case .loaded(let loaded): return .loaded(loaded)
+        case .failed: return .failed(url)
+        case nil: return .loading(url)
+        }
+    }
 }
 
 final class MarkdownImageAttachment: RichTextAttachment {
     private let imageView: MarkdownImageView
     private let source: String
-    private let url: URL?
     private let lateSize: MarkdownLateSize?
     /// Where this line starts inside the text: a list item's. TextKit proposes the whole width.
     var lineIndent: CGFloat = 0
@@ -266,20 +334,9 @@ final class MarkdownImageAttachment: RichTextAttachment {
     @MainActor
     init(id: AnyHashable, image: Markdown.Image, url: URL?, style: MarkdownStyle) {
         source = image.format()
-        self.url = url
         lateSize = style.lateSize
-        let content: MarkdownImageView.Content
-        if let url {
-            switch MarkdownImageLoader.shared.state(of: url) {
-            case .loaded(let loaded): content = .loaded(loaded)
-            case .failed: content = .failed(url)
-            case nil: content = .loading(url)
-            }
-        } else {
-            content = .text
-        }
         imageView = MarkdownImageView(
-            content: content,
+            content: MarkdownImageView.content(for: url),
             // DocKit's rule for an image block: the only thing in its paragraph.
             isAlone: image.parent is Paragraph && image.parent?.childCount == 1,
             alternativeText: MarkdownImageSource.alternativeText(of: image),
@@ -291,50 +348,11 @@ final class MarkdownImageAttachment: RichTextAttachment {
             guard let self else { return }
             self.markdownSizeDidChange(self.lateSize)
         }
-        switch content {
-        case .loading: load()
-        case .failed: allowRetry()
-        case .loaded, .text: break
-        }
+        imageView.fetch(lateSize: lateSize)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    @MainActor
-    private func load(retrying: Bool = false) {
-        guard let url else { return }
-        let done: @MainActor (MarkdownImageLoader.State) -> Void = { [weak self] state in
-            self?.finish(state)
-        }
-        if retrying {
-            MarkdownImageLoader.shared.retry(url, done: done)
-        } else {
-            MarkdownImageLoader.shared.load(url, done: done)
-        }
-    }
-
-    @MainActor
-    private func finish(_ state: MarkdownImageLoader.State) {
-        switch state {
-        case .loaded(let loaded):
-            imageView.disableRetry()
-            imageView.show(.loaded(loaded))
-        case .failed:
-            allowRetry()
-            if let url { imageView.show(.failed(url)) }
-        }
-    }
-
-    @MainActor
-    private func allowRetry() {
-        imageView.enableRetry { [weak self] in
-            guard let self, let url = self.url else { return }
-            self.imageView.disableRetry()
-            self.imageView.show(.loading(url))
-            self.load(retrying: true)
-        }
     }
 
     @MainActor
