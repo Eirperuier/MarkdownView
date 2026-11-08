@@ -314,6 +314,9 @@ final class FlooContactsDemo {
     @ObservationIgnored var standings: [ServiceID: ServiceStanding] = [:]
     /// Services whose pages were opened, from their details (live).
     @ObservationIgnored var opened: [String: FlooService] = [:]
+    /// A service a link opened (`/services/<id>`, live): its page is gone to once the services
+    /// are read.
+    @ObservationIgnored var opening: String?
     @ObservationIgnored var deviceStandings: [DeviceStanding] = []
     /// The standings' revision as last read: read again, they come only if changed.
     @ObservationIgnored var standingsRevision: String?
@@ -397,6 +400,8 @@ final class FlooContactsDemo {
     init(live: FlooLive? = nil) {
         self.live = live
         guard live != nil else { return }
+        opening = live?.openingService?.rawValue
+        live?.openingService = nil
         services = []
         following = [:]
         settings = [:]
