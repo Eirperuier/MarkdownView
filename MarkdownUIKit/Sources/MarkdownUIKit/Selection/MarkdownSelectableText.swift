@@ -96,9 +96,13 @@ public struct MarkdownSelectableText {
                 let distance = inLayout.y < bounds.minY ? bounds.minY - inLayout.y : max(0, inLayout.y - bounds.maxY)
                 if let best, best.distance <= distance { continue }
                 let x = inLayout.x - fragmentFrame.minX
-                let index = line.characterIndex(for: CGPoint(x: x, y: line.typographicBounds.midY))
+                var index = line.characterIndex(for: CGPoint(x: x, y: line.typographicBounds.midY))
+                // Nowhere on the line (NSNotFound): its end, or its start left of it.
+                if index == NSNotFound || index < 0 {
+                    index = x < line.typographicBounds.midX ? line.characterRange.location : NSMaxRange(line.characterRange)
+                }
                 // A line's index is in its paragraph's string, which the fragment's range starts.
-                var offset = fragmentStart + max(0, index)
+                var offset = fragmentStart + index
                 let lineEnd = fragmentStart + NSMaxRange(line.characterRange)
                 // Past a line's end is before its newline, not after it.
                 if offset >= lineEnd, lineEnd > fragmentStart + line.characterRange.location {
