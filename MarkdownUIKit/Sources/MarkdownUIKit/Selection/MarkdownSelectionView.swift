@@ -208,7 +208,14 @@ public final class MarkdownSelectionView: UIView, UITextInput {
         set {
             followInteractionGestures()
             if didAutoScroll, let point = dragPoint, edgeSpeed(at: point) != 0 { return }
-            selection = (newValue as? MarkdownTextRange).map { keptInOneMessage($0, after: selection) }
+            let proposed = newValue as? MarkdownTextRange
+            selection = proposed.map { keptInOneMessage($0, after: selection) }
+            // Kept inside its message, it isn't what the interaction asked for: told so, it
+            // draws what's selected, not what it asked for.
+            if let proposed, let selection, !Self.same(proposed, selection) {
+                inputDelegate?.selectionWillChange(self)
+                inputDelegate?.selectionDidChange(self)
+            }
         }
     }
 
@@ -220,6 +227,10 @@ public final class MarkdownSelectionView: UIView, UITextInput {
             followedGestures.insert(ObjectIdentifier(recognizer))
             recognizer.addTarget(self, action: #selector(followed(_:)))
         }
+    }
+
+    private static func same(_ a: MarkdownTextRange, _ b: MarkdownTextRange) -> Bool {
+        a.from.row == b.from.row && a.from.offset == b.from.offset && a.to.row == b.to.row && a.to.offset == b.to.offset
     }
 
     /// `range` with its moving end inside the message its other end is in. A drag moving an
@@ -475,6 +486,7 @@ public final class MarkdownSelectionView: UIView, UITextInput {
     }
 
     // MARK: Scrolling at the edge
+
 
 
 

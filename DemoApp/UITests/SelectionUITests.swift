@@ -138,6 +138,7 @@ final class SelectionUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1)
         let selected = ask("selection", ".selection") ?? ""
         print("SEL message <<\(selected)>>")
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/md-selection-message-\(UIDevice.current.userInterfaceIdiom == .phone ? "phone" : "mac").png"))
         XCTAssertTrue(selected.contains("Interaction first paragraph"), "the drag doesn't reach the reply's start")
         for prompt in Self.prompts { XCTAssertFalse(selected.contains(prompt), "the selection went into a prompt") }
     }
