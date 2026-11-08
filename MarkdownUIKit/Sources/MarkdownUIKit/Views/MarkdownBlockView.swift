@@ -331,16 +331,15 @@ public final class MarkdownBlockView: UIView {
 
     private func showTable(_ source: String, style: MarkdownStyle, block: MarkdownStreamBlock) {
         let view: MarkdownTableView
-        var isShown = false
         if case .table(let shown) = layout {
             view = shown
-            isShown = true
         } else {
             view = MarkdownTableView()
             view.onHeightChange = { [weak self] in self?.contentChangedHeight() }
             addSubview(view)
         }
-        if reveal == nil, !isShown { view.willConfigure(prepared: style.preparedTexts?.takeTable(source, category: style.contentSizeCategory)) }
+        // A view from the pool shows another table: it takes the one made ahead.
+        if reveal == nil, !view.shows(source) { view.willConfigure(prepared: style.preparedTexts?.takeTable(source, category: style.contentSizeCategory)) }
         if view.configure(source: source, style: style, reveal: reveal, inlineMath: block.inlineMathStorage, displayMath: block.displayMathStorage) {
             layout = .table(view)
         } else {

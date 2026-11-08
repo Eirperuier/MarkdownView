@@ -128,7 +128,8 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
         self.style = given
         metrics = MarkdownTableMetrics(options: given.table)
         if oldKey != given.table.textKey { replacedViews.values.forEach { $0.removeFromSuperview() }; replacedViews.removeAll() }
-        let changed = content.firstChangedRow
+        // A table made ahead is new here: all of it is drawn again.
+        let changed = prepared != nil ? 0 : content.firstChangedRow
         if changed != nil || geometries.isEmpty {
             geometries.removeAll()
             syncReplaced()
@@ -142,6 +143,11 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
         setNeedsLayout()
         if let changed { pendingChangedRow = min(pendingChangedRow ?? changed, changed) }
         return true
+    }
+
+    /// Whether it shows this source already.
+    func shows(_ source: String) -> Bool {
+        content.source == source
     }
 
     /// What the next `configure` starts from.

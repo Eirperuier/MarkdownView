@@ -136,7 +136,7 @@ final class MarkdownTableContent {
     /// The first row whose cells changed in the last update; nil if none did.
     private(set) var firstChangedRow: Int?
 
-    private var source = ""
+    private(set) var source = ""
     private var key: MarkdownTableOptions.TextKey?
     private var headLines = ""
     private var category: UIContentSizeCategory?
@@ -144,6 +144,24 @@ final class MarkdownTableContent {
     private var plainAttributes: [LookKey: [NSAttributedString.Key: Any]] = [:]
 
     private(set) var spans: [MarkdownTableRevealSpan] = []
+
+    /// The same cells in a content of its own: the cells don't change, a content does as its
+    /// source grows.
+    func copy() -> MarkdownTableContent {
+        let copy = MarkdownTableContent()
+        copy.rows = rows
+        copy.flat = flat
+        copy.columnCount = columnCount
+        copy.firstChangedRow = firstChangedRow
+        copy.source = source
+        copy.key = key
+        copy.headLines = headLines
+        copy.category = category
+        copy.looks = looks
+        copy.plainAttributes = plainAttributes
+        copy.spans = spans
+        return copy
+    }
 
     /// Shows `source`. False if it isn't a table.
     func update(source new: String, style: MarkdownStyle, inlineMath: [String: String]?, displayMath: [UUID: String]?) -> Bool {

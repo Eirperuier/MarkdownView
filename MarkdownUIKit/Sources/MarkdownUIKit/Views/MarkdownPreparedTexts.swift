@@ -162,7 +162,7 @@ final class MarkdownTextPicture: @unchecked Sendable {
     var byteCount: Int { image.bytesPerRow * image.height }
 }
 
-/// A table made ahead: goes to one view.
+/// A table made ahead.
 struct MarkdownPreparedTable {
     let content: MarkdownTableContent
     let geometry: MarkdownTableGeometry
@@ -308,15 +308,14 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
         return entry
     }
 
-    /// The table made for this source, which is its to keep changing from now on.
+    /// The table made for this source, in a content of the view's own to change from now on.
     @MainActor
     func takeTable(_ source: String, category: UIContentSizeCategory?) -> MarkdownPreparedTable? {
         lock.lock()
         defer { lock.unlock() }
         let key = Key(source: source, kind: .table, depth: 0, category: category)
         guard let table = made[key]?.table else { return nil }
-        made[key]?.table = nil
-        return table
+        return MarkdownPreparedTable(content: table.content.copy(), geometry: table.geometry, width: table.width)
     }
 
     /// The height a block comes to in a row `width` wide; nil unless it's made for that.
