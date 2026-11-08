@@ -105,7 +105,7 @@ enum MarkdownTableMeasure {
 
     /// The cells it hasn't seen, with nothing wrapping. Together if there are many.
     static func prepareNaturalSizes(_ cells: [MarkdownTableCell]) {
-        let waiting = cells.filter { $0.natural == nil && !$0.needsTextView }
+        let waiting = cells.filter { $0.natural == nil && !$0.needsHost }
         guard waiting.count >= 64 else { return }
         nonisolated(unsafe) let strings = waiting.map(\.drawing)
         let count = strings.count
@@ -123,7 +123,9 @@ enum MarkdownTableMeasure {
     static func natural(_ cell: MarkdownTableCell, host: (MarkdownTableCell) -> MarkdownTextHost?) -> CGSize {
         if let natural = cell.natural { return natural }
         let size: CGSize
-        if cell.needsTextView, let host = host(cell) {
+        if cell.drawsInlineViews {
+            size = cell.inlineStack.size(forWidth: unlimited)
+        } else if cell.needsTextView, let host = host(cell) {
             // A host only ever comes on the main thread.
             nonisolated(unsafe) let host = host
             size = MainActor.assumeIsolated { host.textView.fittingSize(proposedWidth: unlimited, proposedHeight: nil) }
@@ -141,6 +143,8 @@ enum MarkdownTableMeasure {
         let raw: CGSize
         if natural.width <= width + textWidthSlack {
             raw = natural
+        } else if cell.drawsInlineViews {
+            raw = cell.inlineStack.size(forWidth: width)
         } else if cell.needsTextView, let host = host(cell) {
             nonisolated(unsafe) let host = host
             raw = MainActor.assumeIsolated { host.textView.fittingSize(proposedWidth: width, proposedHeight: nil) }

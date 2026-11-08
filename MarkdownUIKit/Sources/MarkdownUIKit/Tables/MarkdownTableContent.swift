@@ -27,8 +27,22 @@ final class MarkdownTableCell {
     let string: NSAttributedString
     /// As it's drawn: the same with nothing that would look like a link by itself.
     let drawing: NSAttributedString
-    /// Holds what only a text view shows: a formula, an image, a mark.
+    /// Holds what only a text view shows: an image, a mark.
     let needsTextView: Bool
+    /// Holds views at a fixed size in its lines (a formula, a site's icon): drawn text shows it,
+    /// placing them; string drawing can't.
+    let drawsInlineViews: Bool
+    /// It shows in a view of its own: a text view, or drawn text placing views.
+    var needsHost: Bool { needsTextView || drawsInlineViews }
+
+    /// Its text laid out by TextKit, for a cell drawing views: measured on any thread, shown as
+    /// it was measured.
+    private(set) lazy var inlineStack: MarkdownTextStack = {
+        let stack = MarkdownTextStack()
+        stack.narrowsToText = true
+        stack.show(string, foregroundColor: style.resolvedTextColor)
+        return stack
+    }()
     let hasLink: Bool
     let tag: UIColor?
     let fill: UIColor?
@@ -67,7 +81,8 @@ final class MarkdownTableCell {
         self.tag = tag
         self.fill = fill
         self.style = style
-        needsTextView = !MarkdownTextHost.isDrawable(string)
+        needsTextView = !MarkdownTextHost.isDrawable(string, allowingInlineViews: true)
+        drawsInlineViews = !needsTextView && !MarkdownTextHost.isDrawable(string)
         let range = NSRange(location: 0, length: string.length)
         var linked = false
         string.enumerateAttribute(.link, in: range) { value, _, stop in
@@ -77,7 +92,7 @@ final class MarkdownTableCell {
             }
         }
         hasLink = linked
-        if needsTextView {
+        if needsTextView || drawsInlineViews {
             drawing = string
         } else {
             let copy = NSMutableAttributedString(attributedString: string)

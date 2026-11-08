@@ -57,11 +57,19 @@ final class MarkdownTableTests: XCTestCase {
         XCTAssertTrue(view.textViews.isEmpty)
     }
 
-    func testAFormulaTakesATextViewForItsCellOnly() {
+    /// A formula's cell is drawn text placing the formula's view: no text view, the rest drawn
+    /// by the table.
+    func testAFormulaCellIsDrawnTextForItsCellOnly() {
         let view = MarkdownTableView()
         view.configure(source: "| A | B |\n| - | - |\n| $x^2$ | plain |", style: style())
         _ = view.height(forWidth: 400)
-        XCTAssertEqual(view.textViews.count, 1)
+        view.frame = CGRect(x: 0, y: 0, width: 400, height: view.height(forWidth: 400))
+        view.layoutIfNeeded()
+        XCTAssertTrue(view.textViews.isEmpty)
+        func drawn(in view: UIView) -> Int {
+            (view is MarkdownDrawnTextView ? 1 : 0) + view.subviews.reduce(0) { $0 + drawn(in: $1) }
+        }
+        XCTAssertEqual(drawn(in: view), 1)
     }
 
     func testAGrownTableKeepsTheRowsItHad() {

@@ -79,9 +79,13 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
             leavesUnderlines = cell.hasUnderlines && reveal == nil
             // What a table draws gives way to this text and takes over again: it lands the same.
             // A cell always in a text view has nothing to match.
-            placement = cell.needsTextView ? nil : MarkdownTextPlacement()
-            host = MarkdownTextHost(textView: true, placement: placement)
-            host.apply(text, style: cell.style, reveal: reveal)
+            placement = cell.needsHost ? nil : MarkdownTextPlacement()
+            // A cell placing views is drawn text, as it was measured.
+            let drawsViews = cell.drawsInlineViews && reveal == nil
+            host = MarkdownTextHost(textView: !drawsViews, placement: placement)
+            var style = cell.style
+            style.drawsTextUntilTouched = drawsViews
+            host.apply(text, style: style, reveal: reveal, prepared: drawsViews ? cell.inlineStack : nil)
         }
     }
 
@@ -182,7 +186,7 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
     }
 
     /// The text views inside, for a host's selection and hooks.
-    public var textViews: [UITextView] { hosts.values.map(\.host.textView) }
+    public var textViews: [UITextView] { hosts.values.compactMap(\.host.existingTextView) }
 
     /// Its cells' text where it's drawn, row by row, for a selection across blocks: a tab
     /// between a row's cells, a newline after the row. Every cell counts, shown yet or not, so a
@@ -207,7 +211,7 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
             return MarkdownSelectableText(whole: cell.string.string, frame: view.frame, in: canvas)
         }
         // Only a text view shows it: its layout.
-        if cell.needsTextView, let text = hosts[cell.position]?.host.selectableText { return text }
+        if cell.needsHost, let text = hosts[cell.position]?.host.selectableText { return text }
         // Drawn, or in a text view that lands where it's drawn.
         let inner = cell.tag == nil ? frame : frame.insetBy(dx: MarkdownTableMetrics.tagPadding.width, dy: MarkdownTableMetrics.tagPadding.height)
         var rect = inner
@@ -601,13 +605,13 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
     /// The cell's text view, if it has or must have one.
     private func host(for cell: MarkdownTableCell) -> CellHost? {
         if let known = hosts[cell.position] { return known }
-        guard cell.needsTextView else { return nil }
+        guard cell.needsHost else { return nil }
         return makeHost(cell, reveal: revealing.contains(cell.position) ? reveal : nil)
     }
 
     private func makeHost(_ cell: MarkdownTableCell, reveal: MarkdownReveal?) -> CellHost {
         let made = CellHost(cell: cell, reveal: reveal)
-        made.host.textView.isUserInteractionEnabled = options.cellsSelectable || cell.hasLink || cell.needsTextView
+        made.host.view.isUserInteractionEnabled = options.cellsSelectable || cell.hasLink || cell.needsHost
         hosts[cell.position] = made
         canvas.addSubview(made.host.view)
         if let shown, cell.position.row < shown.textFrames.count, cell.position.column < shown.textFrames[cell.position.row].count {
@@ -628,12 +632,10 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
         let exact = fit.map { $0.offset + (host.cell.alignment == .center ? 0.0005 : host.cell.alignment == .trailing ? 0.001 : 0) }
         if host.placement?.exactOffset != exact {
             host.placement?.exactOffset = exact
-            host.host.textView.setNeedsDisplay()
+            host.host.existingTextView?.setNeedsDisplay()
         }
-        if host.host.textView.frame != frame {
-            host.host.place(frame)
-            MarkdownPenOverlayView.sync(on: host.host.textView)
-        }
+        host.host.place(frame)
+        if let textView = host.host.existingTextView { MarkdownPenOverlayView.sync(on: textView) }
     }
 
     private func placeHosts(_ geometry: MarkdownTableGeometry) {
@@ -657,10 +659,10 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
             if cell !== cellHost.cell {
                 cellHost.cell = cell
                 cellHost.host.update(cellHost.text, style: cell.style, reveal: revealing.contains(position) ? reveal : nil)
-                cellHost.host.textView.invalidateFittingSizes()
+                cellHost.host.textSizeDidChange()
             }
         }
-        for cell in content.flat where cell.needsTextView && hosts[cell.position] == nil {
+        for cell in content.flat where cell.needsHost && hosts[cell.position] == nil {
             _ = makeHost(cell, reveal: revealing.contains(cell.position) ? reveal : nil)
         }
         touched.removeAll { hosts[$0] == nil }
@@ -714,12 +716,12 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func isInUse(_ position: MarkdownTableCellPosition) -> Bool {
-        guard let view = hosts[position]?.host.textView else { return false }
+        guard let view = hosts[position]?.host.existingTextView else { return false }
         return view.selectedRange.length > 0 || view.isFirstResponder
     }
 
     private func dropHost(_ position: MarkdownTableCellPosition) {
-        guard let cellHost = hosts[position], !cellHost.cell.needsTextView else { return }
+        guard let cellHost = hosts[position], !cellHost.cell.needsHost else { return }
         cellHost.host.release()
         cellHost.host.view.removeFromSuperview()
         hosts[position] = nil
@@ -768,7 +770,7 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
             startedCount = Int.max
             settledCount = Int.max
             for position in wasRevealing {
-                if hosts[position]?.cell.needsTextView == true {
+                if hosts[position]?.cell.needsHost == true {
                     hosts[position]?.host.setReveal(nil)
                 } else {
                     dropHost(position)
@@ -837,7 +839,7 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
         let wanted = active.suffix(Self.revealingCapacity)
         let wantedPositions = Set(wanted.map(\.position))
         for position in revealing where !wantedPositions.contains(position) {
-            if hosts[position]?.cell.needsTextView == true {
+            if hosts[position]?.cell.needsHost == true {
                 hosts[position]?.host.setReveal(nil)
             } else {
                 dropHost(position)
@@ -945,7 +947,7 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate {
         for (rowIndex, row) in content.rows.enumerated() {
             for (index, cell) in row.enumerated() where shown.textFrames.indices.contains(rowIndex) && shown.textFrames[rowIndex].indices.contains(index) {
                 if let host = hosts[cell.position] {
-                    elements.append(host.host.textView)
+                    elements.append(host.host.view)
                 } else if !isHidden(cell) {
                     let element = UIAccessibilityElement(accessibilityContainer: container)
                     element.accessibilityLabel = cell.string.string

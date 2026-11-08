@@ -262,7 +262,7 @@ public final class MarkdownBlockView: UIView {
             // A paragraph starting with a footnote definition draws a line per definition:
             // cmark joins adjacent definition lines into one paragraph.
             if let lines = Self.footnoteDefinitionLines(source) {
-                layout = .footnotes(makeFootnotes(lines: lines, style: style, reveal: reveal))
+                layout = .footnotes(makeFootnotes(lines: lines, source: source, style: style, reveal: reveal))
             } else if depth == 0, let image = Self.loneImage(source, style: style) {
                 showImage(image, style: style)
             } else {
@@ -540,7 +540,7 @@ public final class MarkdownBlockView: UIView {
     // MARK: Footnotes
 
     /// By definition line (a continuation joins the line before); nil unless the first is one.
-    nonisolated private static func footnoteDefinitionLines(_ source: String) -> [String]? {
+    nonisolated static func footnoteDefinitionLines(_ source: String) -> [String]? {
         let lines = source.components(separatedBy: "\n")
         guard let first = lines.first, MarkdownFootnoteIndex.definitionLine(first) != nil else { return nil }
         var groups: [String] = []
@@ -556,35 +556,45 @@ public final class MarkdownBlockView: UIView {
 
     /// A line each, smaller and secondary. The whole line carries the definition's URL, so a tap
     /// anywhere works; real links inside keep their own.
-    private func makeFootnotes(lines: [String], style: MarkdownStyle, reveal: MarkdownReveal?) -> [MarkdownTextHost] {
-        var footnoteStyle = style
-        footnoteStyle.contentSizeCategory = .extraSmall
-        footnoteStyle.textColor = style.textColor ?? .floo(.markdownFootnoteText)
+    /// A footnote definition line's style: small, in the footnote colour, the whole line tapping
+    /// to where it's cited.
+    nonisolated static func footnoteLineStyle(_ style: MarkdownStyle, index: Int, line: String) -> MarkdownStyle {
+        var lineStyle = style
+        lineStyle.contentSizeCategory = .extraSmall
+        lineStyle.textColor = style.textColor ?? .floo(.markdownFootnoteText)
         // Anchors are in the block's coordinates, which don't survive the split.
-        footnoteStyle.inlineAnchors = []
+        lineStyle.inlineAnchors = []
+        lineStyle.rangeDecorations = []
+        if let definition = MarkdownFootnoteIndex.definitionLine(line),
+           let url = style.footnotes?.references[definition.id]?.definitionURL {
+            lineStyle.rangeDecorations = [MarkdownRangeDecoration(
+                id: "fndef-\(index)-\(definition.id)",
+                plainStart: 0,
+                plainLength: max(line.count, 1),  // Clamped to the storage's end.
+                underlineColor: .clear,           // Tappable, no underline.
+                tapURL: url,
+                preservesInnerLinks: true
+            )]
+        }
+        return lineStyle
+    }
+
+    /// A line each, drawn from what was made ahead where there is.
+    private func makeFootnotes(lines: [String], source: String, style: MarkdownStyle, reveal: MarkdownReveal?) -> [MarkdownTextHost] {
+        let made = reveal == nil ? style.preparedTexts?.ready(source, kind: .footnotes, depth: 0, category: style.contentSizeCategory)?.lines : nil
         return lines.enumerated().map { index, line in
-            var lineStyle = footnoteStyle
-            lineStyle.rangeDecorations = []
-            if let definition = MarkdownFootnoteIndex.definitionLine(line),
-               let url = style.footnotes?.references[definition.id]?.definitionURL {
-                lineStyle.rangeDecorations = [MarkdownRangeDecoration(
-                    id: "fndef-\(index)-\(definition.id)",
-                    plainStart: 0,
-                    plainLength: max(line.count, 1),  // Clamped to the storage's end.
-                    underlineColor: .clear,           // Tappable, no underline.
-                    tapURL: url,
-                    preservesInnerLinks: true
-                )]
-            }
-            let host = MarkdownTextHost()
-            host.apply(MarkdownTextBuilder.build(markdown: line, style: lineStyle), style: lineStyle, reveal: reveal)
-            addSubview(host.textView)
+            let lineStyle = Self.footnoteLineStyle(style, index: index, line: line)
+            let ahead = made.flatMap { $0.indices.contains(index) ? $0[index] : nil }
+            let host = MarkdownTextHost(textView: !lineStyle.drawsTextUntilTouched)
+            let text = ahead?.text ?? MarkdownTextBuilder.build(markdown: line, style: lineStyle)
+            host.apply(text, style: lineStyle, reveal: reveal, prepared: ahead?.stack, picture: ahead?.picture)
+            addSubview(host.view)
             return host
         }
     }
 
-    private static let footnoteSpacing: CGFloat = 8
-    private static let footnotePadding: CGFloat = 5
+    nonisolated static let footnoteSpacing: CGFloat = 8
+    nonisolated static let footnotePadding: CGFloat = 5
 
     // MARK: Size
 

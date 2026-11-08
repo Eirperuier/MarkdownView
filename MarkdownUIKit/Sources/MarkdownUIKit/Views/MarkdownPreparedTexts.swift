@@ -185,6 +185,8 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
         case code(String?)
         case formula
         case table
+        /// Footnote definitions, a line each.
+        case footnotes
     }
 
     struct Key: Hashable {
@@ -206,6 +208,8 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
         /// The block's height in a row that wide.
         let height: CGFloat?
         var used: UInt64
+        /// Footnote definitions' lines, each made as text is.
+        var lines: [Made]? = nil
     }
 
     private struct Request {
@@ -370,6 +374,8 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
         let descriptor = block.descriptor
         let depth = descriptor.listItemContext?.depth ?? 0
         switch descriptor.kind {
+        case .paragraph where depth == 0 && MarkdownBlockView.footnoteDefinitionLines(descriptor.sourceText) != nil:
+            return (descriptor.sourceText, .footnotes, 0)
         case .paragraph, .heading, .orderedList, .unorderedList:
             return (descriptor.sourceText, .text, depth)
         case .blockQuote:
@@ -411,8 +417,10 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
             clock += 1
             working = nil
             forget(request.key)
-            self.made[request.key] = Made(text: made.text, stack: made.stack, picture: made.picture, table: made.table, colors: made.colors, width: request.width, height: made.height, used: clock)
+            let lines = made.lines.map { $0.map { Made(text: $0.text, stack: $0.stack, picture: $0.picture, table: nil, colors: [], width: request.width, height: $0.height, used: clock) } }
+            self.made[request.key] = Made(text: made.text, stack: made.stack, picture: made.picture, table: made.table, colors: made.colors, width: request.width, height: made.height, used: clock, lines: lines)
             bytesInPictures += made.picture?.byteCount ?? 0
+            bytesInPictures += made.lines?.reduce(0) { $0 + ($1.picture?.byteCount ?? 0) } ?? 0
             while self.made.count > Self.capacity || bytesInPictures > Self.pictureBytes,
                   let oldest = self.made.min(by: { $0.value.used < $1.value.used }) {
                 forget(oldest.key)
@@ -423,6 +431,7 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
 
     private func forget(_ key: Key) {
         bytesInPictures -= made[key]?.picture?.byteCount ?? 0
+        bytesInPictures -= made[key]?.lines?.reduce(0) { $0 + ($1.picture?.byteCount ?? 0) } ?? 0
         made[key] = nil
     }
 
@@ -433,6 +442,7 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
         var table: MarkdownPreparedTable?
         var colors: [(range: NSRange, color: UIColor)] = []
         var height: CGFloat?
+        var lines: [Result]?
     }
 
     private static func make(_ request: Request) -> Result {
@@ -442,7 +452,27 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
         case .code(let language): makeCode(request, language: language)
         case .formula: makeFormula(request)
         case .table: makeTable(request)
+        case .footnotes: makeFootnotes(request)
         }
+    }
+
+    /// Each definition line as text is made, in its own style; the block's height theirs with
+    /// the room between and around them (`MarkdownBlockView`).
+    private static func makeFootnotes(_ request: Request) -> Result {
+        guard let lines = MarkdownBlockView.footnoteDefinitionLines(request.key.source) else { return Result() }
+        var made: [Result] = []
+        var height = MarkdownBlockView.footnotePadding * 2 + CGFloat(max(0, lines.count - 1)) * MarkdownBlockView.footnoteSpacing
+        for (index, line) in lines.enumerated() {
+            let style = MarkdownBlockView.footnoteLineStyle(request.style, index: index, line: line)
+            guard let text = MarkdownTextBuilder.buildOffMain(markdown: line, style: style, listDepthOffset: 0, inlineMath: nil, displayMath: nil),
+                  let drawn = drawn(text, style: style, width: request.width, request: request) else {
+                return Result()
+            }
+            // A line's host has no insets of its own.
+            made.append(Result(text: text, stack: drawn.stack, picture: picture(of: drawn.stack, request: request), height: drawn.height))
+            height += drawn.height
+        }
+        return Result(height: height, lines: made)
     }
 
     private static func drawn(_ text: MarkdownText, style: MarkdownStyle, width: CGFloat, request: Request, shift: CGFloat = 0) -> (stack: MarkdownTextStack, height: CGFloat)? {

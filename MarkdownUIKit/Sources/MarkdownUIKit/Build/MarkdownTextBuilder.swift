@@ -215,7 +215,10 @@ public enum MarkdownTextBuilder {
             let end = lowerBound(decoration.plainStart + decoration.plainLength)
             guard end > start, end < offsets.count else { continue }
             let range = NSRange(location: offsets[start], length: offsets[end] - offsets[start])
-            text.addAttribute(.underlineColor, value: decoration.underlineColor, range: range)
+            // A clear underline is only there to make the run tap: nothing to draw.
+            if decoration.underlineColor.cgColor.alpha > 0 {
+                text.addAttribute(.underlineColor, value: decoration.underlineColor, range: range)
+            }
             guard let url = decoration.tapURL else { continue }
             if decoration.preservesInnerLinks {
                 // Only runs with no link: all of it taps, the real links keep their own.

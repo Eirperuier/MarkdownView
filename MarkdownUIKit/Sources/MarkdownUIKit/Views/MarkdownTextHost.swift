@@ -128,6 +128,9 @@ final class MarkdownTextHost {
     /// What's in the block's views: the drawn text, or the text view.
     var view: UIView { drawn ?? textView }
 
+    /// The text view if there is one, without making one.
+    var existingTextView: InlineAttachmentTextView? { shownTextView }
+
     private var shownTextView: InlineAttachmentTextView?
     private var drawn: MarkdownDrawnTextView?
     private let delegate = RichTextInteractionDelegate()
