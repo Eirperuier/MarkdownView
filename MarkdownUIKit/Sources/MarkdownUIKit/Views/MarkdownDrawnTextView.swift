@@ -10,12 +10,14 @@
 //  picture goes in its layer, drawn ahead on another thread if it can be.
 //
 
+import MarkdownCore
 import UIKit
 
 @MainActor
 final class MarkdownDrawnTextView: UIView {
     /// How far past the text it draws: what a first letter or an italic overhangs.
-    nonisolated static let overdraw: CGFloat = 4
+    /// Room past the text on each side: a first letter's overhang, a pen's stroke.
+    nonisolated static let overdraw: CGFloat = PenMarkGeometry.overhang + 2
 
     /// Hit: gives the text view that takes its place.
     var onTouched: (() -> UITextView?)?

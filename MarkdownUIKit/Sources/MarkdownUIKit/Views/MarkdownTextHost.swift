@@ -201,8 +201,11 @@ final class MarkdownTextHost {
         text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, _, stop in
             let attachment = attributes[.attachment]
             let attachmentStays = attachment != nil && !(allowingInlineViews && attachment is any MarkdownFixedInlineAttachment)
-            if attachmentStays || attributes[.richTextPenMark] != nil
-                || (attributes[.underlineColor] != nil && attributes[.underlineStyle] == nil) {
+            // Drawn text draws pen marks and underlines of their own into its picture; string
+            // drawing can't.
+            let marksStay = !allowingInlineViews && (attributes[.richTextPenMark] != nil
+                || (attributes[.underlineColor] != nil && attributes[.underlineStyle] == nil))
+            if attachmentStays || marksStay {
                 plain = false
                 stop.pointee = true
             }

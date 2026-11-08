@@ -20,7 +20,7 @@ extension FlooMotion {
 
 @MainActor
 final class MarkdownPenOverlayView: UIView {
-    private struct Mark {
+    struct Mark {
         let range: NSRange
         /// With a seed from its content: the same words get the same stroke.
         let mark: MarkdownPenMarkSyntax.Mark
@@ -44,13 +44,7 @@ final class MarkdownPenOverlayView: UIView {
     /// After a text view's content changes: scans for pen attributes, adds or refreshes the two
     /// layers where there are any, removes them where not.
     static func sync(on textView: UITextView, isRevealed: (@MainActor (NSRange) -> Bool)? = nil) {
-        var marks: [Mark] = []
-        let storage = textView.textStorage
-        storage.enumerateAttribute(.richTextPenMark, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            guard let raw = value as? String,
-                  let decoded = MarkdownPenMarkSyntax.decodeAttributeValue(raw) else { return }
-            marks.append(Mark(range: range, mark: decoded))
-        }
+        let marks = Self.marks(in: textView.textStorage)
         let existing = textView.subviews.compactMap { $0 as? MarkdownPenOverlayView }
         guard !marks.isEmpty else {
             existing.forEach { $0.detach() }
@@ -72,6 +66,48 @@ final class MarkdownPenOverlayView: UIView {
             overlay.updateDisplayLink()
         }
         textView.clipsToBounds = false
+    }
+
+    /// The pen marks in a text, by their ranges.
+    nonisolated static func marks(in text: NSAttributedString) -> [Mark] {
+        var marks: [Mark] = []
+        text.enumerateAttribute(.richTextPenMark, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            guard let raw = value as? String,
+                  let decoded = MarkdownPenMarkSyntax.decodeAttributeValue(raw) else { return }
+            marks.append(Mark(range: range, mark: decoded))
+        }
+        return marks
+    }
+
+    /// Draws marks, the highlighter's (`isUnderlay`) or the rest, for text laid out by `manager`
+    /// whose layout's origin is at `origin` in `context`. On any thread; colours resolve under
+    /// the current traits.
+    nonisolated static func draw(_ marks: [Mark], isUnderlay: Bool, text: NSAttributedString, manager: NSTextLayoutManager, origin: CGPoint, in context: CGContext, alpha: (Mark) -> CGFloat = { _ in 1 }) {
+        for mark in marks where mark.mark.kind.isUnderlay == isUnderlay {
+            let opacity = alpha(mark)
+            guard opacity > 0 else { continue }
+            context.saveGState()
+            context.setAlpha(opacity * PenMarkGeometry.defaultInk(for: mark.mark.kind).opacity)
+            let ink = Self.ink(for: mark, text: text).resolvedColor(with: UITraitCollection.current).cgColor
+            for segment in segments(for: mark.range, text: text, manager: manager, origin: origin) {
+                for stroke in PenMarkGeometry.strokes(for: mark.mark, in: segment.rect, baseline: segment.baseline) {
+                    context.addPath(stroke.path)
+                    switch stroke.mode {
+                    case .fill:
+                        context.setFillColor(ink)
+                        context.fillPath()
+                    case let .stroke(width, dash, roundCap):
+                        context.setStrokeColor(ink)
+                        context.setLineWidth(width)
+                        context.setLineCap(roundCap ? .round : .butt)
+                        context.setLineJoin(.round)
+                        context.setLineDash(phase: 0, lengths: dash)
+                        context.strokePath()
+                    }
+                }
+            }
+            context.restoreGState()
+        }
     }
 
     private static func make(isUnderlay: Bool, on textView: UITextView) -> MarkdownPenOverlayView {
@@ -129,11 +165,13 @@ final class MarkdownPenOverlayView: UIView {
     }
 
     override func draw(_ rect: CGRect) {
-        guard let textView, let context = UIGraphicsGetCurrentContext() else { return }
+        guard let textView, let manager = textView.textLayoutManager, let context = UIGraphicsGetCurrentContext() else { return }
         let now = MarkdownRevealClock.now
         let fade = FlooMotion.markdownPenReveal.duration
-        for mark in marks {
-            guard isRevealed?(mark.range) ?? true else { continue }
+        let inset = textView.textContainerInset
+        let origin = CGPoint(x: inset.left + Self.overhang, y: inset.top + Self.overhang)
+        Self.draw(marks, isUnderlay: isUnderlay, text: textView.textStorage, manager: manager, origin: origin, in: context) { mark in
+            guard isRevealed?(mark.range) ?? true else { return 0 }
             let stamp: Date
             if let known = revealStamps[mark.range.location] {
                 stamp = known
@@ -143,63 +181,36 @@ final class MarkdownPenOverlayView: UIView {
                 stamp = displayLink == nil ? .distantPast : now
                 revealStamps[mark.range.location] = stamp
             }
-            let alpha = min(1, max(0, now.timeIntervalSince(stamp) / fade))
-            context.saveGState()
-            context.setAlpha(alpha * PenMarkGeometry.defaultInk(for: mark.mark.kind).opacity)
-            let ink = Self.ink(for: mark, in: textView).cgColor
-            for segment in segments(for: mark.range, in: textView) {
-                for stroke in PenMarkGeometry.strokes(for: mark.mark, in: segment.rect, baseline: segment.baseline) {
-                    context.addPath(stroke.path)
-                    switch stroke.mode {
-                    case .fill:
-                        context.setFillColor(ink)
-                        context.fillPath()
-                    case let .stroke(width, dash, roundCap):
-                        context.setStrokeColor(ink)
-                        context.setLineWidth(width)
-                        context.setLineCap(roundCap ? .round : .butt)
-                        context.setLineJoin(.round)
-                        context.setLineDash(phase: 0, lengths: dash)
-                        context.strokePath()
-                    }
-                }
-            }
-            context.restoreGState()
+            return min(1, max(0, now.timeIntervalSince(stamp) / fade))
         }
     }
 
     /// A mark's frame and baseline on each line, in this view (the text view's plus the
     /// overhang). The frame is that baseline's ascender and descender of the font, as a run's
     /// typographic bounds are: a segment's frame is the whole line box, which CJK fallback raises.
-    private func segments(for range: NSRange, in textView: UITextView) -> [(rect: CGRect, baseline: CGFloat)] {
-        guard let manager = textView.textLayoutManager,
-              let contentManager = manager.textContentManager else { return [] }
+    nonisolated private static func segments(for range: NSRange, text: NSAttributedString, manager: NSTextLayoutManager, origin: CGPoint) -> [(rect: CGRect, baseline: CGFloat)] {
+        guard let contentManager = manager.textContentManager else { return [] }
         let documentStart = contentManager.documentRange.location
         guard let start = contentManager.location(documentStart, offsetBy: range.location),
               let end = contentManager.location(documentStart, offsetBy: range.location + range.length),
               let textRange = NSTextRange(location: start, end: end) else { return [] }
-
-        let storage = textView.textStorage
-        let font = (range.location < storage.length
-            ? storage.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont
-            : nil) ?? textView.font ?? .preferredFont(forTextStyle: .body)
-        let inset = textView.textContainerInset
-        let dx = inset.left + Self.overhang
-        let dy = inset.top + Self.overhang
+        let font = (range.location < text.length
+            ? text.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont
+            : nil) ?? .preferredFont(forTextStyle: .body)
         var result: [(rect: CGRect, baseline: CGFloat)] = []
         manager.enumerateTextSegments(in: textRange, type: .standard, options: []) { segmentRange, frame, _, _ in
             guard frame.width > 1 else { return true }
             let baseline = segmentRange.flatMap { Self.baseline(at: $0.location, midY: frame.midY, in: manager) }
                 ?? (frame.minY + font.ascender)
             let rect = CGRect(x: frame.minX, y: baseline - font.ascender, width: frame.width, height: font.ascender - font.descender)
-            result.append((rect.offsetBy(dx: dx, dy: dy), baseline + dy))
+            result.append((rect.offsetBy(dx: origin.x, dy: origin.y), baseline + origin.y))
             return true
         }
         return result
     }
 
     /// The baseline of the line a location is on: the line fragment as high as the segment.
-    private static func baseline(at location: NSTextLocation, midY: CGFloat, in manager: NSTextLayoutManager) -> CGFloat? {
+    nonisolated private static func baseline(at location: NSTextLocation, midY: CGFloat, in manager: NSTextLayoutManager) -> CGFloat? {
         guard let fragment = manager.textLayoutFragment(for: location) else { return nil }
         let origin = fragment.layoutFragmentFrame.origin
         for line in fragment.textLineFragments {
@@ -212,12 +223,11 @@ final class MarkdownPenOverlayView: UIView {
     }
 
     /// A colour token as ink: `accent` the role's, `foreground` the text's own.
-    private static func ink(for mark: Mark, in textView: UITextView) -> UIColor {
+    nonisolated private static func ink(for mark: Mark, text: NSAttributedString) -> UIColor {
         let fallback = PenMarkGeometry.defaultInk(for: mark.mark.kind).token
         func foreground() -> UIColor {
-            let storage = textView.textStorage
-            guard mark.range.location < storage.length else { return .floo(.markdownText) }
-            return storage.attribute(.foregroundColor, at: mark.range.location, effectiveRange: nil) as? UIColor ?? .floo(.markdownText)
+            guard mark.range.location < text.length else { return .floo(.markdownText) }
+            return text.attribute(.foregroundColor, at: mark.range.location, effectiveRange: nil) as? UIColor ?? .floo(.markdownText)
         }
         switch mark.mark.color ?? fallback {
         case "foreground": return foreground()

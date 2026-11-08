@@ -126,8 +126,16 @@ final class MarkdownTextStack: NSObject, NSTextLayoutManagerDelegate, @unchecked
         format.opaque = false
         format.preferredRange = .standard
         let canvas = CGSize(width: (size.width + inset * 2).rounded(.up) + 1, height: (size.height + inset * 2).rounded(.up) + 1)
+        let text: NSAttributedString = storage.textStorage ?? storage.attributedString ?? NSAttributedString()
+        let marks = MarkdownPenOverlayView.marks(in: text)
+        let layoutOrigin = CGPoint(x: inset + shift, y: inset)
         let image = UIGraphicsImageRenderer(size: canvas, format: format).image { renderer in
             traits.performAsCurrent {
+                // Under the text: its own underlines, and the highlighter.
+                Self.drawDetachedUnderlines(of: text, manager: layoutManager, origin: layoutOrigin, in: renderer.cgContext)
+                if !marks.isEmpty {
+                    MarkdownPenOverlayView.draw(marks, isUnderlay: true, text: text, manager: layoutManager, origin: layoutOrigin, in: renderer.cgContext)
+                }
                 layoutManager.enumerateTextLayoutFragments(from: layoutManager.documentRange.location, options: [.ensuresLayout]) { fragment in
                     let frame = fragment.layoutFragmentFrame
                     // Down to the pixel grid, as a text view puts its fragment views.
@@ -139,9 +147,34 @@ final class MarkdownTextStack: NSObject, NSTextLayoutManagerDelegate, @unchecked
                     }
                     return true
                 }
+                // Over it: the rest of the pen.
+                if !marks.isEmpty {
+                    MarkdownPenOverlayView.draw(marks, isUnderlay: false, text: text, manager: layoutManager, origin: layoutOrigin, in: renderer.cgContext)
+                }
             }
         }
         return image.cgImage.map { MarkdownTextPicture(image: $0, scale: scale, traits: traits) }
+    }
+
+    /// An underline colour with no underline style is a bar of its own, as a text view draws it
+    /// (RichText): 2 pt, rounded, 3.5 pt below the baseline, under the glyphs.
+    private static func drawDetachedUnderlines(of text: NSAttributedString, manager: NSTextLayoutManager, origin: CGPoint, in context: CGContext) {
+        guard let contentManager = manager.textContentManager else { return }
+        text.enumerateAttribute(.underlineColor, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            guard let color = value as? UIColor, range.length > 0,
+                  text.attribute(.underlineStyle, at: range.location, effectiveRange: nil) == nil,
+                  let start = contentManager.location(contentManager.documentRange.location, offsetBy: range.location),
+                  let end = contentManager.location(start, offsetBy: range.length),
+                  let textRange = NSTextRange(location: start, end: end) else { return }
+            context.setFillColor(color.resolvedColor(with: UITraitCollection.current).cgColor)
+            manager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, rect, baseline, _ in
+                guard rect.width > 0.5 else { return true }
+                let bar = CGRect(x: rect.minX + origin.x, y: rect.minY + baseline + 3.5 + origin.y, width: rect.width, height: 2)
+                context.addPath(UIBezierPath(roundedRect: bar, cornerRadius: 1).cgPath)
+                context.fillPath()
+                return true
+            }
+        }
     }
 
     /// A link looks as its own attributes have it, as in a text view with no link attributes.
