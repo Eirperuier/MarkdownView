@@ -74,6 +74,17 @@ public final class MarkdownBlockView: UIView {
         }
     }
 
+    /// Its text as laid out, in reading order, for a selection across blocks. Text it has no
+    /// layout of yet, and what isn't text, isn't in it.
+    public var selectableTexts: [MarkdownSelectableText] {
+        switch layout {
+        case .empty, .math, .rule, .custom, .code, .fencedItem, .table: []
+        case .text(let host, _): host.selectableText.map { [$0] } ?? []
+        case .quote(let quote): quote.selectableText.map { [$0] } ?? []
+        case .footnotes(let hosts): hosts.compactMap(\.selectableText)
+        }
+    }
+
     /// The table in this block, for a host's selection and hooks.
     public var tableView: MarkdownTableView? {
         if case .table(let view) = layout { return view }
@@ -356,6 +367,10 @@ public final class MarkdownBlockView: UIView {
             self?.setNeedsLayout()
             self?.onHeightChange?()
         }
+        // A whole block is drawn now if it wasn't ahead: a formula coming in late would change
+        // its height on screen and move all below it. One still streaming can come late.
+        var style = style
+        if reveal == nil { style.rendersDisplayMathSynchronously = true }
         view.configure(latex: latex, style: style)
         addSubview(view)
         layout = .math(view)

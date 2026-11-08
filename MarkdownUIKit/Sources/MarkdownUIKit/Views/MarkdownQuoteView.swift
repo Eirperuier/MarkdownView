@@ -57,6 +57,9 @@ final class MarkdownQuoteView: UIView {
 
     var textView: UITextView { host.textView }
 
+    /// Its text as laid out, for a selection across blocks.
+    var selectableText: MarkdownSelectableText? { host.selectableText }
+
     /// Inside another block a quote is in a box of its own, which cuts a first letter's overhang.
     func clipsTextToBounds() {
         host.textView.clipsToBounds = true

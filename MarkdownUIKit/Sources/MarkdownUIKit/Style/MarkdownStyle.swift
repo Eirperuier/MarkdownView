@@ -132,6 +132,9 @@ public struct MarkdownStyle {
     /// Text that's only looked at is drawn in one view; the first touch or pointer on it gets a
     /// real text view. Off, it's always a text view.
     public var drawsTextUntilTouched = false
+    /// The host selects text itself, across blocks (`MarkdownSelectionView`): drawn text keeps
+    /// drawing when touched, and text views don't select.
+    public var selectsAcrossBlocks = false
     /// The size text resolves at; nil follows the view's traits.
     public var contentSizeCategory: UIContentSizeCategory?
     /// What a run names no font of its own in: spaces from soft breaks and the newlines between
@@ -239,6 +242,14 @@ extension MarkdownStyle {
 
     func imageRenderer(forScheme scheme: String) -> (@MainActor (MarkdownImageRequest) -> UIView)? {
         imageRenderers[scheme] ?? imageRenderers.first { $0.key.lowercased() == scheme.lowercased() }?.value
+    }
+
+    /// Where MarkdownImageLoader fetches an image written as `written`: the network's two schemes
+    /// as they are, a path from the base. Nil if a host's renderer draws it, or there's no base.
+    func fetchedImageURL(_ written: URL) -> URL? {
+        if let scheme = written.scheme, imageRenderer(forScheme: scheme) != nil { return nil }
+        if let scheme = written.scheme?.lowercased(), scheme == "http" || scheme == "https" { return written }
+        return baseURL.map { MarkdownImageSource.resolved(written, against: $0) }
     }
 
     var resolvedDefaultFont: UIFont {

@@ -170,6 +170,7 @@ final class MarkdownTextHost {
         textView.textDragDelegate = delegate
         textView.defaultForegroundColor = foregroundColor
         delegate.openLink = openLink
+        if selectsElsewhere { textView.isSelectable = false }
         return textView
     }
 
@@ -206,16 +207,23 @@ final class MarkdownTextHost {
         return plain
     }
 
-    /// Whether a paragraph wraps by an indent of its own: a list item.
+    /// Whether a paragraph wraps by an indent of its own: a list item. Its text then takes the
+    /// width of its longest line, as a SwiftUI row's does. Not with an item's second paragraph
+    /// (indented the same on every line): a SwiftUI row never had one, and narrowed to the
+    /// longest line it wraps its last word for nothing.
     nonisolated static func hasHangingIndent(_ text: NSAttributedString) -> Bool {
         var hangs = false
+        var continues = false
         text.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: text.length)) { value, _, stop in
-            if let paragraph = value as? NSParagraphStyle, paragraph.headIndent != paragraph.firstLineHeadIndent {
+            guard let paragraph = value as? NSParagraphStyle else { return }
+            if paragraph.headIndent != paragraph.firstLineHeadIndent {
                 hangs = true
+            } else if paragraph.headIndent > 0 {
+                continues = true
                 stop.pointee = true
             }
         }
-        return hangs
+        return hangs && !continues
     }
 
     /// Replaces all that shows. `reveal` goes on before the text, or its fragments would be plain.
@@ -224,7 +232,7 @@ final class MarkdownTextHost {
         prepare(text, style: style)
         if style.drawsTextUntilTouched, reveal == nil, shownTextView == nil, canDraw(text) {
             let drawn = drawn ?? MarkdownDrawnTextView()
-            drawn.onTouched = { [weak self] in self?.textView }
+            drawn.onTouched = style.selectsAcrossBlocks ? nil : { [weak self] in self?.textView }
             drawn.textShift = textShift
             if let prepared {
                 drawn.show(prepared: prepared, picture: picture, label: text.attributed.string)
@@ -289,6 +297,24 @@ final class MarkdownTextHost {
         openLink = style.openURL
         shownTextView?.defaultForegroundColor = foregroundColor
         delegate.openLink = openLink
+        selectsElsewhere = style.selectsAcrossBlocks
+        if selectsElsewhere { shownTextView?.isSelectable = false }
+    }
+
+    /// The host selects across blocks: text views here don't.
+    private var selectsElsewhere = false
+
+    /// The text as it's laid out, for a selection across blocks.
+    var selectableText: MarkdownSelectableText? {
+        if let drawn, let manager = drawn.layoutManager {
+            let overdraw = MarkdownDrawnTextView.overdraw
+            return MarkdownSelectableText(manager: manager, view: drawn, origin: CGPoint(x: overdraw + textShift, y: overdraw))
+        }
+        if let textView = shownTextView, let manager = textView.textLayoutManager {
+            let inset = textView.textContainerInset
+            return MarkdownSelectableText(manager: manager, view: textView, origin: CGPoint(x: inset.left, y: inset.top))
+        }
+        return nil
     }
 
     private func finish(_ text: MarkdownText) {

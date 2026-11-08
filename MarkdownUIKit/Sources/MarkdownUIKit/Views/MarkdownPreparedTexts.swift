@@ -11,6 +11,7 @@
 
 @_spi(MarkdownMath) import MarkdownCore
 import LaTeXCore
+import Markdown
 import UIKit
 
 /// TextKit's three objects with text in them, and the size it comes to. Made on any thread and
@@ -229,6 +230,8 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
     private var bytesInPictures = 0
     private var pending: [Request] = []
     private var pendingFormulas: [Formulas] = []
+    /// Blocks whose pictures were asked for, by their source.
+    private var imagesAsked: Set<Int> = []
     private var isWorking = false
     private var working: Key?
     private var clock: UInt64 = 0
@@ -240,6 +243,7 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
     @MainActor
     public func request(_ block: MarkdownStreamBlock, style: MarkdownStyle, width: CGFloat, traits: UITraitCollection) {
         requestFormulas(of: block, style: style, traits: traits)
+        requestImages(of: block, style: style)
         guard let job = Self.job(for: block, style: style) else { return }
         let key = Key(source: job.source, kind: job.kind, depth: job.depth, category: style.contentSizeCategory)
         lock.lock()
@@ -271,6 +275,29 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
         guard !isWorking else { return }
         isWorking = true
         queue.async { [self] in work() }
+    }
+
+    /// The pictures a block shows, fetched ahead as Telegram knows a photo's size before its row
+    /// shows: the row then has its height at once, and nothing below it moves when they come.
+    @MainActor
+    private func requestImages(of block: MarkdownStreamBlock, style: MarkdownStyle) {
+        let source = block.descriptor.sourceText
+        guard style.inlineImage == nil, source.contains("![") else { return }
+        lock.lock()
+        let isNew = imagesAsked.insert(source.hashValue).inserted
+        if imagesAsked.count > Self.capacity * 4 { imagesAsked.removeAll() }
+        lock.unlock()
+        guard isNew else { return }
+        nonisolated(unsafe) let style = style
+        DispatchQueue.global(qos: .utility).async {
+            let written = MarkdownImageSources.written(in: source)
+            guard !written.isEmpty else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    for url in written.compactMap(style.fetchedImageURL) { MarkdownImageLoader.shared.prefetch(url) }
+                }
+            }
+        }
     }
 
     private static func draw(_ formulas: Formulas) {
@@ -529,5 +556,23 @@ public final class MarkdownPreparedTexts: @unchecked Sendable {
         }
         let content = MarkdownDisplayMathView.contentHeight(image: metrics.imageSize, font: font)
         return Result(height: max(MarkdownDisplayMathHeight.reserved(for: request.key.source), content))
+    }
+}
+
+/// The images a block's markdown writes, by the URL as written.
+enum MarkdownImageSources {
+    static func written(in markdown: String) -> [URL] {
+        var walker = Walker()
+        walker.visit(Document(parsing: markdown))
+        return walker.urls
+    }
+
+    private struct Walker: MarkupWalker {
+        var urls: [URL] = []
+
+        mutating func visitImage(_ image: Markdown.Image) {
+            if let url = image.source.flatMap({ URL(string: $0) }) { urls.append(url) }
+            descendInto(image)
+        }
     }
 }

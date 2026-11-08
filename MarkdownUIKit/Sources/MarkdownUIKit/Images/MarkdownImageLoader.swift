@@ -55,6 +55,12 @@ final class MarkdownImageLoader {
         }
     }
 
+    /// Fetched ahead of a row that may show it, so the row knows its picture's height at once.
+    func prefetch(_ url: URL) {
+        guard known[url] == nil, waiting[url] == nil else { return }
+        load(url) { _ in }
+    }
+
     /// A failure is remembered, or each chunk of a stream would fetch again; a tap asks anew.
     func retry(_ url: URL, done: @escaping @MainActor (State) -> Void) {
         known[url] = nil

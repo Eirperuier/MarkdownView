@@ -407,6 +407,13 @@ final class MarkdownTableContent {
         paragraph.alignment = !isRTL ? alignment : alignment == .left ? .right : alignment == .right ? .left : alignment
         paragraph.baseWritingDirection = isRTL ? .rightToLeft : .leftToRight
         paragraph.lineBreakMode = .byWordWrapping
+        // A SwiftUI Text's lines on a phone: one line is the font's own box, and from line to line
+        // the text style's leading comes in between (17 pt body text on 22 pt lines). On a Mac
+        // its lines have none (measured against the catalogue).
+        #if !targetEnvironment(macCatalyst)
+        let traits = style.contentSizeCategory.map { UITraitCollection(preferredContentSizeCategory: $0) }
+        paragraph.lineSpacing = max(0, UIFont.preferredFont(forTextStyle: style.typography.body.textStyle, compatibleWith: traits).leading)
+        #endif
         return paragraph
     }
 

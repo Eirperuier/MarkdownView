@@ -721,11 +721,7 @@ struct MarkdownTextVisitor: MarkupVisitor {
                     return MarkdownCustomViewAttachment(id: id, view: view, source: source)
                 }
             }
-            if let scheme = written.scheme?.lowercased(), scheme == "http" || scheme == "https" {
-                url = written
-            } else if let base = style.baseURL {
-                url = MarkdownImageSource.resolved(written, against: base)
-            }
+            url = style.fetchedImageURL(written)
         }
         nonisolated(unsafe) let id = nextAttachmentID()
         nonisolated(unsafe) let shownURL = url
