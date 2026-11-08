@@ -142,7 +142,29 @@ struct ChatDestination: View {
         return TiledView(list: conversation.list, scrollPosition: $scrollPosition, cellBuilder: cell)
     }
 
+    @ViewBuilder
     private var list: some View {
+        if ChatRenderer.current == .uikit, ChatList.usesUIKit {
+            ChatUIKitList(
+                conversation: conversation,
+                reader: reader,
+                selection: selection,
+                heightCache: heightCache,
+                renderedHeights: renderedHeights,
+                benchmark: benchmark
+            )
+            // As TiledView: laid out past the top and bottom safe area, the rows inset by it.
+            .ignoresSafeArea(edges: .vertical)
+            .overlay(alignment: .topLeading) {
+                MarkdownBlockSelectionOverlay(controller: selection)
+                    .ignoresSafeArea(edges: .vertical)
+            }
+        } else {
+            swiftUIList
+        }
+    }
+
+    private var swiftUIList: some View {
         tiled
         .itemUIKitCell { [conversation, renderedHeights] row -> (any TiledUIKitCellContent)? in
             guard row.drawsInUIKit else { return nil }
@@ -250,7 +272,7 @@ struct ChatRowCell: TiledCellContent {
     }
 }
 
-private struct ChatRowView: View {
+struct ChatRowView: View {
     let row: ChatRow
     let conversation: ChatConversation
     let selection: MarkdownBlockSelectionController

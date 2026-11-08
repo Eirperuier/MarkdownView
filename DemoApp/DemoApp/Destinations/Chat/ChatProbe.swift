@@ -47,6 +47,14 @@ enum ChatProbe {
                     let selected = RichTextActiveSelection.isActive
                     try? "upgrades=\(MarkdownDrawnTextStats.upgrades) selected=\(selected) listOffset=\(reader.contentOffsetY()) tableOffset=\(tableOffset()) tableTextViews=\(tableTextViews()) codeOffset=\(codeOffset())".write(toFile: String(words[1]), atomically: true, encoding: .utf8)
                 }
+            case "geometry":
+                // Where the list is: its offset, insets and frame, to the pixel.
+                if words.count > 1, let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.windows.first }).first,
+                   let list = Self.views(in: window).compactMap({ $0 as? UICollectionView }).first {
+                    let frame = list.convert(list.bounds, to: window)
+                    let heights = (0..<list.numberOfItems(inSection: 0)).map { list.layoutAttributesForItem(at: IndexPath(item: $0, section: 0))?.frame.height ?? -1 }
+                    try? "offset=\(list.contentOffset.y) inset=\(list.adjustedContentInset) frame=\(frame) superSafe=\(list.superview?.safeAreaInsets ?? .zero) heights=\(heights)".write(toFile: String(words[1]), atomically: true, encoding: .utf8)
+                }
             case "selectall":
                 if words.count > 1 {
                     ChatTextSelection.shared.selectAll()
@@ -78,6 +86,11 @@ enum ChatProbe {
         }
         guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.windows.first }).first else { return -1 }
         return find(window)?.contentOffset.x ?? -1
+    }
+
+    /// Every view under `view`, itself first.
+    private static func views(in view: UIView) -> [UIView] {
+        [view] + view.subviews.flatMap { views(in: $0) }
     }
 
     private static func tables() -> [MarkdownTableView] {
