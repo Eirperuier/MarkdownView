@@ -7,6 +7,7 @@
 //  marks.
 //
 
+import MessagingUI
 import UIKit
 
 @MainActor
@@ -29,6 +30,8 @@ final class ChatJumpWatch: NSObject {
         guard Self.isOn, link == nil else { return }
         self.list = list
         try? "attached\n".write(toFile: path, atomically: true, encoding: .utf8)
+        try? FileManager.default.removeItem(atPath: "/tmp/md-jump-stack.log")
+        TiledCollectionViewLayout.probesJumps = true
         let link = CADisplayLink(target: self, selector: #selector(tick))
         link.add(to: .main, forMode: .common)
         self.link = link
