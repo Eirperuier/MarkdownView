@@ -84,7 +84,11 @@ final class DocSourceController {
     func text(_ block: DocBlockID) -> String { demo.doc.block(block)?.text.string ?? "" }
 
     func register(_ view: DocSourceTextView, for block: DocBlockID) {
-        views[block, default: []].removeAll { $0.view == nil || $0.view === view }
+        // A row's view taken for another block is that block's alone now.
+        for key in views.keys {
+            views[key]?.removeAll { $0.view == nil || $0.view === view }
+            if views[key]?.isEmpty == true { views[key] = nil }
+        }
         views[block, default: []].append(WeakSourceView(view: view))
         if let pending = pendingFocus, pending.block == block { focusSoon(block, at: pending.offset, reveals: pending.reveals) }
     }
@@ -936,102 +940,128 @@ struct DocRowHeightReporter: ViewModifier {
 }
 
 /// The phone's math panel: glass on the keyboard bar while a math block is edited, the
-/// page scrolled to show the block above it.
-struct DocMathKeyboardPanel: View {
-    let controller: DocSourceController
-    let demo: DocDemo
-
-    var body: some View {
-        let block = controller.editing.flatMap { demo.doc.block($0) }.flatMap { $0.kind == .math ? $0.id : nil }
-        ZStack(alignment: .bottom) {
-            if let block {
-                DocMathPanel(block: block, text: controller.text(block), controller: controller)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [controller] height in
-                        controller.revealMath(block, over: height)
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: DocTokens.Motion.revealStartScale, anchor: .bottom)))
-                    .onDisappear { DocScrolling.keyboardPanel = 0 }
-            }
-        }
-        .padding(.bottom, controller.keyboardBarHeight)
-        .animation(DocTokens.Motion.reveal, value: block)
-    }
-}
-
-/// The panel's content: the LaTeX, and the keys under it. In the anchored panel's
-/// surface beside the block (the Mac), on glass over the keyboard (a phone).
-struct DocMathPanel: View {
-    let block: DocBlockID
-    let text: String
-    let controller: DocSourceController
+/// page scrolled to show the block above it (DocMathPanelView on glass). Laid over the page,
+/// it stands on the keyboard's bar.
+@MainActor
+final class DocMathKeyboardPanel: UIView {
+    private let controller: DocSourceController
+    private let demo: DocDemo
+    private let glass = FlooGlassView(shape: .rounded(DocTokens.Radius.xxl))
+    private var panel: DocMathPanelView?
+    private var block: DocBlockID?
+    private var bottom: NSLayoutConstraint?
+    private var reported: CGFloat?
 
     private typealias Tokens = DocTokens
 
-    /// As wide as a formula line wants, within the window.
-    private var width: CGFloat {
-        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.bounds.width ?? 480
-        return min(460, window - 48)
+    init(controller: DocSourceController, demo: DocDemo) {
+        self.controller = controller
+        self.demo = demo
+        super.init(frame: .zero)
+        follow()
     }
 
-    var body: some View {
-        if DocDevice.isMac {
-            DocPanelSurface { content }
-                .docPanelWidth(width)
-        } else {
-            content
-                .padding(Tokens.Space.sm)
-                .flooGlass(in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
-                .padding(.horizontal, Tokens.Space.md)
-                .padding(.bottom, Tokens.Space.sm)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        guard let superview else { return }
+        translatesAutoresizingMaskIntoConstraints = false
+        let bottom = bottomAnchor.constraint(equalTo: superview.keyboardLayoutGuide.topAnchor, constant: -controller.keyboardBarHeight)
+        self.bottom = bottom
+        // No panel: no height.
+        let empty = heightAnchor.constraint(equalToConstant: 0)
+        empty.priority = .defaultLow
+        NSLayoutConstraint.activate([
+            empty,
+            leadingAnchor.constraint(equalTo: superview.leadingAnchor),
+            trailingAnchor.constraint(equalTo: superview.trailingAnchor),
+            bottom,
+        ])
+    }
+
+    private func follow() {
+        withObservationTracking {
+            show()
+        } onChange: { [weak self] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.follow() } }
         }
     }
 
-    /// The LaTeX's font: the body text's size, monospaced.
-    private static let latexFont = UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
-
-    private var content: some View {
-        VStack(spacing: Tokens.Space.sm) {
-            DocSourceField(block: block, text: text, controller: controller, font: Self.latexFont,
-                           insets: UIEdgeInsets(top: Tokens.Space.sm, left: Tokens.Space.sm, bottom: Tokens.Space.sm, right: Tokens.Space.sm))
-                .background(Tokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
-            // Keys sharing the row's width: a titled button's least width and padding would run
-            // past the panel with this many.
-            HStack(spacing: Tokens.Space.sm) {
-                ForEach(DocMathKey.keys) { key in
-                    Button { controller.insert(key.snippet, caret: key.caret, in: block) } label: {
-                        keyLabel(Text(verbatim: key.title).lineLimit(1).minimumScaleFactor(0.7))
-                    }
-                    .buttonStyle(keyStyle)
-                    .accessibilityLabel(key.name)
-                }
-                Menu {
-                    ForEach(DocMathKey.symbols, id: \.self) { section in
-                        Section {
-                            ForEach(section) { key in
-                                Button("\(key.title)   \(key.snippet)") { controller.insert(key.snippet, in: block) }
-                            }
-                        }
-                    }
-                } label: {
-                    keyLabel(Image(systemName: "ellipsis"))
-                }
-                .menuStyle(.button)
-                .buttonStyle(keyStyle)
-                .accessibilityLabel("More Symbols")
-            }
+    private func show() {
+        let block = controller.editing.flatMap { demo.doc.block($0) }.flatMap { $0.kind == .math ? $0.id : nil }
+        bottom?.constant = -controller.keyboardBarHeight
+        if let block, block == self.block {
+            panel?.show(controller.text(block))
+            return
+        }
+        let leaving = glass.superview == nil ? nil : glass
+        self.block = block
+        if let leaving {
+            panel = nil
+            reported = nil
+            DocScrolling.keyboardPanel = 0
+            FlooMotion.disappear.animate({ leaving.alpha = 0; leaving.transform = self.shrunk }, completion: { _ in
+                guard self.block == nil else { return }
+                leaving.removeFromSuperview()
+                leaving.transform = .identity
+                leaving.contentView.subviews.forEach { $0.removeFromSuperview() }
+            })
+        }
+        guard let block else { return }
+        let panel = DocMathPanelView(block: block, controller: controller)
+        self.panel = panel
+        glass.contentView.subviews.forEach { $0.removeFromSuperview() }
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        glass.contentView.addSubview(panel)
+        if glass.superview == nil {
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(glass)
+            NSLayoutConstraint.activate([
+                glass.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Tokens.Space.md),
+                glass.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Tokens.Space.md),
+                glass.topAnchor.constraint(equalTo: topAnchor),
+                glass.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Tokens.Space.sm),
+            ])
+        }
+        NSLayoutConstraint.activate([
+            panel.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: Tokens.Space.sm),
+            panel.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -Tokens.Space.sm),
+            panel.topAnchor.constraint(equalTo: glass.contentView.topAnchor, constant: Tokens.Space.sm),
+            panel.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -Tokens.Space.sm),
+        ])
+        glass.layer.removeAllAnimations()
+        glass.alpha = 0
+        glass.transform = shrunk
+        superview?.layoutIfNeeded()
+        FlooMotion.appear.animate { [glass] in
+            glass.alpha = 1
+            glass.transform = .identity
         }
     }
 
-    private static let keyMetrics = FlooButtonMetrics.of(.medium)
-
-    private var keyStyle: FlooContentButtonStyle<RoundedRectangle> {
-        .flooContent(in: RoundedRectangle(cornerRadius: Self.keyMetrics.cornerRadius, style: .continuous), surface: .control)
+    /// Smaller about its foot, as it comes and goes.
+    private var shrunk: CGAffineTransform {
+        let scale = Tokens.Motion.revealStartScale
+        let height = bounds.height
+        return CGAffineTransform(translationX: 0, y: height * (1 - scale) / 2).scaledBy(x: scale, y: scale)
     }
 
-    private func keyLabel(_ content: some View) -> some View {
-        content
-            .font(.system(size: Self.keyMetrics.fontSize, weight: .medium))
-            .frame(maxWidth: .infinity, minHeight: Self.keyMetrics.height)
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // The page shows the block above it.
+        guard let block, panel != nil, bounds.height > 0, reported != bounds.height else { return }
+        reported = bounds.height
+        controller.revealMath(block, over: bounds.height)
+    }
+
+    /// Only the panel takes touches; the page beside it its own.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        return hit === self ? nil : hit
     }
 }
 

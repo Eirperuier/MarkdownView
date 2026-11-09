@@ -10,8 +10,10 @@
 //
 
 import FlooUIKit
+import Observation
 import SwiftUI
 import DocKit
+import UIKit
 
 /// A command in the menu: one that acts on the caret's block, or a group whose commands
 /// take the menu's place (Craft's).
@@ -420,34 +422,95 @@ extension DocEditor {
     }
 }
 
-/// The command menu on the page (FlooDesign's menu): over the caret's line, under it
-/// when there's no room above, where it opened. It comes and goes with the reveal's
-/// motion.
-struct DocSlashMenuView: View {
-    let menu: DocSlashMenu
+/// The command menu on the page (floo's menu): over the caret's line, under it when there's
+/// no room above, where it opened. It comes and goes with the reveal's motion. Laid over the
+/// list, its frame the list's (the menu's frame is in it).
+@MainActor
+final class DocSlashMenuView: UIView {
+    private let menu: DocSlashMenu
+    private let list = DocSlashList()
+    private var shownOpen = false
+    private var shownFrame = CGRect.null
 
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            if menu.isOpen {
-                // A tap anywhere but the menu closes it (and does nothing else).
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { menu.dismiss() }
+    init(menu: DocSlashMenu) {
+        self.menu = menu
+        super.init(frame: .zero)
+        list.alpha = 0
+        list.isHidden = true
+        addSubview(list)
+        // A tap anywhere but the menu closes it (and does nothing else).
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tappedOutside)))
+        list.choose = { [weak self] item in self?.menu.choose(item) }
+        list.back = { [weak self] in self?.menu.back() }
+        list.hover = { [weak self] index in self?.menu.highlighted = index }
+        follow()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func follow() {
+        withObservationTracking {
+            show()
+        } onChange: { [weak self] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.follow() } }
+        }
+    }
+
+    private func show() {
+        let isOpen = menu.isOpen
+        let frame = menu.frame
+        list.show(items: menu.items, group: menu.group, highlighted: menu.highlighted)
+        guard !frame.isNull else {
+            list.isHidden = true
+            shownFrame = frame
+            shownOpen = isOpen
+            return
+        }
+        list.isHidden = false
+        // A new size (a level, a query) about the caret's side.
+        let opens = isOpen && !shownOpen
+        if frame != shownFrame {
+            let moves = !shownFrame.isNull && !opens && window != nil
+            shownFrame = frame
+            let place = { [list] in
+                list.bounds = CGRect(origin: .zero, size: frame.size)
+                list.center = CGPoint(x: frame.midX, y: frame.midY)
             }
-            if !menu.frame.isNull {
-                DocSlashList(menu: menu)
-                    .frame(width: menu.frame.width, height: menu.frame.height)
-                    .scaleEffect(menu.isOpen ? 1 : DocTokens.Motion.revealStartScale,
-                                 anchor: menu.frame.minY >= menu.anchor.maxY ? .topLeading : .bottomLeading)
-                    .opacity(menu.isOpen ? 1 : 0)
-                    .allowsHitTesting(menu.isOpen)
-                    .animation(DocTokens.Motion.reveal, value: menu.isOpen)
-                    .offset(x: menu.frame.minX, y: menu.frame.minY)
-                    // A new size (a level, a query) about the caret's side.
-                    .animation(DocTokens.Motion.step, value: menu.frame)
+            if moves { FlooMotion.floatingResize.animate(place) } else { UIView.performWithoutAnimation(place) }
+        }
+        guard isOpen != shownOpen else { return }
+        shownOpen = isOpen
+        // From the caret's side: its corner by the line stays as it grows in.
+        let above = frame.minY < menu.anchor.maxY
+        let scale = DocTokens.Motion.revealStartScale
+        let shrunk = CGAffineTransform(translationX: -frame.width * (1 - scale) / 2, y: (above ? 1 : -1) * frame.height * (1 - scale) / 2)
+            .scaledBy(x: scale, y: scale)
+        list.isUserInteractionEnabled = isOpen
+        if isOpen {
+            list.transform = shrunk
+            FlooMotion.appear.animate { [list] in
+                list.alpha = 1
+                list.transform = .identity
+            }
+        } else {
+            FlooMotion.appear.animate { [list] in
+                list.alpha = 0
+                list.transform = shrunk
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @objc private func tappedOutside() {
+        menu.dismiss()
+    }
+
+    /// Open, it takes every touch (the menu's, or one that closes it); closed, none.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard menu.isOpen else { return nil }
+        return super.hitTest(point, with: event) ?? self
     }
 }
 
@@ -492,84 +555,183 @@ enum DocSlashPlacement {
 }
 
 /// The menu's glass and its rows; a group's title over its own, with the way back.
-private struct DocSlashList: View {
-    let menu: DocSlashMenu
+@MainActor
+private final class DocSlashList: UIView {
     private typealias Placement = DocSlashPlacement
+    var choose: (DocCommand) -> Void = { _ in }
+    var back: () -> Void = {}
+    var hover: (Int) -> Void = { _ in }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            if let group = menu.group {
-                Button { menu.back() } label: {
-                    Label(group.title, systemImage: "chevron.left")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity, minHeight: Placement.row, alignment: .leading)
-                        .padding(.horizontal, Placement.inset)
-                }
-                .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Placement.corner - Placement.inset, style: .continuous)))
-                .padding([.top, .horizontal], Placement.inset)
+    private let glass = FlooGlassView(shape: .rounded(Placement.corner))
+    private let title = DocSlashRow()
+    private let scroller = UIScrollView()
+    private var rows: [DocSlashRow] = []
+    private var items: [DocCommand] = []
+    private var group: DocCommand?
+    private var highlighted = -1
+
+    init() {
+        super.init(frame: .zero)
+        addSubview(glass)
+        scroller.showsVerticalScrollIndicator = false
+        scroller.showsHorizontalScrollIndicator = false
+        glass.contentView.addSubview(scroller)
+        glass.contentView.addSubview(title)
+        title.tapped = { [weak self] in self?.back() }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show(items: [DocCommand], group: DocCommand?, highlighted: Int) {
+        let opened = group?.id != self.group?.id || items.map(\.id) != self.items.map(\.id)
+        self.group = group
+        if let group { title.showTitle(group.title) }
+        title.isHidden = group == nil
+        if opened {
+            self.items = items
+            rows.forEach { $0.removeFromSuperview() }
+            rows = items.enumerated().map { index, item in
+                let row = DocSlashRow()
+                row.show(item)
+                row.tapped = { [weak self] in self?.choose(item) }
+                row.hovered = { [weak self] in self?.hover(index) }
+                scroller.addSubview(row)
+                return row
             }
-            ScrollViewReader { scroller in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(Array(menu.items.enumerated()), id: \.element.id) { index, item in
-                            DocSlashRow(command: item, isHighlighted: index == menu.highlighted)
-                                .id(item.id)
-                                .onTapGesture { menu.choose(item) }
-                                .onHover { if $0 { menu.highlighted = index } }
-                        }
-                    }
-                    .padding(Placement.inset)
-                }
-                .scrollIndicators(.hidden)
-                // A level back at its top opens at the row it was opened from.
-                .onAppear {
-                    guard menu.items.indices.contains(menu.highlighted), menu.highlighted > 0 else { return }
-                    DispatchQueue.main.async { scroller.scrollTo(menu.items[menu.highlighted].id) }
-                }
-                .onChange(of: menu.highlighted) {
-                    if menu.items.indices.contains(menu.highlighted) { scroller.scrollTo(menu.items[menu.highlighted].id) }
-                }
-            }
-            .id(menu.group?.id)
+            self.highlighted = -1
+            setNeedsLayout()
+            layoutIfNeeded()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .flooGlass(in: RoundedRectangle(cornerRadius: Placement.corner, style: .continuous))
+        guard highlighted != self.highlighted || opened else { return }
+        self.highlighted = highlighted
+        for (index, row) in rows.enumerated() { row.isHighlighted = index == highlighted }
+        // The highlighted row in sight; a level opened at the row it was opened from.
+        if rows.indices.contains(highlighted), opened ? highlighted > 0 : true {
+            scroller.scrollRectToVisible(rows[highlighted].frame.insetBy(dx: 0, dy: -Placement.inset), animated: !opened)
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        glass.frame = bounds
+        var top: CGFloat = 0
+        if group != nil {
+            title.frame = CGRect(x: Placement.inset, y: Placement.inset, width: bounds.width - 2 * Placement.inset, height: Placement.row)
+            top = Placement.inset + Placement.row
+        }
+        scroller.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
+        for (index, row) in rows.enumerated() {
+            row.frame = CGRect(x: Placement.inset, y: Placement.inset + CGFloat(index) * Placement.row, width: bounds.width - 2 * Placement.inset, height: Placement.row)
+        }
+        scroller.contentSize = CGSize(width: bounds.width, height: CGFloat(rows.count) * Placement.row + 2 * Placement.inset)
     }
 }
 
-private struct DocSlashRow: View {
-    let command: DocCommand
-    let isHighlighted: Bool
+/// A command: its icon, its title, a chevron for a group; the highlighted one on a fill.
+/// A group's title over its commands is one too, its chevron the way back.
+@MainActor
+private final class DocSlashRow: UIView {
     private typealias Placement = DocSlashPlacement
+    var tapped: () -> Void = {}
+    var hovered: () -> Void = {}
+    private let fill = UIView()
+    private let icon = UIImageView()
+    private let swatch = UIView()
+    private let label = UILabel()
+    private let chevron = UIImageView()
+    private var isTitle = false
 
-    var body: some View {
-        HStack(spacing: DocTokens.Space.sm) {
-            icon.frame(width: 22)
-            Text(command.title)
-                .font(.body)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            if command.isGroup {
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
-            }
-        }
-        .foregroundStyle(DocTokens.ColorRole.Content.primary)
-        .padding(.horizontal, Placement.inset)
-        .frame(height: Placement.row)
-        .contentShape(Rectangle())
-        .background(isHighlighted ? DocTokens.ColorRole.Surface.pressed : .clear,
-                    in: RoundedRectangle(cornerRadius: Placement.corner - Placement.inset, style: .continuous))
+    var isHighlighted = false {
+        didSet { fill.isHidden = !isHighlighted }
     }
 
-    @ViewBuilder private var icon: some View {
-        if let swatch = command.swatch {
-            Circle().fill(DocColors.swatch(swatch)).frame(width: 14, height: 14)
-        } else if let glyph = DocBlockIcon.Glyph.of(command) {
-            DocBlockIcon(glyph: glyph)
+    init() {
+        super.init(frame: .zero)
+        fill.backgroundColor = .floo(.markdownBlockPressed)
+        fill.layer.cornerRadius = Placement.corner - Placement.inset
+        fill.layer.cornerCurve = .continuous
+        fill.isHidden = true
+        addSubview(fill)
+        icon.contentMode = .center
+        icon.tintColor = .floo(.label)
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: .body)
+        addSubview(icon)
+        swatch.layer.cornerRadius = 7
+        swatch.isHidden = true
+        addSubview(swatch)
+        label.font = .preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .floo(.label)
+        addSubview(label)
+        chevron.tintColor = .floo(.disabledLabel)
+        chevron.contentMode = .center
+        chevron.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: .footnote, scale: .default)
+            .applying(UIImage.SymbolConfiguration(weight: .semibold))
+        addSubview(chevron)
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tap)))
+        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hover(_:))))
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show(_ command: DocCommand) {
+        isTitle = false
+        label.text = command.title
+        label.font = .preferredFont(forTextStyle: .body)
+        accessibilityLabel = command.title
+        if let token = command.swatch {
+            swatch.isHidden = false
+            swatch.backgroundColor = DocColors.ink(token) ?? .floo(.label)
+            icon.image = nil
         } else {
-            Image(systemName: command.symbol)
+            swatch.isHidden = true
+            icon.image = DocBlockIcon.Glyph.of(command).map(DocBlockIcon.image) ?? UIImage(systemName: command.symbol)
         }
+        chevron.image = command.isGroup ? UIImage(systemName: "chevron.right") : nil
+        setNeedsLayout()
+    }
+
+    /// A group's title, a press back.
+    func showTitle(_ title: String) {
+        isTitle = true
+        label.text = title
+        label.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .semibold))
+        accessibilityLabel = title
+        swatch.isHidden = true
+        icon.image = UIImage(systemName: "chevron.left")
+        chevron.image = nil
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        fill.frame = bounds
+        let inset = Placement.inset
+        if isTitle {
+            // A label with its symbol, as the system lays one out.
+            icon.frame = CGRect(x: inset, y: 0, width: 22, height: bounds.height)
+            label.frame = CGRect(x: icon.frame.maxX + DocTokens.Space.xs, y: 0, width: max(0, bounds.width - icon.frame.maxX - DocTokens.Space.xs - inset), height: bounds.height)
+            return
+        }
+        icon.frame = CGRect(x: inset, y: 0, width: 22, height: bounds.height)
+        swatch.frame = CGRect(x: icon.frame.midX - 7, y: bounds.midY - 7, width: 14, height: 14)
+        let chevronWidth: CGFloat = chevron.image == nil ? 0 : 12
+        chevron.frame = CGRect(x: bounds.width - inset - chevronWidth, y: 0, width: chevronWidth, height: bounds.height)
+        let x = icon.frame.maxX + DocTokens.Space.sm
+        label.frame = CGRect(x: x, y: 0, width: max(0, chevron.frame.minX - x - (chevronWidth > 0 ? DocTokens.Space.sm : 0)), height: bounds.height)
+    }
+
+    @objc private func tap() { tapped() }
+
+    @objc private func hover(_ recognizer: UIHoverGestureRecognizer) {
+        if recognizer.state == .began, !isTitle { hovered() }
     }
 }

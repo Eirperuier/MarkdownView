@@ -1392,8 +1392,15 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         if DocTokens.Motion.layout != nil {
             overlaysMoveUntil = CACurrentMediaTime() + DocTokens.Motion.layoutSpring.settlingDuration
         }
+        // The list takes the change's rows with the layout motion: they come to it on the
+        // next turn of the run loop, and the motion is for those alone.
+        rowsAnimation = DocTokens.Motion.layout
         withAnimation(DocTokens.Motion.layout) { change() }
+        DispatchQueue.main.async { [weak self] in self?.rowsAnimation = nil }
     }
+
+    /// The motion the rows changing now come with (a reshape's), for the list.
+    @ObservationIgnored private(set) var rowsAnimation: Animation?
 
     /// Until when the overlays move to their places in the layout motion (a reshape).
     @ObservationIgnored private var overlaysMoveUntil: CFTimeInterval = 0
@@ -1968,22 +1975,6 @@ final class DocBlockKeyView: UIView {
     @objc private func extendDown() { controller?.step(1, extending: true) }
     @objc private func indent() { controller?.indentSelection(by: 1) }
     @objc private func outdent() { controller?.indentSelection(by: -1) }
-}
-
-/// Keeps the selection's panels (DocBlockSelectionPanel) to the page while it's on screen.
-struct DocBlockSelectionBar: View {
-    let blocks: DocBlockController
-    @Environment(\.flooTheme) private var theme
-
-    var body: some View {
-        Color.clear
-            .frame(height: 0)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .onAppear { blocks.selectionPanel.start() }
-            .onDisappear { blocks.selectionPanel.stop() }
-            .onChange(of: theme, initial: true) { blocks.selectionPanel.theme = theme }
-    }
 }
 
 extension DocLayout {

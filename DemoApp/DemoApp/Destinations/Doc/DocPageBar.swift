@@ -3,15 +3,14 @@
 //  DemoApp
 //
 //  What a page puts in the system's navigation bar, as UIKit has it: its items on the page's
-//  navigationItem, under floo's theme (`setFlooTheme`). The page itself is SwiftUI's still,
-//  so a controller in it reaches the item.
+//  navigationItem (the controller of it in the navigation stack), under floo's theme.
 //
 
 import FlooUIKit
-import SwiftUI
 import UIKit
 
-struct DocPageBar: UIViewControllerRepresentable {
+@MainActor
+final class DocPageBarItems {
     enum Mode: Equatable {
         /// A page shown, not edited: only what closes it.
         case shown
@@ -22,132 +21,75 @@ struct DocPageBar: UIViewControllerRepresentable {
         case editing
     }
 
-    var mode: Mode
-    var canUndo: Bool
-    var canRedo: Bool
-    var isFormatOn: Bool
-    /// What the agent is doing, under the title.
-    var agentStatus: String?
-    /// The pages it's in, under the title, each a way back to it.
-    var path: [String]
-    /// The demo's own controls.
-    var demoSections: [FlooMenuSection]
-    var actions: Actions
-
-    struct Actions {
-        var undo: @MainActor () -> Void
-        var redo: @MainActor () -> Void
-        var format: @MainActor () -> Void
-        var done: @MainActor () -> Void
-        var stop: @MainActor () -> Void
-        var close: @MainActor () -> Void
-        var back: @MainActor (Int) -> Void
+    struct State: Equatable {
+        var mode: Mode
+        var canUndo: Bool
+        var canRedo: Bool
+        var isFormatOn: Bool
+        /// What the agent is doing, under the title.
+        var agentStatus: String?
+        /// The pages it's in, under the title, each a way back to it.
+        var path: [String]
+        /// The demo's own controls.
+        var hasDemo: Bool
     }
 
-    func makeUIViewController(context: Context) -> DocPageBarController { DocPageBarController() }
-
-    func updateUIViewController(_ controller: DocPageBarController, context: Context) {
-        controller.bar = self
-        controller.theme = context.environment.flooTheme
-        controller.apply()
-    }
-}
-
-final class DocPageBarController: UIViewController {
-    var bar: DocPageBar?
-    var theme: FlooTheme?
-    private var appliedTheme: FlooTheme?
-    private var shownMode: DocPageBar.Mode?
-    private var shownPath: [String]?
-    private var shownHasDemo: Bool?
+    private weak var controller: DocPageController?
+    private var shown: State?
 
     private lazy var undoItem = UIBarButtonItem(title: String(localized: "Undo"), image: UIImage(systemName: "arrow.uturn.backward"), primaryAction: UIAction { [weak self] _ in
-        self?.bar?.actions.undo()
+        self?.controller?.undo()
     })
     private lazy var redoItem = UIBarButtonItem(title: String(localized: "Redo"), image: UIImage(systemName: "arrow.uturn.forward"), primaryAction: UIAction { [weak self] _ in
-        self?.bar?.actions.redo()
+        self?.controller?.redo()
     })
     private lazy var formatItem = UIBarButtonItem(title: String(localized: "Format"), image: UIImage(systemName: "textformat"), primaryAction: UIAction { [weak self] _ in
-        self?.bar?.actions.format()
+        self?.controller?.toggleFormat()
     })
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.isUserInteractionEnabled = false
+    init(controller: DocPageController) {
+        self.controller = controller
     }
 
-    override func didMove(toParent parent: UIViewController?) {
-        super.didMove(toParent: parent)
-        forget()
-        apply()
-    }
-
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        forget()
-        apply()
-    }
-
-    private func forget() {
-        shownMode = nil
-        appliedTheme = nil
-    }
-
-    /// The controller whose item the bar shows for this page.
-    private var navigationPage: UIViewController? {
-        var controller: UIViewController? = self
-        while let current = controller {
-            if current.parent is UINavigationController { return current }
-            controller = current.parent
-        }
-        return nil
-    }
-
-    func apply() {
-        guard let bar, let item = navigationPage?.navigationItem else { return }
-        if let theme, theme != appliedTheme {
-            appliedTheme = theme
-            setFlooTheme(theme, animated: false)
-        }
+    func apply(_ state: State) {
+        guard let controller, let item = controller.navigationPage?.navigationItem else { return }
+        let old = shown
+        shown = state
         // Only what changed: on the Mac each set goes through the window's toolbar again.
-        if undoItem.isEnabled != bar.canUndo { undoItem.isEnabled = bar.canUndo }
-        if redoItem.isEnabled != bar.canRedo { redoItem.isEnabled = bar.canRedo }
-        if formatItem.isSelected != bar.isFormatOn { formatItem.isSelected = bar.isFormatOn }
-        let hasDemo = !bar.demoSections.isEmpty
-        if shownMode != bar.mode || shownHasDemo != hasDemo {
-            shownMode = bar.mode
-            shownHasDemo = hasDemo
-            item.trailingItemGroups = groups(for: bar)
+        if undoItem.isEnabled != state.canUndo { undoItem.isEnabled = state.canUndo }
+        if redoItem.isEnabled != state.canRedo { redoItem.isEnabled = state.canRedo }
+        if formatItem.isSelected != state.isFormatOn { formatItem.isSelected = state.isFormatOn }
+        if old?.mode != state.mode || old?.hasDemo != state.hasDemo {
+            item.trailingItemGroups = groups(for: state)
         }
         if #available(iOS 26, macCatalyst 26, *) {
-            let subtitle = bar.agentStatus.map { String(localized: "Agent · \($0)") }
+            let subtitle = state.agentStatus.map { String(localized: "Agent · \($0)") }
             if item.subtitle != subtitle { item.subtitle = subtitle }
-            if shownPath != bar.path {
-                shownPath = bar.path
-                item.subtitleView = bar.path.isEmpty ? nil : pathView(bar.path)
+            if old?.path != state.path {
+                item.subtitleView = state.path.isEmpty ? nil : pathView(state.path)
             }
         }
     }
 
-    private func groups(for bar: DocPageBar) -> [UIBarButtonItemGroup] {
+    private func groups(for state: State) -> [UIBarButtonItemGroup] {
         func one(_ item: UIBarButtonItem) -> [UIBarButtonItemGroup] {
             [UIBarButtonItemGroup(barButtonItems: [item], representativeItem: nil)]
         }
-        switch bar.mode {
+        switch state.mode {
         case .shown:
-            return one(UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak self] _ in self?.bar?.actions.close() }))
+            return one(UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak self] _ in self?.controller?.close() }))
         case .selecting:
-            return one(UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in self?.bar?.actions.done() }))
+            return one(UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in self?.controller?.endSelecting() }))
         case .agent:
-            return one(UIBarButtonItem(title: String(localized: "Stop"), primaryAction: UIAction { [weak self] _ in self?.bar?.actions.stop() }))
+            return one(UIBarButtonItem(title: String(localized: "Stop"), primaryAction: UIAction { [weak self] _ in self?.controller?.stopAgent() }))
         case .editing:
             var editing = [undoItem, redoItem]
             #if targetEnvironment(macCatalyst)
             editing.append(formatItem)
             #endif
             var groups = [UIBarButtonItemGroup(barButtonItems: editing, representativeItem: nil)]
-            if !bar.demoSections.isEmpty {
-                let more = UIBarButtonItem(title: String(localized: "More"), image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: bar.demoSections.systemElements()))
+            if state.hasDemo, let sections = controller?.demoSections {
+                let more = UIBarButtonItem(title: String(localized: "More"), image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: sections.systemElements()))
                 groups.append(UIBarButtonItemGroup(barButtonItems: [more], representativeItem: nil))
             }
             return groups
@@ -167,7 +109,7 @@ final class DocPageBarController: UIViewController {
                 stack.addArrangedSubview(chevron)
             }
             stack.addArrangedSubview(FlooButton(FlooButtonStyle.plain.size(.small), title: title) { [weak self] in
-                self?.bar?.actions.back(index)
+                self?.controller?.back(to: index)
             })
         }
         return stack

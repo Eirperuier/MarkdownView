@@ -103,7 +103,8 @@ struct DocRow: Identifiable, Equatable {
     var indent = 0
     /// Its block's typeface (a text block's; a table's goes to its cells).
     var font: Typeface?
-    private let source: String
+    /// Its markdown, or its text's plain words: what it shows.
+    let source: String
     private let depth: Int?
 
     init(id: String, block: DocBlockID?, blocks: [MarkdownStreamBlock] = [], text: DocTextRow? = nil, tree: MarkdownTree? = nil,
@@ -141,7 +142,12 @@ struct DocRow: Identifiable, Equatable {
 @Observable
 final class DocDemo {
     private(set) var doc: Doc
-    private(set) var rows: [DocRow] = []
+    private(set) var rows: [DocRow] = [] {
+        didSet { onRows?() }
+    }
+    /// The rows changed: the list takes them at once, in the change's own turn (a reshape's
+    /// motion with them).
+    @ObservationIgnored var onRows: (() -> Void)?
     /// What the agent is doing, shown in the bar; nil when idle.
     private(set) var agentStatus: String?
     /// A row the view should bring on screen (the agent's next change).

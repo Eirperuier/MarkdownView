@@ -554,6 +554,15 @@ final class DocFormulaPlaceholderView: UIView {
         if first { change() } else { (isShown ? FlooMotion.appear : FlooMotion.disappear).animate(change) }
     }
 
+    /// In a table of its own (the phone's formula page) it's the cell: the room of what the
+    /// cell shows, unconstrained its words' width; a line tall.
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let font = value.font ?? .preferredFont(forTextStyle: .body)
+        let natural = ceil(((value.text ?? "") as NSString).size(withAttributes: [.font: font]).width) + 2
+        let scale = max(1, traitCollection.displayScale)
+        return CGSize(width: size.width > 100_000 ? natural : size.width, height: (font.lineHeight * scale).rounded(.up) / scale)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         value.frame = CGRect(x: 0, y: 0, width: bounds.width, height: value.font.lineHeight.rounded(.up))

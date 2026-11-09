@@ -285,12 +285,6 @@ final class DocKeyboardBarStage: UIView {
     }
 }
 
-struct DocKeyboardBarHost: UIViewRepresentable {
-    let stage: DocKeyboardBarStage
-    func makeUIView(context: Context) -> DocKeyboardBarStage { stage }
-    func updateUIView(_ view: DocKeyboardBarStage, context: Context) {}
-}
-
 extension DocEditor {
     /// The bar's insert: an empty line becomes the block; otherwise a new block goes
     /// after this one, the cursor in it.

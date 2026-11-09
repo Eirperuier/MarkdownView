@@ -31,6 +31,7 @@ import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
+import MarkdownUIKit
 import MarkdownView
 
 /// A formula being written: its cell, its text (without its "=") and the caret.
@@ -80,8 +81,6 @@ final class DocFormulaEditing: Identifiable {
     }
 
     /// A reference's colour, by its place among them.
-    static func color(_ index: Int) -> Color { Color(uiColor: uiColor(index)) }
-
     static func uiColor(_ index: Int) -> UIColor {
         let tokens = ["purple", "green", "blue", "orange", "red", "cyan", "brown"]
         return DocColors.ink(tokens[index % tokens.count]) ?? .floo(.secondaryLabel)
@@ -208,92 +207,136 @@ extension DocTableController {
 
 // MARK: The formula's page
 
-/// The table on a page of its own, the formula's field and keys above the keyboard.
-struct DocFormulaView: View {
+/// The phone's: the table on a page of its own, the formula's field and keys above the
+/// keyboard. Presented over the document, its colour coming as the table leaves the page
+/// and going as the table flies back, the document fading in round it (its own table stays
+/// hidden till this page is gone, so it's the one flying that lands there).
+@MainActor
+final class DocFormulaController: UIViewController {
     let formula: DocFormulaEditing
-    let controller: DocTableController
-    /// The page's colour over the document: it comes as the table leaves the page, and
-    /// goes as the table flies back, the document fading in round it (its own table stays
-    /// hidden till this page is gone, so it's the one flying that lands there).
-    @State private var covers = false
-    /// Where the cell is here and was on the page (the window's space): the table flies
-    /// between them.
-    @State private var landing: CGRect?
-    @State private var flight: CGSize = .zero
+    private let controller: DocTableController
+    private let scroller = UIScrollView()
+    private let table = MarkdownUIKit.MarkdownTableView()
+    private let placeholder = DocFormulaPlaceholderView()
+    private lazy var doneButton = FlooButton(.primary, title: String(localized: "Done")) { [weak self] in self?.done() }
+    private let panel = FlooGlassView(shape: .rounded(DocTokens.Radius.xxl))
+    /// Where the table landed here, in the window: it flies between there and the page.
+    private var landing: CGRect?
 
     private typealias Tokens = DocTokens
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Button(String(localized: "Done"), action: done)
-                    .buttonStyle(.floo(.primary))
-            }
-            .padding(.horizontal, Tokens.Space.lg)
-            .padding(.vertical, Tokens.Space.sm)
-            .opacity(formula.isShown ? 1 : 0)
-            ScrollView(.vertical) {
-                // As wide as on the page, moved right by the rows' numbers (Craft's): what
-                // that leaves out on the right is its last column's room, and a table wider
-                // than the page scrolls as it does there.
-                table
-                    .frame(width: controller.tableFrames[formula.key.block]?.width)
-                    .padding(.leading, DocFormulaDecoration.leadingRoom)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, Tokens.Space.lg + DocFormulaDecoration.gutterHeight + DocFormulaDecoration.gap)
-                    .padding(.bottom, Tokens.Space.lg)
-                    .offset(flight)
-                    .opacity(landing == nil ? 0 : 1)
-            }
-            .scrollDismissesKeyboard(.never)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Tokens.ColorRole.Surface.canvas.opacity(covers ? 1 : 0).ignoresSafeArea())
-        .safeAreaInset(edge: .bottom) {
-            DocFormulaPanel(formula: formula, done: done)
-                .opacity(formula.isShown ? 1 : 0)
-                .scaleEffect(formula.isShown ? 1 : Tokens.Motion.revealStartScale, anchor: .bottom)
-        }
-        .presentationBackground(.clear)
+    init(formula: DocFormulaEditing, controller: DocTableController) {
+        self.formula = formula
+        self.controller = controller
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .overFullScreen
+        modalTransitionStyle = .crossDissolve
     }
 
-    @ViewBuilder
-    private var table: some View {
-        if let row = controller.demo.rows.first(where: { $0.table?.block == formula.key.block }), let table = row.table, let tree = row.tree {
-            let cell = formula.cell
-            MarkdownBlockView(tree: tree)
-                .markdownDisplayMathRendersSynchronously()
-                .markdownTableAppearance(controller.appearance(of: table))
-                .markdownTableCellsSelectable()
-                .markdownTableCellTap { [formula] position in formula.point(at: position) }
-                .markdownTableCellReplacement([cell]) { [key = formula.key, controller] position in
-                    position == cell ? AnyView(DocFormulaPlaceholder(key: key, controller: controller, formula: formula)) : nil
-                }
-                .markdownTableDecoration { [formula] frames in
-                    AnyView(DocFormulaDecoration(frames: frames, formula: formula, ringsCell: true))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .modifier(DocBlockType())
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { landed($0) }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        scroller.keyboardDismissMode = .none
+        scroller.alwaysBounceVertical = true
+        view.addSubview(scroller)
+        scroller.addSubview(table)
+        table.alpha = 0
+        doneButton.alpha = 0
+        view.addSubview(doneButton)
+        let content = DocFormulaPanelView(formula: formula, done: { [weak self] in self?.done() }, cancel: nil)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        panel.contentView.addSubview(content)
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        panel.alpha = 0
+        view.addSubview(panel)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: panel.contentView.leadingAnchor, constant: Tokens.Space.sm),
+            content.trailingAnchor.constraint(equalTo: panel.contentView.trailingAnchor, constant: -Tokens.Space.sm),
+            content.topAnchor.constraint(equalTo: panel.contentView.topAnchor, constant: Tokens.Space.sm),
+            content.bottomAnchor.constraint(equalTo: panel.contentView.bottomAnchor, constant: -Tokens.Space.sm),
+            panel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Tokens.Space.md),
+            panel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -Tokens.Space.md),
+            panel.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -Tokens.Space.sm),
+        ])
+        showTable()
+    }
+
+    /// The table as it is: its formula's cell reading "Edit Formula", a tap on a cell puts its
+    /// reference in, the letters, numbers and rings over it.
+    private func showTable() {
+        guard let row = controller.demo.rows.first(where: { $0.table?.block == formula.key.block }), let snapshot = row.table else { return }
+        var style = MarkdownUIKit.MarkdownStyle()
+        style.typography = DocUIKitType.body(design: nil)
+        style.addsEdgeInsets = false
+        style.table.scrollsSideways = true
+        style.table.bodyFont = .init(.body)
+        style.table.appearance = controller.uikitAppearance(of: snapshot)
+        style.table.cellsSelectable = true
+        let cell = formula.cell
+        style.table.replacedCells = [cell]
+        style.table.replacement = { [weak self] position in
+            guard let self, position == cell else { return nil }
+            self.placeholder.show(key: self.formula.key, controller: self.controller, formula: self.formula)
+            return self.placeholder
         }
+        style.table.onCellTap = { [formula] position in formula.point(at: position) }
+        style.table.decoration = { [formula] frames in DocFormulaDecorationView(frames: frames, formula: formula, ringsCell: true) }
+        table.configure(source: row.sourceText, style: style)
+        follow()
+    }
+
+    /// "Edit Formula" and what the cell shows, as the formula's shown.
+    private func follow() {
+        withObservationTracking {
+            placeholder.show(key: formula.key, controller: controller, formula: formula)
+        } onChange: { [weak self] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.follow() } }
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let safe = view.safeAreaInsets
+        let bar = doneButton.intrinsicContentSize
+        doneButton.frame = CGRect(x: view.bounds.width - safe.right - Tokens.Space.lg - bar.width, y: safe.top + Tokens.Space.sm, width: bar.width, height: bar.height)
+        let top = doneButton.frame.maxY + Tokens.Space.sm
+        scroller.frame = CGRect(x: 0, y: top, width: view.bounds.width, height: max(0, view.bounds.height - top))
+        // As wide as on the page, moved right by the rows' numbers (Craft's): what that leaves
+        // out on the right is its last column's room, and a table wider than the page scrolls as
+        // it does there.
+        let width = controller.tableFrames[formula.key.block]?.width ?? view.bounds.width - DocFormulaDecoration.leadingRoom
+        let height = table.height(forWidth: width)
+        let y = Tokens.Space.lg + DocFormulaDecoration.gutterHeight + DocFormulaDecoration.gap
+        table.frame = CGRect(x: safe.left + DocFormulaDecoration.leadingRoom, y: y, width: width, height: height)
+        scroller.contentSize = CGSize(width: view.bounds.width, height: y + height + Tokens.Space.lg)
+        if landing == nil, view.window != nil, height > 0 { landed() }
     }
 
     /// The table is laid out here: it flies from its place on the page.
-    private func landed(_ frame: CGRect) {
-        guard landing == nil else { return }
+    private func landed() {
+        let frame = table.convert(table.bounds, to: nil)
         landing = frame
         if let origin = controller.tableFrames[formula.key.block] {
-            flight = CGSize(width: origin.minX - frame.minX, height: origin.minY - frame.minY)
+            table.transform = CGAffineTransform(translationX: origin.minX - frame.minX, y: origin.minY - frame.minY)
         }
-        withAnimation(Tokens.Motion.layout) {
-            flight = .zero
-        } completion: { [formula] in
+        table.alpha = 1
+        let fly = { [table] in table.transform = .identity }
+        if let motion = Tokens.Motion.layout {
+            UIView.animate(motion, changes: fly) { [formula] in formula.field?.becomeFirstResponder() }
+        } else {
+            fly()
             formula.field?.becomeFirstResponder()
         }
-        withAnimation(Tokens.Motion.reveal) {
-            covers = true
-            formula.isShown = true
+        formula.isShown = true
+        FlooMotion.appear.animate { [self] in
+            view.backgroundColor = DocTokens.UIKitColor.canvas
+            doneButton.alpha = 1
+            panel.alpha = 1
         }
     }
 
@@ -302,54 +345,30 @@ struct DocFormulaView: View {
         controller.writeFormula()
         formula.field?.resignFirstResponder()
         // Where the table is on the page after this render (its text has changed).
-        Task { @MainActor in
-            withAnimation(Tokens.Motion.dismiss) { formula.isShown = false }
-            withAnimation(Tokens.Motion.layout) {
-                covers = false
+        Task { @MainActor [self] in
+            formula.isShown = false
+            FlooMotion.disappear.animate { [self] in
+                doneButton.alpha = 0
+                panel.alpha = 0
+            }
+            let back = { [self] in
+                view.backgroundColor = .clear
                 if let landing, let origin = controller.tableFrames[formula.key.block] {
-                    flight = CGSize(width: origin.minX - landing.minX, height: origin.minY - landing.minY)
+                    table.transform = CGAffineTransform(translationX: origin.minX - landing.minX, y: origin.minY - landing.minY)
                 }
-            } completion: {
+            }
+            if let motion = Tokens.Motion.layout {
+                UIView.animate(motion, changes: back) { [controller] in controller.closeFormula() }
+            } else {
+                back()
                 controller.closeFormula()
             }
         }
     }
 }
 
-/// The formula's cell while it's written: Craft's "Edit Formula", in the room of what
-/// the cell shows on the page, so its column is as wide as there (the table flies
-/// between the two without its columns moving, the Mac's stays as it is); the words are
-/// drawn in the column's room, smaller if they don't fit it. What the cell shows comes
-/// back as the table flies back or the panel closes (the result of the formula just
-/// written), so it lands as the page has it.
-struct DocFormulaPlaceholder: View {
-    let key: DocCellKey
-    let controller: DocTableController
-    let formula: DocFormulaEditing
-
-    var body: some View {
-        let look = controller.look(key)
-        Text(verbatim: controller.result(key) ?? controller.text(key))
-            .lineLimit(1)
-            .opacity(formula.isShown ? 0 : 1)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: look.frameAlignment)
-            .overlay(alignment: Alignment(horizontal: look.frameAlignment.horizontal, vertical: .center)) {
-                Text("Edit Formula")
-                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .opacity(formula.isShown ? 1 : 0)
-            }
-    }
-}
-
-/// Over the table: the columns' letters and the rows' numbers, each reference's cells in
-/// its colour, the formula's cell ringed (`ringsCell`; on the page the cell's editor rings it).
-struct DocFormulaDecoration: View {
-    let frames: MarkdownTableCellFrames
-    let formula: DocFormulaEditing
-    let ringsCell: Bool
-
+/// The phone's formula page: its letters' and numbers' room round the table (DocFormulaDecorationView).
+enum DocFormulaDecoration {
     /// The numbers' strip: on the Mac it's in the page's margin, which is narrower.
     static let gutterWidth: CGFloat = DocDevice.isMac ? 20 : 24
     static let gutterHeight: CGFloat = 24
@@ -357,128 +376,9 @@ struct DocFormulaDecoration: View {
     /// What the table leaves on its left for the rows' numbers: a cell's fill reaches past
     /// its text, then the gap, the numbers, and a little room to the screen's edge.
     static let leadingRoom = MarkdownTableAppearance.rowOutset.leading + gap + gutterWidth + DocTokens.Space.xs
-
-    private typealias Tokens = DocTokens
-
-    var body: some View {
-        let columns = Self.line(frames) { MarkdownTableCellPosition(row: 0, column: $0) }
-        let rows = Self.line(frames) { MarkdownTableCellPosition(row: $0, column: 0) }
-        ZStack(alignment: .topLeading) {
-            if let first = columns.first, let last = columns.last {
-                let strip = CGRect(x: first.minX, y: first.minY - Self.gap - Self.gutterHeight, width: last.maxX - first.minX, height: Self.gutterHeight)
-                gutter(strip, cuts: columns.dropFirst().map { $0.minX - strip.minX }, vertical: true)
-                ForEach(Array(columns.enumerated()), id: \.offset) { index, frame in
-                    label(DatabaseFormula.columnName(index), in: CGRect(x: frame.minX, y: strip.minY, width: frame.width, height: strip.height))
-                }
-            }
-            if let first = rows.first, let last = rows.last {
-                let strip = CGRect(x: first.minX - Self.gap - Self.gutterWidth, y: first.minY, width: Self.gutterWidth, height: last.maxY - first.minY)
-                gutter(strip, cuts: rows.dropFirst().map { $0.minY - strip.minY }, vertical: false)
-                ForEach(Array(rows.enumerated()), id: \.offset) { index, frame in
-                    label(String(index + 1), in: CGRect(x: strip.minX, y: frame.minY, width: strip.width, height: frame.height))
-                }
-            }
-            ForEach(Array(formula.references.enumerated()), id: \.offset) { index, reference in
-                if let frame = frame(of: reference) {
-                    let color = DocFormulaEditing.color(index)
-                    let shape = RoundedRectangle(cornerRadius: MarkdownTableAppearance.cellCornerRadius, style: .continuous)
-                    shape.fill(color.opacity(Tokens.Opacity.faint))
-                        .overlay(shape.strokeBorder(color.opacity(Tokens.Opacity.strong), lineWidth: Tokens.Border.focus))
-                        .frame(width: frame.width, height: frame.height)
-                        .offset(x: frame.minX, y: frame.minY)
-                }
-            }
-            if ringsCell, let frame = frames[formula.cell] {
-                RoundedRectangle(cornerRadius: MarkdownTableAppearance.cellCornerRadius, style: .continuous)
-                    .strokeBorder(Tokens.ColorRole.Accent.primary, lineWidth: Tokens.Border.focus)
-                    .frame(width: frame.width, height: frame.height)
-                    .offset(x: frame.minX, y: frame.minY)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .opacity(formula.isShown ? 1 : 0)
-    }
-
-    /// The first row's cells, or the first column's, in order.
-    private static func line(_ frames: MarkdownTableCellFrames, _ position: (Int) -> MarkdownTableCellPosition) -> [CGRect] {
-        var line: [CGRect] = []
-        while let frame = frames[position(line.count)] { line.append(frame) }
-        return line
-    }
-
-    /// The cells a reference names, together (those there are).
-    private func frame(of reference: DatabaseFormula.Reference) -> CGRect? {
-        var union: CGRect?
-        for row in reference.rows {
-            for column in reference.columns {
-                guard let frame = frames[MarkdownTableCellPosition(row: row, column: column)] else { continue }
-                union = union?.union(frame) ?? frame
-            }
-        }
-        return union
-    }
-
-    /// A strip of letters or numbers: a rounded frame, lines between its parts.
-    private func gutter(_ strip: CGRect, cuts: [CGFloat], vertical: Bool) -> some View {
-        let shape = RoundedRectangle(cornerRadius: Tokens.Radius.xs, style: .continuous)
-        return shape.fill(Tokens.ColorRole.Surface.canvas)
-            .overlay {
-                Path { path in
-                    for cut in cuts {
-                        path.move(to: vertical ? CGPoint(x: cut, y: 0) : CGPoint(x: 0, y: cut))
-                        path.addLine(to: vertical ? CGPoint(x: cut, y: strip.height) : CGPoint(x: strip.width, y: cut))
-                    }
-                }
-                .stroke(Tokens.Border.subtle, lineWidth: Tokens.Border.standard)
-            }
-            .overlay(shape.strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.standard))
-            .frame(width: strip.width, height: strip.height)
-            .offset(x: strip.minX, y: strip.minY)
-    }
-
-    private func label(_ text: String, in frame: CGRect) -> some View {
-        Text(text)
-            .font(Tokens.Typography.metadata.font)
-            .foregroundStyle(Tokens.ColorRole.Content.secondary)
-            .frame(width: frame.width, height: frame.height)
-            .offset(x: frame.minX, y: frame.minY)
-    }
 }
 
 // MARK: The field and its keys
-
-/// The formula after its "=", and the keys: on glass above the keyboard (a phone), or in
-/// the panel under the cell (the Mac).
-struct DocFormulaPanel: View {
-    let formula: DocFormulaEditing
-    let done: () -> Void
-
-    private typealias Tokens = DocTokens
-
-    var body: some View {
-        DocFormulaPanelHost(formula: formula, done: done)
-            .padding(Tokens.Space.sm)
-            .flooGlass(in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
-            .padding(.horizontal, Tokens.Space.md)
-            .padding(.bottom, Tokens.Space.sm)
-    }
-}
-
-/// The phone's: the panel's view on the table's page.
-private struct DocFormulaPanelHost: UIViewRepresentable {
-    let formula: DocFormulaEditing
-    let done: () -> Void
-
-    func makeUIView(context: Context) -> DocFormulaPanelView {
-        DocFormulaPanelView(formula: formula, done: done, cancel: nil)
-    }
-
-    func updateUIView(_ view: DocFormulaPanelView, context: Context) {}
-
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: DocFormulaPanelView, context: Context) -> CGSize? {
-        uiView.systemLayoutSizeFitting(CGSize(width: proposal.width ?? 320, height: 0), withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
-    }
-}
 
 /// The Mac's: in a panel under the cell.
 final class DocFormulaPage: DocStackPage {
@@ -744,7 +644,7 @@ final class DocFormulaTextField: UITextField, UITextFieldDelegate {
     private func colored(_ text: String) -> NSAttributedString {
         let string = NSMutableAttributedString(string: text, attributes: [.font: font ?? .preferredFont(forTextStyle: .body), .foregroundColor: DocTokens.UIKitColor.primary])
         for (index, reference) in DatabaseFormula.references(in: text, at: formula?.place).enumerated() {
-            string.addAttribute(.foregroundColor, value: UIColor(DocFormulaEditing.color(index)),
+            string.addAttribute(.foregroundColor, value: DocFormulaEditing.uiColor(index),
                                 range: NSRange(location: reference.range.lowerBound, length: reference.range.count))
         }
         typingAttributes = [.font: font ?? .preferredFont(forTextStyle: .body), .foregroundColor: DocTokens.UIKitColor.primary]
