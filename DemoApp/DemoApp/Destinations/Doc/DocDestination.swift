@@ -87,6 +87,11 @@ private struct DocPageView: View {
             TiledView(items: demo.rows, scrollPosition: $scrollPosition) { row in
                 DocRowCell(item: row, demo: demo, editor: editor)
             }
+            // Paragraphs, headings, list items, captions and quotes are UIKit rows.
+            .itemUIKitCell { [editor] row -> (any TiledUIKitCellContent)? in
+                guard let text = row.uikitText else { return nil }
+                return DocTextRowContent(row: row, text: text, editor: editor)
+            }
             // The phone's block selection is drawn over the rows as they scroll.
             .reader(reader, invalidatesOnScroll: editor.blocks.isSelecting)
             // A swipe across a block selects it (DocBlockController), not the chat's
@@ -465,6 +470,17 @@ struct DocBlockType: ViewModifier {
             // cells at the page's body size (their editor's).
             .font(Font(docCodeFont), for: .codeBlock)
             .font(Font(DocTableCellField.bodyFont), for: .tableBody)
+    }
+}
+
+extension DocRow {
+    /// The text a UIKit row shows: a paragraph, heading, list item, caption or quote that's
+    /// done streaming (what DocRowView's page showed with MarkdownSelectableText).
+    var uikitText: DocTextRow? {
+        guard let text, !isStreaming, run == nil || media == nil, collection == nil, page == nil, recordFields == nil,
+              table == nil, sourceKind == nil
+        else { return nil }
+        return text
     }
 }
 

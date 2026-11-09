@@ -191,6 +191,33 @@ final class DocEditor {
 
     // MARK: Text views
 
+    /// A UIKit row's text view showing the block: as the hooks' text view is, and its delegate
+    /// tells the editor of the selection and asks it for the edit menu (no SwiftUI view does).
+    func attachRowText(_ textView: UITextView, to id: DocBlockID) {
+        attach(textView, to: id)
+        delegates[ObjectIdentifier(textView)]?.notifiesEditor = true
+    }
+
+    /// A UIKit row's text shows what it was given: the cursor goes back where the model has it.
+    func rowTextChanged(_ textView: UITextView, in id: DocBlockID) {
+        contentChanged(textView, in: id)
+    }
+
+    /// Whether the text view still shows the block as the model has it (a keystroke can edit
+    /// the storage before the row renders again).
+    func rowTextIsCurrent(_ textView: UITextView, in id: DocBlockID) -> Bool {
+        guard let block = textBlock(id) else { return true }
+        return textStart(in: textView, block: block) != nil
+    }
+
+    fileprivate func delegateSelectionChanged(_ textView: UITextView, in id: DocBlockID) {
+        selectionChanged(textView, in: id)
+    }
+
+    fileprivate func delegateEditMenu(_ textView: UITextView, range: NSRange, suggested: [UIMenuElement], in id: DocBlockID) -> UIMenu? {
+        editMenu(textView, range: range, suggested: suggested, in: id)
+    }
+
     private func attach(_ textView: UITextView, to id: DocBlockID) {
         // Text views come from a pool: forget whatever block this one showed before.
         let key = ObjectIdentifier(textView)
@@ -1457,6 +1484,9 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
     nonisolated(unsafe) weak var original: (any UITextViewDelegate)?
     let block: DocBlockID
     weak var editor: DocEditor?
+    /// A UIKit row's text view: this tells the editor of the selection and asks it for the edit
+    /// menu, which a SwiftUI text's own delegate does through the hooks otherwise.
+    var notifiesEditor = false
     private var composing = false
 
     init(original: (any UITextViewDelegate)?, block: DocBlockID, editor: DocEditor) {
@@ -1500,6 +1530,12 @@ final class DocTextDelegate: NSObject, UITextViewDelegate {
 
     func textViewDidChangeSelection(_ textView: UITextView) {
         original?.textViewDidChangeSelection?(textView)
+        if notifiesEditor { editor?.delegateSelectionChanged(textView, in: block) }
+    }
+
+    func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+        if notifiesEditor { return editor?.delegateEditMenu(textView, range: range, suggested: suggestedActions, in: block) }
+        return original?.textView?(textView, editMenuForTextIn: range, suggestedActions: suggestedActions)
     }
 
     /// Typing in the document's text again: no table cell is edited any more.

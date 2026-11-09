@@ -182,6 +182,17 @@ public final class MarkdownBlockView: UIView {
         applyAsQuote(markdown: markdown, style: style)
     }
 
+    /// A document's text block from its tree: a paragraph, heading, list item, or a quote's content
+    /// drawn as a quote. Shown again (an edit), it stays in the text view it has and its text is
+    /// replaced there, so the one being typed in keeps its focus.
+    /// - Parameters:
+    ///   - listDepth: how deep a list item is, for its marker; the item isn't indented by it.
+    ///   - asQuote: the content drawn in a quote.
+    public func configure(document: Markdown.Document, listDepth: Int = 0, asQuote: Bool = false, style: MarkdownStyle) {
+        rebuild = { [weak self] in self?.apply(document: document, listDepth: listDepth, asQuote: asQuote, style: style) }
+        apply(document: document, listDepth: listDepth, asQuote: asQuote, style: style)
+    }
+
     /// Lets the text views go back to the pool.
     public func prepareForReuse() {
         clear()
@@ -329,6 +340,31 @@ public final class MarkdownBlockView: UIView {
         showText(markdown, depth: 0, style: style, block: nil)
     }
 
+    private func apply(document: Markdown.Document, listDepth: Int, asQuote: Bool, style given: MarkdownStyle) {
+        let style = resolved(given)
+        self.style = given
+        semanticContentAttribute = style.layoutDirection == .rightToLeft ? .forceRightToLeft : .unspecified
+        shownBlockID = nil
+        if asQuote {
+            let text = MarkdownTextBuilder.build(document: document, style: style.quoted)
+            if case .quote(let quote) = layout {
+                quote.configure(text: text, style: style)
+            } else {
+                clear()
+                let quote = MarkdownQuoteView()
+                quote.configure(text: text, style: style)
+                addSubview(quote)
+                layout = .quote(quote)
+            }
+        } else {
+            if case .text = layout {} else { clear() }
+            let text = MarkdownTextBuilder.build(document: document, style: style, listDepthOffset: listDepth)
+            show(text, style: style, made: nil, leading: 0)
+        }
+        cachedHeight = nil
+        setNeedsLayout()
+    }
+
     private func applyAsQuote(markdown: String, style given: MarkdownStyle) {
         clear()
         let style = resolved(given)
@@ -461,6 +497,12 @@ public final class MarkdownBlockView: UIView {
     private func showText(_ source: String, depth: Int, style: MarkdownStyle, block: MarkdownStreamBlock?) {
         let made = block == nil ? nil : style.preparedTexts?.ready(source, depth: depth, category: style.contentSizeCategory)
         let text = made?.text ?? MarkdownTextBuilder.build(markdown: source, style: style, listDepthOffset: depth, inlineMath: block?.inlineMathStorage, displayMath: block?.displayMathStorage)
+        // A nested item re-parsed alone has depth 0: its 20 pt a level.
+        show(text, style: style, made: made, leading: CGFloat(depth) * 20)
+    }
+
+    /// Text in the text host there is, or a new one.
+    private func show(_ text: MarkdownText, style: MarkdownStyle, made: MarkdownPreparedTexts.Made?, leading: CGFloat) {
         let shown: MarkdownTextHost?
         if case .text(let host, _) = layout { shown = host } else { shown = nil }
         let host = shown ?? MarkdownTextHost(textView: !style.drawsTextUntilTouched)
@@ -473,8 +515,7 @@ public final class MarkdownBlockView: UIView {
         } else {
             host.update(text, style: style, reveal: reveal)
         }
-        // A nested item re-parsed alone has depth 0: its 20 pt a level.
-        layout = .text(host, leading: CGFloat(depth) * 20)
+        layout = .text(host, leading: leading)
     }
 
     /// A list item with a code fence, by what's before it and what's from it on.
