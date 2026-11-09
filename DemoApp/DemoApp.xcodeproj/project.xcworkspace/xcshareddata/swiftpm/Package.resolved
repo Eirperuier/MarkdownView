@@ -1,6 +1,14 @@
 {
-  "originHash" : "6ac7cd9a0276724e752d0cb63e70ffa0623cc9fb0c84220950b91d51cd773812",
+  "originHash" : "c570024c2084d85983f4a68d7f9f813f1f7d3a9547186cc1086fa5e3d012d7d3",
   "pins" : [
+    {
+      "identity" : "floo-latexswiftui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/techx-academy/floo-LaTeXSwiftUI.git",
+      "state" : {
+        "revision" : "1f710d85c22e92c8c8e38f368d5db0ba02a8611d"
+      }
+    },
     {
       "identity" : "grdb.swift",
       "kind" : "remoteSourceControl",

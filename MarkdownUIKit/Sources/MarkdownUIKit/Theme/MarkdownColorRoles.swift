@@ -171,7 +171,8 @@ public extension FlooColorRole {
     static func markdownHighlight(_ name: MarkdownInkName) -> FlooColorRole { MarkdownInkRoles.grounds[name.rawValue]! }
 
     // Callouts
-    static let markdownCalloutNote = FlooColorRole("markdown.callout.note") { $0[.info] }
+    /// FlooUIKit has no info role yet: the system's blue, as a note always was.
+    static let markdownCalloutNote = FlooColorRole("markdown.callout.note") { _ in .systemBlue }
     static let markdownCalloutTip = FlooColorRole("markdown.callout.tip") { $0[.success] }
     static let markdownCalloutImportant = FlooColorRole("markdown.callout.important") { $0[.markdownInk(.purple)] }
     static let markdownCalloutWarning = FlooColorRole("markdown.callout.warning") { $0[.warning] }
@@ -253,7 +254,7 @@ enum MarkdownInk {
         case "negative", "error", "danger": .destructive
         case "warning": .warning
         case "positive", "success": .success
-        case "info": .info
+        case "info": .markdownCalloutNote
         default: MarkdownInkName(token: token).map { .markdownInk($0) }
         }
     }

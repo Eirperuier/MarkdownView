@@ -223,6 +223,8 @@
 				F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */,
 				AB00F100C0FFEE0000000003 /* XCLocalSwiftPackageReference "floo-uikit" */,
 				AB00F100C0FFEE0000000013 /* XCLocalSwiftPackageReference "MarkdownUIKit" */,
+				D0C0F100C0FFEE00000000A1 /* XCLocalSwiftPackageReference "floo-RichText" */,
+				D0C0F100C0FFEE00000000A2 /* XCLocalSwiftPackageReference "floo-SwiftDraw" */,
 				F100C0DE2E00000000000040 /* XCLocalSwiftPackageReference "swift-chat-backgrounds" */,
 				F100C0DE2E00000000000050 /* XCLocalSwiftPackageReference "AppleDeviceImages" */,
 			);
@@ -633,6 +635,14 @@
 		8C21E5C02D9E7FB20097554E /* XCLocalSwiftPackageReference "floo-swiftui-messaging-ui" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "../../markdown-uikit-deps/floo-swiftui-messaging-ui";
+		};
+		D0C0F100C0FFEE00000000A1 /* XCLocalSwiftPackageReference "floo-RichText" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../markdown-uikit-deps/floo-RichText";
+		};
+		D0C0F100C0FFEE00000000A2 /* XCLocalSwiftPackageReference "floo-SwiftDraw" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../markdown-uikit-deps/floo-SwiftDraw";
 		};
 /* End XCLocalSwiftPackageReference section */
 

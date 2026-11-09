@@ -15,11 +15,11 @@ let package = Package(
         .package(path: ".."),
         // MarkdownView's fork of it: a visitor reads its nodes.
         .package(url: "https://github.com/Eirperuier/swift-markdown.git", revision: "daac37a4170ddb163eb2db53f97d0cf1ee742c18"),
-        .package(path: "../../markdown-uikit-deps/floo-RichText"),
+        .package(url: "https://github.com/techx-academy/floo-RichText.git", revision: "7ba20965389b550c49fc960e0d8727ee42143a69"),
         // Formulas: KaTeX's layout in Swift, CJK from the system's fonts.
         .package(url: "https://github.com/PhraseHQ/SwaTex.git", revision: "153738a2bcdcb62450ead9ab292989e3de0a449f"),
-        .package(path: "../../markdown-uikit-deps/floo-SwiftDraw"),
-        .package(path: "../../floo-uikit"),
+        .package(url: "https://github.com/techx-academy/floo-SwiftDraw.git", revision: "d485abd082427c23e64dc3ec2644b6c7efd7f818"),
+        .package(url: "https://github.com/techx-academy/floo-uikit.git", revision: "cb9ac481ad1872b06fafad0a62c1304f341d7ce3"),
     ],
     targets: [
         .target(
