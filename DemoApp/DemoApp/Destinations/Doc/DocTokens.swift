@@ -8,6 +8,7 @@
 //
 
 import FlooUIKit
+import MarkdownUIKit
 import MarkdownView
 import SwiftUI
 import UIKit
@@ -39,41 +40,41 @@ enum DocTokens {
         enum Content {
             static let primary = Color(uiColor: .floo(.label))
             static let secondary = Color(uiColor: .floo(.secondaryLabel))
-            static let tertiary = Color(uiColor: .tertiaryLabel)
-            static let onAccent = Color(uiColor: .systemBackground)
+            static let tertiary = Color(uiColor: .floo(.disabledLabel))
+            static let onAccent = Color(uiColor: .floo(.markdownPage))
         }
 
         enum Surface {
-            static let canvas = Color(uiColor: .systemBackground)
-            static let raised = Color(uiColor: .secondarySystemBackground)
-            static let control = Color.primary.opacity(Opacity.faint)
-            static let selected = Color.primary.opacity(State.selectedOpacity)
-            static let pressed = Color.primary.opacity(State.pressedOpacity)
-            static let decoration = Color.primary.opacity(0.04)
+            static let canvas = Color(uiColor: .floo(.markdownPage))
+            static let raised = Color(uiColor: .floo(.markdownPageRaised))
+            static let control = Color(uiColor: .floo(.markdownBlockControl))
+            static let selected = Color(uiColor: .floo(.markdownBlockSelected))
+            static let pressed = Color(uiColor: .floo(.markdownBlockPressed))
+            static let decoration = Color(uiColor: .floo(.markdownBlockDecoration))
         }
 
         enum Action {
-            static let format = Color(red: 0.42, green: 0.13, blue: 0.78)
-            static let neutral = Color(red: 0.2, green: 0.27, blue: 0.36)
-            static let destructive = Color(red: 0.82, green: 0.06, blue: 0.13)
+            static let format = Color(uiColor: .floo(.markdownFormatAction))
+            static let neutral = Color(uiColor: .floo(.markdownNeutralAction))
+            static let destructive = Color(uiColor: .floo(.destructive))
         }
 
         /// The document's selection and focus are the text's colour.
         enum Accent {
-            static let primary = Color.primary
-            static let subtle = Color.primary.opacity(State.selectedOpacity)
+            static let primary = Color(uiColor: .floo(.label))
+            static let subtle = Color(uiColor: .floo(.markdownBlockSelected))
         }
     }
 
     enum UIKitColor {
-        static var canvas: UIColor { .systemBackground }
+        static var canvas: UIColor { .floo(.markdownPage) }
         static var primary: UIColor { .floo(.label) }
         static var separator: UIColor { .floo(.separator) }
         static var accent: UIColor { .floo(.label) }
-        static var dimmed: UIColor { .systemBackground.withAlphaComponent(0.65) }
+        static var dimmed: UIColor { UIColor { UIColor.floo(.markdownPage).resolvedColor(with: $0).withAlphaComponent(0.65) } }
 
         static func elevated(in traits: UITraitCollection) -> UIColor {
-            .systemBackground.resolvedColor(with: traits.modifyingTraits { $0.userInterfaceLevel = .elevated })
+            UIColor.floo(.markdownPage).resolvedColor(with: traits.modifyingTraits { $0.userInterfaceLevel = .elevated })
         }
     }
 

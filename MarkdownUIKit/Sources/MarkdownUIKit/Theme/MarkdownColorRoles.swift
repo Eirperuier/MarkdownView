@@ -169,6 +169,22 @@ public extension FlooColorRole {
     /// The ground of a highlight in that colour (`==x=={red}`, a marker's): faint, so the text
     /// on it reads, and the text is made to read on it besides.
     static func markdownHighlight(_ name: MarkdownInkName) -> FlooColorRole { MarkdownInkRoles.grounds[name.rawValue]! }
+    /// A cell's fill in that colour: the hue itself, which a cell takes at one of three strengths.
+    static func markdownFill(_ name: MarkdownInkName) -> FlooColorRole { MarkdownInkRoles.fills[name.rawValue]! }
+
+    // A document: the page its blocks are on and what's drawn on them while editing.
+    static let markdownPage = FlooColorRole("markdown.page") { _ in .systemBackground }
+    static let markdownPageRaised = FlooColorRole("markdown.pageRaised") { _ in .secondarySystemBackground }
+    /// A control on the page (a key, a button's ground).
+    static let markdownBlockControl = FlooColorRole("markdown.block.control") { $0[.markdownText].markdownOpacity(0.06) }
+    /// A selected block, item or key.
+    static let markdownBlockSelected = FlooColorRole("markdown.block.selected") { $0[.markdownText].markdownOpacity(0.12) }
+    static let markdownBlockPressed = FlooColorRole("markdown.block.pressed") { $0[.markdownText].markdownOpacity(0.12) }
+    /// What only marks a place (a drop's line, a placeholder's ground).
+    static let markdownBlockDecoration = FlooColorRole("markdown.block.decoration") { $0[.markdownText].markdownOpacity(0.04) }
+    /// The format action's colour (the toolbar's Aa).
+    static let markdownFormatAction = FlooColorRole("markdown.action.format") { _ in UIColor(red: 0.42, green: 0.13, blue: 0.78, alpha: 1) }
+    static let markdownNeutralAction = FlooColorRole("markdown.action.neutral") { _ in UIColor(red: 0.2, green: 0.27, blue: 0.36, alpha: 1) }
 
     // Callouts
     /// FlooUIKit has no info role yet: the system's blue, as a note always was.
@@ -209,6 +225,9 @@ private enum MarkdownInkRoles {
     static let grounds: [String: FlooColorRole] = Dictionary(uniqueKeysWithValues: MarkdownInkName.allCases.map { name in
         (name.rawValue, FlooColorRole("markdown.highlight.\(name.rawValue)") { _ in MarkdownInk.paletteGround(name) })
     })
+    static let fills: [String: FlooColorRole] = Dictionary(uniqueKeysWithValues: MarkdownInkName.allCases.map { name in
+        (name.rawValue, FlooColorRole("markdown.fill.\(name.rawValue)") { _ in MarkdownInk.paletteHue(name) })
+    })
 }
 
 public extension UIColor {
@@ -247,9 +266,9 @@ public enum MarkdownColorTraits {
 
 /// The colours text names, all from roles: the named colours, the status roles for what a name
 /// means (`error`, `success`), `#hex` as written; then made to read where they're drawn.
-enum MarkdownInk {
+public enum MarkdownInk {
     /// The role a token names: a colour's name, or what it means.
-    static func role(_ token: String) -> FlooColorRole? {
+    public static func role(_ token: String) -> FlooColorRole? {
         switch token {
         case "negative", "error", "danger": .destructive
         case "warning": .warning
@@ -261,14 +280,14 @@ enum MarkdownInk {
 
     /// Text in a named colour, a meaning or `#hex`; nil for a token it doesn't know (the text
     /// keeps its colour).
-    static func text(_ token: String) -> UIColor? {
+    public static func text(_ token: String) -> UIColor? {
         if token == "accent" { return .floo(.markdownAccentText) }
         if let hex = MarkdownColorToken.hexValue(token) { return .markdown(named: rgb(hex)) }
         return role(token).map { .markdown(named: .floo($0)) }
     }
 
     /// A highlight's ground in a named colour, a meaning or `#hex`.
-    static func highlightFill(_ token: String) -> UIColor? {
+    public static func highlightFill(_ token: String) -> UIColor? {
         if token == "accent" { return .markdown(ground: UIColor.floo(.markdownAccentText).markdownOpacity(0.22)) }
         if let hex = MarkdownColorToken.hexValue(token) { return .markdown(ground: rgb(hex).markdownOpacity(0.3)) }
         if let name = MarkdownInkName(token: token) { return .markdown(ground: .floo(.markdownHighlight(name))) }
@@ -282,7 +301,7 @@ enum MarkdownInk {
 
     /// A pen's ink by name, meaning or `#hex`, as text in that colour is. `accent` and
     /// `foreground` are the caller's to read.
-    static func pen(_ token: String) -> UIColor? {
+    public static func pen(_ token: String) -> UIColor? {
         switch token {
         case "secondary": .floo(.markdownSecondaryText)
         case "primary": .floo(.markdownText)
@@ -292,12 +311,25 @@ enum MarkdownInk {
 
     /// A marker's band: a highlight's ground, so `:marker[x]` and `==x==` in one colour agree.
     /// A token it doesn't know draws the marker's yellow.
-    static func marker(_ token: String?) -> UIColor {
+    public static func marker(_ token: String?) -> UIColor {
         token.flatMap(highlightFill) ?? .floo(.markdownHighlight)
     }
 
-    static func callout(_ kind: MarkdownCallout.Kind) -> UIColor {
+    public static func callout(_ kind: MarkdownCallout.Kind) -> UIColor {
         .markdown(named: .floo(.markdownCallout(kind)))
+    }
+
+    /// A table cell's fill: a named hue at one of three strengths, light to strong, a little
+    /// stronger in dark; `#hex` as written. Nil for a token it doesn't know.
+    public static func cellFill(_ token: String, strength: Int) -> UIColor? {
+        if let hex = MarkdownColorToken.hexValue(token) { return rgb(hex) }
+        guard let name = MarkdownInkName(token: token) else { return nil }
+        let alphas: [(light: CGFloat, dark: CGFloat)] = [(0.14, 0.2), (0.28, 0.36), (0.5, 0.56)]
+        let alpha = alphas[min(max(strength, 1), alphas.count) - 1]
+        let hue = UIColor.floo(.markdownFill(name))
+        return UIColor { traits in
+            hue.resolvedColor(with: traits).withAlphaComponent(traits.userInterfaceStyle == .dark ? alpha.dark : alpha.light)
+        }
     }
 
     // Fallbacks
@@ -315,6 +347,12 @@ enum MarkdownInk {
     static func paletteGround(_ name: MarkdownInkName) -> UIColor {
         if let shade = MarkdownColorToken.shades[name.rawValue] { return faint(rgb(shade.dark)) }
         return faint(systemColor(name))
+    }
+
+    /// A named colour's hue: the palette's bright shade, in light and dark alike.
+    static func paletteHue(_ name: MarkdownInkName) -> UIColor {
+        if let shade = MarkdownColorToken.shades[name.rawValue] { return rgb(shade.dark) }
+        return systemColor(name)
     }
 
     private static func systemColor(_ name: MarkdownInkName) -> UIColor {
@@ -435,5 +473,10 @@ public enum MarkdownColorCatalog {
         Group(title: "Named Colours", roles: MarkdownInkName.allCases.map { .markdownInk($0) } + [.markdownAccentText, .markdownPenAccent]),
         Group(title: "Highlights", roles: MarkdownInkName.allCases.map { .markdownHighlight($0) }),
         Group(title: "Callouts", roles: MarkdownCallout.Kind.allCases.map { .markdownCallout($0) }),
+        Group(title: "Cell Fills", roles: MarkdownInkName.allCases.map { .markdownFill($0) }),
+        Group(title: "Document", roles: [
+            .markdownPage, .markdownPageRaised, .markdownBlockControl, .markdownBlockSelected, .markdownBlockPressed,
+            .markdownBlockDecoration, .markdownFormatAction, .markdownNeutralAction,
+        ]),
     ]
 }

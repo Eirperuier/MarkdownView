@@ -124,7 +124,7 @@ struct DocViewView: View {
             .environment(\.cardButtonStyles, ["borderedProminent": CardHostButtonStyle(FlooSwiftUIButtonStyle(.primary))])
             .buttonStyle(.floo(.tertiary))
             .textFieldStyle(FlooTextFieldStyle())
-            .tint(Color.primary)
+            .tint(DocTokens.ColorRole.Accent.primary)
     }
 
     private static let segments = CardSegmentedPicker { selection, segments in

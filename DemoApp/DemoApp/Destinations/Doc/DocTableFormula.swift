@@ -82,7 +82,7 @@ final class DocFormulaEditing: Identifiable {
     /// A reference's colour, by its place among them.
     static func color(_ index: Int) -> Color {
         let tokens = ["purple", "green", "blue", "orange", "red", "cyan", "brown"]
-        return MarkdownColorToken.text(tokens[index % tokens.count]) ?? DocTokens.ColorRole.Content.secondary
+        return DocColors.ink(tokens[index % tokens.count]).map { Color(uiColor: $0) } ?? DocTokens.ColorRole.Content.secondary
     }
 
     /// The field's typing.
@@ -726,12 +726,12 @@ final class DocFormulaTextField: UITextField, UITextFieldDelegate {
     }
 
     private func colored(_ text: String) -> NSAttributedString {
-        let string = NSMutableAttributedString(string: text, attributes: [.font: font ?? .preferredFont(forTextStyle: .body), .foregroundColor: UIColor.label])
+        let string = NSMutableAttributedString(string: text, attributes: [.font: font ?? .preferredFont(forTextStyle: .body), .foregroundColor: DocTokens.UIKitColor.primary])
         for (index, reference) in DatabaseFormula.references(in: text, at: formula?.place).enumerated() {
             string.addAttribute(.foregroundColor, value: UIColor(DocFormulaEditing.color(index)),
                                 range: NSRange(location: reference.range.lowerBound, length: reference.range.count))
         }
-        typingAttributes = [.font: font ?? .preferredFont(forTextStyle: .body), .foregroundColor: UIColor.label]
+        typingAttributes = [.font: font ?? .preferredFont(forTextStyle: .body), .foregroundColor: DocTokens.UIKitColor.primary]
         return string
     }
 }

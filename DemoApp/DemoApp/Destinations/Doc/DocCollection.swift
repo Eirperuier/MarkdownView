@@ -820,7 +820,7 @@ enum DocOptionColor {
         option.color ?? order[(options.firstIndex(of: option) ?? 0) % order.count]
     }
 
-    static func color(_ token: String) -> Color { MarkdownColorToken.text(token) ?? .secondary }
+    static func color(_ token: String) -> Color { Color(uiColor: DocColors.ink(token) ?? .floo(.secondaryLabel)) }
 
     /// A new option's colour: the first in the order the column doesn't use yet.
     static func next(after options: [SelectOption]) -> String {

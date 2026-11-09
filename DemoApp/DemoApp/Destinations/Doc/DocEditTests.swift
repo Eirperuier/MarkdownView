@@ -2005,7 +2005,7 @@ final class DocEditTests {
                     let start = self.editor.textStart(in: view, block: self.demo.doc.block(block.id)!)
                 else { continue }
                 shown = rgb((view.textStorage.attribute(.foregroundColor, at: start, effectiveRange: nil) as? UIColor)?.resolvedColor(with: view.traitCollection))
-                red = rgb(UIColor(MarkdownColorToken.text("red")!).resolvedColor(with: view.traitCollection))
+                red = rgb(DocColors.ink("red")!.resolvedColor(with: view.traitCollection))
             }
             try self.expect(shown == red, "shown in \(shown), red is \(red)")
             try await self.focus(block.id, at: 7)

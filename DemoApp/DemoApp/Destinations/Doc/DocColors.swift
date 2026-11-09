@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import MarkdownUIKit
 import MarkdownView
 
 enum DocColors {
@@ -22,12 +23,23 @@ enum DocColors {
     ]
 
     static func swatch(_ token: String) -> Color {
-        MarkdownColorToken.text(token) ?? .primary
+        Color(uiColor: MarkdownInk.text(token) ?? .floo(.label))
+    }
+
+    /// Text in a named colour, a meaning or `#hex`, from the colour roles; nil for a token
+    /// it doesn't know.
+    static func ink(_ token: String) -> UIColor? {
+        MarkdownInk.text(token)
+    }
+
+    /// A table cell's fill: a named hue at one of three strengths, from the colour roles.
+    static func cellFill(_ token: String, strength: Int) -> UIColor? {
+        MarkdownInk.cellFill(token, strength: strength)
     }
 
     /// A highlight as it looks on the page.
     static func highlightSwatch(_ token: String) -> Color {
-        MarkdownColorToken.highlight(token) ?? .clear
+        MarkdownInk.highlightFill(token).map { Color(uiColor: $0) } ?? .clear
     }
 
     /// A highlight of any hue (drawn light over the page, as the palette's are).

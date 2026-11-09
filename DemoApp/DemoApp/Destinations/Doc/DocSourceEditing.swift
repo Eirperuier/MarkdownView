@@ -794,7 +794,7 @@ final class DocCodeBackdrop: UIView {
 
     override func draw(_ rect: CGRect) {
         guard let lit else { return }
-        UIColor.label.resolvedColor(with: traitCollection).withAlphaComponent(DocCodeMetrics.litOpacity).setFill()
+        DocTokens.UIKitColor.primary.resolvedColor(with: traitCollection).withAlphaComponent(DocCodeMetrics.litOpacity).setFill()
         UIBezierPath(rect: CGRect(x: 0, y: lit.lowerBound, width: bounds.width, height: lit.upperBound - lit.lowerBound)).fill()
     }
 }

@@ -295,7 +295,7 @@ extension DocColors {
     /// A cell's or a stripe's fill (CellStyle's tokens).
     static func fill(_ token: String) -> Color? {
         guard let fill = CellStyle.parseFill(token) else { return nil }
-        return MarkdownColorToken.fill(fill.color, strength: fill.strength)
+        return DocColors.cellFill(fill.color, strength: fill.strength).map { Color(uiColor: $0) }
     }
 
     /// The fills to pick from, Craft's grid: six hues across, their three strengths down,
