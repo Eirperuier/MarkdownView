@@ -452,13 +452,49 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     }
     private var highlightTask: Task<Void, Never>?
     private static let highlighter = HighlightrCodeHighlighter()
+    /// Colourings started ahead and not done yet, by scheme, language and code.
+    private static var preparing: [String: Task<Void, Never>] = [:]
+    private static var prepared: Set<String> = []
+
+    private static func preparationKey(_ code: String, _ language: String, _ scheme: ColorScheme) -> String {
+        "\(scheme)|\(language)|\(code)"
+    }
+
+    /// Colours `code` ahead, off the main thread, for a block about to show it: shown, it's
+    /// coloured from what's at hand, not by starting the engine there and then.
+    static func prepareHighlight(code: String, language: String?, scheme: ColorScheme) {
+        guard let language else { return }
+        let key = preparationKey(code, language, scheme)
+        guard preparing[key] == nil, !prepared.contains(key) else { return }
+        let highlighter = Self.highlighter
+        preparing[key] = Task { @MainActor in
+            _ = await Task.detached(priority: .utility) {
+                await highlighter.foregroundColors(code: code, language: language, colorScheme: scheme)
+            }.value
+            preparing[key] = nil
+            if prepared.count > 256 { prepared.removeAll() }
+            prepared.insert(key)
+        }
+    }
 
     /// Colours the text at once (from the read block's highlight when it has one): the
-    /// editor taking over a code block mustn't show a frame of plain text.
+    /// editor taking over a code block mustn't show a frame of plain text. Code being coloured
+    /// ahead and not typed in is coloured as that's done, not by a second engine here.
     func highlightNow() {
         highlightTask?.cancel()
         guard let language else { return }
-        guard let runs = Self.highlighter.foregroundColorsNow(code: text ?? "", language: language, colorScheme: scheme ?? .light) else { return }
+        let code = text ?? ""
+        let scheme = self.scheme ?? .light
+        if !isFirstResponder, let preparing = Self.preparing[Self.preparationKey(code, language, scheme)] {
+            highlightTask = Task { @MainActor [weak self] in
+                await preparing.value
+                guard let self, !Task.isCancelled, self.text == code, self.markedTextRange == nil,
+                      let runs = Self.highlighter.foregroundColorsNow(code: code, language: language, colorScheme: scheme) else { return }
+                self.apply(runs)
+            }
+            return
+        }
+        guard let runs = Self.highlighter.foregroundColorsNow(code: code, language: language, colorScheme: scheme) else { return }
         apply(runs)
     }
 

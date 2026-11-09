@@ -9,6 +9,7 @@
 //  SwiftUI's navigation stack (DocDestination), which the window's split view folds into.
 //
 
+import CardUI
 import DocKit
 import FlooUIKit
 import MarkdownView
@@ -60,7 +61,7 @@ final class DocPageController: UIViewController {
 
     private let reader = TiledViewReader<String>()
     private lazy var list = TiledListView<DocRow> { [editor] row in
-        row.uikitContent(editor: editor) ?? DocHostedRowContent(row: row, editor: editor)
+        DocRowTimes.wrap(row.uikitContent(editor: editor) ?? DocHostedRowContent(row: row, editor: editor), row: row)
     }
     private lazy var selectionOverlay = MarkdownBlockSelectionOverlayView(
         controller: editor.blocks.selection,
@@ -397,6 +398,12 @@ final class DocPageController: UIViewController {
     private func runLaunchOptions() async {
         // What they open at is theirs.
         pinsTop = false
+        if UserDefaults.standard.object(forKey: "docScrollBench") != nil {
+            let speed = CGFloat(UserDefaults.standard.double(forKey: "docScrollBench"))
+            try? await Task.sleep(for: .seconds(2))
+            await DocScrollBench(demo: demo, reader: reader, speed: speed > 0 ? speed : 3000).run()
+            exit(0)
+        }
         let (demo, editor, pages, reader) = (demo, editor, pages, reader)
         // -docOpenPage YES: the first page block's page open (-docShot draws it there).
         if UserDefaults.standard.bool(forKey: "docOpenPage"),
@@ -659,5 +666,7 @@ struct DocHostedRowContent: TiledUIKitCellContent {
     private var content: some View {
         DocRowView(row: row, coordinator: editor.demo.coordinator, hooks: row.block.map { editor.hooks(for: $0) }, tables: editor.tables,
                    collections: editor.collections, sources: editor.sources, blocks: editor.blocks, demo: editor.demo)
+            // Its cards' stacks drawn by floo's own engine, not a SwiftUI view each.
+            .environment(\.cardEngine, true)
     }
 }

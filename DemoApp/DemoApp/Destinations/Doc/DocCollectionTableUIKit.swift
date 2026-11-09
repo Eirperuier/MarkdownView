@@ -44,6 +44,33 @@ struct DocTablePlan {
 
     static var line: CGFloat { 1 / max(UITraitCollection.current.displayScale, 1) }
 
+    /// What a plan is made from: the same again, the same plan.
+    private struct Inputs: Equatable {
+        let snapshot: DocCollectionSnapshot
+        let view: CollectionView
+        let width: CGFloat
+        let isEditable: Bool
+        let folded: Set<String>
+        let search: String?
+        let pages: [Bool]
+        let line: CGFloat
+    }
+
+    /// The last plan made for each block: measuring every cell's text again (a hover, the row
+    /// shown again as it scrolls back) is what showing the table cost.
+    private static var made: [DocBlockID: (inputs: Inputs, plan: DocTablePlan)] = [:]
+
+    /// The plan for these, the one made before when nothing it's made from changed.
+    static func plan(snapshot: DocCollectionSnapshot, view: CollectionView, controller: DocCollectionController, width: CGFloat) -> DocTablePlan {
+        let inputs = Inputs(snapshot: snapshot, view: view, width: width, isEditable: controller.isEditable,
+                            folded: DocTableFolds.folded[snapshot.block] ?? [], search: controller.searches[snapshot.block],
+                            pages: controller.hasPage.map { has in snapshot.database.rows.map { has($0.id) } } ?? [], line: line)
+        if let known = made[snapshot.block], known.inputs == inputs { return known.plan }
+        let plan = DocTablePlan(snapshot: snapshot, view: view, controller: controller, width: width)
+        made[snapshot.block] = (inputs, plan)
+        return plan
+    }
+
     init(snapshot: DocCollectionSnapshot, view: CollectionView, controller: DocCollectionController, width available: CGFloat) {
         let rows = controller.rows(snapshot, view)
         let columns = DocCollectionController.fields(view, of: snapshot.database)
@@ -164,12 +191,12 @@ final class DocCollectionTableView: UIScrollView {
     }
 
     static func height(_ snapshot: DocCollectionSnapshot, view: CollectionView, controller: DocCollectionController, width: CGFloat) -> CGFloat {
-        DocTablePlan(snapshot: snapshot, view: view, controller: controller, width: width).height
+        DocTablePlan.plan(snapshot: snapshot, view: view, controller: controller, width: width).height
     }
 
     private func render() {
         guard let snapshot, let view, let controller else { return }
-        let plan = DocTablePlan(snapshot: snapshot, view: view, controller: controller, width: bounds.width)
+        let plan = DocTablePlan.plan(snapshot: snapshot, view: view, controller: controller, width: bounds.width)
         self.plan = plan
         renderedWidth = bounds.width
         let picked = picked

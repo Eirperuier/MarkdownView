@@ -347,18 +347,28 @@ final class DocRowMoveClock {
     }
 }
 
-/// Heights a kind of row measured, by row and width, for what it showed.
+/// Heights a kind of row measured, by row and width, for what it showed; and its content's,
+/// by the content's width, for the row shown to lay out without measuring it again.
 @MainActor
 struct DocRowHeights<Shown: Equatable> {
-    private var entries: [String: (shown: Shown, row: DocRow, byWidth: [CGFloat: CGFloat])] = [:]
+    private var entries: [String: (shown: Shown, row: DocRow, byWidth: [CGFloat: CGFloat], contents: [CGFloat: CGFloat])] = [:]
 
     mutating func height(of row: DocRow, showing shown: Shown, width: CGFloat, content: (CGFloat) -> CGFloat) -> CGFloat {
         guard width > 0 else { return 1 }
         if let known = entries[row.id], known.shown == shown, known.row == row, let height = known.byWidth[width] { return height }
-        let height = DocRowUIKitView.frames(of: row, width: width, contentHeight: content(DocRowUIKitView.contentWidth(of: row, width: width))).height
-        var entry = entries[row.id].flatMap { $0.shown == shown && $0.row == row ? $0 : nil } ?? (shown: shown, row: row, byWidth: [:])
+        let contentWidth = DocRowUIKitView.contentWidth(of: row, width: width)
+        let contentHeight = content(contentWidth)
+        let height = DocRowUIKitView.frames(of: row, width: width, contentHeight: contentHeight).height
+        var entry = entries[row.id].flatMap { $0.shown == shown && $0.row == row ? $0 : nil } ?? (shown: shown, row: row, byWidth: [:], contents: [:])
         entry.byWidth[width] = height
+        entry.contents[contentWidth] = contentHeight
         entries[row.id] = entry
+        return height
+    }
+
+    /// The content's height measured for `row` showing `shown` at `width`, if it was.
+    func contentHeight(of row: DocRow, showing shown: Shown, width: CGFloat) -> CGFloat? {
+        guard let known = entries[row.id], let height = known.contents[width], known.shown == shown, known.row == row else { return nil }
         return height
     }
 

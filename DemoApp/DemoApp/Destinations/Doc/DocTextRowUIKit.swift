@@ -83,7 +83,11 @@ final class DocTextRowView: DocRowUIKitView {
     }
 
     override func contentHeight(forWidth width: CGFloat) -> CGFloat {
-        blockView.height(forWidth: width)
+        // What the list measured for it, unless it's being typed in (its text then ahead of
+        // the row's): the same text at the same width, without TextKit again.
+        if let row, let text, attached?.isFirstResponder != true,
+           let known = Self.heights.contentHeight(of: row, showing: text, width: width) { return known }
+        return blockView.height(forWidth: width)
     }
 
     // MARK: Measuring

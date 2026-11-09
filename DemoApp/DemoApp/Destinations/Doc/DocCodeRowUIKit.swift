@@ -36,6 +36,10 @@ struct DocCodeRowContent: TiledUIKitCellContent {
         DocCodeRowView.height(of: row, code: code, width: width)
     }
 
+    func prepareAhead(forWidth width: CGFloat, traits: UITraitCollection) {
+        DocSourceTextView.prepareHighlight(code: code, language: language, scheme: traits.userInterfaceStyle == .dark ? .dark : .light)
+    }
+
     static func prepareForReuse(_ view: DocCodeRowView) {
         view.reset()
     }

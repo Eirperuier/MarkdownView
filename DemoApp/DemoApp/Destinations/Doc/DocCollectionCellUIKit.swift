@@ -20,7 +20,7 @@ import UIKit
 private typealias Metrics = DocCollectionMetrics
 
 @MainActor
-final class DocCollectionCellView: UIView, UITextViewDelegate {
+final class DocCollectionCellView: UIView, UITextViewDelegate, UIPointerInteractionDelegate {
     struct Shown {
         let snapshot: DocCollectionSnapshot
         let row: Row
@@ -38,56 +38,35 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
 
     private enum Kind: Equatable { case options, checkbox, date, text }
 
+    // A table has a cell for each field of each record: each makes only what its kind shows,
+    // when it first shows it. Text is drawn in a label; the text view comes as it's edited.
+
     // Text
-    private let text = DocFieldTextView()
-    private let pageMark = DocPageSheetView()
-    private lazy var openButton = docSymbolButton("arrow.right.circle", size: DocTokens.Icon.standard, weight: .regular,
-                                                  side: Metrics.openButton, shape: .capsule, title: String(localized: "Open")) { [weak self] in
-        guard let self, let shown = self.shown else { return }
-        shown.controller.openRecord?(shown.row.id, shown.snapshot.block)
-    }
-    private let ring = UIView()
+    private var label: UILabel?
+    private var field: DocFieldTextView?
+    private var pageMark: DocPageSheetView?
+    private var openButton: FlooContentButton?
+    private var ring: UIView?
+    private var tap: UITapGestureRecognizer?
+    private var beam: UIPointerInteraction?
     // Options, a date, a box
-    private let chips = UIView()
-    private let chipsButton = FlooContentButton(content: UIView(), shape: .corner(0))
-    private let date = UILabel()
-    private let dateButton = FlooContentButton(content: UIView(), shape: .corner(0))
-    private let box = UIImageView()
-    private let boxButton = FlooContentButton(content: UIView(), shape: .corner(0))
+    private var chips: UIView?
+    private var chipsButton: FlooContentButton?
+    private var date: UILabel?
+    private var dateButton: FlooContentButton?
+    private var box: UIImageView?
+    private var boxButton: FlooContentButton?
     private var spot: FlooPanelAnchorView?
     private var spotKind: DocCollectionPanel.Kind?
 
     init(compact: Bool) {
         self.compact = compact
         super.init(frame: .zero)
-        text.delegate = self
-        ring.isUserInteractionEnabled = false
-        ring.layer.cornerRadius = DocTokens.Radius.xs
-        ring.layer.cornerCurve = .continuous
-        ring.layer.borderWidth = Metrics.focusWidth
-        ring.isHidden = true
-        pageMark.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
-        chips.isUserInteractionEnabled = false
-        date.font = .systemFont(ofSize: 14)
-        date.textColor = .floo(.label)
-        date.isUserInteractionEnabled = false
-        box.contentMode = .center
-        box.isUserInteractionEnabled = false
-        chipsButton.addAction(UIAction { [weak self] _ in self?.openOptions() }, for: .primaryActionTriggered)
-        dateButton.addAction(UIAction { [weak self] _ in self?.openDate() }, for: .primaryActionTriggered)
-        boxButton.addAction(UIAction { [weak self] _ in self?.toggleBox() }, for: .primaryActionTriggered)
-        [text, pageMark, openButton, chipsButton, chips, dateButton, date, boxButton, box, ring].forEach(addSubview)
-        updateColors()
-        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: Self, _) in view.updateColors() }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    private func updateColors() {
-        ring.layer.borderColor = UIColor.floo(.accent).resolvedColor(with: traitCollection).cgColor
     }
 
     private var block: DocBlockID? { shown?.snapshot.block }
@@ -102,45 +81,92 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
         }
     }
 
+    // MARK: Parts, made as they're first shown
+
+    private func made<V: UIView>(_ part: ReferenceWritableKeyPath<DocCollectionCellView, V?>, _ make: () -> V) -> V {
+        if let view = self[keyPath: part] { return view }
+        let view = make()
+        self[keyPath: part] = view
+        addSubview(view)
+        return view
+    }
+
+    private func textLabel() -> UILabel {
+        made(\.label) {
+            let label = UILabel()
+            label.font = DocFieldTextView.fieldFont
+            label.numberOfLines = 0
+            label.lineBreakMode = .byWordWrapping
+            label.isUserInteractionEnabled = false
+            return label
+        }
+    }
+
+    private func titleOpenButton() -> FlooContentButton {
+        made(\.openButton) {
+            docSymbolButton("arrow.right.circle", size: DocTokens.Icon.standard, weight: .regular,
+                            side: Metrics.openButton, shape: .capsule, title: String(localized: "Open")) { [weak self] in
+                guard let self, let shown = self.shown else { return }
+                shown.controller.openRecord?(shown.row.id, shown.snapshot.block)
+            }
+        }
+    }
+
+    private func pressable(_ part: ReferenceWritableKeyPath<DocCollectionCellView, FlooContentButton?>, _ action: @escaping (DocCollectionCellView) -> Void) -> FlooContentButton {
+        let button = made(part) {
+            let button = FlooContentButton(content: UIView(), shape: .corner(0))
+            button.addAction(UIAction { [weak self] _ in self.map(action) }, for: .primaryActionTriggered)
+            return button
+        }
+        return button
+    }
+
     // MARK: Showing
 
     func show(_ new: Shown) {
         let sameCell = shown.map { $0.row.id == new.row.id && $0.column.id == new.column.id && $0.snapshot.block == new.snapshot.block } ?? false
+        if !sameCell { endField() }
         shown = new
         let kind = Self.kind(of: new.column)
         self.kind = kind
         let editable = new.controller.isEditable
-        text.isHidden = kind != .text
-        pageMark.isHidden = !(kind == .text && new.isTitle && !compact && new.controller.hasPage?(new.row.id) == true)
-        openButton.isHidden = !(kind == .text && new.isTitle && !compact && (new.rowHovered || !DocTokens.Platform.isPointer))
-        chipsButton.isHidden = kind != .options
-        chips.isHidden = kind != .options
-        dateButton.isHidden = kind != .date
-        date.isHidden = kind != .date
-        boxButton.isHidden = kind != .checkbox
-        box.isHidden = kind != .checkbox
-        [chipsButton, dateButton, boxButton].forEach { $0.isEnabled = editable }
+        let isText = kind == .text
+        let hasMark = isText && new.isTitle && !compact && new.controller.hasPage?(new.row.id) == true
+        if hasMark { _ = made(\.pageMark) { let mark = DocPageSheetView(); mark.transform = CGAffineTransform(scaleX: 0.5, y: 0.5); return mark } }
+        pageMark?.isHidden = !hasMark
+        let showsOpen = isText && new.isTitle && !compact && (new.rowHovered || !DocTokens.Platform.isPointer)
+        if showsOpen { _ = titleOpenButton() }
+        openButton?.isHidden = !showsOpen
+        label?.isHidden = !isText || field != nil
+        field?.isHidden = !isText
+        tap?.isEnabled = isText && editable
+        for view in [chipsButton, chips] as [UIView?] { view?.isHidden = kind != .options }
+        for view in [dateButton, date] as [UIView?] { view?.isHidden = kind != .date }
+        for view in [boxButton, box] as [UIView?] { view?.isHidden = kind != .checkbox }
         switch kind {
         case .text:
-            text.isEditable = editable
-            text.textAlignment = new.column.type == .number && !compact ? .right : .left
-            // What's typed stays as typed while it reads as the cell's value ("1,5" is 1.5,
-            // "example.com" is its https link); a change from elsewhere replaces it.
-            let shownText = DocFieldText.text(value, in: new.column)
-            if !text.isFirstResponder || !sameCell || DocFieldText.value(typed: text.text, in: new.column) != value {
-                if text.text != shownText { text.text = shownText }
-            }
-            colorText()
-            if new.isTitle, !compact, new.controller.editingTitle == new.row.id {
-                new.controller.editingTitle = nil
-                DispatchQueue.main.async { [weak self] in self?.text.becomeFirstResponder() }
-            }
+            showText(new, sameCell: sameCell, editable: editable)
         case .options:
+            pressable(\.chipsButton) { $0.openOptions() }.isEnabled = editable
             showChips()
-            if compact { chipsButton.docMenu { [weak self] in self?.optionsMenu() ?? [] } }
+            if compact { chipsButton?.docMenu { [weak self] in self?.optionsMenu() ?? [] } }
         case .date:
-            date.text = DocFieldText.text(value, in: new.column)
+            pressable(\.dateButton) { $0.openDate() }.isEnabled = editable
+            made(\.date) {
+                let date = UILabel()
+                date.font = .systemFont(ofSize: 14)
+                date.textColor = .floo(.label)
+                date.isUserInteractionEnabled = false
+                return date
+            }.text = DocFieldText.text(value, in: new.column)
         case .checkbox:
+            pressable(\.boxButton) { $0.toggleBox() }.isEnabled = editable
+            let box = made(\.box) {
+                let box = UIImageView()
+                box.contentMode = .center
+                box.isUserInteractionEnabled = false
+                return box
+            }
             let on = value == .checkbox(value: true)
             box.image = UIImage(systemName: on ? "checkmark.square.fill" : "square",
                                 withConfiguration: UIImage.SymbolConfiguration(pointSize: DocTokens.Icon.standard))
@@ -150,7 +176,38 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
         setNeedsLayout()
     }
 
-    /// Its panel (options, a calendar) while the controller shows it.
+    private func showText(_ new: Shown, sameCell: Bool, editable: Bool) {
+        let alignment: NSTextAlignment = new.column.type == .number && !compact ? .right : .left
+        // What's typed stays as typed while it reads as the cell's value ("1,5" is 1.5,
+        // "example.com" is its https link); a change from elsewhere replaces it.
+        let shownText = DocFieldText.text(value, in: new.column)
+        if let field {
+            field.isEditable = editable
+            field.textAlignment = alignment
+            if !field.isFirstResponder || !sameCell || DocFieldText.value(typed: field.text, in: new.column) != value {
+                if field.text != shownText { field.text = shownText }
+            }
+        } else {
+            let label = textLabel()
+            label.textAlignment = alignment
+            if label.text != shownText { label.text = shownText }
+        }
+        colorText()
+        if editable, tap == nil {
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+            addGestureRecognizer(tap)
+            self.tap = tap
+            let beam = UIPointerInteraction(delegate: self)
+            addInteraction(beam)
+            self.beam = beam
+        }
+        if new.isTitle, !compact, new.controller.editingTitle == new.row.id {
+            new.controller.editingTitle = nil
+            DispatchQueue.main.async { [weak self] in self?.beginField(at: nil) }
+        }
+    }
+
+    /// Its panel (options, a calendar) while the controller shows it; made when it's first shown.
     func followPanel() {
         guard let shown, let block, !compact else { return }
         let kind: DocCollectionPanel.Kind? = switch self.kind {
@@ -163,17 +220,20 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
             spot?.removeFromSuperview()
             spot = nil
             spotKind = kind
-            if let kind {
-                spot = docPanelSpot(page: { [weak self] in self?.page(for: kind) ?? UIViewController() }, follow: { [weak self] page in
-                    guard let self, let shown = self.shown else { return }
-                    (page as? DocOptionsPage)?.update(row: shown.row, column: shown.column)
-                }, onDismiss: { [weak self] in
-                    guard let self, let shown = self.shown else { return }
-                    shown.controller.close(kind, in: shown.snapshot.block)
-                })
-            }
         }
-        if let spot, let kind { spot.show(shown.controller.isShowing(kind, in: block), over: self) }
+        guard let kind else { return }
+        let showing = shown.controller.isShowing(kind, in: block)
+        if spot == nil, showing {
+            spot = docPanelSpot(page: { [weak self] in self?.page(for: kind) ?? UIViewController() }, follow: { [weak self] page in
+                guard let self, let shown = self.shown else { return }
+                (page as? DocOptionsPage)?.update(row: shown.row, column: shown.column)
+            }, onDismiss: { [weak self] in
+                guard let self, let shown = self.shown else { return }
+                shown.controller.close(kind, in: shown.snapshot.block)
+            })
+            setNeedsLayout()
+        }
+        spot?.show(showing, over: self)
     }
 
     private func page(for kind: DocCollectionPanel.Kind) -> UIViewController {
@@ -187,7 +247,7 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
 
     func reset() {
         spot?.close()
-        if text.isFirstResponder { text.resignFirstResponder() }
+        endField()
     }
 
     // MARK: Options
@@ -204,6 +264,11 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
 
     private func showChips() {
         guard let shown else { return }
+        let chips = made(\.chips) {
+            let chips = UIView()
+            chips.isUserInteractionEnabled = false
+            return chips
+        }
         let options = DocFieldText.options(shown.column)
         chips.subviews.forEach { $0.removeFromSuperview() }
         for option in chosen { chips.addSubview(DocChips.chip(option, in: options)) }
@@ -239,38 +304,98 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
 
     // MARK: Text
 
+    /// The text shown: the text view's while there's one, else the label's.
+    private var currentText: String { field?.text ?? label?.text ?? "" }
+
+    @objc private func tapped(_ tap: UITapGestureRecognizer) {
+        beginField(at: tap.location(in: self))
+    }
+
+    /// Its text view in the label's place, taking typing, the caret where it was clicked.
+    private func beginField(at point: CGPoint?) {
+        guard let shown, kind == .text, shown.controller.isEditable else { return }
+        let field = field ?? {
+            let field = DocFieldTextView()
+            field.delegate = self
+            field.text = label?.text ?? DocFieldText.text(value, in: shown.column)
+            field.textAlignment = label?.textAlignment ?? .left
+            field.textColor = label?.textColor
+            insertSubview(field, aboveSubview: label ?? self)
+            self.field = field
+            return field
+        }()
+        label?.isHidden = true
+        setNeedsLayout()
+        layoutIfNeeded()
+        guard field.becomeFirstResponder() else { return }
+        if let point, let position = field.closestPosition(to: convert(point, to: field)) {
+            field.selectedTextRange = field.textRange(from: position, to: position)
+        }
+    }
+
+    /// Back to the label: the text view lets go of its typing and goes.
+    private func endField() {
+        guard let field else { return }
+        self.field = nil
+        if field.isFirstResponder { field.resignFirstResponder() }
+        field.delegate = nil
+        field.removeFromSuperview()
+        label?.isHidden = kind != .text
+        ring?.isHidden = true
+        if let shown, kind == .text {
+            textLabel().text = DocFieldText.text(value, in: shown.column)
+            colorText()
+        }
+        setNeedsLayout()
+    }
+
     /// Text the field doesn't take (a word in a number, a link without a host) shows faint
     /// while it's typed; it goes when the editing ends (Craft's).
     private func colorText() {
         guard let shown else { return }
-        text.textColor = DocFieldText.takes(text.text, in: shown.column) ? .floo(.label) : .floo(.disabledLabel)
+        let color: UIColor = DocFieldText.takes(currentText, in: shown.column) ? .floo(.label) : .floo(.disabledLabel)
+        field?.textColor = color
+        label?.textColor = color
     }
 
     func textViewDidBeginEditing(_ textView: UITextView) {
+        let ring = made(\.ring) {
+            let ring = UIView()
+            ring.isUserInteractionEnabled = false
+            ring.layer.cornerRadius = DocTokens.Radius.xs
+            ring.layer.cornerCurve = .continuous
+            ring.layer.borderWidth = Metrics.focusWidth
+            return ring
+        }
+        ring.layer.borderColor = UIColor.floo(.accent).resolvedColor(with: traitCollection).cgColor
+        bringSubviewToFront(ring)
         ring.isHidden = false
+        setNeedsLayout()
         if let shown, let place = shown.place { shown.controller.editor.field(place, isFocused: true) }
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {
-        ring.isHidden = true
+        ring?.isHidden = true
         guard let shown else { return }
         if let place = shown.place { shown.controller.editor.field(place, isFocused: false) }
-        let shownText = DocFieldText.text(value, in: shown.column)
-        if text.text != shownText { text.text = shownText }
-        colorText()
+        // The label again, once UIKit's done with the text view.
+        DispatchQueue.main.async { [weak self, weak textView] in
+            guard let self, let textView, textView === self.field, !textView.isFirstResponder else { return }
+            self.endField()
+        }
     }
 
     func textViewDidChange(_ textView: UITextView) {
-        guard let shown else { return }
+        guard let shown, let field else { return }
         // Return ends the editing, as on one line: the field wraps, its value doesn't break.
-        if text.text.contains("\n") {
-            text.text = text.text.replacingOccurrences(of: "\n", with: "")
-            text.resignFirstResponder()
+        if field.text.contains("\n") {
+            field.text = field.text.replacingOccurrences(of: "\n", with: "")
+            field.resignFirstResponder()
             return
         }
         colorText()
-        if text.text != DocFieldText.text(value, in: shown.column) {
-            shown.controller.setText(text.text, row: shown.row.id, column: shown.column.id, in: shown.snapshot.block)
+        if field.text != DocFieldText.text(value, in: shown.column) {
+            shown.controller.setText(field.text, row: shown.row.id, column: shown.column.id, in: shown.snapshot.block)
         }
         // A new line of it: the row grows.
         onTextHeightChange?()
@@ -278,6 +403,12 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
 
     /// The typed text took another line count.
     var onTextHeightChange: (() -> Void)?
+
+    /// Over text to edit, the pointer is the text's beam, as over a text view.
+    func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
+        guard kind == .text, shown?.controller.isEditable == true, field == nil else { return nil }
+        return UIPointerStyle(shape: .verticalBeam(length: DocFieldTextView.fieldFont.lineHeight), constrainedAxes: [])
+    }
 
     // MARK: Layout
 
@@ -295,38 +426,41 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
         let content = bounds.insetBy(dx: contentInset, dy: 0)
         switch kind {
         case .text:
-            let hasMark = !pageMark.isHidden
+            let hasMark = pageMark?.isHidden == false
             let isTitleRoom = shown.isTitle && !compact
             let left = hasMark ? Self.markWidth : 0
             let right = isTitleRoom ? Self.arrowRoom : 0
             // As tall as its lines, centred in a row's height when that's more (a field in a
             // cell of the row's least height); at the top of a taller row.
             let width = max(0, content.width - left - right)
-            let lines = DocTextMeasure.height(text.text, font: DocFieldTextView.fieldFont, width: width) + 2 * Metrics.cellLinePadding
+            let textHeight = DocTextMeasure.height(currentText, font: DocFieldTextView.fieldFont, width: width)
+            let lines = textHeight + 2 * Metrics.cellLinePadding
             let top = max(0, ((Metrics.rowHeight - lines) / 2).rounded())
-            text.frame = CGRect(x: content.minX + left, y: top, width: width, height: max(lines, bounds.height - top))
-            pageMark.frame = CGRect(x: content.minX, y: Metrics.cellLinePadding + 1, width: DocPageMetrics.sheet.width / 2, height: DocPageMetrics.sheet.height / 2)
-            openButton.frame = CGRect(x: content.maxX - Metrics.openButton, y: ((Metrics.rowHeight - Metrics.openButton) / 2).rounded(),
-                                      width: Metrics.openButton, height: Metrics.openButton)
+            field?.frame = CGRect(x: content.minX + left, y: top, width: width, height: max(lines, bounds.height - top))
+            // The label's lines where the text view's are: in from its padding, from the top.
+            label?.frame = CGRect(x: content.minX + left, y: top + Metrics.cellLinePadding, width: width, height: textHeight)
+            pageMark?.frame = CGRect(x: content.minX, y: Metrics.cellLinePadding + 1, width: DocPageMetrics.sheet.width / 2, height: DocPageMetrics.sheet.height / 2)
+            openButton?.frame = CGRect(x: content.maxX - Metrics.openButton, y: ((Metrics.rowHeight - Metrics.openButton) / 2).rounded(),
+                                       width: Metrics.openButton, height: Metrics.openButton)
         case .options:
-            chipsButton.frame = bounds
-            chips.frame = content
+            chipsButton?.frame = bounds
+            chips?.frame = content
             var x: CGFloat = 0
-            for chip in chips.subviews {
+            for chip in chips?.subviews ?? [] {
                 let size = chip.intrinsicContentSize
                 chip.frame = CGRect(x: x, y: ((Metrics.rowHeight - size.height) / 2).rounded(), width: size.width, height: size.height)
                 x += size.width + DocTokens.Space.xs
             }
         case .date:
-            dateButton.frame = bounds
-            date.frame = CGRect(x: content.minX, y: 0, width: content.width, height: Metrics.rowHeight)
+            dateButton?.frame = bounds
+            date?.frame = CGRect(x: content.minX, y: 0, width: content.width, height: Metrics.rowHeight)
         case .checkbox:
-            boxButton.frame = compact ? CGRect(x: 0, y: 0, width: Metrics.rowHeight, height: Metrics.rowHeight) : bounds
-            box.frame = compact ? CGRect(x: 0, y: 0, width: DocTokens.Icon.standard + 4, height: Metrics.rowHeight)
-                                : CGRect(x: content.minX, y: 0, width: content.width, height: Metrics.rowHeight)
+            boxButton?.frame = compact ? CGRect(x: 0, y: 0, width: Metrics.rowHeight, height: Metrics.rowHeight) : bounds
+            box?.frame = compact ? CGRect(x: 0, y: 0, width: DocTokens.Icon.standard + 4, height: Metrics.rowHeight)
+                                 : CGRect(x: content.minX, y: 0, width: content.width, height: Metrics.rowHeight)
         }
         // The cell taking typing, outlined (Craft's): in from the column's lines.
-        ring.frame = compact ? content.insetBy(dx: -Metrics.cellInset / 2, dy: 1) : bounds.insetBy(dx: 1, dy: 1)
+        ring?.frame = compact ? content.insetBy(dx: -Metrics.cellInset / 2, dy: 1) : bounds.insetBy(dx: 1, dy: 1)
         spot?.frame = content
     }
 
@@ -343,7 +477,8 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
     /// Its height now, as typed.
     var typedHeight: CGFloat {
         guard kind == .text else { return Metrics.rowHeight }
-        let lines = DocTextMeasure.height(text.text, font: DocFieldTextView.fieldFont, width: text.bounds.width)
+        let width = field?.bounds.width ?? label?.bounds.width ?? 0
+        let lines = DocTextMeasure.height(currentText, font: DocFieldTextView.fieldFont, width: width)
         return max(Metrics.rowHeight, lines + 2 * Metrics.cellLinePadding)
     }
 }
