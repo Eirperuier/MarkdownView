@@ -742,7 +742,7 @@ private final class DocTableRecordView: UIView {
             separators[index].isHidden = false
             index += 1
             x += line
-            cells[column.id]?.frame = CGRect(x: x + Metrics.cellInset, y: 0, width: max(0, width - 2 * Metrics.cellInset), height: bounds.height)
+            cells[column.id]?.frame = CGRect(x: x, y: 0, width: width, height: bounds.height)
             x += width
         }
         if shown.controller.isEditable {
@@ -811,7 +811,7 @@ private final class DocTableFootView: UIView {
         var x = Metrics.numberWidth
         for (column, width) in zip(shown.columns, shown.widths) {
             x += line
-            calculations[column.id]?.frame = CGRect(x: x + Metrics.cellInset, y: 0, width: max(0, width - 2 * Metrics.cellInset), height: bounds.height)
+            calculations[column.id]?.frame = CGRect(x: x, y: 0, width: width, height: bounds.height)
             x += width
         }
     }
@@ -865,9 +865,11 @@ private final class DocCalculationCellView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        // The column's whole width presses; what it says is in from the column's lines.
         button.frame = bounds
+        let right = bounds.width - Metrics.cellInset
         let valueWidth = value.isHidden ? 0 : ceil(value.intrinsicContentSize.width)
-        value.frame = CGRect(x: bounds.width - valueWidth, y: 0, width: valueWidth, height: bounds.height)
+        value.frame = CGRect(x: right - valueWidth, y: 0, width: valueWidth, height: bounds.height)
         let labelWidth = ceil(label.intrinsicContentSize.width)
         label.frame = CGRect(x: value.frame.minX - (valueWidth > 0 ? DocTokens.Space.xs : 0) - labelWidth, y: 0, width: labelWidth, height: bounds.height)
     }

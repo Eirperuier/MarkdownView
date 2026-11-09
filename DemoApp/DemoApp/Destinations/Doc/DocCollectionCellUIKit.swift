@@ -285,10 +285,14 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
     private static var markWidth: CGFloat { DocPageMetrics.sheet.width / 2 + DocTokens.Space.sm }
     private static var arrowRoom: CGFloat { Metrics.openButton + DocTokens.Space.xs }
 
+    /// In the table it takes its column's whole width, its press and the pointer's fill with
+    /// it; what it shows is in from the column's lines.
+    private var contentInset: CGFloat { compact ? 0 : Metrics.cellInset }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let shown, let kind else { return }
-        let bounds = bounds
+        let content = bounds.insetBy(dx: contentInset, dy: 0)
         switch kind {
         case .text:
             let hasMark = !pageMark.isHidden
@@ -297,15 +301,16 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
             let right = isTitleRoom ? Self.arrowRoom : 0
             // As tall as its lines, centred in a row's height when that's more (a field in a
             // cell of the row's least height); at the top of a taller row.
-            let width = max(0, bounds.width - left - right)
+            let width = max(0, content.width - left - right)
             let lines = DocTextMeasure.height(text.text, font: DocFieldTextView.fieldFont, width: width) + 2 * Metrics.cellLinePadding
-            text.frame = CGRect(x: left, y: max(0, ((Metrics.rowHeight - lines) / 2).rounded()), width: width, height: max(lines, bounds.height - max(0, ((Metrics.rowHeight - lines) / 2).rounded())))
-            pageMark.frame = CGRect(x: 0, y: Metrics.cellLinePadding + 1, width: DocPageMetrics.sheet.width / 2, height: DocPageMetrics.sheet.height / 2)
-            openButton.frame = CGRect(x: bounds.width - Metrics.openButton, y: ((Metrics.rowHeight - Metrics.openButton) / 2).rounded(),
+            let top = max(0, ((Metrics.rowHeight - lines) / 2).rounded())
+            text.frame = CGRect(x: content.minX + left, y: top, width: width, height: max(lines, bounds.height - top))
+            pageMark.frame = CGRect(x: content.minX, y: Metrics.cellLinePadding + 1, width: DocPageMetrics.sheet.width / 2, height: DocPageMetrics.sheet.height / 2)
+            openButton.frame = CGRect(x: content.maxX - Metrics.openButton, y: ((Metrics.rowHeight - Metrics.openButton) / 2).rounded(),
                                       width: Metrics.openButton, height: Metrics.openButton)
         case .options:
             chipsButton.frame = bounds
-            chips.frame = bounds
+            chips.frame = content
             var x: CGFloat = 0
             for chip in chips.subviews {
                 let size = chip.intrinsicContentSize
@@ -314,16 +319,15 @@ final class DocCollectionCellView: UIView, UITextViewDelegate {
             }
         case .date:
             dateButton.frame = bounds
-            date.frame = CGRect(x: 0, y: 0, width: bounds.width, height: Metrics.rowHeight)
+            date.frame = CGRect(x: content.minX, y: 0, width: content.width, height: Metrics.rowHeight)
         case .checkbox:
             boxButton.frame = compact ? CGRect(x: 0, y: 0, width: Metrics.rowHeight, height: Metrics.rowHeight) : bounds
             box.frame = compact ? CGRect(x: 0, y: 0, width: DocTokens.Icon.standard + 4, height: Metrics.rowHeight)
-                                : CGRect(x: 0, y: 0, width: bounds.width, height: Metrics.rowHeight)
+                                : CGRect(x: content.minX, y: 0, width: content.width, height: Metrics.rowHeight)
         }
-        // The cell taking typing, outlined (Craft's), out over its insets.
-        let out = compact ? Metrics.cellInset / 2 : Metrics.cellInset - 1
-        ring.frame = bounds.insetBy(dx: -out, dy: 1)
-        spot?.frame = bounds
+        // The cell taking typing, outlined (Craft's): in from the column's lines.
+        ring.frame = compact ? content.insetBy(dx: -Metrics.cellInset / 2, dy: 1) : bounds.insetBy(dx: 1, dy: 1)
+        spot?.frame = content
     }
 
     /// Its height at a width: text as many lines as it wraps to, the rest a row's.
