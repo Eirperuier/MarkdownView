@@ -4,8 +4,8 @@
 //
 //  A collection as a UIKit row, wider than the page's text (Craft's): its name, its toolbar
 //  (search, a new item, the view's settings: over the block on a Mac, always on a phone), a
-//  tab for each view, then the view: a table or a kanban. A chart's view is still SwiftUI's
-//  (DocRowView), its look to be designed again. And a record's fields on its page. What
+//  tab for each view, then the view: a table, a kanban or a chart (DocCollectionChartView,
+//  its marks drawn by floo's chart engine). And a record's fields on its page. What
 //  DocCollectionView, its header and DocRecordFields drew, in frames.
 //
 
@@ -28,11 +28,8 @@ struct DocCollectionRowContent: TiledUIKitCellContent {
     let snapshot: DocCollectionSnapshot
     let controller: DocCollectionController
 
-    /// The views it draws: a table or a kanban.
-    static func draws(_ snapshot: DocCollectionSnapshot) -> Bool {
-        guard let view = snapshot.collection.currentView else { return true }
-        return view.layout.chart == nil
-    }
+    /// The views it draws: a table, a kanban, a chart: all of them.
+    static func draws(_ snapshot: DocCollectionSnapshot) -> Bool { true }
 
     static func makeRowView() -> DocCollectionRowView { DocCollectionRowView() }
 
@@ -49,32 +46,97 @@ struct DocCollectionRowContent: TiledUIKitCellContent {
     static func prepareForReuse(_ view: DocCollectionRowView) {
         view.reset()
     }
+
+    /// Its block view made ahead, shown in the stage at its width (AheadWork).
+    func prepareAhead(forWidth width: CGFloat, traits: UITraitCollection) {
+        let contentWidth = DocRowUIKitView.contentWidth(of: row, width: width, maxWidth: DocCollectionRowView.pageMaxWidth)
+        DocCollectionRowView.prepare(snapshot, controller: controller, width: contentWidth)
+    }
 }
 
 @MainActor
 final class DocCollectionRowView: DocRowUIKitView {
-    private let collection = DocCollectionBlockView()
+    /// The row's content, holding the block view it shows: the one kept for its block (made
+    /// ahead, or shown before and put away) when there is one.
+    private let holder = UIView()
+    private var collection: DocCollectionBlockView?
+    private var shownBlock: DocBlockID?
 
     override class var pageMaxWidth: CGFloat { DocCollectionLayout.maxWidth }
 
     init() {
-        super.init(content: collection)
-        collection.heightChanged = { [weak self] in self?.contentHeightChanged() }
+        super.init(content: holder)
     }
 
     func show(_ row: DocRow, snapshot: DocCollectionSnapshot, controller: DocCollectionController, context: TiledUIKitCellContext) {
+        if shownBlock != snapshot.block { putAway() }
+        let view = collection ?? Self.kept.removeValue(forKey: snapshot.block) ?? DocCollectionBlockView()
+        if view !== collection {
+            view.frame = holder.bounds
+            view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            holder.addSubview(view)
+            view.heightChanged = { [weak self] in self?.contentHeightChanged() }
+            collection = view
+        }
+        shownBlock = snapshot.block
+        Self.showing.insert(snapshot.block)
         take(row, blocks: controller.editor.blocks, context: context)
-        collection.show(snapshot, controller: controller)
+        view.show(snapshot, controller: controller)
         layOutShown()
     }
 
     override func reset() {
         super.reset()
-        collection.reset()
+        collection?.reset()
+        putAway()
+    }
+
+    /// The block view it showed kept for its block, in the stage (in the window, as it was
+    /// drawn), for the row that shows it next.
+    private func putAway() {
+        guard let collection else { return }
+        self.collection = nil
+        collection.heightChanged = nil
+        if let shownBlock, let stage = AheadWork.stage {
+            Self.showing.remove(shownBlock)
+            stage.addSubview(collection)
+            Self.keep(collection, for: shownBlock)
+        } else {
+            collection.removeFromSuperview()
+        }
+        shownBlock = nil
     }
 
     override func contentHeight(forWidth width: CGFloat) -> CGFloat {
-        collection.height(forWidth: width)
+        collection?.height(forWidth: width) ?? 0
+    }
+
+    // MARK: Made ahead
+
+    /// Block views made ahead or put away, by block, in the stage.
+    private static var kept: [DocBlockID: DocCollectionBlockView] = [:]
+    /// The blocks rows show now.
+    private static var showing: Set<DocBlockID> = []
+
+    private static func keep(_ view: DocCollectionBlockView, for block: DocBlockID) {
+        kept[block]?.removeFromSuperview()
+        kept[block] = view
+        // A few: a page has a collection or two.
+        if kept.count > 4, let other = kept.keys.first(where: { $0 != block }) { kept.removeValue(forKey: other)?.removeFromSuperview() }
+    }
+
+    static func prepare(_ snapshot: DocCollectionSnapshot, controller: DocCollectionController, width: CGFloat) {
+        let block = snapshot.block
+        guard width > 0, AheadWork.stage != nil, !showing.contains(block), kept[block] == nil else { return }
+        AheadWork.add("collection|\(block)") { [weak controller] in
+            guard let controller, let stage = AheadWork.stage, !showing.contains(block), kept[block] == nil else { return }
+            let view = DocCollectionBlockView()
+            stage.addSubview(view)
+            view.show(snapshot, controller: controller)
+            view.frame = CGRect(x: 0, y: 0, width: width, height: view.height(forWidth: width))
+            view.layoutIfNeeded()
+            keep(view, for: block)
+        }
     }
 }
 
@@ -97,6 +159,7 @@ final class DocCollectionBlockView: UIView, UITextFieldDelegate {
     private var chartSpot: FlooPanelAnchorView?
     private let table = DocCollectionTableView()
     private let kanban = DocCollectionKanbanView()
+    private let chartView = DocCollectionChartView()
     private var hover: DocHover!
 
     private var snapshot: DocCollectionSnapshot?
@@ -137,6 +200,8 @@ final class DocCollectionBlockView: UIView, UITextFieldDelegate {
         tabs.addSubview(addView)
         addSubview(table)
         addSubview(kanban)
+        addSubview(chartView)
+        chartView.heightChanged = { [weak self] in self?.heightChanged?() }
         table.heightChanged = { [weak self] in self?.heightChanged?() }
         hover = DocHover(on: self) { [weak self] _ in self?.showToolbar() }
     }
@@ -193,6 +258,7 @@ final class DocCollectionBlockView: UIView, UITextFieldDelegate {
         let view = snapshot.collection.currentView
         table.isHidden = true
         kanban.isHidden = true
+        chartView.isHidden = true
         switch view?.layout {
         case .table?:
             table.isHidden = false
@@ -200,6 +266,9 @@ final class DocCollectionBlockView: UIView, UITextFieldDelegate {
         case .kanban(let group, _, _)?:
             kanban.isHidden = false
             kanban.show(snapshot, view: view!, group: group, controller: controller)
+        case .chart(let chart)?:
+            chartView.isHidden = false
+            chartView.show(snapshot, view: view!, chart: chart, controller: controller)
         default:
             break
         }
@@ -486,7 +555,7 @@ final class DocCollectionBlockView: UIView, UITextFieldDelegate {
             switch view.layout {
             case .table: body = DocCollectionTableView.height(snapshot, view: view, controller: controller, width: width)
             case .kanban: body = DocCollectionKanbanView.height(snapshot, view: view, controller: controller)
-            case .chart: break
+            case .chart(let chart): body = DocCollectionChartView.height(snapshot, view: view, chart: chart, controller: controller, width: width)
             }
         }
         return DocTokens.Space.sm + headerHeight + Metrics.headerGap + body + DocTokens.Space.sm
@@ -551,6 +620,7 @@ final class DocCollectionBlockView: UIView, UITextFieldDelegate {
         let bodyHeight = max(0, bounds.height - y - DocTokens.Space.sm)
         table.frame = CGRect(x: 0, y: y, width: width, height: bodyHeight)
         kanban.frame = CGRect(x: 0, y: y, width: width, height: bodyHeight)
+        chartView.frame = CGRect(x: 0, y: y, width: width, height: bodyHeight)
     }
 }
 

@@ -10,6 +10,7 @@
 		8C21E5B02D9E7FB20097554E /* MarkdownView in Frameworks */ = {isa = PBXBuildFile; productRef = 8C21E5AF2D9E7FB20097554E /* MarkdownView */; };
 		8C21E5C22D9E7FB20097554E /* MessagingUI in Frameworks */ = {isa = PBXBuildFile; productRef = 8C21E5C12D9E7FB20097554E /* MessagingUI */; };
 		F100C0DE2E00000000000003 /* CardUI in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000002 /* CardUI */; };
+		F100C0DE2E000000000000E1 /* EngineChart in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E000000000000E2 /* EngineChart */; };
 		F100C0DE2E00000000000005 /* CardModel in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000004 /* CardModel */; };
 		F100C0DE2E00000000000007 /* CardRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000006 /* CardRuntime */; };
 		F100C0DE2E00000000000036 /* Wire in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000032 /* Wire */; };
@@ -71,6 +72,7 @@
 				8C21E5B02D9E7FB20097554E /* MarkdownView in Frameworks */,
 				8C21E5C22D9E7FB20097554E /* MessagingUI in Frameworks */,
 				F100C0DE2E00000000000003 /* CardUI in Frameworks */,
+				F100C0DE2E000000000000E1 /* EngineChart in Frameworks */,
 				F100C0DE2E00000000000005 /* CardModel in Frameworks */,
 				F100C0DE2E00000000000007 /* CardRuntime in Frameworks */,
 				F100C0DE2E00000000000036 /* Wire in Frameworks */,
@@ -142,6 +144,7 @@
 				8C21E5AF2D9E7FB20097554E /* MarkdownView */,
 				8C21E5C12D9E7FB20097554E /* MessagingUI */,
 				F100C0DE2E00000000000002 /* CardUI */,
+				F100C0DE2E000000000000E2 /* EngineChart */,
 				F100C0DE2E00000000000004 /* CardModel */,
 				F100C0DE2E00000000000006 /* CardRuntime */,
 				F100C0DE2E00000000000012 /* DocKit */,
@@ -218,6 +221,7 @@
 				8C21E5C02D9E7FB20097554E /* XCLocalSwiftPackageReference "floo-swiftui-messaging-ui" */,
 				F100C0DE2E00000000000001 /* XCLocalSwiftPackageReference "Cards" */,
 				F100C0DE2E00000000000060 /* XCLocalSwiftPackageReference "CardUI" */,
+				F100C0DE2E000000000000E3 /* XCLocalSwiftPackageReference "EngineChart" */,
 				F100C0DE2E00000000000030 /* XCLocalSwiftPackageReference "Core" */,
 				F100C0DE2E00000000000031 /* XCLocalSwiftPackageReference "ApplePlatform" */,
 				F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */,
@@ -604,6 +608,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../floo/Packages/CardUI;
 		};
+		F100C0DE2E000000000000E3 /* XCLocalSwiftPackageReference "EngineChart" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../floo/Packages/EngineChart;
+		};
 		F100C0DE2E00000000000030 /* XCLocalSwiftPackageReference "Core" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../floo/Packages/Core;
@@ -660,6 +668,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F100C0DE2E00000000000060 /* XCLocalSwiftPackageReference "CardUI" */;
 			productName = CardUI;
+		};
+		F100C0DE2E000000000000E2 /* EngineChart */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F100C0DE2E000000000000E3 /* XCLocalSwiftPackageReference "EngineChart" */;
+			productName = EngineChart;
 		};
 		F100C0DE2E00000000000004 /* CardModel */ = {
 			isa = XCSwiftPackageProductDependency;

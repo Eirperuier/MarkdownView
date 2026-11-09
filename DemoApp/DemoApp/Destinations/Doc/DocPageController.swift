@@ -106,6 +106,19 @@ final class DocPageController: UIViewController {
         // show the times.
         list.revealConfiguration = .disabled
         list.heightEstimate = { row, width in row.estimatedHeight(width: width) }
+        // Rows coming (cards, views, collections) are made ahead in the window, out of sight
+        // (AheadWork), and wait while the page moves.
+        let aheadStage = UIView(frame: CGRect(x: -20_000, y: 0, width: 1, height: 1))
+        aheadStage.isUserInteractionEnabled = false
+        aheadStage.accessibilityElementsHidden = true
+        view.addSubview(aheadStage)
+        AheadWork.stage = aheadStage
+        var lastOffset: CGFloat?
+        AheadWork.isBusy = { [weak reader] in
+            guard let offset = reader?.contentOffsetY() else { return false }
+            defer { lastOffset = offset }
+            return lastOffset.map { abs($0 - offset) > 0.5 } ?? false
+        }
         // Links, files and images across the page at the width it's laid out at, as text
         // wraps (DocMediaLayout.place).
         list.itemPlacement = { row, width in
@@ -398,6 +411,11 @@ final class DocPageController: UIViewController {
     private func runLaunchOptions() async {
         // What they open at is theirs.
         pinsTop = false
+        // -docReset YES: the document started over, as the demo's Reset does.
+        if UserDefaults.standard.bool(forKey: "docReset") {
+            pages.reset()
+            editor.resetDocument()
+        }
         if UserDefaults.standard.object(forKey: "docScrollBench") != nil {
             let speed = CGFloat(UserDefaults.standard.double(forKey: "docScrollBench"))
             try? await Task.sleep(for: .seconds(2))
@@ -438,16 +456,29 @@ final class DocPageController: UIViewController {
         }
         // -docCollectionPanel KIND: the first collection with a panel open (screenshots):
         // view, chart, createKanban, createChart, addField, editField, options, date, addOption;
-        // -docCollectionView table|kanban|chart shows that view of it first.
+        // -docCollectionView table|kanban|chart shows that view of it first; a chart where it has
+        // none is its first view turned into one, -docChartKind bar|column|line|donut (column).
         if let name = UserDefaults.standard.string(forKey: "docCollectionPanel"),
            let block = demo.doc.blocks.first(where: { if case .collection = $0.kind { true } else { false } }),
            case .collection(var collection) = block.kind, let database = demo.doc.databases[collection.database] {
             let collections = editor.collections
+            let chartKind: CollectionChart.Kind = switch UserDefaults.standard.string(forKey: "docChartKind") {
+            case "bar": .bar
+            case "line": .line
+            case "donut": .donut
+            default: .column
+            }
             if let layout = UserDefaults.standard.string(forKey: "docCollectionView"),
                let view = collection.views.first(where: { ($0.layout.chart != nil ? "chart" : $0.layout.isKanban ? "kanban" : "table") == layout }) {
                 collections.show(view.id, in: block.id)
                 collection.current = view.id
+                if view.layout.chart != nil, UserDefaults.standard.string(forKey: "docChartKind") != nil {
+                    collections.changeChart(view.id, in: block.id) { $0.kind = chartKind }
+                }
+            } else if UserDefaults.standard.string(forKey: "docCollectionView") == "chart", let view = collection.currentView {
+                collections.setChart(chartKind, in: view.id, of: block.id)
             }
+            if case .collection(let now)? = demo.doc.blocks.first(where: { $0.id == block.id })?.kind { collection = now }
             let view = collection.currentView
             let select = database.columns.first { if case .select = $0.type { true } else { false } }
             let kind: DocCollectionPanel.Kind? = switch name {
@@ -652,6 +683,10 @@ struct DocHostedRowContent: TiledUIKitCellContent {
 
     func height(forWidth width: CGFloat, traits: UITraitCollection) -> CGFloat {
         HostedRowView.height(of: content, key: key, width: width)
+    }
+
+    func prepareAhead(forWidth width: CGFloat, traits: UITraitCollection) {
+        HostedRowView.prepare(content, key: key, width: width)
     }
 
     static func prepareForReuse(_ view: HostedRowView) {

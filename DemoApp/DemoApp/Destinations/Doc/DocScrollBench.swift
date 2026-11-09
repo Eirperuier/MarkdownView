@@ -78,6 +78,7 @@ final class DocScrollBench: NSObject {
         gaps.append(gap)
         worst = max(worst, gap)
         let visible = visibleIDs()
+        defer { DocRowTimes.frame = [:] }
         let came = visible.subtracting(shown)
         shown = visible
         if gap > frame * 1.5 {
@@ -90,7 +91,9 @@ final class DocScrollBench: NSObject {
             }
             let rows = came.compactMap { id in demo.rows.first { $0.id == id } }
                 .map { "\(Self.kind($0)) \($0.source.prefix(24).replacingOccurrences(of: "\n", with: " "))" }
-            lateLines.append(String(format: "%.0fms at %.0f: %@", gap * 1000, reader.contentOffsetY(), rows.joined(separator: " | ") as NSString))
+            let spent = DocRowTimes.frame.sorted { $0.value > $1.value }.map { String(format: "%@ %.0fms", $0.key as NSString, $0.value * 1000) }
+            lateLines.append(String(format: "%.0fms at %.0f: %@ — rows: %@", gap * 1000, reader.contentOffsetY(), rows.joined(separator: " | ") as NSString,
+                                    spent.joined(separator: ", ") as NSString))
         }
         // A step for the time that passed: the speed's, as a fling's, whatever the frame took.
         // At an end the list holds the offset where it can go no further: down, it turns; up, it's done.
@@ -125,7 +128,7 @@ final class DocScrollBench: NSObject {
 
     static func kind(_ row: DocRow) -> String {
         if row.isStreaming { return "stream" }
-        if let collection = row.collection { return DocCollectionRowContent.draws(collection) ? "collection" : "chart" }
+        if let collection = row.collection { return collection.collection.currentView?.layout.chart == nil ? "collection" : "chart" }
         if row.recordFields != nil { return "record" }
         if let media = row.media { return row.run != nil && DocMediaRowContent.draws(media) ? "media" : "card" }
         if row.page != nil { return "page" }
@@ -147,6 +150,8 @@ final class DocScrollBench: NSObject {
         }
         for line in lateLines.prefix(40) { docTestLog("DOCBENCH     " + line) }
         DocRowTimes.report()
+        let counts = HostedRowView.counts
+        docTestLog("DOCBENCH   hosted: asked ahead \(counts.asked), made ahead \(counts.madeAhead), taken again \(counts.kept), made when shown \(counts.made)")
     }
 }
 
@@ -165,7 +170,12 @@ enum DocRowTimes {
         Timed(inner: content, id: row.id, kind: DocScrollBench.kind(row), label: String(row.source.prefix(24)).replacingOccurrences(of: "\n", with: " "))
     }
 
+    /// What rows took since the last frame, by kind and what (configure, height).
+    static var frame: [String: Double] = [:]
+
     static func add(_ id: String, kind: String, label: String, configure: Double = 0, height: Double = 0) {
+        if configure > 1e-6 { frame["\(kind) configure", default: 0] += configure }
+        if height > 1e-6 { frame["\(kind) height", default: 0] += height }
         var entry = times[id] ?? (kind, label, 0, 0, 0, 0)
         entry.configure += configure
         entry.height += height
