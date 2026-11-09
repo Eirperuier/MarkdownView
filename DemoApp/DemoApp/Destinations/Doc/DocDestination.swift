@@ -87,11 +87,8 @@ private struct DocPageView: View {
             TiledView(items: demo.rows, scrollPosition: $scrollPosition) { row in
                 DocRowCell(item: row, demo: demo, editor: editor)
             }
-            // Paragraphs, headings, list items, captions and quotes are UIKit rows.
-            .itemUIKitCell { [editor] row -> (any TiledUIKitCellContent)? in
-                guard let text = row.uikitText else { return nil }
-                return DocTextRowContent(row: row, text: text, editor: editor)
-            }
+            // Text, code, math and tables are UIKit rows.
+            .itemUIKitCell { [editor] row in row.uikitContent(editor: editor) }
             // The phone's block selection is drawn over the rows as they scroll.
             .reader(reader, invalidatesOnScroll: editor.blocks.isSelecting)
             // A swipe across a block selects it (DocBlockController), not the chat's
@@ -474,13 +471,24 @@ struct DocBlockType: ViewModifier {
 }
 
 extension DocRow {
-    /// The text a UIKit row shows: a paragraph, heading, list item, caption or quote that's
-    /// done streaming (what DocRowView's page showed with MarkdownSelectableText).
-    var uikitText: DocTextRow? {
-        guard let text, !isStreaming, run == nil || media == nil, collection == nil, page == nil, recordFields == nil,
-              table == nil, sourceKind == nil
-        else { return nil }
-        return text
+    /// The UIKit row that shows it: a paragraph, heading, list item, caption or quote, a code
+    /// or math block, a table, once it's done streaming. Nil: DocRowView shows it.
+    @MainActor
+    func uikitContent(editor: DocEditor) -> (any TiledUIKitCellContent)? {
+        guard !isStreaming, run == nil || media == nil, collection == nil, page == nil, recordFields == nil else { return nil }
+        if let table {
+            return tree == nil ? nil : DocTableRowContent(row: self, table: table, source: sourceText, controller: editor.tables)
+        }
+        if let block, case .code(let language) = sourceKind {
+            return DocCodeRowContent(row: self, block: block, code: sourceText, language: language, sources: editor.sources)
+        }
+        if let block, sourceKind == .math {
+            return DocMathRowContent(row: self, block: block, latex: sourceText, sources: editor.sources)
+        }
+        if let text, sourceKind == nil {
+            return DocTextRowContent(row: self, text: text, editor: editor)
+        }
+        return nil
     }
 }
 
@@ -573,15 +581,7 @@ private struct DocRowView: View {
         VStack(alignment: .leading, spacing: 0) {
             // By position, not by the rendered block's id: an edit re-renders the block
             // with a new id, and the text view being typed in must stay the same view.
-            if let table = row.table, let tree = row.tree, !row.isStreaming {
-                DocTableRowView(table: table, tree: tree, controller: tables)
-            } else if let block = row.block, case .code(let language) = row.sourceKind, !row.isStreaming {
-                DocCodeRowView(block: block, text: row.sourceText, language: language, controller: sources)
-            } else if let block = row.block, row.sourceKind == .math, let tree = row.tree, !row.isStreaming {
-                DocMathRowView(block: block, tree: tree, isEmpty: row.sourceIsEmpty, controller: sources)
-            } else if let text = row.text, !row.isStreaming {
-                textView(text)
-            } else if let tree = row.tree, !row.isStreaming {
+            if let tree = row.tree, !row.isStreaming {
                 // A divider or a card.
                 MarkdownBlockView(tree: tree)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -603,23 +603,6 @@ private struct DocRowView: View {
         // images are as tall as their layout says).
         .modifier(DocRowHeightReporter(isOn: row.table != nil || row.sourceKind != nil))
         .modifier(DocBlockType())
-    }
-
-    /// A paragraph, heading, list item or quote, from its tree (as MarkdownStreamBlockView
-    /// lays out a stream block of that kind).
-    private func textView(_ text: DocTextRow) -> some View {
-        // One view whatever the kind: a block that becomes a quote (or stops being one)
-        // keeps its text view and goes to its new shape with the change's animation. A
-        // quote's text keeps its edge insets inside the quote, as SelectableBlockQuote's.
-        // A list item's level picks its bullet (• then ◦, Craft's); the row is indented.
-        MarkdownSelectableText(tree: text.tree, listDepthOffset: text.depth, applyEdgeInsets: text.isQuote)
-            .markdownBlockQuote(text.isQuote)
-        .lineSpacing(row.role.lineSpacing)
-        .modifier(DocRowTypeface(font: row.font))
-        .modifier(DocCaptionType(isOn: row.role == .caption))
-        .markdownDisplayMathRendersSynchronously()
-        .environment(\.markdownSelectableTextHooks, hooks)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -677,36 +660,6 @@ private struct DocRowBoxing: ViewModifier {
             .padding(.bottom, boxed && last ? Box.padding : 0)
             .background(shape.fill(Box.fill).opacity(boxed ? 1 : 0).padding(.horizontal, own ? 0 : -(run?.inset ?? 0) - Box.outset))
             .padding(.top, !boxed || first ? spacingAbove : 0)
-    }
-}
-
-/// A block's typeface: its text's, headings and list markers too; inline code stays
-/// monospaced.
-private struct DocRowTypeface: ViewModifier {
-    let font: Typeface?
-
-    func body(content: Content) -> some View {
-        content.transformEnvironment(\.markdownPlatformTypography) { typography in
-            guard let font else { return }
-            let design = DocCellLook.design(font)
-            typography.body.design = design
-            for level in typography.headings.indices { typography.headings[level].design = design }
-        }
-    }
-}
-
-/// A caption's type: smaller, secondary.
-private struct DocCaptionType: ViewModifier {
-    let isOn: Bool
-
-    func body(content: Content) -> some View {
-        if isOn {
-            content
-                .markdownPlatformTypography(DocTypography.captionFonts)
-                .markdownBaseTextColor(DocTokens.ColorRole.Content.secondary)
-        } else {
-            content
-        }
     }
 }
 

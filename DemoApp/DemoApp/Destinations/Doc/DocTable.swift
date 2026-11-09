@@ -197,7 +197,8 @@ final class DocTableController {
     /// Where each table's cells are in its row (DocRowSpace), and its rows and columns:
     /// how a click the table doesn't take itself (a right-click) finds its cell.
     @ObservationIgnored private var cellFrames: [DocBlockID: CGRect] = [:]
-    @ObservationIgnored private var grids: [DocBlockID: MarkdownTableGrid] = [:]
+    /// The cell at a point in its table's row (DocRowSpace), as the table finds it.
+    @ObservationIgnored private var cellFinders: [DocBlockID: @MainActor (CGPoint) -> MarkdownTableCellPosition?] = [:]
 
     init(demo: DocDemo, editor: DocEditor) {
         self.demo = demo
@@ -458,13 +459,11 @@ final class DocTableController {
     /// Where the table's cells are in its row (DocRowSpace): out past the page's sides
     /// when it's wider and scrolled.
     func cellsFrame(_ block: DocBlockID) -> CGRect? { cellFrames[block] }
-    func placed(_ block: DocBlockID, grid: MarkdownTableGrid?) { grids[block] = grid }
+    func placed(_ block: DocBlockID, finder: (@MainActor (CGPoint) -> MarkdownTableCellPosition?)?) { cellFinders[block] = finder }
 
     /// The cell at `point` in the table's row (DocRowSpace).
     func cell(in block: DocBlockID, at point: CGPoint) -> DocCellKey? {
-        guard let frame = cellFrames[block], let grid = grids[block], let (_, database) = database(block),
-              let position = grid.position(at: CGPoint(x: point.x - frame.minX, y: point.y - frame.minY))
-        else { return nil }
+        guard let find = cellFinders[block], let (_, database) = database(block), let position = find(point) else { return nil }
         return key(in: DocTableSnapshot(block: block, database: database), at: position)
     }
 
@@ -478,19 +477,16 @@ final class DocTableController {
     /// Where the edited cell is in this table (and the one handing the focus over), if
     /// they're in it: their editors show there.
     func replaced(in table: DocTableSnapshot) -> Set<MarkdownTableCellPosition> {
-        Set([editing, handingOver].compactMap { $0.flatMap { position(of: $0, in: table) } })
+        Set(replacedKeys.compactMap { position(of: $0, in: table) })
     }
 
-    private func position(of key: DocCellKey, in table: DocTableSnapshot) -> MarkdownTableCellPosition? {
+    /// The cells showing their editors: the edited one, and the one handing the focus over.
+    var replacedKeys: Set<DocCellKey> { Set([editing, handingOver].compactMap { $0 }) }
+
+    func position(of key: DocCellKey, in table: DocTableSnapshot) -> MarkdownTableCellPosition? {
         guard key.block == table.block, let column = table.database.columns.firstIndex(where: { $0.id == key.column }) else { return nil }
         guard let row = key.row else { return MarkdownTableCellPosition(row: 0, column: column) }
         return table.database.rows.firstIndex { $0.id == row }.map { MarkdownTableCellPosition(row: $0 + 1, column: column) }
-    }
-
-    /// The editor MarkdownView shows instead of the edited cell's content.
-    func replacement(in table: DocTableSnapshot, at position: MarkdownTableCellPosition) -> AnyView? {
-        guard let key = key(in: table, at: position), key == editing || key == handingOver else { return nil }
-        return AnyView(DocTableCellEditor(key: key, controller: self).id(key))
     }
 
     /// The cell is the one edited (its editor shows): a menu of another cell goes, and a
@@ -1011,34 +1007,11 @@ struct DocTableCellField: UIViewRepresentable {
     let controller: DocTableController
 
     func makeUIView(context: Context) -> DocCellTextView {
-        let view = DocCellTextView()
-        view.delegate = view
-        view.isScrollEnabled = false
-        view.backgroundColor = .clear
-        view.textContainerInset = .zero
-        view.textContainer.lineFragmentPadding = 0
-        view.smartQuotesType = .no
-        view.smartDashesType = .no
-        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return view
+        DocCellTextView.make()
     }
 
     func updateUIView(_ view: DocCellTextView, context: Context) {
-        view.key = key
-        view.controller = controller
-        view.isHeader = isHeader
-        view.isEditable = controller.isEditable
-        let look = controller.look(key)
-        view.font = look.font
-        view.textAlignment = look.textAlignment
-        view.textColor = DocTokens.UIKitColor.primary
-        // The model is the truth; while typing it already equals the view.
-        if view.text != text, view.markedTextRange == nil {
-            let editing = view.isFirstResponder
-            view.text = text
-            if editing { view.selectedRange = NSRange(location: text.utf16.count, length: 0) }
-        }
-        controller.register(view, for: key)
+        view.show(key: key, text: text, isHeader: isHeader, controller: controller)
     }
 
     /// MarkdownView's table fonts: the header is SF Compact subheadline, bold; the body is the
@@ -1055,10 +1028,48 @@ struct DocTableCellField: UIViewRepresentable {
     /// Unconstrained: the text's own width (the table sizes its columns from it, as it
     /// does from a rendered cell); proposed a width: that width, wrapped.
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: DocCellTextView, context: Context) -> CGSize? {
-        let font = controller.look(key).font
+        uiView.fittingSize(proposal.width.flatMap { $0.isFinite ? $0 : nil }, text: text, font: controller.look(key).font)
+    }
+}
+
+extension DocCellTextView {
+    static func make() -> DocCellTextView {
+        let view = DocCellTextView()
+        view.delegate = view
+        view.isScrollEnabled = false
+        view.backgroundColor = .clear
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.smartQuotesType = .no
+        view.smartDashesType = .no
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return view
+    }
+
+    /// Shows the cell's `text` as the table sets it, and is the cell's text view.
+    func show(key: DocCellKey, text: String, isHeader: Bool, controller: DocTableController) {
+        self.key = key
+        self.controller = controller
+        self.isHeader = isHeader
+        isEditable = controller.isEditable
+        let look = controller.look(key)
+        font = look.font
+        textAlignment = look.textAlignment
+        textColor = DocTokens.UIKitColor.primary
+        // The model is the truth; while typing it already equals the view.
+        if self.text != text, markedTextRange == nil {
+            let editing = isFirstResponder
+            self.text = text
+            if editing { selectedRange = NSRange(location: text.utf16.count, length: 0) }
+        }
+        controller.register(self, for: key)
+    }
+
+    /// Unconstrained (`width` nil): the text's own width; given a width: that width, wrapped.
+    func fittingSize(_ width: CGFloat?, text: String, font: UIFont) -> CGSize {
         let natural = ceil((text as NSString).size(withAttributes: [.font: font]).width) + 2
-        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? natural
-        let height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        let width = width ?? natural
+        let height = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
         return CGSize(width: width, height: max(ceil(height), ceil(font.lineHeight)))
     }
 }
@@ -1066,260 +1077,6 @@ struct DocTableCellField: UIViewRepresentable {
 // MARK: - The table
 
 private typealias Handles = DocTokens.Component.TableHandles
-
-/// The edited cell: its text (a column's name in a text view of its own, a body cell's
-/// text the editor's), Craft's ring around the cell, its ⋮.
-struct DocTableCellEditor: View {
-    let key: DocCellKey
-    let controller: DocTableController
-
-    var body: some View {
-        // All of the cell's room, so its ring is its row's height.
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: controller.look(key).frameAlignment)
-            .anchorPreference(key: DocTableRingKey.self, value: .bounds) { DocTableRingAnchor(key: key, bounds: $0) }
-            .overlay {
-                // Where MarkdownView draws the cell's fill (Handles.ringOutset). While its row
-                // or column is picked, that one is ringed instead (DocTableEdges).
-                RoundedRectangle(cornerRadius: Handles.ringRadius, style: .continuous)
-                    .strokeBorder(DocTokens.ColorRole.Accent.primary, lineWidth: DocTokens.Border.focus)
-                    .opacity(controller.line == nil ? 1 : 0)
-                    .padding(.horizontal, -Handles.ringOutset.width)
-                    .padding(.vertical, -Handles.ringOutset.height)
-                    .allowsHitTesting(false)
-            }
-            .overlay(alignment: .trailing) {
-                // Not while its formula is written (Craft's).
-                if controller.formula?.key != key {
-                    DocTableCellMenu(key: key, controller: controller)
-                        .offset(x: Handles.menuButtonOffset)
-                }
-            }
-            // The Mac's formula panel, under the cell.
-            .flooFloating(isPresented: Binding(get: { DocDevice.isMac && controller.formula?.key == key && controller.formula?.isShown == true },
-                                               set: { [controller] in if !$0 { controller.finishFormula(writes: true) } }),
-                          alignment: .center, keepsOpen: controller.formulaPanelKeepsOpen(key), selfDrawn: true,
-                          page: { [controller] in
-                              guard let formula = controller.formula else { return UIViewController() }
-                              return DocFormulaPage(formula: formula, done: { controller.finishFormula(writes: true) },
-                                                    cancel: { controller.finishFormula(writes: false) })
-                          })
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if key.row == nil {
-            DocTableCellField(key: key, text: controller.text(key), isHeader: true, controller: controller)
-        } else if let formula = controller.formulaPanel(in: key.block), formula.key == key {
-            DocFormulaPlaceholder(key: key, controller: controller, formula: formula)
-        } else if controller.writesFormulaApart(key) {
-            // What it computes; a click or tap writes the formula apart.
-            Text(controller.result(key) ?? "")
-                .lineLimit(1)
-                .contentShape(Rectangle())
-                .onTapGesture { [controller, key] in controller.editFormula(key) }
-        } else {
-            DocTableCellText(text: controller.docText(key), look: controller.look(key), hooks: controller.editor.hooks(for: controller.textID(key)))
-        }
-    }
-}
-
-/// A body cell's text being edited: MarkdownView's text of the cell as the table renders
-/// it (its selectable cell), in the editor's hands (its hooks), so the cell looks the same
-/// read and edited, marks, typeface and alignment and all.
-struct DocTableCellText: View {
-    let text: DocText
-    let look: DocCellLook
-    let hooks: MarkdownSelectableTextHooks
-
-    var body: some View {
-        MarkdownSelectableText(tree: MarkdownTree(text.lineTree), applyEdgeInsets: false)
-            .transformEnvironment(\.markdownPlatformTypography) { [look] typography in
-                typography = typography.tableCell
-                typography.body.design = look.style.font.map(DocCellLook.design)
-                if look.isHeaderColumn { typography.body.weight = .bold }
-                typography.paragraphAlignment = look.textAlignment
-            }
-            .environment(\.markdownSelectableTextHooks, hooks)
-    }
-}
-
-/// A bar on the table's top edge over the edited cell's column, or on its left edge by
-/// its row: a click picks the column or row and opens the menu for it.
-struct DocTableGrip: View {
-    let line: DocTableLine
-    let key: DocCellKey
-    let controller: DocTableController
-
-    var body: some View {
-        let size = line == .column ? Handles.columnGrip : Handles.rowGrip
-        Button {
-            controller.pick(line, of: key)
-        } label: {
-            Capsule()
-                .fill(DocTokens.ColorRole.Accent.primary.opacity(Handles.gripOpacity))
-                .frame(width: size.width, height: size.height)
-                .frame(width: max(size.width, Handles.target), height: max(size.height, Handles.target))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(line == .column ? String(localized: "Select Column") : String(localized: "Select Row"))
-        .docTableMenu(DocTableMenuTarget(key: key, line: line), controller: controller)
-    }
-}
-
-/// Where the edited cell's text is (its ring is out over its padding), for the table's edges.
-struct DocTableRingAnchor {
-    let key: DocCellKey
-    let bounds: Anchor<CGRect>
-}
-
-struct DocTableRingKey: PreferenceKey {
-    static let defaultValue: DocTableRingAnchor? = nil
-    static func reduce(value: inout DocTableRingAnchor?, nextValue: () -> DocTableRingAnchor?) {
-        value = value ?? nextValue()
-    }
-}
-
-/// The table: MarkdownView renders it; clicks on cells edit them; around the edited cell,
-/// the dots on the table's edges and the picked row or column (DocTableEdges).
-struct DocTableRowView: View {
-    let table: DocTableSnapshot
-    let tree: MarkdownTree
-    let controller: DocTableController
-    @State private var tableBounds: Anchor<CGRect>?
-
-    var body: some View {
-        MarkdownBlockView(tree: tree)
-            .markdownDisplayMathRendersSynchronously()
-            .markdownTableAppearance(controller.appearance(of: table))
-            .markdownTableCellsSelectable()
-            .markdownTableCellTap { [table, controller] position in controller.clicked(table, at: position) }
-            .markdownTableCellReplacement(controller.replaced(in: table)) { [table, controller] position in controller.replacement(in: table, at: position) }
-            // The Mac's formula written by a cell: the letters, numbers and rings on the table.
-            .markdownTableDecoration(controller.formulaPanel(in: table.block).map { formula in
-                { frames in AnyView(DocFormulaDecoration(frames: frames, formula: formula, ringsCell: false)) }
-            })
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { [block = table.block, controller] in controller.tableFrames[block] = $0 }
-            // While a phone writes its formula it's on a page of its own (DocTableFormula):
-            // one table on screen, the one flying there and back.
-            .opacity(!DocDevice.isMac && controller.formula?.key.block == table.block ? 0 : 1)
-            .overlayPreferenceValue(DocTableRingKey.self) { ring in
-                // The table's own edges: wider than the page it scrolls, so its right edge
-                // can be out of sight.
-                GeometryReader { proxy in
-                    if let ring, ring.key.block == table.block, controller.editing == ring.key, controller.formula == nil {
-                        DocTableEdges(key: ring.key, table: tableBounds.map { proxy[$0] } ?? CGRect(origin: .zero, size: proxy.size), controller: controller,
-                                      cell: proxy[ring.bounds].insetBy(dx: -Handles.ringOutset.width, dy: -Handles.ringOutset.height))
-                    }
-                }
-            }
-            .onPreferenceChange(MarkdownTableBoundsKey.self) { tableBounds = $0 }
-            .onPreferenceChange(MarkdownTableGridKey.self) { [block = table.block, controller] in controller.placed(block, grid: $0) }
-            .onGeometryChange(for: CGRect?.self) { [tableBounds] proxy in
-                tableBounds.map { proxy[$0].offsetBy(dx: proxy.frame(in: .named(DocRowSpace.name)).minX, dy: proxy.frame(in: .named(DocRowSpace.name)).minY) }
-            } action: { [block = table.block, controller] in controller.placed(block, cells: $0) }
-            // Room for the dots on the right and bottom edges, in the row (a touch out of it
-            // goes nowhere).
-            .padding(.trailing, Handles.target / 2)
-            .padding(.bottom, Handles.target / 2)
-    }
-}
-
-/// On the table's edges, by the edited cell (Craft's): bars on the top and left over its
-/// column and row, which pick them; dots on the right and bottom, which add a column or
-/// a row; the picked row or column ringed.
-struct DocTableEdges: View {
-    let key: DocCellKey
-    /// The table's cells, in the row's space.
-    let table: CGRect
-    let controller: DocTableController
-    /// The cell's ring, in the table's space.
-    let cell: CGRect
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            if let line = controller.line {
-                let rect = line == .column
-                    ? CGRect(x: cell.minX, y: table.minY, width: cell.width, height: table.height)
-                    // Out past the table's edges as far as its rows' stripes.
-                    : CGRect(x: table.minX - Handles.rowOutset.leading, y: cell.minY,
-                             width: table.width + Handles.rowOutset.leading + Handles.rowOutset.trailing, height: cell.height)
-                RoundedRectangle(cornerRadius: Handles.ringRadius, style: .continuous)
-                    .strokeBorder(DocTokens.ColorRole.Accent.primary, lineWidth: DocTokens.Border.focus)
-                    .frame(width: rect.width, height: rect.height)
-                    .offset(x: rect.minX, y: rect.minY)
-                    .allowsHitTesting(false)
-            }
-            DocTableGrip(line: .column, key: key, controller: controller)
-                .position(x: cell.midX, y: table.minY)
-            DocTableGrip(line: .row, key: key, controller: controller)
-                .position(x: table.minX - Handles.rowOutset.leading, y: cell.midY)
-            if controller.isEditable {
-                DocTableEdgeDot(label: String(localized: "Add Column")) { controller.appendColumn(beside: key) }
-                    .position(x: table.maxX, y: cell.midY)
-                DocTableEdgeDot(label: String(localized: "Add Row")) { controller.appendRow(below: key) }
-                    .position(x: cell.midX, y: table.maxY)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-/// A dot on the table's edge that adds a row or a column (Craft's); it swells under the pointer.
-struct DocTableEdgeDot: View {
-    let label: String
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Circle()
-                .fill(DocTokens.ColorRole.Accent.primary)
-                .frame(width: Handles.dot, height: Handles.dot)
-                .scaleEffect(hovering ? Handles.dotHoverScale : 1)
-                .frame(width: Handles.target, height: Handles.target)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .animation(DocTokens.Motion.feedbackCurve, value: hovering)
-        .help(label)
-        .accessibilityLabel(label)
-    }
-}
-
-/// The edited cell's ⋮.
-struct DocTableCellMenu: View {
-    let key: DocCellKey
-    let controller: DocTableController
-
-    var body: some View {
-        Button {
-            controller.menu == DocTableMenuTarget(key: key) ? controller.closeMenu() : controller.showMenu(key)
-        } label: {
-            Image(systemName: "ellipsis")
-                .rotationEffect(.degrees(90))
-                .font(.system(size: DocTokens.Icon.compact, weight: .semibold))
-                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
-                .frame(width: Handles.menuButton.width, height: Handles.menuButton.height)
-        }
-        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: DocTokens.Radius.sm, style: .continuous)))
-        .accessibilityLabel("Table Actions")
-        .docTableMenu(DocTableMenuTarget(key: key), controller: controller)
-    }
-}
-
-extension View {
-    /// The table's pages (DocTableMenu) from this view while it's `target`'s: beside it, or
-    /// at the window's foot on a small screen (the controller's).
-    func docTableMenu(_ target: DocTableMenuTarget, controller: DocTableController) -> some View {
-        docPanel(isPresented: controller.menu == target && controller.menuPanel == nil,
-                 onDismiss: { if controller.menu == target { controller.closeMenu() } },
-                 page: { controller.besideMenuPages() })
-    }
-}
 
 /// The table's menu, drawn as the document's settings are on every screen: what's done to
 /// the table, its sorting right there. A cell's text has the system's own edit menu, and the

@@ -72,7 +72,7 @@ struct DocRow: Identifiable, Equatable {
     var run: DocRowRun?
     /// A code or math block, edited as its source.
     let sourceKind: DocSourceKind?
-    /// Its source's text (a code or math block's).
+    /// Its source's text: a code or math block's, a table's markdown.
     let sourceText: String
     var sourceIsEmpty: Bool { sourceText.isEmpty }
     /// Whether the row has text to edit: a text block's, a cell's, code's or maths'.
@@ -372,8 +372,10 @@ final class DocDemo {
                     result.append(cached.row)
                 } else {
                     let alone = Doc(id: doc.id, blocks: [block], databases: [database.id: database])
+                    // Its markdown is DocKit's (a GFM table of the same cells as its tree), which
+                    // the UIKit row's table reads.
                     let row = DocRow(id: block.id.description, block: block.id, tree: Self.tree(block, in: alone),
-                                     table: DocTableSnapshot(block: block.id, database: database))
+                                     table: DocTableSnapshot(block: block.id, database: database), sourceText: alone.markdown(of: block.id) ?? "")
                     rowCache[block.id] = (block, database, row)
                     result.append(row)
                 }

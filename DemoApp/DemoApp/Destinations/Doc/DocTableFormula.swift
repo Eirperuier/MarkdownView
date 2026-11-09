@@ -80,9 +80,11 @@ final class DocFormulaEditing: Identifiable {
     }
 
     /// A reference's colour, by its place among them.
-    static func color(_ index: Int) -> Color {
+    static func color(_ index: Int) -> Color { Color(uiColor: uiColor(index)) }
+
+    static func uiColor(_ index: Int) -> UIColor {
         let tokens = ["purple", "green", "blue", "orange", "red", "cyan", "brown"]
-        return DocColors.ink(tokens[index % tokens.count]).map { Color(uiColor: $0) } ?? DocTokens.ColorRole.Content.secondary
+        return DocColors.ink(tokens[index % tokens.count]) ?? .floo(.secondaryLabel)
     }
 
     /// The field's typing.
@@ -482,7 +484,7 @@ private struct DocFormulaPanelHost: UIViewRepresentable {
 final class DocFormulaPage: DocStackPage {
     /// Craft's panel's width, measured on its Mac app.
     private static let width: CGFloat = 352
-    private let formula: DocFormulaEditing
+    private var formula: DocFormulaEditing
     private let done: () -> Void
     private let cancel: () -> Void
 
@@ -497,6 +499,20 @@ final class DocFormulaPage: DocStackPage {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        showPanel()
+    }
+
+    /// Writes `formula` now: a panel on its way out, brought back for the next formula,
+    /// takes it (its field taking the keyboard as it comes in).
+    func show(_ formula: DocFormulaEditing) {
+        guard formula !== self.formula else { return }
+        self.formula = formula
+        guard isViewLoaded else { return }
+        for view in stack.arrangedSubviews where view is DocFormulaPanelView { view.removeFromSuperview() }
+        showPanel()
+    }
+
+    private func showPanel() {
         stack.addArrangedSubview(DocFormulaPanelView(formula: formula, done: done, cancel: cancel) { [weak self] change in
             self?.flooUpdateSheetContent(change)
         })

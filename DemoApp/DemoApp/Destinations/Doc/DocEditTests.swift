@@ -4145,7 +4145,7 @@ final class DocEditTests {
     /// Makes `change` to a block that gives its box another place or size on the page and
     /// watches the screen while it lands: its box goes from its old frame to its new one
     /// (frames on the way, not a jump) without fading, the row after it goes on its way without going back,
-    /// `still`'s row stays put, and all of it comes to rest where the layout says. (The row
+    /// what `still`'s row draws stays put, and all of it comes to rest where the layout says. (The row
     /// after it is watched while it's on screen: a large image can push it off.)
     private func expectMove(_ id: DocBlockID, next: DocBlockID, still: DocBlockID, change: () -> Void) async throws {
         let blocks = editor.blocks
@@ -4154,11 +4154,13 @@ final class DocEditTests {
         for _ in 0..<50 where (blocks.testShownBox(id)?.opacity ?? 0) < 0.99 {
             try? await Task.sleep(for: .milliseconds(20))
         }
-        let stays = try expectValue(blocks.testShownRowFrame(still), "no row that stays")
+        // What it draws: the space above a row is in its frame, and a change can move that
+        // space from the row before it into it (a gallery left, its first image alone).
+        let stays = try expectValue(blocks.testShownBox(still)?.frame, "no row that stays")
         let startOffset = blocks.testContentOffset.y
         func sample() throws -> (box: CGRect, opacity: Float, next: CGFloat?, still: CGRect?) {
             let box = try expectValue(blocks.testShownBox(id), "no box drawn")
-            return (box.frame, box.opacity, blocks.testShownRowFrame(next)?.minY, blocks.testShownRowFrame(still))
+            return (box.frame, box.opacity, blocks.testShownRowFrame(next)?.minY, blocks.testShownBox(still)?.frame)
         }
         let start = try sample()
         let began = CACurrentMediaTime()
@@ -4204,9 +4206,13 @@ final class DocEditTests {
         // At rest where the layout puts its box; the row that stays never moved.
         let content = try expectValue(blocks.testContentFrame(id), "no frame")
         try expect(abs(end.box.minX - content.minX) < 1 && abs(end.box.minY - content.minY) < 1, "box rests at \(end.box), its place is \(content)")
-        try expect(samples.allSatisfy { sample in
-            sample.still.map { abs($0.minY - sample.offset - (stays.minY - startOffset)) < 0.5 && abs($0.minX - stays.minX) < 0.5 } ?? true
-        }, "the row that stays moved on screen")
+        let moved = samples.filter { sample in
+            sample.still.map { abs($0.minY - sample.offset - (stays.minY - startOffset)) >= 0.5 || abs($0.minX - stays.minX) >= 0.5 } ?? false
+        }
+        try expect(moved.isEmpty, "the row that stays moved on screen: " + moved.prefix(6).map { sample in
+            String(format: "%.3f:(%.1f,%.1f)", sample.time, (sample.still?.minX ?? 0) - stays.minX,
+                   (sample.still?.minY ?? 0) - sample.offset - (stays.minY - startOffset))
+        }.joined(separator: " ") + " of \(samples.count)")
     }
 
     /// A formula written apart (DocTableFormula), for the cell at `key` (row 4, column 2 of

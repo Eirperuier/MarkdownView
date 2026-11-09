@@ -193,6 +193,12 @@ public final class MarkdownBlockView: UIView {
         apply(document: document, listDepth: listDepth, asQuote: asQuote, style: style)
     }
 
+    /// A display formula from its LaTeX, as a block of one formula shows it.
+    public func configure(displayMath latex: String, style: MarkdownStyle) {
+        rebuild = { [weak self] in self?.apply(displayMath: latex, style: style) }
+        apply(displayMath: latex, style: style)
+    }
+
     /// Lets the text views go back to the pool.
     public func prepareForReuse() {
         clear()
@@ -228,6 +234,8 @@ public final class MarkdownBlockView: UIView {
         case .image(let view, _):
             view.removeFromSuperview()
         }
+        quoteBackdrop?.removeFromSuperview()
+        quoteBackdrop = nil
         layout = .empty
         lateSize.reset()
         shownBlockID = nil
@@ -340,27 +348,30 @@ public final class MarkdownBlockView: UIView {
         showText(markdown, depth: 0, style: style, block: nil)
     }
 
+    private func apply(displayMath latex: String, style given: MarkdownStyle) {
+        let style = resolved(given)
+        self.style = given
+        shownBlockID = nil
+        if case .math(let view) = layout {
+            view.configure(latex: latex, style: style)
+        } else {
+            clear()
+            showMath(latex, style: style)
+        }
+        cachedHeight = nil
+        setNeedsLayout()
+    }
+
     private func apply(document: Markdown.Document, listDepth: Int, asQuote: Bool, style given: MarkdownStyle) {
         let style = resolved(given)
         self.style = given
         semanticContentAttribute = style.layoutDirection == .rightToLeft ? .forceRightToLeft : .unspecified
         shownBlockID = nil
-        if asQuote {
-            let text = MarkdownTextBuilder.build(document: document, style: style.quoted)
-            if case .quote(let quote) = layout {
-                quote.configure(text: text, style: style)
-            } else {
-                clear()
-                let quote = MarkdownQuoteView()
-                quote.configure(text: text, style: style)
-                addSubview(quote)
-                layout = .quote(quote)
-            }
-        } else {
-            if case .text = layout {} else { clear() }
-            let text = MarkdownTextBuilder.build(document: document, style: style, listDepthOffset: listDepth)
-            show(text, style: style, made: nil, leading: 0)
-        }
+        // One text view whatever the kind: a block that becomes a quote (or stops being one)
+        // keeps it, the quote drawn round it, and its text goes to its new place.
+        if case .text = layout {} else { clear() }
+        let text = MarkdownTextBuilder.build(document: document, style: asQuote ? style.quoted : style, listDepthOffset: asQuote ? 0 : listDepth)
+        show(text, style: style, made: nil, leading: 0, quoted: asQuote)
         cachedHeight = nil
         setNeedsLayout()
     }
@@ -502,13 +513,18 @@ public final class MarkdownBlockView: UIView {
     }
 
     /// Text in the text host there is, or a new one.
-    private func show(_ text: MarkdownText, style: MarkdownStyle, made: MarkdownPreparedTexts.Made?, leading: CGFloat) {
+    private func show(_ text: MarkdownText, style: MarkdownStyle, made: MarkdownPreparedTexts.Made?, leading: CGFloat, quoted: Bool = false) {
         let shown: MarkdownTextHost?
         if case .text(let host, _) = layout { shown = host } else { shown = nil }
         let host = shown ?? MarkdownTextHost(textView: !style.drawsTextUntilTouched)
-        if style.addsEdgeInsets {
+        if quoted {
+            host.insets = MarkdownQuoteView.insets(of: text, style: style)
+        } else if style.addsEdgeInsets {
             host.insets = UIEdgeInsets(top: text.topEdgeInset, left: 0, bottom: text.bottomEdgeInset, right: 0)
+        } else if quoteBackdrop != nil {
+            host.insets = .zero
         }
+        showQuote(quoted, style: style)
         if shown == nil {
             host.apply(text, style: style, reveal: reveal, prepared: made?.stack, picture: made?.picture)
             addSubview(host.view)
@@ -516,6 +532,24 @@ public final class MarkdownBlockView: UIView {
             host.update(text, style: style, reveal: reveal)
         }
         layout = .text(host, leading: leading)
+    }
+
+    /// The quote drawn round a document's text (`configure(document:asQuote:)`).
+    private var quoteBackdrop: MarkdownQuoteBackdrop?
+
+    private func showQuote(_ quoted: Bool, style: MarkdownStyle) {
+        guard quoted else {
+            quoteBackdrop?.removeFromSuperview()
+            quoteBackdrop = nil
+            return
+        }
+        let backdrop = quoteBackdrop ?? MarkdownQuoteBackdrop()
+        if quoteBackdrop == nil {
+            UIView.performWithoutAnimation { backdrop.frame = bounds }
+            insertSubview(backdrop, at: 0)
+            quoteBackdrop = backdrop
+        }
+        backdrop.show(ground: style.resolvedQuoteFill, bar: style.resolvedQuoteColor, isRightToLeft: style.layoutDirection == .rightToLeft)
     }
 
     /// A list item with a code fence, by what's before it and what's from it on.
@@ -649,7 +683,9 @@ public final class MarkdownBlockView: UIView {
         case .table(let view):
             height = view.height(forWidth: width)
         case .text(let host, let leading):
-            height = host.height(forWidth: width - leading)
+            let padding = MarkdownQuoteView.padding
+            height = quoteBackdrop == nil ? host.height(forWidth: width - leading)
+                : host.height(forWidth: width - leading - padding.horizontal * 2) + padding.vertical * 2
         case .quote(let quote):
             height = quote.height(forWidth: width)
         case .math(let view):
@@ -685,9 +721,14 @@ public final class MarkdownBlockView: UIView {
         case .table(let view):
             if view.frame != bounds { view.frame = bounds }
         case .text(let host, let leading):
-            let rect = isRTL
+            var rect = isRTL
                 ? CGRect(x: 0, y: 0, width: bounds.width - leading, height: bounds.height)
                 : CGRect(x: leading, y: 0, width: bounds.width - leading, height: bounds.height)
+            if let quoteBackdrop {
+                quoteBackdrop.frame = bounds
+                let padding = MarkdownQuoteView.padding
+                rect = rect.insetBy(dx: padding.horizontal, dy: padding.vertical)
+            }
             host.layout(in: rect, isRightToLeft: isRTL)
         case .quote(let quote):
             quote.frame = bounds

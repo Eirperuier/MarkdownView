@@ -309,6 +309,9 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     var language: String?
     /// The text's font and line attributes (the field's).
     var baseAttributes: [NSAttributedString.Key: Any] = [:]
+    /// The font it shows its text in. Optional: made by UITextView's factory, the view never
+    /// runs its properties' initial values.
+    var sourceFont: UIFont?
     /// The scheme its code is coloured for: the SwiftUI environment's (Markdown drawn in
     /// its own colours sets one its text views' traits don't have). Optional, as `ink`: made
     /// by UITextView's factory, the view never runs its properties' initial values.
@@ -619,28 +622,31 @@ struct DocSourceField: UIViewRepresentable {
     /// A code block's lines (DocCodeBox), the insets theirs.
     var code: DocCodeMetrics?
 
-    /// In the colours of the Markdown it's in, if it has its own.
-    private func attributes(_ colors: MarkdownColors?) -> [NSAttributedString.Key: Any] {
-        let ink = colors.map { UIColor($0.primary) } ?? DocTokens.UIKitColor.primary
-        var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink]
-        if let code {
-            let style = NSMutableParagraphStyle()
-            // Every line the pitch from the next: TextKit adds the spacing after a
-            // paragraph's last line too.
-            style.lineSpacing = code.gap * 2
-            attributes[.paragraphStyle] = style
-        }
-        return attributes
+    func makeUIView(context: Context) -> DocSourceTextView {
+        DocSourceTextView.make(code: code != nil)
     }
 
-    private var textInsets: UIEdgeInsets { code?.insets ?? insets }
+    func updateUIView(_ view: DocSourceTextView, context: Context) {
+        let colors = context.environment.markdownColors
+        view.configure(block: block, text: text, controller: controller, font: font, insets: insets, language: language, code: code,
+                       ink: colors.map { UIColor($0.primary) }, ground: colors?.background.map { UIColor($0) },
+                       scheme: context.environment.colorScheme)
+    }
 
-    func makeUIView(context: Context) -> DocSourceTextView {
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: DocSourceTextView, context: Context) -> CGSize? {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 300
+        return CGSize(width: width, height: uiView.fittingHeight(width: width))
+    }
+}
+
+extension DocSourceTextView {
+    /// A source's text view; `code`: a code block's, its lines running on and scrolling sideways.
+    static func make(code: Bool) -> DocSourceTextView {
         // TextKit 1: a code block's lines are as tall as its layout manager makes them.
         let view = DocSourceTextView(usingTextLayoutManager: false)
         view.delegate = view
         view.isScrollEnabled = false
-        if code != nil {
+        if code {
             // Code lines run on: the text scrolls sideways (its own scrolling, which
             // keeps the caret in view), never up or down.
             view.isScrollEnabled = true
@@ -661,59 +667,68 @@ struct DocSourceField: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: DocSourceTextView, context: Context) {
-        view.block = block
-        view.controller = controller
-        view.isEditable = controller?.isEditable ?? false
-        view.textContainerInset = textInsets
-        view.code = code
-        if code != nil { view.runsLinesOn() }
-        let attributes = attributes(context.environment.markdownColors)
-        let ink = attributes[.foregroundColor] as? UIColor
-        let ground = context.environment.markdownColors?.background.map { UIColor($0) }
-        let recolors = view.scheme != context.environment.colorScheme || !(view.ink?.isEqual(ink) ?? false)
-            || view.ground.map { !$0.isEqual(ground) } ?? (ground != nil)
-        view.scheme = context.environment.colorScheme
-        view.ink = ink
-        view.ground = ground
+    /// Shows `text` of `block` in `font`, coloured for `language` in `scheme`; `ink`: its
+    /// text's colour where no token colours it (nil: the page's), `ground`: what the Markdown
+    /// it's in is drawn on, when it has colours of its own.
+    func configure(block: DocBlockID?, text: String, controller: DocSourceController?, font: UIFont, insets: UIEdgeInsets,
+                   language: String?, code: DocCodeMetrics?, ink: UIColor? = nil, ground: UIColor? = nil, scheme: ColorScheme) {
+        self.block = block
+        self.controller = controller
+        isEditable = controller?.isEditable ?? false
+        sourceFont = font
+        textContainerInset = code?.insets ?? insets
+        self.code = code
+        if code != nil { runsLinesOn() }
+        var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink ?? DocTokens.UIKitColor.primary]
+        if let code {
+            let style = NSMutableParagraphStyle()
+            // Every line the pitch from the next: TextKit adds the spacing after a
+            // paragraph's last line too.
+            style.lineSpacing = code.gap * 2
+            attributes[.paragraphStyle] = style
+        }
+        let recolors = self.scheme != scheme || !(self.ink?.isEqual(ink) ?? false)
+            || self.ground.map { !$0.isEqual(ground) } ?? (ground != nil)
+        self.scheme = scheme
+        self.ink = ink
+        self.ground = ground
         // Typed text takes the colour of the token it's typed into until the next
         // highlight, not plain.
         var typing = attributes
-        if language != nil, let color = view.typingAttributes[.foregroundColor] { typing[.foregroundColor] = color }
-        view.typingAttributes = typing
-        let languageChanged = view.language != language
-        view.language = language
-        view.baseAttributes = attributes
-        if (view.text != text || view.attributedText.length == 0) && view.markedTextRange == nil {
-            view.show(text)
+        if language != nil, let color = typingAttributes[.foregroundColor] { typing[.foregroundColor] = color }
+        typingAttributes = typing
+        let languageChanged = self.language != language
+        self.language = language
+        baseAttributes = attributes
+        if (self.text != text || attributedText.length == 0) && markedTextRange == nil {
+            show(text)
         } else if languageChanged {
-            view.highlightNow()
+            highlightNow()
         } else if recolors {
-            view.recolor()
+            recolor()
         }
-        if let block, let controller { controller.register(view, for: block) }
+        if let block, let controller { controller.register(self, for: block) }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: DocSourceTextView, context: Context) -> CGSize? {
-        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 300
-        let insets = textInsets
+    /// Its height at `width`: a code block's to its last line's text, else the text's.
+    func fittingHeight(width: CGFloat) -> CGFloat {
+        let insets = textContainerInset
+        let font = sourceFont ?? docCodeFont
         var height: CGFloat
         if let code {
             // To the last line's text, not past the spacing after it: the bottom inset
             // has the space below it. Its lines run on (the text view's own measuring
             // would wrap them at the width).
-            let container = uiView.textContainer
-            let manager = uiView.layoutManager
-            uiView.runsLinesOn()
-            manager.ensureLayout(for: container)
-            let glyphs = manager.numberOfGlyphs
-            let last = !manager.extraLineFragmentUsedRect.isEmpty || glyphs == 0 ? manager.extraLineFragmentUsedRect
-                : manager.lineFragmentUsedRect(forGlyphAt: glyphs - 1, effectiveRange: nil)
+            runsLinesOn()
+            layoutManager.ensureLayout(for: textContainer)
+            let glyphs = layoutManager.numberOfGlyphs
+            let last = !layoutManager.extraLineFragmentUsedRect.isEmpty || glyphs == 0 ? layoutManager.extraLineFragmentUsedRect
+                : layoutManager.lineFragmentUsedRect(forGlyphAt: glyphs - 1, effectiveRange: nil)
             height = insets.top + last.minY + code.lineHeight + insets.bottom
         } else {
-            height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+            height = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
         }
-        return CGSize(width: width, height: max(ceil(height), ceil(font.lineHeight + insets.top + insets.bottom)))
+        return max(ceil(height), ceil(font.lineHeight + insets.top + insets.bottom))
     }
 }
 
@@ -867,19 +882,6 @@ struct DocCodeBox: View {
     }
 }
 
-/// A code block: Craft's box, its text edited in place.
-struct DocCodeRowView: View {
-    let block: DocBlockID
-    let text: String
-    let language: String?
-    let controller: DocSourceController
-
-    var body: some View {
-        DocCodeBox(block: block, text: text, language: language, controller: controller, isEditing: controller.editing == block)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 /// The code blocks MarkdownView draws in the document (the agent writing them): Craft's box.
 struct DocCodeBlockStyle: CodeBlockStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -930,48 +932,6 @@ struct DocRowHeightReporter: ViewModifier {
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                 updateSelfSizing(measuredHeight: height)
             }
-    }
-}
-
-/// A math block: MarkdownView's formula; while it's edited, ringed (a cell's formula's
-/// way), its LaTeX in a panel: on the Mac under it, on a phone over the keyboard
-/// (DocMathKeyboardPanel, the page's).
-struct DocMathRowView: View {
-    let block: DocBlockID
-    let tree: MarkdownTree
-    let isEmpty: Bool
-    let controller: DocSourceController
-
-    var body: some View {
-        let editing = controller.editing == block
-        Group {
-            if isEmpty {
-                Text("Empty formula. Enter LaTeX.")
-                    .font(DocTokens.Typography.body.font)
-                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
-                    .frame(maxWidth: .infinity, minHeight: DocTokens.Control.standardHeight)
-            } else {
-                MarkdownBlockView(tree: tree)
-                    .markdownDisplayMathRendersSynchronously()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: DocTokens.Radius.md, style: .continuous)
-                .strokeBorder(DocTokens.ColorRole.Accent.primary, lineWidth: DocTokens.Border.focus)
-                .padding(.horizontal, -(DocTokens.Space.sm - 2))
-                .opacity(editing ? 1 : 0)
-                .animation(DocTokens.Motion.reveal, value: editing)
-                .allowsHitTesting(false)
-        }
-        .background { DocViewAnchor { [block, controller] in controller.mathRows[block] = .init(view: $0) } }
-        .contentShape(Rectangle())
-        .simultaneousGesture(TapGesture().onEnded { [block, controller] in
-            if controller.editing != block { controller.focus(block) }
-        })
-        .docPanel(isPresented: editing && DocDevice.isMac, onDismiss: { [block, controller] in controller.dismiss(block) }) {
-            DocMathPanel(block: block, text: controller.text(block), controller: controller)
-        }
     }
 }
 
@@ -1102,21 +1062,6 @@ struct DocMathKey: Identifiable, Hashable {
         [("≤", "leq"), ("≥", "geq"), ("≠", "neq"), ("≈", "approx"), ("±", "pm"), ("×", "times"),
          ("·", "cdot"), ("∞", "infty"), ("∂", "partial"), ("→", "to")],
     ].map { $0.map { DocMathKey(title: $0.0, name: $0.1, snippet: "\\" + $0.1) } }
-}
-
-/// A UIView where this view is, for UIKit's scrolling to it.
-struct DocViewAnchor: UIViewRepresentable {
-    let onResolve: (UIView) -> Void
-
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.isUserInteractionEnabled = false
-        return view
-    }
-
-    func updateUIView(_ view: UIView, context: Context) {
-        onResolve(view)
-    }
 }
 
 private extension Array {

@@ -313,3 +313,50 @@ final class MarkdownCalloutHeaderView: UIView {
         title?.draw(with: CGRect(x: textX, y: textY, width: max(0, bounds.width - Self.overhang * 2 - textX), height: bounds.height), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
     }
 }
+
+/// A quote's ground and bar alone, as MarkdownQuoteView draws them, round text that isn't its own:
+/// a document's block drawn as a quote keeps its text view (MarkdownBlockView).
+@MainActor
+final class MarkdownQuoteBackdrop: UIView {
+    private let clip = UIView()
+    private let barClip = UIView()
+    private let ground = MarkdownColorView()
+    private let bar = MarkdownColorView()
+    private var isRightToLeft = false
+    private let barWidth: CGFloat = 4
+    private let cornerRadius: CGFloat = 3
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        for view in [clip, barClip] {
+            view.clipsToBounds = true
+            view.layer.cornerRadius = cornerRadius
+            view.layer.cornerCurve = .continuous
+            addSubview(view)
+        }
+        clip.addSubview(ground)
+        barClip.addSubview(bar)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show(ground: UIColor, bar: UIColor, isRightToLeft: Bool) {
+        self.ground.color = ground
+        self.bar.color = bar
+        if self.isRightToLeft != isRightToLeft {
+            self.isRightToLeft = isRightToLeft
+            setNeedsLayout()
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        clip.frame = bounds
+        barClip.frame = bounds
+        ground.frame = clip.bounds
+        bar.frame = CGRect(x: isRightToLeft ? bounds.width - barWidth : 0, y: 0, width: barWidth, height: bounds.height)
+    }
+}

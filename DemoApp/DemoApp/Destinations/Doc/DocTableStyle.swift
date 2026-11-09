@@ -10,6 +10,7 @@
 
 import SwiftUI
 import DocKit
+import MarkdownUIKit
 import MarkdownView
 
 extension DocTableController {
@@ -194,6 +195,44 @@ extension DocTableController {
                                        fontDesign: font, cells: cells)
     }
 
+    /// The same look for MarkdownUIKit (the page's UIKit row).
+    func uikitAppearance(of table: DocTableSnapshot) -> MarkdownUIKit.MarkdownTableOptions.Appearance {
+        let database = table.database
+        let style = database.tableStyle
+        typealias Look = MarkdownUIKit.MarkdownTableOptions.CellLook
+        var cells: [MarkdownTableCellPosition: Look] = [:]
+        for (c, column) in database.columns.enumerated() {
+            if let header = column.headerStyle {
+                cells[MarkdownTableCellPosition(row: 0, column: c)] = DocCellLook.uikitLook(header)
+            }
+            if let styles = column.cellStyles {
+                for (r, row) in database.rows.enumerated() {
+                    if let cell = styles[row.id] { cells[MarkdownTableCellPosition(row: r + 1, column: c)] = DocCellLook.uikitLook(cell) }
+                }
+            }
+            // A select's option reads as a tag in its colour, as a collection shows it.
+            guard case .select(let options) = column.type else { continue }
+            for (r, row) in database.rows.enumerated() {
+                guard case .select(let id)? = row.cells[column.id], let option = options.first(where: { $0.id == id }) else { continue }
+                let position = MarkdownTableCellPosition(row: r + 1, column: c)
+                cells[position, default: Look()].tag = DocColors.ink(DocOptionColor.token(option, in: options)) ?? .floo(.secondaryLabel)
+            }
+        }
+        var appearance = MarkdownUIKit.MarkdownTableOptions.Appearance()
+        appearance.headerRow = style.hasHeaderRow
+        appearance.headerColumn = style.hasHeaderColumn
+        // The table's own light stripe until it's given another, or none.
+        appearance.stripe =
+            switch style.stripe {
+            case nil: .standard
+            case TableStyle.noStripe?: .none
+            case let token?: DocColors.uikitFill(token).map { .color($0) } ?? .standard
+            }
+        appearance.fontDesign = demo.doc.block(table.block)?.font.flatMap(DocCellLook.systemDesign)
+        appearance.cells = cells
+        return appearance
+    }
+
     /// How the cell's editor sets its text: as the table draws the cell (in its table's
     /// typeface, unless it has its own).
     func look(_ key: DocCellKey) -> DocCellLook {
@@ -218,6 +257,18 @@ struct DocCellLook: Equatable {
     static func appearance(_ style: CellStyle) -> MarkdownTableCellAppearance {
         MarkdownTableCellAppearance(alignment: style.alignment.map(alignment), fontDesign: style.font.map(design),
                                     fill: style.fill.flatMap(DocColors.fill))
+    }
+
+    static func uikitLook(_ style: CellStyle) -> MarkdownUIKit.MarkdownTableOptions.CellLook {
+        let alignment: MarkdownUIKit.MarkdownTableOptions.CellLook.Alignment? = style.alignment.map {
+            switch $0 {
+            case .left: .leading
+            case .center: .center
+            case .right: .trailing
+            case .justify: .justified
+            }
+        }
+        return .init(alignment: alignment, fontDesign: style.font.flatMap(systemDesign), fill: style.fill.flatMap(DocColors.uikitFill))
     }
 
     static func alignment(_ alignment: CellAlignment) -> MarkdownTableCellAppearance.Alignment {
@@ -281,7 +332,7 @@ struct DocCellLook: Equatable {
         return font
     }
 
-    private static func systemDesign(_ font: Typeface) -> UIFontDescriptor.SystemDesign? {
+    static func systemDesign(_ font: Typeface) -> UIFontDescriptor.SystemDesign? {
         switch font {
         case .system: nil
         case .serif: .serif
@@ -294,8 +345,12 @@ struct DocCellLook: Equatable {
 extension DocColors {
     /// A cell's or a stripe's fill (CellStyle's tokens).
     static func fill(_ token: String) -> Color? {
+        uikitFill(token).map { Color(uiColor: $0) }
+    }
+
+    static func uikitFill(_ token: String) -> UIColor? {
         guard let fill = CellStyle.parseFill(token) else { return nil }
-        return DocColors.cellFill(fill.color, strength: fill.strength).map { Color(uiColor: $0) }
+        return DocColors.cellFill(fill.color, strength: fill.strength)
     }
 
     /// The fills to pick from, Craft's grid: six hues across, their three strengths down,

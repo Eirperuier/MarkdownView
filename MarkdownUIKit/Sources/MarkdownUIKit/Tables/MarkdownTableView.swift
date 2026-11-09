@@ -23,6 +23,8 @@ import UIKit
 public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate, MarkdownTouchTaking {
     /// The table changed height by itself: an image came in.
     var onHeightChange: (() -> Void)?
+    /// Its cells moved in it: laid out again, or scrolled sideways. For what a host draws by them.
+    public var onCellsMoved: (() -> Void)?
 
     private var content = MarkdownTableContent()
     private var style = MarkdownStyle()
@@ -133,9 +135,25 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate, Markd
         guard content.update(source: source, style: given, inlineMath: inlineMath, displayMath: displayMath) else { return false }
         self.style = given
         metrics = MarkdownTableMetrics(options: given.table)
-        if oldKey != given.table.textKey { replacedViews.values.forEach { $0.removeFromSuperview() }; replacedViews.removeAll() }
+        // A new look: the views in replaced cells are asked for again. Other cells replaced:
+        // those no longer go, those still replaced stay (one may have the focus, which it hands
+        // over to the new one). Either way the cells are measured and drawn again round them.
+        var oldLook = oldKey, newLookKey = given.table.textKey
+        oldLook.replaced = []
+        newLookKey.replaced = []
+        let newLook = oldLook != newLookKey
+        let otherCells = oldKey.replaced != given.table.replacedCells
+        if newLook {
+            replacedViews.values.forEach { $0.removeFromSuperview() }
+            replacedViews.removeAll()
+        } else if otherCells {
+            for (position, view) in replacedViews where !given.table.replacedCells.contains(position) {
+                view.removeFromSuperview()
+                replacedViews[position] = nil
+            }
+        }
         // A table made ahead is new here: all of it is drawn again.
-        let changed = prepared != nil ? 0 : content.firstChangedRow
+        let changed = prepared != nil || newLook || otherCells ? 0 : content.firstChangedRow
         if changed != nil || geometries.isEmpty {
             geometries.removeAll()
             syncReplaced()
@@ -172,10 +190,14 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate, Markd
         setNeedsLayout()
     }
 
-    /// The text views go back to the pool.
+    /// The text views go back to the pool, and a host's views in cells go: another table comes.
     public func prepareForReuse() {
         stopFollowing()
         reveal = nil
+        replacedViews.values.forEach { $0.removeFromSuperview() }
+        replacedViews.removeAll()
+        decoration?.removeFromSuperview()
+        decoration = nil
         hosts.values.forEach {
             $0.host.release()
             $0.host.view.removeFromSuperview()
@@ -223,6 +245,12 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate, Markd
         let text = MarkdownSelectableText(drawn: cell.string, frame: rect, in: canvas)
         drawnSelectables[cell.position] = (cell, rect, text)
         return text
+    }
+
+    /// Where its cells are, in its own space (scrolled sideways, past its edges); nil until it's laid out.
+    public var cellsFrame: CGRect? {
+        guard let shown else { return nil }
+        return canvas.convert(CGRect(origin: .zero, size: shown.contentSize), to: self)
     }
 
     /// The cell at a point in the view; nil outside the cells. A point between two columns is
@@ -342,6 +370,7 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate, Markd
         pendingChangedRow = nil
         canvas.invalidateAccessibility()
         tellExtent()
+        onCellsMoved?()
     }
 
     /// Whether what's on both is where it was: rows added at the end move nothing.
@@ -449,6 +478,7 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate, Markd
 
     fileprivate func canvasDidScroll() {
         updateTiles()
+        onCellsMoved?()
     }
 
     // MARK: Drawing
