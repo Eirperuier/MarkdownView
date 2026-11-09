@@ -15,6 +15,7 @@ import UIKit
 import UniformTypeIdentifiers
 import DocKit
 import MarkdownView
+import MarkdownUIKit
 import MessagingUI
 
 /// A test's line: printed, and added to doctest.log in the app's temporary folder, for a
@@ -1951,6 +1952,18 @@ final class DocEditTests {
             try self.expect(cells == ["a", "b", "c", "d"], "cells \(cells)")
             try await self.undo()
             try self.expect(try database() == before, "undo left changes")
+        }
+        await test("Table: a cell that has the focus keeps it, its table still once it shows") {
+            let view = try await click(1, 1)
+            try? await Task.sleep(for: .milliseconds(400))
+            let shows = DocTableView.shows
+            var resigned = 0
+            for _ in 0..<30 {
+                try? await Task.sleep(for: .milliseconds(16))
+                if !view.isFirstResponder { resigned += 1 }
+            }
+            let again = DocTableView.shows - shows
+            try self.expect(again == 0 && resigned == 0, "the table showed again \(again) times in half a second; the cell lost the focus \(resigned) times")
         }
         await test("Table: Esc leaves it; it renders as MarkdownView's table again") {
             let view = try await click(1, 1)
@@ -4257,8 +4270,26 @@ final class DocEditTests {
         try expect(tables.result(key) == "0.33", "result \(String(describing: tables.result(key)))")
         try expect(tables.editing == key, "the cell isn't ringed")
         if DocDevice.isMac {
+            // Every cell in a text view of the table's own, as a pointer over them leaves them:
+            // the formula's cell shows only its placeholder, not its result's text under it.
+            let window = try expectValue(editor.allTextViews.compactMap(\.window).first, "no window")
+            func all<View: UIView>(_ type: View.Type, in view: UIView) -> [View] {
+                ((view as? View).map { [$0] } ?? []) + view.subviews.flatMap { all(type, in: $0) }
+            }
+            // Not edited first, as a click on it finds it.
+            tables.endEditing()
+            try? await Task.sleep(for: .milliseconds(200))
+            for table in all(MarkdownUIKit.MarkdownTableView.self, in: window) { table.showAllCellsInTextViews() }
             tables.editFormula(key)
             let again = try await opened("reopening")
+            try? await Task.sleep(for: .milliseconds(100))
+            let placeholder = try expectValue(all(DocFormulaPlaceholderView.self, in: window).first { $0.window != nil }, "no placeholder")
+            let cell = placeholder.convert(placeholder.bounds, to: nil)
+            let under = all(UITextView.self, in: window).filter { view in
+                !view.isHidden && view.alpha > 0 && view.convert(view.bounds, to: nil).intersection(cell).width > 4
+                    && view.convert(view.bounds, to: nil).intersection(cell).height > 4
+            }
+            try expect(under.isEmpty, "text in the formula's cell under its placeholder: \(under.map { $0.text ?? "" })")
             try expect(again.text == "C3+C4", "the formula reopens as \(again.text)")
             again.field?.text = ""
             again.typed("", selection: NSRange(location: 0, length: 0))

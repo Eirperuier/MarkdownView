@@ -154,8 +154,12 @@ final class DocTableView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// How many times tables were shown (a test's count: a still table isn't shown again).
+    static var shows = 0
+
     /// Reads the controller's state: called inside the row's observation.
     func show(_ snapshot: DocTableSnapshot, source: String, controller: DocTableController) {
+        if !measuresOnly { Self.shows += 1 }
         // Another table: the last one's editors go with it.
         if let shown = self.snapshot?.block, shown != snapshot.block {
             for editor in editors.values { editor.dropped() }

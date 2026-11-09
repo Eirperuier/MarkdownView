@@ -682,7 +682,9 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate, Markd
     /// Hosts follow the cells: what's gone goes, what changed takes its new text.
     private func syncHosts() {
         for (position, cellHost) in hosts {
-            guard content.rows.indices.contains(position.row), content.rows[position.row].indices.contains(position.column) else {
+            // A cell gone, or one a view replaces (it shows that view, not its text).
+            guard content.rows.indices.contains(position.row), content.rows[position.row].indices.contains(position.column),
+                  replacedViews[position] == nil else {
                 cellHost.host.release()
                 cellHost.host.view.removeFromSuperview()
                 hosts[position] = nil
@@ -695,7 +697,7 @@ public final class MarkdownTableView: UIView, UIGestureRecognizerDelegate, Markd
                 cellHost.host.textSizeDidChange()
             }
         }
-        for cell in content.flat where cell.needsHost && hosts[cell.position] == nil {
+        for cell in content.flat where cell.needsHost && hosts[cell.position] == nil && replacedViews[cell.position] == nil {
             _ = makeHost(cell, reveal: revealing.contains(cell.position) ? reveal : nil)
         }
         touched.removeAll { hosts[$0] == nil }
