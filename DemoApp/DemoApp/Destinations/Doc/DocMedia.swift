@@ -275,7 +275,9 @@ enum DocMediaLayout {
             return imageBox(image, width: width)
         case .card(let card):
             return CGSize(width: width, height: width * cardAspect(card))
-        case .link, .file, .view:
+        case .link, .file:
+            return DocMediaContentView.size(of: kind, inGallery: false, width: width)
+        case .view:
             let key = BoxKey(kind: kind, width: width)
             if let size = boxSizes[key] { return size }
             let host = UIHostingController(rootView: DocMediaView(kind: kind))

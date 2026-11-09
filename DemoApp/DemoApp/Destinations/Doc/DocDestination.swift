@@ -87,7 +87,7 @@ private struct DocPageView: View {
             TiledView(items: demo.rows, scrollPosition: $scrollPosition) { row in
                 DocRowCell(item: row, demo: demo, editor: editor)
             }
-            // Text, code, math and tables are UIKit rows.
+            // Most rows are UIKit's (uikitContent).
             .itemUIKitCell { [editor] row in row.uikitContent(editor: editor) }
             // The phone's block selection is drawn over the rows as they scroll.
             .reader(reader, invalidatesOnScroll: editor.blocks.isSelecting)
@@ -472,10 +472,19 @@ struct DocBlockType: ViewModifier {
 
 extension DocRow {
     /// The UIKit row that shows it: a paragraph, heading, list item, caption or quote, a code
-    /// or math block, a table, once it's done streaming. Nil: DocRowView shows it.
+    /// or math block, a table, a link, file or image, a page block, a divider, once it's done
+    /// streaming. Nil: DocRowView shows it (a floo card or view, a collection, a record's
+    /// fields, what the agent is writing).
     @MainActor
     func uikitContent(editor: DocEditor) -> (any TiledUIKitCellContent)? {
-        guard !isStreaming, run == nil || media == nil, collection == nil, page == nil, recordFields == nil else { return nil }
+        guard !isStreaming, collection == nil, recordFields == nil else { return nil }
+        if let media {
+            guard let block, run != nil, DocMediaRowContent.draws(media) else { return nil }
+            return DocMediaRowContent(row: self, block: block, kind: media, blocks: editor.blocks)
+        }
+        if let page {
+            return DocPageRowContent(row: self, page: page, blocks: editor.blocks)
+        }
         if let table {
             return tree == nil ? nil : DocTableRowContent(row: self, table: table, source: sourceText, controller: editor.tables)
         }
@@ -487,6 +496,9 @@ extension DocRow {
         }
         if let text, sourceKind == nil {
             return DocTextRowContent(row: self, text: text, editor: editor)
+        }
+        if let block, tree != nil, editor.demo.doc.block(block)?.kind == .divider {
+            return DocDividerRowContent(row: self, blocks: editor.blocks)
         }
         return nil
     }

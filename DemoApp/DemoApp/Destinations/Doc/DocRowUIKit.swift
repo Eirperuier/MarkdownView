@@ -120,6 +120,15 @@ class DocRowUIKitView: UIView {
 
     // MARK: Layout
 
+    /// A row shown out of a window (the list makes rows before it puts them in) isn't laid
+    /// out there, and goes in with nothing asking for it: it's laid out as it goes in.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        setNeedsLayout()
+        content.setNeedsLayout()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let row else { return }
@@ -128,32 +137,52 @@ class DocRowUIKitView: UIView {
         box.isHidden = frames.box == nil
         if let rect = frames.box {
             box.frame = rect
+            let ends = Self.boxEnds(of: row)
             var corners: CACornerMask = []
-            if row.box?.isFirst == true { corners.formUnion([.layerMinXMinYCorner, .layerMaxXMinYCorner]) }
-            if row.box?.isLast == true { corners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner]) }
+            if ends.first { corners.formUnion([.layerMinXMinYCorner, .layerMaxXMinYCorner]) }
+            if ends.last { corners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner]) }
             box.layer.cornerRadius = Box.cornerRadius
             box.layer.maskedCorners = corners
         }
     }
 
+    /// Whether the row's part of its box is the box's top and its bottom: a card's or a
+    /// gallery image's box is a whole one of its own.
+    static func boxEnds(of row: DocRow) -> (first: Bool, last: Bool) {
+        let own = row.box != nil && row.run?.kind != nil
+        return (own || row.box?.isFirst == true, own || row.box?.isLast == true)
+    }
+
     /// Where the content and its box go in a row `width` wide, with content `contentHeight` tall.
+    ///
+    /// A link, file or image's row (one with a run) is where the list placed it across the
+    /// page (DocMediaLayout.place): its content takes the row's width, in by the box's inset
+    /// only when the box is its own; a box it shares with rows above and below reaches past
+    /// it to the page's edges, as a text row's does.
     static func frames(of row: DocRow, width: CGFloat, contentHeight: CGFloat) -> (content: CGRect, box: CGRect?, height: CGFloat) {
         let boxed = row.box != nil
-        let first = row.box?.isFirst == true
-        let last = row.box?.isLast == true
-        let left = DocBlockController.pageLeft(inWidth: width) + DocBlockController.indentWidth(row.indent)
-        let pageWidth = max(0, DocBlockController.pageWidth(inWidth: width) - DocBlockController.indentWidth(row.indent))
+        let (first, last) = boxEnds(of: row)
         // Above the box (or the content), then the box's own padding: in a box below its
         // first row, the space between rows is inside the box.
         let above = !boxed || first ? row.spacingAbove : 0
         let topPadding = !boxed ? 0 : first ? Box.padding : row.spacingAbove
         let bottomPadding = boxed && last ? Box.padding : 0
+        let height = above + topPadding + contentHeight + bottomPadding + row.spacingBelow
+        let boxHeight = topPadding + contentHeight + bottomPadding
+        if let run = row.run {
+            let own = boxed && run.kind != nil
+            let inset = own ? Box.inset : 0
+            let content = CGRect(x: inset, y: above + topPadding, width: max(0, width - inset * 2), height: contentHeight)
+            let reach = own ? 0 : run.inset + Box.outset
+            let boxRect = boxed ? CGRect(x: -reach, y: above, width: width + reach * 2, height: boxHeight) : nil
+            return (content, boxRect, height)
+        }
+        let left = DocBlockController.pageLeft(inWidth: width) + DocBlockController.indentWidth(row.indent)
+        let pageWidth = max(0, DocBlockController.pageWidth(inWidth: width) - DocBlockController.indentWidth(row.indent))
         let inset = boxed ? Box.inset : 0
         let content = CGRect(x: left + inset, y: above + topPadding, width: max(0, pageWidth - inset * 2), height: contentHeight)
-        let boxRect = boxed
-            ? CGRect(x: left - Box.outset, y: above, width: pageWidth + Box.outset * 2, height: topPadding + contentHeight + bottomPadding)
-            : nil
-        return (content, boxRect, above + topPadding + contentHeight + bottomPadding + row.spacingBelow)
+        let boxRect = boxed ? CGRect(x: left - Box.outset, y: above, width: pageWidth + Box.outset * 2, height: boxHeight) : nil
+        return (content, boxRect, height)
     }
 
     static func contentWidth(of row: DocRow, width: CGFloat) -> CGFloat {
@@ -249,15 +278,54 @@ final class DocRowMoveClock {
         lastTick = now
         for index in dials.indices {
             guard let (context, started) = dials[index].running else { continue }
-            let dial = dials[index]
-            let moving = !(dial.view.layer.animationKeys()?.isEmpty ?? true)
-            let shown = (dial.view.layer.presentation() ?? dial.view.layer).frame.minX / Self.travel
-            let progress = dial.target == 1 ? shown : 1 - shown
-            let done = !moving || now - started > Self.longest
-            context.reportAnimationProgress(done ? 1 : progress)
+            let progress = Self.progress(of: dials[index], at: layer.timeOffset)
+            let done = progress == nil || now - started > Self.longest
+            context.reportAnimationProgress(done ? 1 : progress!)
             if done { dials[index].running = nil }
         }
         if dials.allSatisfy({ $0.running == nil }) { finish() }
+    }
+
+    /// How far a dial's update has gone at the row's layer time `time`; nil once it's done.
+    ///
+    /// Worked out from its spring at that time, not read from its presentation: what's
+    /// presented is the layer time last committed, a frame behind the one the row's content
+    /// shows once this frame commits, and the rows round it would follow a frame late.
+    private static func progress(of dial: Dial, at time: CFTimeInterval) -> CGFloat? {
+        let layer = dial.view.layer
+        guard let keys = layer.animationKeys(), !keys.isEmpty else { return nil }
+        let shown = (layer.presentation() ?? layer).frame.minX / travel
+        let presented = dial.target == 1 ? shown : 1 - shown
+        guard let spring = keys.lazy.compactMap({ layer.animation(forKey: $0) as? CASpringAnimation }).first, spring.beginTime > 0 else {
+            return presented
+        }
+        let elapsed = time - spring.beginTime
+        guard elapsed < spring.settlingDuration else { return nil }
+        return max(0, Self.springStep(spring, at: max(0, elapsed)))
+    }
+
+    /// A spring's way from its start (0) to its end (1) `t` seconds in.
+    private static func springStep(_ spring: CASpringAnimation, at t: CFTimeInterval) -> CGFloat {
+        let (mass, stiffness, damping) = (Double(spring.mass), Double(spring.stiffness), Double(spring.damping))
+        let omega = (stiffness / mass).squareRoot()
+        let zeta = damping / (2 * (stiffness * mass).squareRoot())
+        // The initial velocity is toward the end, in ends per second.
+        let velocity = Double(spring.initialVelocity)
+        let x0 = -1.0
+        let offset: Double
+        if zeta < 1 {
+            let wd = omega * (1 - zeta * zeta).squareRoot()
+            let b = (velocity + zeta * omega * x0) / wd
+            offset = exp(-zeta * omega * t) * (x0 * cos(wd * t) + b * sin(wd * t))
+        } else if zeta == 1 {
+            offset = exp(-omega * t) * (x0 + (velocity + omega * x0) * t)
+        } else {
+            let root = (zeta * zeta - 1).squareRoot()
+            let (r1, r2) = (-omega * (zeta - root), -omega * (zeta + root))
+            let c2 = (velocity - r1 * x0) / (r2 - r1)
+            offset = (x0 - c2) * exp(r1 * t) + c2 * exp(r2 * t)
+        }
+        return CGFloat(1 + offset)
     }
 
     /// Holds the clock weakly: a display link keeps its target.
