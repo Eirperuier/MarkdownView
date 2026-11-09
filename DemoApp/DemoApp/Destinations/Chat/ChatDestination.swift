@@ -6,6 +6,9 @@
 //  replies, block selection over the list and a benchmark.
 //
 
+import CardModel
+import CardRuntime
+import CardUI
 import SwiftUI
 import MarkdownView
 import MessagingUI
@@ -31,12 +34,13 @@ struct ChatDestination: View {
         selection.motion = AppMotion.markdown
         return selection
     }()
-    @State private var heightCache = ChatHeightCache()
+    private var heightCache: ChatHeightCache { .shared }
     @State private var renderedHeights = ChatRenderedHeights()
     @State private var benchmark = ChatBenchmark()
     @State private var streamTask: Task<Void, Never>?
     @State private var exchanges = 100
     @State private var paged = false
+    @AppStorage(ChatTextSelection.wholeRowKey) private var selectsFromWholeRow = true
 
     /// A paged conversation shows this many exchanges at first and loads this many more
     /// each time the list reaches the top, after `pageLatency` (a fetch).
@@ -58,6 +62,10 @@ struct ChatDestination: View {
             }
         }
         .task {
+            ChatUIKitBlock.applyTheme()
+            ChatTextSelection.shared.conversation = conversation
+            // The corpus's pictures, served in the app.
+            CatalogImages.install()
             selection.itemsProvider = { [conversation] in
                 conversation.rows.map {
                     switch $0.kind {
@@ -76,6 +84,7 @@ struct ChatDestination: View {
             if conversation.rows.isEmpty {
                 seed()
             }
+            await ChatProbe.run(reader: reader, send: send)
         }
     }
 
@@ -101,6 +110,16 @@ struct ChatDestination: View {
                 Toggle("Paged", isOn: $paged)
                     .fixedSize()
                     .onChange(of: paged) { seed() }
+                if ChatTextSelection.isOn {
+                    Menu {
+                        Toggle("Select from Anywhere in a Row", isOn: $selectsFromWholeRow)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .fixedSize()
+                    .accessibilityLabel("Selection Options")
+                    .onChange(of: selectsFromWholeRow) { ChatTextSelection.shared.selectsFromWholeRow = selectsFromWholeRow }
+                }
                 Button(streamTask == nil ? "Send" : "Stop") {
                     streamTask == nil ? send() : stop()
                 }
@@ -116,10 +135,50 @@ struct ChatDestination: View {
 
     // MARK: List
 
-    private var list: some View {
-        TiledView(items: conversation.rows, scrollPosition: $scrollPosition) { row in
+    private var tiled: TiledView<ChatRow, TiledCellContentWrapper<ChatRowCell>, Never, Never, Never, Never, Void> {
+        let cell = { [conversation, selection, renderedHeights] (row: ChatRow) in
             ChatRowCell(item: row, conversation: conversation, selection: selection, renderedHeights: renderedHeights)
         }
+        return TiledView(list: conversation.list, scrollPosition: $scrollPosition, cellBuilder: cell)
+    }
+
+    @ViewBuilder
+    private var list: some View {
+        if ChatRenderer.current == .uikit, ChatList.usesUIKit {
+            ChatUIKitList(
+                conversation: conversation,
+                reader: reader,
+                selection: selection,
+                heightCache: heightCache,
+                renderedHeights: renderedHeights,
+                benchmark: benchmark
+            )
+            // As TiledView: laid out past the top and bottom safe area, the rows inset by it.
+            .ignoresSafeArea(edges: .vertical)
+            .overlay(alignment: .topLeading) {
+                MarkdownBlockSelectionOverlay(controller: selection)
+                    .ignoresSafeArea(edges: .vertical)
+            }
+        } else {
+            swiftUIList
+        }
+    }
+
+    private var swiftUIList: some View {
+        tiled
+        .itemUIKitCell { [conversation, renderedHeights] row -> (any TiledUIKitCellContent)? in
+            guard row.drawsInUIKit else { return nil }
+            switch row.kind {
+            case .prompt(let text):
+                return ChatUIKitPrompt(id: row.id, text: text, renderedHeights: renderedHeights)
+            case .block(let block):
+                if let control = ChatRowControl.current {
+                    return ChatControlRow(source: block.source, control: control)
+                }
+                return ChatUIKitBlock(id: row.id, block: block, isStreaming: row.isStreaming, conversation: conversation, renderedHeights: renderedHeights)
+            }
+        }
+        .itemPrepareAhead { row in ChatCards.prepare(row) }
         .prependLoader(conversation.hasOlder ? .loader(perform: { [conversation] in
             await conversation.loadOlder(Self.pageSize, latency: Self.pageLatency)
         }) {
@@ -213,7 +272,7 @@ struct ChatRowCell: TiledCellContent {
     }
 }
 
-private struct ChatRowView: View {
+struct ChatRowView: View {
     let row: ChatRow
     let conversation: ChatConversation
     let selection: MarkdownBlockSelectionController
@@ -241,21 +300,83 @@ private struct ChatRowView: View {
 
     @ViewBuilder
     private func blockView(_ block: MarkdownStreamBlock) -> some View {
+        if case .customFence = block.kind {
+            ChatCardRow(id: row.id, block: block)
+        } else {
+            textBlockView(block)
+        }
+    }
+
+    @ViewBuilder
+    private func textBlockView(_ block: MarkdownStreamBlock) -> some View {
         let view = MarkdownStreamBlockView(block)
             // Rows are measured off screen before they show; math needs its real height then.
             .markdownDisplayMathRendersSynchronously()
+            // As Floo's chat has them.
+            .markdownLinkSiteIcons(ChatUIKitBlock.siteIcons)
+            .markdownTableScrollable(ChatUIKitBlock.tableScrolls)
+            .markdownFootnotes(CatalogNotes.footnotes)
             .environment(\.markdownSelectableTextHooks, selection.hooks(for: row.id))
             .frame(maxWidth: .infinity, alignment: .leading)
         if row.isStreaming {
             view
                 .markdownStreaming(conversation.coordinator.ensureManager(for: block.id))
                 .markdownFadeReveal(
-                    duration: 0.5,
+                    duration: AppMotion.streamReveal.duration,
                     startHue: MarkdownFadeRevealConfig.legacyHighlightStartHue,
                     endHue: MarkdownFadeRevealConfig.legacyHighlightEndHue
                 )
         } else {
             view
         }
+    }
+}
+
+/// A card in a chat: its language's source through CardView, in SwiftUI, as floo's chat draws it.
+private struct ChatCardRow: View {
+    let id: String
+    let block: MarkdownStreamBlock
+
+    var body: some View {
+        if let session = ChatCards.session(row: id, source: block.source) {
+            CardFrame(layout: CardLayout(size: .summary).fitted, widens: true) {
+                CardView(tree: session.tree)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardPreparer(ChatCards.preparer)
+        }
+    }
+}
+
+@MainActor
+enum ChatCards {
+    private static var sessions: [String: CardSession] = [:]
+    static let preparer = CardPreparer()
+
+    /// A card the list expects to show soon.
+    static func prepare(_ row: ChatRow) {
+        guard case .block(let block) = row.kind, case .customFence = block.kind,
+              let session = session(row: row.id, source: block.source) else { return }
+        preparer.prepare(session, size: .summary)
+    }
+
+    /// As a conversation holds its cards: evaluated before any is shown.
+    static func hold(_ rows: [ChatRow]) {
+        for row in rows {
+            if case .block(let block) = row.kind, case .customFence = block.kind {
+                _ = session(row: row.id, source: block.source)
+            }
+        }
+    }
+
+    static func session(row: String, source: String) -> CardSession? {
+        if let session = sessions[row] { return session }
+        let lines = source.split(separator: "\n").map(String.init)
+        guard let name = lines.dropFirst().first(where: { !$0.hasPrefix("```") }), let spec = FlooDemoCards.all[name] else { return nil }
+        let session = CardSession(data: FlooDemo.value(spec.data))
+        session.append(spec.source)
+        session.finish()
+        sessions[row] = session
+        return session
     }
 }

@@ -5,6 +5,7 @@
 //  Created by Yanan Li on 2025/10/21.
 //
 
+import MarkdownCore
 import SwiftUI
 
 #if canImport(WebKit)
@@ -52,7 +53,7 @@ struct SVG: Identifiable, Hashable {
     var htmlRepresentation: String
     
     init?(from string: String) {
-        let string = string.removeCommentsAndXMLDescription()
+        let string = MarkdownSVGSource.normalized(string)
         if string.starts(with: "<svg") {
             self.init(html: string)
         } else {
@@ -97,29 +98,5 @@ fileprivate extension String {
                 .replacingOccurrences(of: "em", with: "")
                 .replacingOccurrences(of: "pt", with: "")
         )
-    }
-    
-    /// Remove comments and the XML description from the raw HTML to improve SVG detection.
-    /// - Returns: A string without HTML comments and the XML description.
-    func removeCommentsAndXMLDescription() -> String {
-        guard let regex = try? NSRegularExpression(pattern: "<![\\s\\S]+?>[\\s]*", options: []) else { return self }
-        let matches = regex.matches(in: self, range: NSRange(location: 0, length: self.count))
-        
-        var result = self
-        for match in matches {
-            guard let range = Range(match.range, in: self) else { continue }
-            result = result.replacingOccurrences(of: self[range], with: "")
-        }
-        
-        if let regex = try? NSRegularExpression(pattern: "<[?]{1}[\\s\\S]*?[?]{1}>[\\s]*", options: []) {
-            let matches = regex.matches(in: self, range: NSRange(location: 0, length: self.count))
-            
-            for match in matches {
-                guard let range = Range(match.range, in: self) else { continue }
-                result = result.replacingOccurrences(of: self[range], with: "")
-            }
-        }
-        
-        return result
     }
 }

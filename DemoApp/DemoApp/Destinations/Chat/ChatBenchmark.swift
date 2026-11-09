@@ -11,24 +11,43 @@
 //  times only the named scenarios (the others still run, untimed: later ones start from
 //  where they leave the list). `-chatScrollSpeed <points per second>` sets the scroll
 //  sweep's speed (3000 by default). `-chatOpen YES` opens on the chat page, to try it by hand.
+//  `-chatRenderer uikit|swiftui` picks the text rows' renderer (swiftui by default),
+//  `-chatCorpus text` a conversation of only text. Under uikit, `-chatList swiftui|uikit` picks the
+//  list: SwiftUI's TiledView or UIKit's TiledListView (the default).
 //
 
+import MarkdownUIKit
 import SwiftUI
 import MessagingUI
+import Darwin
 import os
 
-/// Measured heights by row content and width, fed back to the list as height hints.
-/// Keyed by content, as flowith's cache was: a row that changed (a streaming block)
-/// must not get its old height back.
+/// Measured heights by row, content, width and text size, fed back to the list as height
+/// hints, and kept on disk as a chat that's stored locally keeps them with its messages: a
+/// conversation opened again, in this run or the next, lays out with no row measured. Keyed by
+/// content, as flowith's cache was: a row that changed (a streaming block) must not get its old
+/// height back.
 @MainActor
 final class ChatHeightCache {
-    private var heights: [Key: CGFloat] = [:]
+    /// One for the app, as a store of messages is: a page shown again finds what it measured.
+    /// A benchmark keeps its own, in memory, so a run measures what it means to.
+    static let shared = ChatHeightCache(file: ChatBenchmark.autorunExchanges == nil ? defaultFile : nil)
+
+    private static var defaultFile: URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("chat-row-heights.json")
+    }
+
+    private var heights: [String: CGFloat] = [:]
+    private let file: URL?
+    private var saveQueued = false
     var isEnabled = true
 
-    private struct Key: Hashable {
-        let id: String
-        let content: Int
-        let width: Int
+    init(file: URL? = nil) {
+        self.file = file
+        if let file, let data = try? Data(contentsOf: file),
+           let stored = try? JSONDecoder().decode([String: CGFloat].self, from: data) {
+            heights = stored
+        }
     }
 
     func height(for row: ChatRow, width: CGFloat) -> CGFloat? {
@@ -36,20 +55,39 @@ final class ChatHeightCache {
     }
 
     func record(_ height: CGFloat, for row: ChatRow, width: CGFloat) {
-        heights[key(row, width)] = height
+        let key = key(row, width)
+        guard heights[key] != height else { return }
+        heights[key] = height
+        save()
     }
 
     func removeAll() {
         heights = [:]
+        save()
     }
 
-    private func key(_ row: ChatRow, _ width: CGFloat) -> Key {
-        let content: Int
-        switch row.kind {
-        case .prompt(let text): content = text.hashValue
-        case .block(let block): content = block.source.hashValue
+    /// Written once a burst of measuring settles, off the main thread.
+    private func save() {
+        guard let file, !saveQueued else { return }
+        saveQueued = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [self] in
+            saveQueued = false
+            guard let data = try? JSONEncoder().encode(heights) else { return }
+            DispatchQueue.global(qos: .utility).async { try? data.write(to: file, options: .atomic) }
         }
-        return Key(id: row.id, content: content, width: Int(width.rounded()))
+    }
+
+    /// The same across runs: Swift's `hashValue` is seeded per process.
+    private func key(_ row: ChatRow, _ width: CGFloat) -> String {
+        let content: String
+        switch row.kind {
+        case .prompt(let text): content = text
+        case .block(let block): content = block.source
+        }
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in content.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3 }
+        let category = UIApplication.shared.preferredContentSizeCategory.rawValue
+        return "\(row.id)|\(String(hash, radix: 36))|\(Int(width.rounded()))|\(category)"
     }
 }
 
@@ -160,6 +198,9 @@ final class ChatBenchmark {
         let maxJitter: CGFloat
         let staleFrames: Int
         let maxStale: CGFloat
+        /// The process's footprint: the most seen in the scenario, and at its end.
+        let peakFootprintMB: Double
+        let endFootprintMB: Double
 
         var line: String {
             String(
@@ -198,6 +239,7 @@ final class ChatBenchmark {
     @ObservationIgnored private var renderedHeights: ChatRenderedHeights?
     @ObservationIgnored private weak var reader: TiledViewReader<String>?
     @ObservationIgnored private var layoutWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private var peakFootprint: Double = 0
 
     /// Call from the list's content layout callback.
     func contentLayoutChanged() {
@@ -236,6 +278,7 @@ final class ChatBenchmark {
             await self.settle()
         }
         header += " · \(conversation.rows.count) rows"
+        printMix(conversation: conversation, exchanges: exchanges)
 
         // Nothing touched: whatever the list still does after loading (measuring, say).
         await measure("idle") {
@@ -251,6 +294,7 @@ final class ChatBenchmark {
             await self.settle()
         }
 
+        ChatCards.hold(conversation.rows)
         await measure("scroll") {
             await self.sweep(reader: reader, conversation: conversation, distance: 20_000, speed: Self.scrollSpeed)
         }
@@ -381,6 +425,7 @@ final class ChatBenchmark {
     private static let signposter = OSSignposter(subsystem: "DemoApp", category: "ChatBenchmark")
 
     private func measure(_ scenario: String, _ body: () async -> Void) async {
+        FrameMarks.scenario = scenario
         if let only = Self.onlyScenarios, !only.contains(scenario) {
             // Untimed, but the clock still drives the scenarios that scroll frame by frame.
             clock.start()
@@ -393,17 +438,24 @@ final class ChatBenchmark {
         await settle(0.1)
         jitter.reset()
         stale.reset()
+        peakFootprint = Self.footprintMB()
         clock.onFrame = { [weak self] in
             guard let self, let reader = self.reader else { return }
             self.jitter.sample(reader)
+            self.peakFootprint = max(self.peakFootprint, Self.footprintMB())
             if let rendered = self.renderedHeights { self.stale.sample(reader, rendered: rendered) }
         }
         // An interval per scenario, to line Instruments traces (Animation Hitches, say) up with it.
         let interval = Self.signposter.beginInterval("scenario", "\(scenario)")
+        // To time a `sample` of one scenario: stdout goes to a file, so it's flushed by hand.
+        print("BENCHSTART \(scenario)")
+        fflush(stdout)
         let start = CACurrentMediaTime()
         let cpuStart = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+        let counters = Self.processCounters()
         await body()
         let cpu = Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - cpuStart) / 1_000_000
+        let countersEnd = Self.processCounters()
         let wall = (CACurrentMediaTime() - start) * 1000
         Self.signposter.endInterval("scenario", interval)
         clock.onFrame = nil
@@ -415,10 +467,38 @@ final class ChatBenchmark {
             jitterFrames: jitter.jitterFrames,
             maxJitter: jitter.maxDeviation,
             staleFrames: stale.staleFrames,
-            maxStale: stale.maxMismatch
+            maxStale: stale.maxMismatch,
+            peakFootprintMB: max(peakFootprint, Self.footprintMB()),
+            endFootprintMB: Self.footprintMB()
         )
         results.append(result)
-        print("BENCH", json(result))
+        print("BENCH", json(result, instructions: countersEnd.instructions - counters.instructions, cycles: countersEnd.cycles - counters.cycles))
+    }
+
+    /// Which rows the conversation is made of, under this renderer.
+    private func printMix(conversation: ChatConversation, exchanges: Int) {
+        let rows = conversation.rows
+        let uikit = rows.filter(\.drawsInUIKit).count
+        let prompts = rows.filter { if case .prompt = $0.kind { true } else { false } }.count
+        // What the hosted rows are, by kind.
+        var hosted: [String: Int] = [:]
+        for row in rows where !row.drawsInUIKit {
+            if case .block(let block) = row.kind { hosted[String(describing: block.descriptor.kind), default: 0] += 1 } else { hosted["prompt", default: 0] += 1 }
+        }
+        let hostedKinds = hosted.sorted { $0.key < $1.key }.map { "\"\($0.key)\":\($0.value)" }.joined(separator: ",")
+        print("BENCHMIX {\"renderer\":\"\(ChatRenderer.current.rawValue)\",\"corpus\":\"\(UserDefaults.standard.string(forKey: "chatCorpus") ?? "mixed")\",\"exchanges\":\(exchanges),\"rows\":\(rows.count),\"uikit\":\(uikit),\"swiftui\":\(rows.count - uikit),\"prompts\":\(prompts),\"hosted\":{\(hostedKinds)}}")
+    }
+
+    /// What the system charges the process for, in megabytes.
+    private static func footprintMB() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
     }
 
     private func nextLayout() async {
@@ -429,13 +509,39 @@ final class ChatBenchmark {
         try? await Task.sleep(for: .seconds(seconds))
     }
 
-    private func json(_ result: Result) -> String {
+    /// The process's instructions and cycles so far. CPU time moves with the cores' speed, which
+    /// a thread with less to do gets less of; these don't.
+    private static func processCounters() -> (instructions: UInt64, cycles: UInt64) {
+        typealias Rusage = @convention(c) (Int32, Int32, UnsafeMutablePointer<rusage_info_v4>) -> Int32
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "proc_pid_rusage") else { return (0, 0) }
+        var info = rusage_info_v4()
+        guard unsafeBitCast(symbol, to: Rusage.self)(getpid(), RUSAGE_INFO_V4, &info) == 0 else { return (0, 0) }
+        return (info.ri_instructions, info.ri_cycles)
+    }
+
+    private func json(_ result: Result, instructions: UInt64, cycles: UInt64) -> String {
         let stats = result.stats
         let fields: [(String, Any)] = [
             ("platform", "\"\(Self.platform)\""),
             ("scenario", "\"\(result.scenario)\""),
             ("wall_ms", String(format: "%.1f", result.wallMilliseconds)),
             ("cpu_ms", String(format: "%.1f", result.cpuMilliseconds)),
+            ("fcpu_p50", String(format: "%.2f", result.stats.frameCPU.p50Milliseconds)),
+            ("fcpu_p95", String(format: "%.2f", result.stats.frameCPU.p95Milliseconds)),
+            ("fcpu_p99", String(format: "%.2f", result.stats.frameCPU.p99Milliseconds)),
+            ("fcpu_max", String(format: "%.2f", result.stats.frameCPU.maxMilliseconds)),
+            ("fcpu_over4", String(format: "%.4f", result.stats.frameCPU.over4ms)),
+            ("fcpu_over8", String(format: "%.4f", result.stats.frameCPU.over8ms)),
+            ("fcpu_over16", String(format: "%.4f", result.stats.frameCPU.over16ms)),
+            ("main_minstr", String(format: "%.0f", stats.frameWork.totalMillionInstructions)),
+            ("finstr_p50", String(format: "%.0f", stats.frameWork.instructionsP50)),
+            ("finstr_p95", String(format: "%.0f", stats.frameWork.instructionsP95)),
+            ("finstr_p99", String(format: "%.0f", stats.frameWork.instructionsP99)),
+            ("fcyc_p50", String(format: "%.0f", stats.frameWork.cyclesP50)),
+            ("fcyc_p95", String(format: "%.0f", stats.frameWork.cyclesP95)),
+            ("fcyc_p99", String(format: "%.0f", stats.frameWork.cyclesP99)),
+            ("minstr", instructions / 1_000_000),
+            ("mcycles", cycles / 1_000_000),
             ("frames", stats.frames),
             ("budget_ms", String(format: "%.2f", stats.budgetMilliseconds)),
             ("hitch_ms_per_s", String(format: "%.2f", stats.hitchMillisecondsPerSecond)),
@@ -447,6 +553,9 @@ final class ChatBenchmark {
             ("max_jitter_pt", String(format: "%.1f", result.maxJitter)),
             ("stale_frames", result.staleFrames),
             ("max_stale_pt", String(format: "%.1f", result.maxStale)),
+            ("peak_mb", String(format: "%.1f", result.peakFootprintMB)),
+            ("end_mb", String(format: "%.1f", result.endFootprintMB)),
+            ("renderer", "\"\(ChatRenderer.current.rawValue)\""),
         ]
         return "{" + fields.map { "\"\($0.0)\":\($0.1)" }.joined(separator: ",") + "}"
     }

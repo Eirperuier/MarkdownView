@@ -1,28 +1,12 @@
 {
-  "originHash" : "5fc41e2f18a3ba246c66eb5f0fb3382b9a70139c4253bb491a745e27f7fe905b",
+  "originHash" : "c570024c2084d85983f4a68d7f9f813f1f7d3a9547186cc1086fa5e3d012d7d3",
   "pins" : [
     {
       "identity" : "floo-latexswiftui",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/techx-academy/floo-LaTeXSwiftUI.git",
       "state" : {
-        "revision" : "6245f306b9aced861a66d4b2e7441cb285ae7d18"
-      }
-    },
-    {
-      "identity" : "floo-richtext",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/techx-academy/floo-RichText.git",
-      "state" : {
-        "revision" : "155b901d4340077e4250ceea01577abb7d3b34d2"
-      }
-    },
-    {
-      "identity" : "floo-swiftdraw",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/techx-academy/floo-SwiftDraw.git",
-      "state" : {
-        "revision" : "bf2f0af78ad9fdee9f577bf1cf5db6586a136430"
+        "revision" : "1f710d85c22e92c8c8e38f368d5db0ba02a8611d"
       }
     },
     {
@@ -59,6 +43,14 @@
       "state" : {
         "revision" : "e7415c5e6b4fd9b78874bb956aad8a42b08e9966",
         "version" : "4.20.0"
+      }
+    },
+    {
+      "identity" : "swatex",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PhraseHQ/SwaTex.git",
+      "state" : {
+        "revision" : "153738a2bcdcb62450ead9ab292989e3de0a449f"
       }
     },
     {

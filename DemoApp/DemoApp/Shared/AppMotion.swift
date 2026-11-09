@@ -8,6 +8,7 @@
 
 import FlooUIKit
 import SwiftUI
+import MarkdownUIKit
 import MarkdownView
 import MessagingUI
 
@@ -22,6 +23,9 @@ enum AppMotion {
     static var step: Animation? { FlooMotion.floatingResize.swiftUI }
     static var feedback: Animation? { FlooMotion.press.swiftUI }
     static var pulse: Animation? { FlooMotion.pulse.swiftUI?.repeatForever(autoreverses: true) }
+
+    /// Streamed text fading in, the same under either Markdown renderer.
+    nonisolated static var streamReveal: FlooMotion { .markdownReveal }
 
     nonisolated static var markdown: MarkdownMotion {
         MarkdownMotion(feedback: feedbackCurve, layout: .spring(layoutSpring), revealCurve: .easeOut, revealDuration: revealDuration)

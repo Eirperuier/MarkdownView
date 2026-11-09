@@ -9,16 +9,262 @@
 import Foundation
 
 enum ChatCorpus {
+    /// `-chatCorpus text`: replies of only text, to see the text path alone.
+    private static let isTextOnly = UserDefaults.standard.string(forKey: "chatCorpus") == "text"
+    /// `-chatCorpus interaction`: short rows with known text, for the UI tests.
+    private static let isInteraction = UserDefaults.standard.string(forKey: "chatCorpus") == "interaction"
+    /// `-chatCorpus interactionText`: the same, up to its code: the text fits on a screen.
+    private static let isInteractionText = UserDefaults.standard.string(forKey: "chatCorpus") == "interactionText"
+    /// `-chatCorpus interactionTable`: the same, with a table.
+    private static let isInteractionTable = UserDefaults.standard.string(forKey: "chatCorpus") == "interactionTable"
+    /// `-chatCorpus interactionAligned`: cells centred and at the right, and headings: text that
+    /// lands between pixels, for changing over.
+    private static let isInteractionAligned = UserDefaults.standard.string(forKey: "chatCorpus") == "interactionAligned"
+    /// `-chatCorpus blocks.<kind>`: only that kind's reply, to look at it alone.
+    private static let blockKind = UserDefaults.standard.string(forKey: "chatCorpus").flatMap { $0.hasPrefix("blocks.") ? String($0.dropFirst(7)) : nil }
+    private static var chosen: [String] {
+        if let blockKind { return blockReplies.filter { $0.kind == blockKind }.map(\.text) }
+        return isInteractionAligned ? interactionAlignedReplies : isInteractionTable ? interactionTableReplies : isInteractionText ? interactionTextReplies : isInteraction ? interactionReplies : isTextOnly ? textReplies : replies + blockReplies.map(\.text)
+    }
+
+    /// One reply for each kind of block and extension MarkdownView draws, so the chat shows them all.
+    private static let blockReplies: [(kind: String, text: String)] = [
+        ("headings", #"""
+        # 本周睡眠报告
+        # A week of sleep, night by night
+
+        Headings set the shape of a long answer.
+
+        ## Second level heading
+        ### Third level heading
+        #### Fourth level heading
+        ##### Fifth level heading
+        ###### Sixth level heading
+
+        ---
+
+        A paragraph after a thematic break.
+        """#),
+        ("inline", #"""
+        Plain **bold** *italic* ***both*** ~~struck~~ and **~~bold struck~~**. 这是**粗体**，这是*斜体*，这是~~删除线~~。
+
+        Call `moved(by:)` then `print`, and `代码` in **bold `code` here**. A ==highlighted phrase==, and ==across **bold** and `code` too==.
+
+        ^[gray](color: gray) ^[blue](color: blue) ^[green](color: green) ^[red](color: red) ^[orange](color: orange), and ^[default](highlight) ^[yellow](highlight: yellow) ^[**nested bold**](highlight: purple).
+
+        Line one<br>line two, and <kbd>raw</kbd> stays source. Emoji 🚀✅🎉 and 中文、English mixed.
+        """#),
+        ("links", #"""
+        Visit https://example.com/path and mail hello@example.com or call +1 415 555 0100.
+
+        Read [the docs](https://catalog.test/docs) and [the blog](https://catalog.test/blog) today.
+
+        Cited [Apple](https://catalog.test/a "cite") and folded [Swift](https://catalog.test/b "cite") [GitHub](https://catalog.test/c "cite"), and a tool result [Report](flowith-tool://file/report "cite") in a line.
+        """#),
+        ("lists", #"""
+        - [ ] To do
+        - [x] Done
+        - [ ] With **bold** and `code`
+          - [x] Nested done
+
+        7. Seven
+        8. Eight
+           - Bullet inside
+           - Another
+        9. Nine
+
+        - First paragraph
+
+          Second paragraph of the item
+        - {🚀} Emoji bullet
+        - {star.fill} SF Symbol bullet
+        - {✅}中文不加空格也行
+        """#),
+        ("quotes", #"""
+        > A plain quote with **bold**.
+        >
+        > > A nested quote inside it.
+
+        > [!note]
+        > A note.
+
+        > [!tip] A longer custom title goes here
+        > Body with **bold**, `code` and a [link](https://example.com).
+
+        > [!important]
+        > Important.
+
+        > [!warning]
+        > A warning.
+
+        > [!caution]
+        > A caution.
+        """#),
+        ("code", #"""
+        ```kotlin
+        fun main() = println("kotlin")
+        ```
+
+        ```js
+        console.log("js")
+        ```
+
+        ```unknownlang
+        unknown language keeps its text
+        ```
+
+        ```swift
+        let long = "A long line of code that goes well past the width of a phone, to see how it wraps or scrolls in the box."
+        ```
+        """#),
+        ("tables", #"""
+        | Left | Center | Right |
+        | :-- | :-: | --: |
+        | a | b | c |
+        | longer text | longer text | longer text |
+
+        | Name | Value |
+        | --- | --- |
+        | **Bold** | `code` |
+        | [link](https://example.com) | *italic* |
+        | first<br>second | $x^2$ |
+
+        | One | Two | Three | Four | Five | Six | Seven |
+        | --- | --- | --- | --- | --- | --- | --- |
+        | A sentence long enough to make the table wider than the screen | a | b | c | d | e | f |
+        """#),
+        ("math", #"""
+        Euler's identity \(e^{i\pi} + 1 = 0\) and $x^2 + y^2 = z^2$ in text, 公式 \(\frac{a}{b}\) 混排。
+
+        $$
+        \int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}
+        $$
+
+        $$
+        \sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6} \quad \text{and} \quad \prod_{k=1}^{n} \left(1 + \frac{1}{k}\right) = n + 1 \quad \text{and some more terms to be wide}
+        $$
+
+        $$
+        \begin{pmatrix} a & b \\ c & d \end{pmatrix}^{-1} = \frac{1}{ad - bc} \begin{pmatrix} d & -b \\ -c & a \end{pmatrix}
+        $$
+
+        速度 \(v = \frac{\text{距离}}{\text{时间}}\)，当 \(x \to 0\) 时：
+
+        $$
+        f(x) = \begin{cases} 1 & \text{若 } x > 0 \\ 0 & \text{否则} \end{cases} \qquad E_{\text{总}} = \sum_i E_{\text{分}, i}
+        $$
+        """#),
+        ("images", #"""
+        ![A landscape](https://catalog.test/wide.png)
+
+        ![one](https://catalog.test/square.png) ![two](https://catalog.test/wide.png)
+
+        ![A drawing](https://catalog.test/drawing.svg)
+
+        ![Missing](https://catalog.test/missing.png)
+        """#),
+        ("pen", #"""
+        A :circle[circled] word, :wavy[a wave], :box[a box] and :marker[a marker] in text. 中文 :circle[圈画] :wavy[波浪] :box[方框] :marker[荧光笔]。
+
+        :circle[blue]{color=blue} :wavy[green]{color=green} :box[orange]{color=orange} :marker[pink]{color=pink}
+
+        :u[single] :u[thick]{style=thick} :u[double]{style=double} :u[wavy]{style=wavy} and :s[single] :s[double]{style=double} :s[colored]{style=double color=red}
+        """#),
+        ("footnotes", #"""
+        A sentence with a note[^1] and another[^named], and an inline note^[The note's text] in it.
+
+        [^1]: The first definition.
+        [^named]: The second one, with **bold**.
+        """#),
+        ("raw", #"""
+        <div class="note">
+        Raw HTML shows as its source.
+        </div>
+
+        @unknown {
+        Its content as **markdown**.
+        }
+        """#),
+    ]
+
+
+    private static let interactionAlignedReplies = ["""
+    # Aligned title heading
+
+    ## Aligned second heading
+
+    | Aligned left | Aligned centre | Aligned right |
+    | :-- | :-: | --: |
+    | First words | Centred wordsmith | Right wordsmith |
+    | Second words | Centre line | Right line |
+    | Third words | Centred ij | Right ij |
+    """]
+
+    private static let interactionTableReplies = ["""
+    Interaction before the table.
+
+    | Table name | Table value | Table third | Table fourth | Table fifth | Table sixth | Table seventh |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | Table plain words to select | [Table test link](https://example.com/table) | A longer cell of plain words in the third column of the table | Fourth cell | Fifth cell | Sixth cell | Seventh cell |
+    | Table second row | Second value | **Table bold** words | `table code` | Fifth two | Sixth two | Seventh two |
+    | Table third row | Third value | Third third | Fourth three | Fifth three | Sixth three | Seventh three |
+    | Table fourth row | Fourth value | Third four | Fourth four | Fifth four | Sixth four | Seventh four |
+    | Table fifth row | Fifth value | Third five | Fourth five | Fifth five | Sixth five | Seventh five |
+    | Table sixth row | Sixth value | Third six | Fourth six | Fifth six | Sixth six | Seventh six |
+
+    Interaction after the table.
+    """]
+
+    private static let interactionTextReplies = interactionReplies.map { $0.components(separatedBy: "```swift")[0] }
+
+    private static let interactionReplies = ["""
+    Interaction first paragraph with plain words to select in it.
+
+    [Open the test link](https://example.com/drawn) and then some plain words after it.
+
+    - A list item with plain words
+
+    Interaction last paragraph with `inline code` and **bold** words.
+
+    ```swift
+    let interactionFirstCodeLine = "plain words to select in code, long enough to go past the width of this block on any device that runs it, which is rather far"
+    let two = 2
+    let three = 3
+    let four = 4
+    let five = 5
+    let six = 6
+    let seven = 7
+    let eight = 8
+    let nine = 9
+    let ten = 10
+    let eleven = 11
+    let twelve = 12
+    let thirteen = 13
+    let fourteen = 14
+    let fifteen = 15
+    let sixteen = 16
+    let interactionLastCodeLine = 17
+    ```
+
+    Interaction after the code.
+    """]
+
     static func prompt(_ index: Int) -> String {
         prompts[index % prompts.count]
     }
 
+    /// `-chatCards YES`: every fifth reply ends in a card, a SwiftUI row among the UIKit ones.
+    static let hasCards = UserDefaults.standard.bool(forKey: "chatCards")
+    private static let cardNames = ["steps", "heart", "weather", "sleep", "rain", "cost"]
+
     static func reply(_ index: Int) -> String {
-        replies[index % replies.count]
+        let reply = chosen[index % chosen.count]
+        guard hasCards, index % 5 == 0 else { return reply }
+        return reply + "\n\n```floo.card\n" + cardNames[(index / 5) % cardNames.count] + "\n```\n"
     }
 
     /// Every reply back to back: a long answer to stream.
-    static let longReply = replies.joined(separator: "\n\n")
+    static let longReply = chosen.joined(separator: "\n\n")
 
     /// Uneven chunks, like a model's token stream.
     static func chunks(of text: String) -> [String] {
@@ -40,6 +286,64 @@ enum ChatCorpus {
         "Write a function that splits markdown into blocks.",
         "Compare the three options in a table.",
         "Explain the integral of x² from 0 to 1.",
+    ]
+
+    /// The same prose as `replies`, its code, tables and display maths written out as text, with
+    /// a heading where a chat would have one.
+    private static let textReplies = [
+        #"""
+        ## Keeping the list still
+
+        Loading older messages shifts everything below them, so the list has to **pin a visible anchor** across the update.
+
+        1. Before applying the change, remember one visible cell and its screen position.
+        2. Apply the insert without animation.
+        3. Move the content offset so the anchor lands where it was.
+
+        The trap is timing: self-sizing cells can change height *after* the insert, so the anchor has to be re-applied until their heights settle. A layout that owns its attributes can do this inside `prepare()` instead of patching the offset afterwards.
+
+        > Never set the offset while the user is dragging or decelerating: even setting the current value stops the momentum.
+        """#,
+        #"""
+        这周你的睡眠整体**比上周稳定**，但入睡时间偏晚。
+
+        - 平均时长 7 小时 12 分，比上周多 18 分钟。
+        - 深睡占比 19%，处在你过去三个月的正常区间。
+        - 周三和周五入睡都晚于 1 点，第二天的静息心率也高了 4–5 次/分钟。
+
+        周一 7 小时 5 分，周三 6 小时 10 分，周五 6 小时 32 分，周日 8 小时 2 分：差距主要在周中的入睡时间。
+
+        如果想改善，最有效的是把周中的入睡时间提前到 **12 点前**，其他指标会跟着变好。
+        """#,
+        #"""
+        A **timing curve** runs for a fixed duration along a fixed shape; a **spring** runs until it settles, and its shape comes from physics.
+
+        - Timing curves are predictable: good for things that must finish on a beat.
+        - Springs keep velocity: a scroll that is interrupted mid-flight continues smoothly from where it is, instead of restarting.
+
+        For a critically damped spring the position never overshoots, and a single number alone sets how quickly it settles.
+        """#,
+        #"""
+        ### Splitting into blocks
+
+        A small splitter keeps block ids stable while the text grows, by giving each block the id of its position, and making a new one only for a position it hasn't seen.
+
+        Keyed by position, a block keeps its id as long as nothing is inserted before it, which is exactly the streaming case: text only grows at the end. [The list's docs](https://example.com/list) say more about it.
+        """#,
+        #"""
+        There are three options, and each pays somewhere:
+
+        - One text view per message: low latency, high memory, simple.
+        - One cell per block: low latency, medium memory, more to keep track of.
+        - Pre-rendered snapshots: the lowest latency, the highest memory, and a lot to build.
+
+        **One cell per block** is the usual middle ground: cells stay small, so measuring and reusing them is cheap, and a streaming reply only re-renders its last block.
+        """#,
+        #"""
+        The integral measures the area under the curve between 0 and 1, which comes to one third.
+
+        Intuitively, the curve stays low for most of the interval and only reaches 1 at the right edge, so the area is well under half of the unit square. The same rule gives the integral of any power, `1 / (n + 1)`, for any n of at least 0.
+        """#,
     ]
 
     private static let replies = [

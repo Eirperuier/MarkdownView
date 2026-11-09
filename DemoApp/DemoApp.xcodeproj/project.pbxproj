@@ -21,19 +21,44 @@
 		F100C0DE2E00000000000065 /* ContentKit in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000066 /* ContentKit */; };
 		F100C0DE2E00000000000011 /* DocKit in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000012 /* DocKit */; };
 		F100C0DE2E00000000000021 /* FlooDesign in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000022 /* FlooDesign */; };
+		AB00F100C0FFEE0000000011 /* MarkdownUIKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB00F100C0FFEE0000000012 /* MarkdownUIKit */; };
 		AB00F100C0FFEE0000000001 /* FlooUIKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB00F100C0FFEE0000000002 /* FlooUIKit */; };
 		F100C0DE2E00000000000041 /* ChatBackgrounds in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000042 /* ChatBackgrounds */; };
 		F100C0DE2E00000000000051 /* AppleDeviceImages in Frameworks */ = {isa = PBXBuildFile; productRef = F100C0DE2E00000000000052 /* AppleDeviceImages */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		AB00F100C0FFEE000000002B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 38A580A72CC8D6D9001EDFCA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 38A580AE2CC8D6D9001EDFCA;
+			remoteInfo = DemoApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		AB00F100C0FFEE000000002A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 38A580AE2CC8D6D9001EDFCA /* DemoApp */;
+			targetProxy = AB00F100C0FFEE000000002B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin PBXFileReference section */
 		38A580AF2CC8D6D9001EDFCA /* DemoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DemoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB00F100C0FFEE0000000022 /* DemoAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DemoAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		38A580B12CC8D6D9001EDFCA /* DemoApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = DemoApp;
+			sourceTree = "<group>";
+		};
+		AB00F100C0FFEE0000000023 /* UITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = UITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -58,8 +83,16 @@
 				F100C0DE2E00000000000011 /* DocKit in Frameworks */,
 				F100C0DE2E00000000000021 /* FlooDesign in Frameworks */,
 				AB00F100C0FFEE0000000001 /* FlooUIKit in Frameworks */,
+				AB00F100C0FFEE0000000011 /* MarkdownUIKit in Frameworks */,
 				F100C0DE2E00000000000041 /* ChatBackgrounds in Frameworks */,
 				F100C0DE2E00000000000051 /* AppleDeviceImages in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AB00F100C0FFEE0000000028 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,6 +103,7 @@
 			isa = PBXGroup;
 			children = (
 				38A580B12CC8D6D9001EDFCA /* DemoApp */,
+				AB00F100C0FFEE0000000023 /* UITests */,
 				38A580B02CC8D6D9001EDFCA /* Products */,
 			);
 			sourceTree = "<group>";
@@ -78,6 +112,7 @@
 			isa = PBXGroup;
 			children = (
 				38A580AF2CC8D6D9001EDFCA /* DemoApp.app */,
+				AB00F100C0FFEE0000000022 /* DemoAppUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -119,12 +154,36 @@
 				F100C0DE2E00000000000035 /* DeviceSupport */,
 				F100C0DE2E00000000000022 /* FlooDesign */,
 				AB00F100C0FFEE0000000002 /* FlooUIKit */,
+				AB00F100C0FFEE0000000012 /* MarkdownUIKit */,
 				F100C0DE2E00000000000042 /* ChatBackgrounds */,
 				F100C0DE2E00000000000052 /* AppleDeviceImages */,
 			);
 			productName = DemoApp;
 			productReference = 38A580AF2CC8D6D9001EDFCA /* DemoApp.app */;
 			productType = "com.apple.product-type.application";
+		};
+		AB00F100C0FFEE0000000021 /* DemoAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AB00F100C0FFEE0000000024 /* Build configuration list for PBXNativeTarget "DemoAppUITests" */;
+			buildPhases = (
+				AB00F100C0FFEE0000000027 /* Sources */,
+				AB00F100C0FFEE0000000028 /* Frameworks */,
+				AB00F100C0FFEE0000000029 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AB00F100C0FFEE000000002A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AB00F100C0FFEE0000000023 /* UITests */,
+			);
+			name = DemoAppUITests;
+			packageProductDependencies = (
+			);
+			productName = DemoAppUITests;
+			productReference = AB00F100C0FFEE0000000022 /* DemoAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
@@ -138,6 +197,9 @@
 				TargetAttributes = {
 					38A580AE2CC8D6D9001EDFCA = {
 						CreatedOnToolsVersion = 16.1;
+					};
+					AB00F100C0FFEE0000000021 = {
+						TestTargetID = 38A580AE2CC8D6D9001EDFCA;
 					};
 				};
 			};
@@ -160,6 +222,9 @@
 				F100C0DE2E00000000000031 /* XCLocalSwiftPackageReference "ApplePlatform" */,
 				F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */,
 				AB00F100C0FFEE0000000003 /* XCLocalSwiftPackageReference "floo-uikit" */,
+				AB00F100C0FFEE0000000013 /* XCLocalSwiftPackageReference "MarkdownUIKit" */,
+				D0C0F100C0FFEE00000000A1 /* XCLocalSwiftPackageReference "floo-RichText" */,
+				D0C0F100C0FFEE00000000A2 /* XCLocalSwiftPackageReference "floo-SwiftDraw" */,
 				F100C0DE2E00000000000040 /* XCLocalSwiftPackageReference "swift-chat-backgrounds" */,
 				F100C0DE2E00000000000050 /* XCLocalSwiftPackageReference "AppleDeviceImages" */,
 			);
@@ -169,12 +234,20 @@
 			projectRoot = "";
 			targets = (
 				38A580AE2CC8D6D9001EDFCA /* DemoApp */,
+				AB00F100C0FFEE0000000021 /* DemoAppUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		38A580AD2CC8D6D9001EDFCA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AB00F100C0FFEE0000000029 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -226,6 +299,13 @@
 
 /* Begin PBXSourcesBuildPhase section */
 		38A580AB2CC8D6D9001EDFCA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AB00F100C0FFEE0000000027 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -439,6 +519,46 @@
 			};
 			name = Release;
 		};
+		AB00F100C0FFEE0000000025 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CJ9X49H2WL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.liyanan2004.DemoAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = DemoApp;
+			};
+			name = Debug;
+		};
+		AB00F100C0FFEE0000000026 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CJ9X49H2WL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.liyanan2004.DemoAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = DemoApp;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -456,6 +576,15 @@
 			buildConfigurations = (
 				38A580BF2CC8D6DB001EDFCA /* Debug */,
 				38A580C02CC8D6DB001EDFCA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AB00F100C0FFEE0000000024 /* Build configuration list for PBXNativeTarget "DemoAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AB00F100C0FFEE0000000025 /* Debug */,
+				AB00F100C0FFEE0000000026 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -487,6 +616,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../FlooDesign;
 		};
+		AB00F100C0FFEE0000000013 /* XCLocalSwiftPackageReference "MarkdownUIKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../MarkdownUIKit;
+		};
 		AB00F100C0FFEE0000000003 /* XCLocalSwiftPackageReference "floo-uikit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "../../floo-uikit";
@@ -501,7 +634,15 @@
 		};
 		8C21E5C02D9E7FB20097554E /* XCLocalSwiftPackageReference "floo-swiftui-messaging-ui" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../floo-swiftui-messaging-ui";
+			relativePath = "../../markdown-uikit-deps/floo-swiftui-messaging-ui";
+		};
+		D0C0F100C0FFEE00000000A1 /* XCLocalSwiftPackageReference "floo-RichText" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../markdown-uikit-deps/floo-RichText";
+		};
+		D0C0F100C0FFEE00000000A2 /* XCLocalSwiftPackageReference "floo-SwiftDraw" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../markdown-uikit-deps/floo-SwiftDraw";
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -579,6 +720,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F100C0DE2E00000000000020 /* XCLocalSwiftPackageReference "FlooDesign" */;
 			productName = FlooDesign;
+		};
+		AB00F100C0FFEE0000000012 /* MarkdownUIKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MarkdownUIKit;
 		};
 		AB00F100C0FFEE0000000002 /* FlooUIKit */ = {
 			isa = XCSwiftPackageProductDependency;

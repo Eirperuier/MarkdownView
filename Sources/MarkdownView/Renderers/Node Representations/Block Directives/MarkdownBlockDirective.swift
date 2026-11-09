@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Markdown
+import MarkdownCore
 
 struct MarkdownBlockDirective: View {
     var blockDirective: BlockDirective
@@ -16,10 +17,7 @@ struct MarkdownBlockDirective: View {
         if configuration.allowedBlockDirectiveRenderers.contains(blockDirective.name),
            let renderer = BlockDirectiveRenderers.named(blockDirective.name) {
             let configuration = BlockDirectiveRendererConfiguration(
-                wrappedString: blockDirective
-                    .children
-                    .compactMap { $0.format() }
-                    .joined(separator: "\n"),
+                wrappedString: blockDirective.markdownWrappedString,
                 arguments: blockDirective
                     .argumentText
                     .parseNameValueArguments()

@@ -1,3 +1,4 @@
+import MarkdownCore
 import SwiftUI
 
 /// 表头括号降级:把表头单元格中 `(...)` / `（...）` 连同括号本身改成更小一号
@@ -12,29 +13,12 @@ enum MarkdownTableHeaderStyling {
         color: Color
     ) -> AttributedString {
         var result = attributed
-        var depth = 0
-        var openIndex: AttributedString.Index?
-        var index = attributed.startIndex
-        let characters = attributed.characters
-
-        while index < attributed.endIndex {
-            let ch = characters[index]
-            if ch == "(" || ch == "（" {
-                if depth == 0 { openIndex = index }
-                depth += 1
-            } else if ch == ")" || ch == "）" {
-                if depth > 0 {
-                    depth -= 1
-                    if depth == 0, let start = openIndex {
-                        let end = characters.index(after: index)
-                        let range = start..<end
-                        result[range].font = font
-                        result[range].foregroundColor = color
-                        openIndex = nil
-                    }
-                }
-            }
-            index = characters.index(after: index)
+        let plain = String(attributed.characters)
+        for range in MarkdownTableParentheticals.ranges(in: plain) {
+            let start = attributed.characters.index(attributed.startIndex, offsetBy: plain.distance(from: plain.startIndex, to: range.lowerBound))
+            let end = attributed.characters.index(start, offsetBy: plain.distance(from: range.lowerBound, to: range.upperBound))
+            result[start..<end].font = font
+            result[start..<end].foregroundColor = color
         }
         return result
     }
