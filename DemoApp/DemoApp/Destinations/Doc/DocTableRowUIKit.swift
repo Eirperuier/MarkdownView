@@ -189,6 +189,7 @@ final class DocTableView: UIView {
             }
         }
         // Editors of cells no longer edited go: the table drops their views.
+        let editorsBefore = Set(editors.keys)
         let replaced = style.table.replacedCells
         let kept = editors.filter { key, _ in controller.position(of: key, in: snapshot).map(replaced.contains) ?? false }
         for (key, editor) in editors where kept[key] == nil { editor.dropped() }
@@ -203,7 +204,7 @@ final class DocTableView: UIView {
         setNeedsLayout()
         // An editor that came takes the focus now: it's at its cell before anything asks
         // where it is (a click's point, the caret's place to scroll to).
-        if window != nil, bounds.width > 0 { layoutIfNeeded() }
+        if window != nil, bounds.width > 0, !Set(editors.keys).isSubset(of: editorsBefore) { layoutIfNeeded() }
     }
 
     func forget() {
@@ -374,11 +375,26 @@ final class DocTableCellEditorView: UIView {
             let view: MarkdownUIKit.MarkdownBlockView
             if case .text(let shown) = content { view = shown } else { view = MarkdownUIKit.MarkdownBlockView(); replace(with: .text(view)) }
             let text = controller.docText(key)
-            view.configure(document: text.lineTree, style: Self.textStyle(controller.look(key)))
-            if !measuresOnly, let textView = view.textViews.first {
-                let id = controller.textID(key)
-                controller.editor.attachRowText(textView, to: id)
-                controller.editor.rowTextChanged(textView, in: id)
+            let look = controller.look(key)
+            let id = measuresOnly ? nil : controller.textID(key)
+            // The same text in its look, its view still the editor's and showing the model (a
+            // keystroke edits the storage ahead of this), last shown in the window: nothing to
+            // show again. Shown again, the editor puts its cursor back, taking the focus again
+            // and restarting its blink.
+            if shownInWindow, let shown = shownText, shown.text == text, shown.look == look, let attached, attached === view.textViews.first, attachedID == id,
+               let id, controller.editor.rowTextIsCurrent(attached, in: id) {
+                // As it is.
+            } else {
+                view.configure(document: text.lineTree, style: Self.textStyle(look))
+                shownText = (text, look)
+                if let id, let textView = view.textViews.first {
+                    controller.editor.attachRowText(textView, to: id)
+                    attached = textView
+                    attachedID = id
+                    controller.editor.rowTextChanged(textView, in: id)
+                    // Out of the window the editor doesn't place its cursor: shown again there.
+                    shownInWindow = textView.window?.isKeyWindow == true
+                }
             }
         }
         guard !measuresOnly else { return }
@@ -395,7 +411,14 @@ final class DocTableCellEditorView: UIView {
         setNeedsLayout()
     }
 
+    /// The text and look its text view shows, and the view and text the editor has it as.
+    private var shownText: (text: DocText, look: DocCellLook)?
+    private weak var attached: UITextView?
+    private var attachedID: DocBlockID?
+    private var shownInWindow = false
+
     private func replace(with new: Content) {
+        shownText = nil
         content?.view.removeFromSuperview()
         content = new
         insertSubview(new.view, at: 0)

@@ -109,9 +109,10 @@ final class DocPageBarController: UIViewController {
             appliedTheme = theme
             setFlooTheme(theme, animated: false)
         }
-        undoItem.isEnabled = bar.canUndo
-        redoItem.isEnabled = bar.canRedo
-        formatItem.isSelected = bar.isFormatOn
+        // Only what changed: on the Mac each set goes through the window's toolbar again.
+        if undoItem.isEnabled != bar.canUndo { undoItem.isEnabled = bar.canUndo }
+        if redoItem.isEnabled != bar.canRedo { redoItem.isEnabled = bar.canRedo }
+        if formatItem.isSelected != bar.isFormatOn { formatItem.isSelected = bar.isFormatOn }
         let hasDemo = !bar.demoSections.isEmpty
         if shownMode != bar.mode || shownHasDemo != hasDemo {
             shownMode = bar.mode
@@ -119,7 +120,8 @@ final class DocPageBarController: UIViewController {
             item.trailingItemGroups = groups(for: bar)
         }
         if #available(iOS 26, macCatalyst 26, *) {
-            item.subtitle = bar.agentStatus.map { String(localized: "Agent · \($0)") }
+            let subtitle = bar.agentStatus.map { String(localized: "Agent · \($0)") }
+            if item.subtitle != subtitle { item.subtitle = subtitle }
             if shownPath != bar.path {
                 shownPath = bar.path
                 item.subtitleView = bar.path.isEmpty ? nil : pathView(bar.path)
