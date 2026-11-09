@@ -472,12 +472,15 @@ struct DocBlockType: ViewModifier {
 
 extension DocRow {
     /// The UIKit row that shows it: a paragraph, heading, list item, caption or quote, a code
-    /// or math block, a table, a link, file or image, a page block, a divider, once it's done
-    /// streaming. Nil: DocRowView shows it (a floo card or view, a collection, a record's
-    /// fields, what the agent is writing).
+    /// or math block, a table, a link, file or image, a page block, a divider, and what the
+    /// agent is writing. Nil: DocRowView shows it (a floo card or view, a collection, a
+    /// record's fields).
     @MainActor
     func uikitContent(editor: DocEditor) -> (any TiledUIKitCellContent)? {
-        guard !isStreaming, collection == nil, recordFields == nil else { return nil }
+        if isStreaming {
+            return DocStreamRowContent(row: self, coordinator: editor.demo.coordinator, blocks: editor.blocks)
+        }
+        guard collection == nil, recordFields == nil else { return nil }
         if let media {
             guard let block, run != nil, DocMediaRowContent.draws(media) else { return nil }
             return DocMediaRowContent(row: self, block: block, kind: media, blocks: editor.blocks)
