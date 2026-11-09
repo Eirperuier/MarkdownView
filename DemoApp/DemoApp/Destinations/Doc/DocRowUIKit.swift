@@ -85,10 +85,16 @@ class DocRowUIKitView: UIView {
     /// The content's height at a width (the text column's).
     func contentHeight(forWidth width: CGFloat) -> CGFloat { 0 }
 
+    /// How wide its column gets: the page's text (720); a collection's wider.
+    class var pageMaxWidth: CGFloat { 720 }
+
+    private var maxWidth: CGFloat { type(of: self).pageMaxWidth }
+
     /// The content's height changed: the list is told the row's.
     func contentHeightChanged() {
         guard let row, bounds.width > 0 else { return }
-        let height = Self.frames(of: row, width: bounds.width, contentHeight: contentHeight(forWidth: Self.contentWidth(of: row, width: bounds.width))).height
+        let height = Self.frames(of: row, width: bounds.width, contentHeight: contentHeight(forWidth: Self.contentWidth(of: row, width: bounds.width, maxWidth: maxWidth)),
+                                 maxWidth: maxWidth).height
         context?.heightDidChange(to: height)
         setNeedsLayout()
     }
@@ -132,7 +138,8 @@ class DocRowUIKitView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let row else { return }
-        let frames = Self.frames(of: row, width: bounds.width, contentHeight: contentHeight(forWidth: Self.contentWidth(of: row, width: bounds.width)))
+        let frames = Self.frames(of: row, width: bounds.width, contentHeight: contentHeight(forWidth: Self.contentWidth(of: row, width: bounds.width, maxWidth: maxWidth)),
+                                 maxWidth: maxWidth)
         content.frame = frames.content
         box.isHidden = frames.box == nil
         if let rect = frames.box {
@@ -159,7 +166,7 @@ class DocRowUIKitView: UIView {
     /// page (DocMediaLayout.place): its content takes the row's width, in by the box's inset
     /// only when the box is its own; a box it shares with rows above and below reaches past
     /// it to the page's edges, as a text row's does.
-    static func frames(of row: DocRow, width: CGFloat, contentHeight: CGFloat) -> (content: CGRect, box: CGRect?, height: CGFloat) {
+    static func frames(of row: DocRow, width: CGFloat, contentHeight: CGFloat, maxWidth: CGFloat = 720) -> (content: CGRect, box: CGRect?, height: CGFloat) {
         let boxed = row.box != nil
         let (first, last) = boxEnds(of: row)
         // Above the box (or the content), then the box's own padding: in a box below its
@@ -177,16 +184,19 @@ class DocRowUIKitView: UIView {
             let boxRect = boxed ? CGRect(x: -reach, y: above, width: width + reach * 2, height: boxHeight) : nil
             return (content, boxRect, height)
         }
-        let left = DocBlockController.pageLeft(inWidth: width) + DocBlockController.indentWidth(row.indent)
-        let pageWidth = max(0, DocBlockController.pageWidth(inWidth: width) - DocBlockController.indentWidth(row.indent))
+        // The column between the gutters, at most `maxWidth`, centred (DocBlockController.pageLeft).
+        let room = max(0, width - DocBlockController.leadingGutter - DocBlockController.trailingGutter)
+        let column = min(maxWidth, room)
+        let left = DocBlockController.leadingGutter + (room - column) / 2 + DocBlockController.indentWidth(row.indent)
+        let pageWidth = max(0, column - DocBlockController.indentWidth(row.indent))
         let inset = boxed ? Box.inset : 0
         let content = CGRect(x: left + inset, y: above + topPadding, width: max(0, pageWidth - inset * 2), height: contentHeight)
         let boxRect = boxed ? CGRect(x: left - Box.outset, y: above, width: pageWidth + Box.outset * 2, height: boxHeight) : nil
         return (content, boxRect, height)
     }
 
-    static func contentWidth(of row: DocRow, width: CGFloat) -> CGFloat {
-        frames(of: row, width: width, contentHeight: 0).content.width
+    static func contentWidth(of row: DocRow, width: CGFloat, maxWidth: CGFloat = 720) -> CGFloat {
+        frames(of: row, width: width, contentHeight: 0, maxWidth: maxWidth).content.width
     }
 }
 
