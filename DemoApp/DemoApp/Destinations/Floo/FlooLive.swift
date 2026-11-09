@@ -1938,7 +1938,7 @@ final class FlooLive {
             )
             var card = FlooAskCard(id: ask.id.description, agent: agent, items: [item], state: state)
             // A secret goes to the service it is stored for, sealed to the cloud (§6.1).
-            card.storesIn = question.controls.lazy.compactMap(\.store).first
+            card.storesIn = question.controls.lazy.compactMap(\.store?.usedAt).first
             card.closes =
                 switch ask.closes {
                 case .one: .one
