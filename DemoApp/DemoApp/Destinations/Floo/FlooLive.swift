@@ -2486,9 +2486,12 @@ final class FlooLive {
         return data["title"]?.stringValue
     }
 
-    /// `_description` from a call's arguments as they're written, once its string has closed.
+    /// `doing` (`_description` before 2026-11-08) from a call's arguments as they're written, once its string
+    /// has closed.
     static func described(_ arguments: String) -> String? {
-        guard let match = arguments.firstMatch(of: /"_description"\s*:\s*"((?:[^"\\]|\\.)*)"/) else { return nil }
+        guard let match = arguments.firstMatch(of: /"(?:doing|_description)"\s*:\s*"((?:[^"\\]|\\.)*)"/) else {
+            return nil
+        }
         return try? JSONDecoder().decode(String.self, from: Data("\"\(match.1)\"".utf8))  // try?: not yet whole
     }
 
