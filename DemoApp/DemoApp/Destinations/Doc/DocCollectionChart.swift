@@ -13,7 +13,7 @@
 //    past a limit as one, Other, in gray; a reference line at a value;
 //  - a click on a group shows its values; its right-click menu opens its record (a group of
 //    one), highlights it, shows only it or hides it; a right-click elsewhere on the chart
-//    opens its settings (DocCollectionChartPanel).
+//    opens its settings (DocChartSettings).
 //
 
 import FlooUIKit

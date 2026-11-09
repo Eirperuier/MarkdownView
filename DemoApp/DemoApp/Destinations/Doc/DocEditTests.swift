@@ -20,6 +20,42 @@ import MessagingUI
 /// A test's line: printed, and added to doctest.log in the app's temporary folder, for a
 /// script that can't read the app's console (a simulator's app launched in the background
 /// prints to no one).
+/// The frames a test's run drops: each gap between display ticks over one and a half frames.
+@MainActor
+final class DocFrameMeter: NSObject {
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+    private var late = 0
+    private var ticks = 0
+    private var worst: CFTimeInterval = 0
+    private var lost: CFTimeInterval = 0
+
+    override init() {
+        super.init()
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        defer { last = link.timestamp }
+        guard last > 0 else { return }
+        ticks += 1
+        let gap = link.timestamp - last, frame = max(link.targetTimestamp - link.timestamp, 1.0 / 120)
+        worst = max(worst, gap)
+        if gap > frame * 1.5 {
+            late += 1
+            lost += gap - frame
+        }
+    }
+
+    func stop() { link?.invalidate() }
+
+    var summary: String {
+        String(format: ", frames %d late %d lost %.0fms worst %.0fms", ticks, late, lost * 1000, worst * 1000)
+    }
+}
+
 func docTestLog(_ line: String) {
     print(line)
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("doctest.log")
@@ -154,6 +190,9 @@ final class DocEditTests {
     }
 
     func run() async {
+        // A profiler attaches after launch: the first test waits for it.
+        let delay = UserDefaults.standard.double(forKey: "docTestDelay")
+        if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
         setvbuf(stdout, nil, _IOLBF, 0)
         try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("doctest.log"))
         await test("Return, Backspace, Return at a person's pace keeps the line on screen") {
@@ -1442,6 +1481,25 @@ final class DocEditTests {
             press(view, "n")
             try self.expect(try cellText(rows + 1, columns) == "n", "new cell \(String(describing: try? cellText(rows + 1, columns)))")
         }
+        await test("Table: of two empty rows, the one deleted goes and the other takes the editor") {
+            _ = try await click(2, 1)
+            self.editor.tables.perform(.insertRowBelow, at: try editedKey())
+            try? await Task.sleep(for: .milliseconds(500))
+            self.editor.tables.perform(.insertRowBelow, at: try editedKey())
+            try? await Task.sleep(for: .milliseconds(500))
+            func isEmpty(_ row: Row) -> Bool { row.cells.values.allSatisfy { if case .text(let text) = $0 { text.isEmpty } else { false } } }
+            for _ in 0..<2 {
+                let row = try self.expectValue(try database().rows.firstIndex(where: isEmpty), "no empty row") + 1
+                let count = try database().rows.count
+                _ = try await click(row, 1)
+                self.editor.tables.perform(.deleteRow, at: try editedKey())
+                try? await Task.sleep(for: .milliseconds(500))
+                let left = try database().rows.count
+                try self.expect(left == count - 1, "rows \(left), were \(count)")
+                self.editor.tables.endEditing()
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+        }
         await test("Table: every menu action changes the table, and one undo puts it back exactly") {
             let before = try database()
             // A formula is written apart from its cell (its own test).
@@ -1625,14 +1683,87 @@ final class DocEditTests {
             try self.expect(formatting.cell?.key == key && formatting.formats == [.marks, .color, .alignment, .typeface, .numberFormat, .fill, .table],
                             "formats \(formatting.formats.rawValue)")
             try self.expect(formatting.targets.isEmpty && formatting.decorated.isEmpty, "the table took the cell's place")
+            // What's of the whole table is Edit Table's on every screen, not the format's.
+            let cells = DocSelectedCells(cell: try self.expectValue(formatting.cell, "no cell"), formatting: formatting)
+            try self.expect(cells.menu.layout.isEmpty, "the format has the table's: \(cells.menu.layout.map(\.title))")
+            let editTable = try self.expectValue(DocTableMenu(target: DocTableMenuTarget(key: key), controller: self.editor.tables).pages.first { $0.id == .editTable }, "no Edit Table")
+            try self.expect(editTable.sections.count == 4, "Edit Table lacks the table's: \(editTable.sections.count) sections")
             let before = try database()
             formatting.toggle(.bold)
             try self.expect(formatting.markIsOn(.bold), "the cell isn't bold")
             if !DocBlockController.usesHandles {
                 self.editor.blocks.formatCaretBlock()
-                try self.expect(self.editor.panels.sheetPage == .main && !self.editor.blocks.isSelecting, "page \(String(describing: self.editor.panels.sheetPage)) selecting \(self.editor.blocks.isSelecting)")
+                try self.expect(self.editor.panels.showsSheet && !self.editor.blocks.isSelecting, "page \(String(describing: self.editor.panels.showsSheet)) selecting \(self.editor.blocks.isSelecting)")
                 try self.expect(DocFormatting(editor: self.editor, caretTakesBlock: true).cell?.key == key, "the sheet isn't the cell's")
+                // Four short rows; what's a level in, drawn too, and each acts.
+                let panel = self.editor.blocks.selectionPanel
+                for _ in 0..<20 where !panel.testMenuIsOpen { try? await Task.sleep(for: .milliseconds(100)) }
+                try? await Task.sleep(for: .milliseconds(500))
+                let page = try self.expectValue(panel.testMenuFrame, "no page")
+                try self.expect(page.height < 280, "cell page \(page)")
+                // The keyboard gives way, not under it; the cell still edited, closed it comes back.
+                try self.expect(panel.testHoldsKeyboard, "the keyboard's over the panel")
+                let window = try self.expectValue(self.editor.textView(for: self.demo.doc.blocks[0].id)?.window ?? panel.testMenuKey("Bold")?.window, "no window")
+                try await Task.sleep(for: .milliseconds(500))
+                let keyboard = window.keyboardLayoutGuide.layoutFrame
+                try self.expect(keyboard.height < 60, "keyboard \(keyboard), page \(page), responder \(String(describing: DocFirstResponder.current))")
+                let bold = try self.expectValue(panel.testMenuKey("Bold"), "no Bold")
+                try self.expect(bold.superview is FlooControlGroup && bold.isSelected, "Bold \(bold.isSelected) in \(String(describing: bold.superview))")
+                try self.expectValue(panel.testMenuKey("Default Font"), "no font").sendActions(for: .primaryActionTriggered)
+                try await Task.sleep(for: .milliseconds(600))
+                try self.expect(panel.testMenuDepth == 2, "font depth \(panel.testMenuDepth)")
+                try self.expectValue(panel.testMenuKey(Typeface.serif.title), "no Serif").sendActions(for: .primaryActionTriggered)
+                try await Task.sleep(for: .milliseconds(600))
+                try self.expect(panel.testMenuDepth == 1 && formatting.cell?.style.font == .serif, "serif: depth \(panel.testMenuDepth), \(String(describing: formatting.cell?.style.font))")
+                try self.expect(panel.testMenuKey(Typeface.serif.title) != nil, "the key doesn't say what the font is")
+                try self.expect(panel.testMenuKey("Table") == nil && panel.testMenuKey("Add Rows") == nil, "the whole table's settings are in the cell's")
                 self.editor.blocks.closeSheet()
+                try await Task.sleep(for: .milliseconds(600))
+                // The cell's ⋮ menu gives the keyboard away too.
+                self.editor.tables.showMenu(key)
+                try await Task.sleep(for: .milliseconds(800))
+                let isSmall = window.traitCollection.horizontalSizeClass == .compact
+                try self.expect(self.editor.holdsKeyboard, "menu: holds \(self.editor.holdsKeyboard)")
+                if isSmall {
+                    let menu = try self.expectValue(self.editor.tables.menuPanel, "no drawn menu")
+                    for name in ["Edit Table", "Format", "Formula", "Ascending", "Descending"] {
+                        try self.expect(menu.testKey(name) != nil, "menu has no \(name)")
+                    }
+                    try self.expect(menu.testKey("Cut") == nil && menu.testKey("Copy") == nil && menu.testKey("Paste") == nil, "the clipboard's in the menu")
+                    try self.expect(menu.testKey("Ascending")?.superview is FlooControlGroup, "the sorts aren't joined")
+                    // Its corners go by the panel's, each its own: the one at the panel's corner
+                    // visually concentric with it, the one far from any the control's own.
+                    if #available(iOS 26.0, *) {
+                        let tile = try self.expectValue(menu.testKey("Edit Table"), "no Edit Table")
+                        let near = tile.effectiveRadius(corner: .topLeft), far = tile.effectiveRadius(corner: .bottomLeft)
+                        try self.expect(abs(near - 27) < 1 && far < near, "corners \(near), \(far)")
+                    }
+                    // A touch outside closes it and does nothing else.
+                    let outside = window.hitTest(CGPoint(x: window.bounds.midX, y: 200), with: nil)
+                    try self.expect(outside.map { "\(Swift.type(of: $0))".contains("FlooFloatingPanelHost") } == true, "a touch outside goes to \(String(describing: outside))")
+                    try self.expectValue(menu.testKey("Edit Table"), "no Edit Table").sendActions(for: .primaryActionTriggered)
+                    try await Task.sleep(for: .milliseconds(600))
+                    try self.expect(menu.testDepth == 2 && menu.testKey("Insert Above") != nil, "edit table: depth \(menu.testDepth)")
+                    // The edited cell stays above the page that's taller.
+                    try await Task.sleep(for: .milliseconds(600))
+                    let edited = try self.expectValue(self.editor.tables.editing.flatMap { self.editor.tables.view(for: $0) }, "no edited cell")
+                    let foot = try self.expectValue(DocScrolling.footPanel, "no panel")
+                    let cellBottom = edited.convert(edited.bounds, to: nil).maxY, panelTop = foot.convert(foot.bounds, to: nil).minY
+                    try self.expect(cellBottom <= panelTop, "cell's foot \(cellBottom), panel's top \(panelTop)")
+                    // The whole table's settings are here, and act.
+                    let rows = DocFormatting(editor: self.editor, caretTakesBlock: false).cell?.size.rows
+                    try self.expectValue(menu.testKey("Add Rows"), "no Add Rows").sendActions(for: .primaryActionTriggered)
+                    try await Task.sleep(for: .milliseconds(300))
+                    let added = DocFormatting(editor: self.editor, caretTakesBlock: false).cell?.size.rows
+                    try self.expect(added == rows.map { $0 + 1 }, "rows \(String(describing: added))")
+                    try self.expect(menu.testKey("Header Row") != nil && menu.testKey("Alternating Row Color") != nil, "edit table lacks the table's settings")
+                }
+                self.editor.tables.closeMenu()
+                try await Task.sleep(for: .milliseconds(600))
+                try self.expect(!panel.testHoldsKeyboard && (DocFirstResponder.current as? UITextView)?.inputView == nil && (try? editedKey()) == key,
+                                "after: holds \(panel.testHoldsKeyboard), edited \(String(describing: try? editedKey()))")
+                try await self.undo()
+                try await self.undo()
             }
             try await self.undo()
             try self.expect(try database() == before, "undo left the cell bold")
@@ -1713,6 +1844,30 @@ final class DocEditTests {
             try self.expect(self.editor.tables.menu == DocTableMenuTarget(key: key), "the menu isn't the cell's")
             _ = try await click(1, 1)
             try self.expect(self.editor.tables.menu == nil, "the menu stayed after another cell was edited")
+        }
+        await test("a panel's bar stands where it will rest all the way through a page going over, clear of the panel's top") {
+            _ = try await click(2, 1)
+            let key = try editedKey()
+            // At once with room, the page still settling round the cell: it doesn't close the panel.
+            // At a small screen's foot, once the keyboard's up: one rising elsewhere closes it.
+            if !DocDevice.isMac, self.editor.blocks.presenter?.view.traitCollection.horizontalSizeClass == .compact { try await Task.sleep(for: .milliseconds(800)) }
+            self.editor.tables.showMenu(key)
+            try await Task.sleep(for: .milliseconds(800))
+            let panel = try self.expectValue(self.editor.tables.menuPanel ?? self.editor.tables.besideMenu, "no panel")
+            try self.expect(panel.testBar == nil, "a bar over the first page")
+            panel.openInner(.editTable)
+            var seen: [(top: CGFloat, height: CGFloat)] = []
+            for _ in 0..<60 {
+                try? await Task.sleep(for: .milliseconds(16))
+                if let bar = panel.testBar { seen.append(bar) }
+            }
+            let rest = try self.expectValue(seen.last, "no bar")
+            docTestLog("DOCTEST NOTE bar rests at \(rest), \(seen.count) frames, tops \(Set(seen.map(\.top)).sorted())")
+            try self.expect(rest.top >= 6, "the bar's up against the panel's top: \(rest)")
+            try self.expect(seen.allSatisfy { abs($0.top - rest.top) < 0.5 && abs($0.height - rest.height) < 0.5 }, "the bar moved: \(seen.map(\.top)) \(seen.map(\.height))")
+            self.editor.tables.closeMenu()
+            try await Task.sleep(for: .milliseconds(500))
+            self.editor.tables.leave(key)
         }
         await test("Table: a picked column or row: copied as a spreadsheet does, cleared and filled whole in one undo step") {
             let saved = UIPasteboard.general.string
@@ -1835,6 +1990,7 @@ final class DocEditTests {
         }
         await test("A colour on text shows in it; typing at its end goes on in it, at a pen mark's it doesn't; one undo each") {
             let block = try self.block("Loading older")
+            await self.bringIntoView(block.id)
             self.editor.set(.color, to: .color("red"), over: [(block.id, 0..<7)])
             func rgb(_ color: UIColor?) -> [Int] {
                 var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
@@ -1942,13 +2098,13 @@ final class DocEditTests {
                 try await self.focus(block.id, at: 4)
                 bar.testTap("format")
                 try self.expect(self.editor.blocks.isSelecting && self.editor.blocks.selected == [block.id], "not selecting the caret's block")
-                try self.expect(self.editor.panels.sheetPage == .main, "no sheet")
+                try self.expect(self.editor.panels.showsSheet, "no sheet")
                 DocFormatting(editor: self.editor, caretTakesBlock: true).setStyle(.heading(level: 2))
                 try await self.settle()
                 try self.expect(self.demo.doc.block(block.id)?.kind == .heading(level: 2), "kind \(String(describing: self.demo.doc.block(block.id)?.kind))")
                 self.editor.blocks.closeSheet()
                 try await self.settle()
-                try self.expect(!self.editor.blocks.isSelecting && self.editor.panels.sheetPage == nil, "still selecting")
+                try self.expect(!self.editor.blocks.isSelecting && !self.editor.panels.showsSheet, "still selecting")
                 let caret = self.editor.selection
                 try self.expect(caret?.head == DocPosition(block: block.id, offset: 4) && caret?.anchor == caret?.head, "caret \(String(describing: caret))")
                 try self.expect(self.editor.textView(for: block.id)?.isFirstResponder == true, "not editing")
@@ -2070,34 +2226,293 @@ final class DocEditTests {
             try self.expect(self.demo.doc.block(target.id)?.kind == target.kind && self.demo.doc.block(target.id)?.decoration == nil
                             && self.demo.doc.block(target.id)?.text.marks == target.text.marks, "undo: \(String(describing: self.demo.doc.block(target.id)))")
         }
+        await test("a panel's keys on the Mac are concentric with it: each corner by its edge at R²/(R+d), the others its own") {
+            guard DocDevice.isMac else { return }
+            let block = try self.expectValue(self.demo.doc.blocks.first { if case .collection = $0.kind { true } else { false } }, "no collection")
+            let controller = self.editor.collections
+            self.demo.bringIntoView(block.id)
+            try await Task.sleep(for: .milliseconds(800))
+            controller.show(.view, in: block.id)
+            try await Task.sleep(for: .milliseconds(1000))
+            let page = try self.expectValue(controller.viewPanel?.testTopView, "no page")
+            func group(_ view: UIView) -> FlooControlGroup? { (view as? FlooControlGroup) ?? view.subviews.lazy.compactMap(group).first }
+            let keys = try self.expectValue(group(page), "no group")
+            let more = try self.expectValue(controller.viewPanel?.testKey("More"), "no More")
+            guard #available(iOS 26.0, *) else { return }
+            let container = try self.expectValue(keys.flooRoundedContainer, "no panel")
+            let outer = container.effectiveRadius(corner: .topLeft)
+            let inset = keys.convert(keys.bounds, to: container).minX
+            let wanted = outer * outer / (outer + inset)
+            try self.expect(abs(keys.effectiveRadius(corner: .topLeft) - wanted) < 0.5, "the group's outer corner \(keys.effectiveRadius(corner: .topLeft)), wanted \(wanted)")
+            try self.expect(abs(more.effectiveRadius(corner: .topRight) - wanted) < 0.5, "More's outer corner \(more.effectiveRadius(corner: .topRight)), wanted \(wanted)")
+            try self.expect(keys.effectiveRadius(corner: .topRight) < wanted, "the group's inner corner \(keys.effectiveRadius(corner: .topRight))")
+            controller.close(.view, in: block.id)
+            try await Task.sleep(for: .milliseconds(300))
+        }
+        await test("a phone's page of a collection's view: its layouts joined, what it shows opening what it holds; the fields all in view") {
+            guard !DocBlockController.usesHandles else { return }
+            let block = try self.expectValue(self.demo.doc.blocks.first { if case .collection = $0.kind { true } else { false } }, "no collection")
+            let controller = self.editor.collections
+            self.demo.bringIntoView(block.id)
+            try await Task.sleep(for: .milliseconds(800))
+            controller.show(.view, in: block.id)
+            try await Task.sleep(for: .milliseconds(1000))
+            let panel = try self.expectValue(controller.viewPanel, "no page")
+            let page = try self.expectValue(panel.testTopView, "no page view")
+            try self.expect(page.bounds.height < 400, "view page \(page.bounds)")
+            // -docTestHold YES: stays a moment at each page, for a screenshot of it.
+            let hold = { (name: String) async throws in
+                guard UserDefaults.standard.bool(forKey: "docTestHold") else { return }
+                docTestLog("DOCTEST NOTE hold \(name)")
+                try await Task.sleep(for: .seconds(3))
+            }
+            try await hold("view")
+            if UserDefaults.standard.bool(forKey: "docTestHold"), let (_, database) = controller.snapshot(block.id), let viewID = controller.snapshot(block.id)?.collection.currentView?.id, let first = database.columns.first {
+                controller.setSort([DatabaseSort(column: first.id)], in: viewID, of: block.id)
+                controller.setFilters(database.columns.prefix(2).map { CollectionFilter(column: $0.id, condition: CollectionFilter.conditions(for: $0.type)[0]) }, typing: nil, in: viewID, of: block.id)
+                try await Task.sleep(for: .milliseconds(400))
+                try await hold("filled")
+                try await self.undo()
+                try await self.undo()
+                try await Task.sleep(for: .milliseconds(400))
+            }
+            let window = try self.expectValue(page.window, "no window")
+            // What it groups, sorts and filters by and the fields are on the page, no level in.
+            for name in ["Table", "Kanban", "Chart", "More", "Add Sort", "Add Filter", "Fields"] {
+                try self.expect(panel.testKey(name) != nil, "no \(name)")
+            }
+            try self.expect(panel.testKey("Table")?.superview is FlooControlGroup, "the layouts aren't joined")
+            let database = try self.expectValue(controller.snapshot(block.id)?.database, "no database")
+            let shown = try self.expectValue(database.columns.last, "no field")
+            let chip = try self.expectValue(panel.testKey(shown.name), "no chip for \(shown.name)")
+            chip.sendActions(for: .primaryActionTriggered)
+            try await Task.sleep(for: .milliseconds(300))
+            try self.expect(controller.snapshot(block.id)?.collection.currentView?.layout.hidden.contains(shown.id) == true && panel.testDepth == 1, "chip didn't hide \(shown.name)")
+            try await self.undo()
+            try await Task.sleep(for: .milliseconds(300))
+            // A date field's filter: its value floo's picker, with the page's date.
+            if let viewID = controller.snapshot(block.id)?.collection.currentView?.id, let date = database.columns.first(where: { $0.type == .date }) {
+                controller.setFilters([CollectionFilter(column: date.id, condition: CollectionFilter.conditions(for: date.type)[0])], typing: nil, in: viewID, of: block.id)
+                try await Task.sleep(for: .milliseconds(500))
+                func picker(in view: UIView) -> FlooDatePicker? { (view as? FlooDatePicker) ?? view.subviews.lazy.compactMap(picker).first }
+                let found = try self.expectValue(panel.testTopView.flatMap(picker), "no date picker")
+                try self.expect(found.window != nil && found.bounds.height > 0, "date picker \(found.bounds)")
+                try await hold("date")
+                try await self.undo()
+                try await Task.sleep(for: .milliseconds(400))
+            }
+            // A chart has its axis, no sorting or fields.
+            try self.expectValue(panel.testKey("Chart"), "no Chart").sendActions(for: .primaryActionTriggered)
+            try await Task.sleep(for: .milliseconds(500))
+            try self.expect(panel.testKey("Add Sort") == nil && panel.testKey("Fields") == nil && panel.testKey("Add Filter") != nil, "chart's keys")
+            try await hold("chart")
+            // Its settings are pages of the panel, not a panel of their own.
+            for name in ["Bars", "Columns", "Line", "Donut", "Data", "Style"] {
+                try self.expect(panel.testKey(name) != nil, "chart has no \(name)")
+            }
+            try self.expectValue(panel.testKey("Data"), "no Data").sendActions(for: .primaryActionTriggered)
+            try await Task.sleep(for: .milliseconds(700))
+            try await hold("data")
+            try self.expect(panel.testDepth == 2 && panel.testKey("Running Total") is FlooSwitch && panel.testKey("Only the Top Groups") is FlooSwitch, "data: depth \(panel.testDepth)")
+            try self.expectValue(panel.testKey("Show/Hide groups"), "no groups row").sendActions(for: .primaryActionTriggered)
+            try await Task.sleep(for: .milliseconds(700))
+            try await hold("groups")
+            try self.expect(panel.testDepth == 3, "groups: depth \(panel.testDepth)")
+            panel.closeInner()
+            try await Task.sleep(for: .milliseconds(600))
+            try self.expectValue(panel.testKey("Style"), "no Style").sendActions(for: .primaryActionTriggered)
+            try await Task.sleep(for: .milliseconds(700))
+            try await hold("style")
+            try self.expect(panel.testDepth == 2 && panel.testKey("Legend") is FlooSwitch && panel.testKey("Size") is FlooMenuButton, "style: depth \(panel.testDepth)")
+            panel.closeInner()
+            try await Task.sleep(for: .milliseconds(600))
+            try await self.undo()
+            try await Task.sleep(for: .milliseconds(500))
+            try self.expectValue(panel.testKey("Fields"), "no Fields").sendActions(for: .primaryActionTriggered)
+            try await Task.sleep(for: .milliseconds(700))
+            try await hold("fields")
+            try self.expect(panel.testDepth == 2, "fields depth \(panel.testDepth)")
+            let list = try self.expectValue(panel.testTopView?.subviews.first as? UIScrollView, "no list")
+            try self.expect(list.contentSize.height <= list.bounds.height + 0.5, "fields cut: \(list.contentSize) in \(list.bounds)")
+            panel.closeInner()
+            try await Task.sleep(for: .milliseconds(600))
+            controller.close(.view, in: block.id)
+            try await Task.sleep(for: .milliseconds(600))
+            // Touched outside, it closes and the touch does nothing else. A keyboard for a field in
+            // it leaves it open; one for something outside closes it.
+            controller.show(.view, in: block.id)
+            try await Task.sleep(for: .milliseconds(800))
+            let open = try self.expectValue(controller.viewPanel, "no panel to close")
+            let outside = window.hitTest(CGPoint(x: window.bounds.midX, y: 200), with: nil)
+            try self.expect(outside.map { "\(Swift.type(of: $0))".contains("FlooFloatingPanelHost") } == true, "a touch outside goes to \(String(describing: outside))")
+            let keyboard = { (name: Notification.Name) in
+                let height: CGFloat = 320
+                NotificationCenter.default.post(name: name, object: nil, userInfo: [
+                    UIResponder.keyboardFrameEndUserInfoKey: CGRect(x: 0, y: window.bounds.maxY - height, width: window.bounds.width, height: height),
+                    UIResponder.keyboardIsLocalUserInfoKey: true,
+                ])
+            }
+            let host = try self.expectValue(open.testTopView, "no page")
+            let field = UITextField()
+            host.addSubview(field)
+            field.becomeFirstResponder()
+            keyboard(UIResponder.keyboardWillChangeFrameNotification)
+            try await Task.sleep(for: .milliseconds(500))
+            try self.expect(controller.viewPanel != nil, "a field in the panel closed it")
+            field.resignFirstResponder()
+            field.removeFromSuperview()
+            keyboard(UIResponder.keyboardWillHideNotification)
+            try await Task.sleep(for: .milliseconds(300))
+            let text = UITextField()
+            window.addSubview(text)
+            defer { text.removeFromSuperview() }
+            text.becomeFirstResponder()
+            keyboard(UIResponder.keyboardWillChangeFrameNotification)
+            try await Task.sleep(for: .milliseconds(800))
+            // A small screen's. Beside the button it's modal: no touch reaches a field outside it.
+            if window.traitCollection.horizontalSizeClass == .compact {
+                try self.expect(controller.viewPanel == nil && !controller.isShowing(.view, in: block.id), "a keyboard elsewhere left it open")
+            } else {
+                controller.close(.view, in: block.id)
+                try await Task.sleep(for: .milliseconds(600))
+            }
+            text.resignFirstResponder()
+            keyboard(UIResponder.keyboardWillHideNotification)
+            try await Task.sleep(for: .milliseconds(300))
+            // Chart Settings from a chart's own menu: a page of the same panel, with it closed.
+            let viewID = try self.expectValue(controller.snapshot(block.id)?.0.currentView?.id, "no view")
+            controller.setChart(in: viewID, of: block.id)
+            try await Task.sleep(for: .milliseconds(500))
+            controller.show(.chart, in: block.id)
+            try await Task.sleep(for: .milliseconds(1000))
+            let reopened = try self.expectValue(controller.viewPanel, "no panel for the chart's settings")
+            try self.expect(reopened.testDepth == 2 && controller.isShowing(.view, in: block.id) && reopened.testKey("Running Total") != nil, "chart settings: depth \(reopened.testDepth)")
+            reopened.closeInner()
+            try await Task.sleep(for: .milliseconds(600))
+            controller.close(.view, in: block.id)
+            try await Task.sleep(for: .milliseconds(600))
+            try await self.undo()
+            try await Task.sleep(for: .milliseconds(500))
+        }
         await test("the selection bar's Style opens the sheet on the selected blocks; leaving the selection closes it") {
             let first = try self.block("Loading older")
             let blocks = self.editor.blocks
             blocks.beginSelecting(first.id)
-            self.editor.panels.sheetPage = .main
-            if !DocBlockController.usesHandles {
-                // A sheet as tall as its pages (Craft's), over the bottom of the window.
+            if DocBlockController.usesHandles {
+                self.editor.panels.showsSheet = true
+            } else {
+                // The panel comes with the selection, its tiles as the selection takes them.
+                let panel = blocks.selectionPanel
                 try? await Task.sleep(for: .milliseconds(800))
-                let sheets = blocks.testSheetFrames
-                let pages = DocTokens.Component.FormatSheet.page
-                try self.expect(sheets.count == 1 && sheets[0].height > pages && sheets[0].height < pages + 80,
-                                "sheets \(sheets) for pages \(pages) tall")
-                // Another page opens in a sheet over it, and goes back to it.
-                self.editor.panels.sheetPage = .colors
+                let titles = { panel.testTiles.compactMap(\.accessibilityLabel) }
+                try self.expect(panel.testIsInWindow && titles() == ["Style", "Actions", "Delete"], "text: in window \(panel.testIsInWindow), \(titles())")
+                let image = try self.expectValue(self.demo.doc.blocks.first { if case .image = $0.kind { true } else { false } }, "no image")
+                blocks.select([image.id])
+                try? await Task.sleep(for: .milliseconds(500))
+                try self.expect(titles() == ["Style", "Layout", "Actions", "Delete"], "image: \(titles())")
+                // Layout gives way to the selection's layout settings, its tiles acting; closed, back.
+                let target = DocSelectedBlocks(formatting: DocFormatting(editor: self.editor, caretTakesBlock: true))
+                try self.expect(target.menu.layout.map(\.title) == ["Image Display", "Image Size"], "settings \(target.menu.layout.map(\.title))")
+                let layoutTile = try self.expectValue(panel.testTiles.first { $0.accessibilityLabel == "Layout" }, "no Layout")
+                layoutTile.sendActions(for: .primaryActionTriggered)
+                // However long the actions take to go, under load.
+                for _ in 0..<20 where panel.testIsInWindow || !panel.testMenuIsOpen { try? await Task.sleep(for: .milliseconds(100)) }
+                try self.expect(panel.testMenuIsOpen && !panel.testIsInWindow, "layout open \(panel.testMenuIsOpen), actions in window \(panel.testIsInWindow)")
+                let size = blocks.selectedImageSizes
+                let other = try self.expectValue(panel.testMenuKey(size == [.auto] ? "Large" : "Auto"), "no size tile")
+                // Joined choices in a short panel, leaving the page in view, with no bar.
+                try self.expect(other.superview is FlooControlGroup && panel.testMenuDepth == 1, "size in \(String(describing: other.superview)), depth \(panel.testMenuDepth)")
+                try self.expect((panel.testMenuFrame?.height ?? .infinity) < 200, "layout page \(String(describing: panel.testMenuFrame))")
+                other.sendActions(for: .primaryActionTriggered)
+                try self.expect(blocks.selectedImageSizes != size, "size stays \(size)")
+                if let old = size.first { blocks.setImage(size: old) }
+                // A link added to what's selected: its layouts join, the panel growing to hold them.
+                let shortPanel = try self.expectValue(panel.testMenuFrame, "no layout page").height
+                let link = try self.expectValue(self.demo.doc.blocks.first { if case .image = $0.kind { false } else { DocMediaView.draws($0.kind) } }, "no link or file")
+                blocks.select([image.id, link.id])
                 try? await Task.sleep(for: .milliseconds(800))
-                try self.expect(blocks.testSheetFrames.count == 2, "colours: sheets \(blocks.testSheetFrames)")
-                self.editor.panels.sheetPage = .main
+                let card = try self.expectValue(panel.testMenuKey("Card"), "no Card")
+                let grown = try self.expectValue(panel.testMenuFrame, "no layout page")
+                try self.expect(grown.height > shortPanel && card.window != nil && card.convert(card.bounds, to: nil).maxY <= grown.maxY, "panel \(shortPanel) to \(grown), Card \(card.convert(card.bounds, to: nil))")
+                blocks.select([image.id])
                 try? await Task.sleep(for: .milliseconds(800))
-                try self.expect(blocks.testSheetFrames.count == 1, "back: sheets \(blocks.testSheetFrames)")
+                try self.expect(abs((panel.testMenuFrame?.height ?? 0) - shortPanel) < 0.5, "back to \(String(describing: panel.testMenuFrame)), was \(shortPanel)")
+                blocks.closeSheet()
+                try? await Task.sleep(for: .milliseconds(800))
+                try self.expect(!panel.testMenuIsOpen && panel.testIsInWindow, "closed: layout \(panel.testMenuIsOpen), actions \(panel.testIsInWindow)")
+                blocks.select([first.id])
+                try? await Task.sleep(for: .milliseconds(500))
+                // Style itself opens the sheet, the panel going under it.
+                let style = try self.expectValue(panel.testTiles.first { $0.accessibilityIdentifier == "selection-style" }, "no Style")
+                style.sendActions(for: .primaryActionTriggered)
+                try self.expect(self.editor.panels.showsSheet, "Style: \(String(describing: self.editor.panels.showsSheet))")
+                try? await Task.sleep(for: .milliseconds(800))
+                try self.expect(!panel.testIsInWindow, "the panel stays under the sheet")
+                // Three short rows at the window's foot: the text stays in view. Its keys act.
+                try? await Task.sleep(for: .milliseconds(400))
+                let frame = try self.expectValue(panel.testMenuFrame, "no format page")
+                try self.expect(panel.testMenuIsOpen && frame.height < 220, "format page \(frame)")
+                let heading = try self.expectValue(panel.testMenuKey("Heading"), "no Heading key")
+                heading.sendActions(for: .primaryActionTriggered)
+                try self.expect(self.demo.doc.block(first.id)?.kind == .heading(level: 3), "kind \(String(describing: self.demo.doc.block(first.id)?.kind))")
+                // What's not on it is a level in.
+                let more = try self.expectValue(panel.testMenuKey("More…"), "no More…")
+                more.sendActions(for: .primaryActionTriggered)
+                try? await Task.sleep(for: .milliseconds(600))
+                try self.expect(panel.testMenuDepth == 2, "depth \(panel.testMenuDepth)")
+                // Every style's name whole, in its own type; chosen, back on the first page.
+                for name in ["Title", "Subtitle", "Heading", "Strong", "Body", "Caption"] {
+                    let key = try self.expectValue(panel.testMenuKey(name), "no \(name)")
+                    let label = try self.expectValue((key as? FlooContentButton)?.content as? UILabel, "\(name) has no label")
+                    try self.expect(label.intrinsicContentSize.width <= label.bounds.width + 0.5 && label.intrinsicContentSize.height <= label.bounds.height + 0.5,
+                                    "\(name) \(label.intrinsicContentSize) in \(label.bounds.size)")
+                }
+                let subtitle = try self.expectValue(panel.testMenuKey("Subtitle"), "no Subtitle")
+                subtitle.sendActions(for: .primaryActionTriggered)
+                try await Task.sleep(for: .milliseconds(600))
+                try self.expect(self.demo.doc.block(first.id)?.kind == .heading(level: 2) && panel.testMenuDepth == 1, "kind \(String(describing: self.demo.doc.block(first.id)?.kind)), depth \(panel.testMenuDepth)")
+                try await self.undo()
+                try await self.undo()
+                // More: the marks joined, each font in its own face, what's done to a format
+                // named; all of it whole. A key acts and the page stays.
+                let moreKeys = try self.expectValue(panel.testMenuKey("More"), "no More")
+                moreKeys.sendActions(for: .primaryActionTriggered)
+                try await Task.sleep(for: .milliseconds(600))
+                try self.expect(panel.testMenuDepth == 2, "depth \(panel.testMenuDepth)")
+                let bold = try self.expectValue(panel.testMenuKey("Bold"), "no Bold")
+                try self.expect(bold.superview is FlooControlGroup, "Bold in \(String(describing: bold.superview))")
+                for font in Typeface.blockOrder {
+                    let key = try self.expectValue(panel.testMenuKey(font.title), "no \(font.title)")
+                    let label = try self.expectValue((key as? FlooContentButton)?.content as? UILabel, "\(font.title) has no label")
+                    try self.expect(label.intrinsicContentSize.width <= label.bounds.width + 0.5, "\(font.title) \(label.intrinsicContentSize) in \(label.bounds.size)")
+                }
+                for name in ["Copy Format", "Paste Format", "Clear Format"] {
+                    let key = try self.expectValue(panel.testMenuKey(name), "no \(name)")
+                    try self.expect(key.bounds.height == 58, "\(name) \(key.bounds)")
+                }
+                let serif = try self.expectValue(panel.testMenuKey(Typeface.serif.title), "no serif")
+                serif.sendActions(for: .primaryActionTriggered)
+                try await Task.sleep(for: .milliseconds(300))
+                try self.expect(serif.isSelected && panel.testMenuDepth == 2, "serif on \(serif.isSelected), depth \(panel.testMenuDepth)")
+                try await self.undo()
+                panel.closeInner()
+                try await Task.sleep(for: .milliseconds(600))
             }
             try self.expect(DocFormatting(editor: self.editor, caretTakesBlock: true).targets.map(\.id) == [first.id], "targets")
             DocFormatting(editor: self.editor, caretTakesBlock: true).toggleList(.listItem(style: .task(done: false)))
             try self.expect(self.demo.doc.block(first.id)?.kind == .listItem(style: .task(done: false)), "kind \(String(describing: self.demo.doc.block(first.id)?.kind))")
             blocks.endSelecting()
-            try self.expect(self.editor.panels.sheetPage == nil, "the sheet stays")
+            try self.expect(!self.editor.panels.showsSheet, "the sheet stays")
             if !DocBlockController.usesHandles {
                 try? await Task.sleep(for: .milliseconds(800))
                 try self.expect(blocks.testSheetFrames.isEmpty, "sheets stay on screen: \(blocks.testSheetFrames)")
+                try self.expect(!blocks.selectionPanel.testIsInWindow, "the panel stays on screen")
+                // Dragged away, the actions take the selection with them.
+                blocks.beginSelecting(first.id)
+                try? await Task.sleep(for: .milliseconds(800))
+                blocks.selectionPanel.testCloseAsDragged()
+                try? await Task.sleep(for: .milliseconds(800))
+                try self.expect(!blocks.isSelecting && !blocks.selectionPanel.testIsInWindow, "selecting \(blocks.isSelecting)")
             }
         }
         await test("what each block takes decides the format panels: text its styles and marks, an image its size and fit, a table alone its cells' panel; together, a style goes on the text only") {
@@ -2254,9 +2669,9 @@ final class DocEditTests {
                 try self.expect(blocks.testRightClick(at: CGPoint(x: row.midX, y: row.midY)), "no menu")
                 try self.expect(blocks.selected == [block.id], "selected \(blocks.selected.count)")
                 let titles = blocks.selectionMenu().flatMap(\.items).map(\.title)
-                try self.expect(titles == ["Edit", "Cut", "Copy", "Duplicate", "Format", "Insert", "Sort", "Delete"], "menu \(titles)")
+                try self.expect(titles == ["Edit", "Cut", "Copy", "Duplicate", "Style", "Format", "Layout", "Insert", "Sort", "Delete"], "menu \(titles)")
                 let format = try self.expectValue(blocks.selectionMenu().flatMap(\.items).first { $0.title == "Format" }?.sections, "no Format")
-                let panel = DocFormatMenu(editor: self.editor).sections
+                let panel = DocFormatMenu(editor: self.editor).format
                 try self.expect(format.first?.items.map(\.title) == ["Copy Format", "Paste Format", "Clear Format"]
                                 && format.dropFirst().map { $0.items.map(\.title) } == panel.map { $0.items.map(\.title) },
                                 "Format \(format.map { $0.items.map(\.title) })")
@@ -2285,7 +2700,7 @@ final class DocEditTests {
                 blocks.select([block.id, next.id])
                 let menu = blocks.selectionMenu()
                 let titles = menu.flatMap(\.items).map(\.title)
-                try self.expect(menu.first?.title == "2 items" && titles == ["Group", "Cut", "Copy", "Duplicate", "Format", "Insert", "Sort", "Delete"], "menu \(String(describing: menu.first?.title)) \(titles)")
+                try self.expect(menu.first?.title == "2 items" && titles == ["Group", "Cut", "Copy", "Duplicate", "Style", "Format", "Layout", "Insert", "Sort", "Delete"], "menu \(String(describing: menu.first?.title)) \(titles)")
                 let format = try self.expectValue(menu.flatMap(\.items).first { $0.title == "Format" }?.sections, "no Format")
                 try self.expect(format.first?.items.first.map { $0.title == "Copy Format" && !$0.isEnabled } == true, "Copy Format is on")
                 // Z → A: the one whose words come later first.
@@ -2628,15 +3043,15 @@ final class DocEditTests {
                 let frame = try self.expectValue(blocks.testContentFrame(id), "no frame for view \(index)")
                 let drawn = try self.expectValue(DocMediaLayout.boxSize(.view(view: view), width: page), "view \(index) not measured")
                 try self.expect(abs(frame.width - page) < 1 && abs(drawn.width - page) < 1, "view \(index) \(frame.width) wide (drawn \(drawn.width)), the page \(page)")
-                // Taller than the guess the list starts from, and its row as tall as it draws.
+                // Drawn at all, and its row as tall as it draws.
                 let spacing = self.demo.rows.first { $0.block == id }.map { $0.spacingAbove + $0.spacingBelow } ?? 0
                 // Measured once it's drawn: up to 2 s for a slow device.
                 for _ in 0..<20 where abs((blocks.testRowFrame(id)?.height ?? 0) - (drawn.height + spacing)) >= 2 {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
                 let row = try self.expectValue(blocks.testRowFrame(id), "no row for view \(index)")
-                try self.expect(drawn.height > page * 0.75 / 2 && abs(row.height - (drawn.height + spacing)) < 2,
-                                "view \(index): row \(row.height), drawn \(drawn.height), spacing \(spacing)")
+                try self.expect(drawn.height > 100 && abs(row.height - (drawn.height + spacing)) < 2,
+                                "view \(index): row \(row.height), drawn \(drawn.height), spacing \(spacing), page \(page)")
                 // Its controls take clicks, unselected (its handle selects it).
                 if DocBlockController.usesHandles {
                     try self.expect(blocks.blockTakes(id, editsText: false), "view \(index) doesn't take clicks")
@@ -2788,7 +3203,78 @@ final class DocEditTests {
             try self.expect(!collections.isShowing(.date(row: row, column: due.id), in: block.id), "two panels at once")
             collections.close(.options(row: row, column: original.columns.first { if case .select = $0.type { true } else { false } }!.id), in: block.id)
 
-            for _ in 0..<4 where self.demo.doc.databases[collection.database] != original { try await self.undo() }
+            // The panels are floo's pages, and do what the old ones did.
+            let select = try self.expectValue(original.columns.first { if case .select = $0.type { true } else { false } }, "no select column")
+            @MainActor func current() throws -> (Row, [Column]) {
+                let database = try self.expectValue(self.demo.doc.databases[collection.database], "no database")
+                return (try self.expectValue(database.rows.first { $0.id == row }, "no row"), database.columns)
+            }
+            @MainActor func page(_ column: Column) throws -> DocOptionsPage {
+                let page = DocOptionsPage(row: try current().0, column: column, block: block.id, controller: collections)
+                page.loadViewIfNeeded()
+                return page
+            }
+            let options = try page(select)
+            let names = DocFieldText.options(select).map(\.name)
+            try self.expect(options.testRowTitles == names, "options \(options.testRowTitles)")
+            let first = try self.expectValue(names.first, "no option")
+            options.testType(String(first.prefix(1)))
+            try self.expect(options.testRowTitles.contains(first), "typing didn't find it: \(options.testRowTitles)")
+            options.testType("一个新选项")
+            try self.expect(options.testRowTitles == ["Create “一个新选项”"], "no way to create: \(options.testRowTitles)")
+            options.testPress("Create “一个新选项”")
+            let made = try self.expectValue(try current().1.first { $0.id == select.id }, "no column")
+            try self.expect(DocFieldText.options(made).contains { $0.name == "一个新选项" }, "not created")
+            if case .select(let id)? = try current().0.cells[select.id] {
+                try self.expect(DocFieldText.options(made).first { $0.id == id }?.name == "一个新选项", "not chosen")
+            } else { try self.expect(false, "nothing chosen") }
+
+            let date = DocDatePage(row: try current().0, column: due, block: block.id, controller: collections)
+            date.loadViewIfNeeded()
+            let picked = Date(timeIntervalSince1970: 1_800_000_000)
+            date.testPicker.date = picked
+            date.testPicker.sendActions(for: .valueChanged)
+            try self.expect(cell(row, due.id) == .date(value: .day(DocFieldText.day(of: picked))), "the day isn't the record's: \(String(describing: cell(row, due.id)))")
+
+            let field = DocFieldPage(column: nil, block: block.id, controller: collections)
+            field.loadViewIfNeeded()
+            try self.expect(!field.testCanSave, "a field with no name can be saved")
+            if FlooFormMetrics.isMacIdiom {
+                // The Mac: the way out the bar's ✕ at its trailing end, the form's main action alone
+                // at the foot's trailing end (floo's sheet actions), in the navigation controller's
+                // view, not the page's; what scrolls ends over it.
+                let field = DocFieldPage(column: nil, block: block.id, controller: collections)
+                let navigation = field.inNavigation()
+                // In the window, unseen, as a panel shows it: the room kept for the foot is the
+                // page's safe area, which a view out of a window doesn't have.
+                let window = try self.expectValue(self.editor.textView(for: block.id)?.window ?? UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first, "no window")
+                navigation.view.frame = CGRect(x: 0, y: 0, width: 300, height: 420)
+                navigation.view.alpha = 0.01
+                window.addSubview(navigation.view)
+                defer { navigation.view.removeFromSuperview() }
+                for _ in 0..<4 { navigation.view.layoutIfNeeded() }
+                var buttons: [FlooButton] = []
+                var scrolls: [UIScrollView] = []
+                func walk(_ view: UIView) {
+                    if let button = view as? FlooButton, button.title != nil { buttons.append(button) }
+                    if let scroll = view as? UIScrollView, scrolls.isEmpty, view.isDescendant(of: field.view) { scrolls.append(scroll) }
+                    view.subviews.forEach(walk)
+                }
+                walk(navigation.view)
+                let frames = buttons.map { $0.convert($0.bounds, to: navigation.view) }
+                try self.expect(buttons.count == 1 && buttons[0].isEnabled == false && abs(frames[0].maxX - 284) < 1 && !buttons[0].isDescendant(of: field.view),
+                                "not the main one alone, trailing, off with no name, outside the page: \(buttons.map(\.title)) \(frames)")
+                try self.expect(field.navigationItem.leftBarButtonItem == nil && field.navigationItem.rightBarButtonItem?.accessibilityLabel == String(localized: "Cancel"), "the way out isn't the bar's trailing ✕")
+                let scroll = try self.expectValue(scrolls.first, "no scroll")
+                let scrollFrame = scroll.convert(scroll.bounds, to: navigation.view)
+                try self.expect(scrollFrame.maxY <= frames[0].minY + 0.5, "what scrolls goes under the foot: \(scrollFrame) \(frames) room \(field.additionalSafeAreaInsets.bottom) safe \(field.view.safeAreaInsets.bottom) navSafe \(navigation.view.safeAreaInsets.bottom)")
+            }
+            field.testFill(name: "新字段", type: .number)
+            try self.expect(field.testCanSave, "a named field can't be saved")
+            field.testSave()
+            try self.expect(try current().1.contains { $0.name == "新字段" && $0.type == .number }, "the field wasn't added")
+
+            for _ in 0..<12 where self.demo.doc.databases[collection.database] != original { try await self.undo() }
             try self.expect(self.demo.doc.databases[collection.database] == original, "the cells didn't undo")
         }
         await test("a collection's fields, sorting, filters, search and groups: each a step that undoes, the views kept whole") {
@@ -3026,7 +3512,8 @@ final class DocEditTests {
             inside.demo.edit([.insertText(block: line.id, at: 0, text: DocText(string: "notes"))], before: nil, after: nil)
             try self.expect(!pages.recordHasPage(record.id), "written before it was left")
             pages.back()
-            try? await Task.sleep(for: .milliseconds(300))
+            // Past the pop's animation: iOS 18's stack shortens its path again when it ends.
+            try? await Task.sleep(for: .milliseconds(800))
             try self.expect(link.title == named + "!" && pages.recordHasPage(record.id), "the record \(link.title ?? "-"), page \(pages.recordHasPage(record.id))")
             // Opened again, the page takes the record's title as it is now.
             self.editor.collections.setText(named, row: record.id, column: title.id, in: block.id)
@@ -3530,13 +4017,15 @@ final class DocEditTests {
         try? await Task.sleep(for: .milliseconds(300))
         let started = CACurrentMediaTime()
         func took() -> String { String(format: "%.1fs", CACurrentMediaTime() - started) }
+        let frames = DocFrameMeter()
+        defer { frames.stop() }
         do {
             try await body()
             passed += 1
-            docTestLog("DOCTEST PASS (\(took())) \(name)")
+            docTestLog("DOCTEST PASS (\(took())\(frames.summary)) \(name)")
         } catch {
             failed += 1
-            docTestLog("DOCTEST FAIL (\(took())) \(name): \(error)")
+            docTestLog("DOCTEST FAIL (\(took())\(frames.summary)) \(name): \(error)")
         }
     }
 

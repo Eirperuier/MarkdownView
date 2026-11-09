@@ -11,8 +11,8 @@
 //    colour settings whose palettes open as the menu's next level, the pen as a choice;
 //  - the Format submenu of the text's system menu (a right-click; the phone's edit menu,
 //    the phone's only one for selected text);
-//  - the format panels take its marks.
-//  The colours are Craft's for selected text (DocColors.texts, .highlights), and any
+//  - the format panels (DocSettings).
+//  The colours are Craft's for selected text (DocColors.palette, .highlights), and any
 //  colour from the system's picker.
 //
 
@@ -110,14 +110,36 @@ struct DocTextFormat {
         isOn(.link) ? String(localized: "Edit Link…") : String(localized: "Link…")
     }
 
+    // MARK: What a panel and a menu offer
+
+    /// The keys over the selected text: a link only over one run in a text view.
+    var selectionMarks: [DocKey] {
+        markKeys(linkFrom: { [editor, ranges] in ranges.first.flatMap { editor.textView(for: $0.block) } })
+    }
+
+    /// As the Mac's format menu has them.
+    var menuFormatSections: [FlooMenuSection] {
+        [FlooMenuSection(nil, [.docKeys("text-marks", selectionMarks.map(\.tile))]), FlooMenuSection(nil, colorItems)]
+    }
+
+    /// The colours, the pen, greyed with no text under them.
+    var colorItems: [FlooMenuItem] {
+        let pens: [Mark?] = [nil] + Self.pens.map(\.mark)
+        let hasText = !ranges.isEmpty
+        return [
+            .docColor(String(localized: "Highlight"), picked: highlightFill, isEnabled: hasText, [.init([highlightSwatches])]),
+            .docColor(String(localized: "Text Color"), picked: colorFill, isEnabled: hasText, [.init([colorSwatches])]),
+            .choice(String(localized: "Pen"), options: [String(localized: "None")] + Self.pens.map(\.title), selected: pens.firstIndex(of: pen), isEnabled: hasText) { setPen(pens[$0]) },
+        ]
+    }
+
     // MARK: The Mac's menu over the selection
 
-    /// The marks as keys; the colours as colour settings, their palettes the next level;
-    /// the pen as a choice; then the format panel. With `unfolded`, the keys end with one
-    /// that unfolds the rest and folds it again, and folded the keys are all there is (a
-    /// strip over the text).
+    /// The settings, the keys from `view`, then the format panel. With `unfolded`, the keys
+    /// end with one that unfolds the rest and folds it again, and folded the keys are all
+    /// there is (a strip over the text).
     func menuSections(linkFrom view: @escaping () -> UIView?, unfolded: Binding<Bool>? = nil) -> [FlooMenuSection] {
-        var keys = keys(linkFrom: view)
+        var keys = markKeys(linkFrom: view).map(\.tile)
         let isUnfolded = unfolded?.wrappedValue ?? true
         if let unfolded {
             keys.append(FlooMenuTile(isUnfolded ? String(localized: "Fewer Options") : String(localized: "More Options"), symbol: isUnfolded ? "chevron.up" : "chevron.down",
@@ -126,35 +148,23 @@ struct DocTextFormat {
             })
         }
         let strip = FlooMenuSection([.docKeys("text-marks", keys)])
-        return isUnfolded ? [strip] + rest : [strip]
-    }
-
-    private func keys(linkFrom view: @escaping () -> UIView?) -> [FlooMenuTile] {
-        [
-            FlooMenuTile(String(localized: "Highlight"), symbol: "highlighter", showsTitle: false, isOn: isOn(.highlight)) { _ in toggleHighlight() },
-        ] + Self.marks.map { item in
-            FlooMenuTile(item.title, symbol: item.symbol, showsTitle: false, isOn: isOn(item.mark.kind)) { _ in toggle(item.mark) }
-        } + [
-            FlooMenuTile(String(localized: "Link"), symbol: "link", showsTitle: false, isOn: isOn(.link), isEnabled: ranges.count == 1, isMomentary: true) { _ in
-                if let view = view() { link(from: view) }
-            },
+        guard isUnfolded else { return [strip] }
+        return [strip, FlooMenuSection(nil, colorItems)] + [
+            .init([.action(String(localized: "Format Panel"), symbol: "slider.horizontal.3") { editor.panels.showsFormat = true }]),
         ]
     }
 
-    /// Under the keys: the colours, the pen, the format panel.
-    private var rest: [FlooMenuSection] {
-        let pens: [Mark?] = [nil] + Self.pens.map(\.mark)
+    private func markKeys(linkFrom view: @escaping () -> UIView?) -> [DocKey] {
+        let hasText = !ranges.isEmpty
         return [
-            .init([
-                .docColor(String(localized: "Highlight"), picked: highlightFill, [.init([highlightSwatches])]),
-                .docColor(String(localized: "Text Color"), picked: colorFill, [.init([colorSwatches])]),
-            ]),
-            .init(String(localized: "Pen"), [
-                .choice(String(localized: "Pen"), options: [String(localized: "None")] + Self.pens.map(\.title), selected: pens.firstIndex(of: pen)) { setPen(pens[$0]) },
-            ]),
-            .init([
-                .action(String(localized: "Format Panel"), symbol: "slider.horizontal.3") { editor.panels.showsFormat = true },
-            ]),
+            DocKey(id: "highlight", title: String(localized: "Highlight"), look: .symbol("highlighter"), isOn: isOn(.highlight), isEnabled: hasText, showsTitle: false,
+                   action: .perform { toggleHighlight() }),
+        ] + Self.marks.map { item in
+            DocKey(id: item.id, title: item.title, look: .symbol(item.symbol), isOn: isOn(item.mark.kind), isEnabled: hasText, showsTitle: false,
+                   action: .perform { toggle(item.mark) })
+        } + [
+            DocKey(id: "link", title: String(localized: "Link"), look: .symbol("link"), isOn: isOn(.link), isEnabled: ranges.count == 1, isMomentary: true, showsTitle: false,
+                   action: .perform { if let view = view() { link(from: view) } }),
         ]
     }
 
@@ -183,7 +193,7 @@ struct DocTextFormat {
         let swatch = { (token: String?, title: String) in
             DocSwatch(id: token ?? "none", title: title, color: token.map(DocColors.swatch) ?? DocTokens.ColorRole.Content.primary, isOn: current == token.map(Mark.color)) { setColor(token) }
         }
-        return .docSwatches("text-colors", [swatch(nil, String(localized: "Default"))] + DocColors.texts.map { swatch($0.token, $0.title) },
+        return .docSwatches("text-colors", [swatch(nil, String(localized: "Default"))] + DocColors.palette.map { swatch($0.token, $0.title) },
                             well: .init(title: String(localized: "Other Text Color"), selected: customColor.map { UIColor(DocColors.swatch($0)) }) { pickColor(Color(uiColor: $0)) })
     }
 
@@ -204,7 +214,7 @@ struct DocTextFormat {
         let color = color, highlight = highlight, pen = pen
         let colors = UIMenu(title: String(localized: "Text Color"), image: UIImage(systemName: "paintpalette"), children: [
             UIAction(title: String(localized: "Default"), state: state(color == nil)) { _ in setColor(nil) },
-        ] + DocColors.texts.map { item in
+        ] + DocColors.palette.map { item in
             UIAction(title: item.title, image: DocColors.dot(item.token), state: state(color == .color(item.token))) { _ in setColor(item.token) }
         })
         let highlights = UIMenu(title: String(localized: "Highlight Color"), image: UIImage(systemName: "highlighter"), children: [

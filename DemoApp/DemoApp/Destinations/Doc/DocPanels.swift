@@ -3,7 +3,8 @@
 //  DemoApp
 //
 //  The document's panels, on floo-uikit's floating panel: beside what opened them on a
-//  large screen and the Mac, the system's sheet on a small one.
+//  large screen and the Mac, self-drawn at the window's foot on a small one, what's behind
+//  them staying usable.
 //
 
 import FlooUIKit
@@ -25,7 +26,30 @@ extension View {
             edge: edge,
             alignment: alignment,
             keepsOpen: keepsOpen,
+            selfDrawn: true,
             content: content
+        )
+    }
+
+    /// A page in UIKit (DocCollectionPages) in a panel beside this view while `isPresented`.
+    /// `update`: as this view updates, for the page to follow what it reads. A touch outside
+    /// closes it and goes no further.
+    func docPanel(
+        isPresented: Bool,
+        edge: FlooFloatingEdge = .below,
+        alignment: FlooFloatingAlignment = .leading,
+        onDismiss: @escaping () -> Void,
+        page: @escaping @MainActor () -> UIViewController,
+        update: @escaping @MainActor (UIViewController) -> Void = { _ in }
+    ) -> some View {
+        flooFloating(
+            isPresented: Binding(get: { isPresented }, set: { if !$0 { onDismiss() } }),
+            edge: edge,
+            alignment: alignment,
+            isModal: true,
+            selfDrawn: true,
+            page: page,
+            update: update
         )
     }
 
@@ -41,11 +65,10 @@ extension View {
     }
 }
 
-/// A panel's content, its margins from the panel's edges; in a sheet the sheet has them.
+/// A panel's content, its margins from the panel's edges.
 struct DocPanelSurface<Content: View>: View {
     private let contentInset: EdgeInsets
     private let content: Content
-    @Environment(\.flooPanelPresentation) private var presentation
 
     init(contentInset: EdgeInsets = EdgeInsets(top: DocTokens.Space.md, leading: DocTokens.Space.sm,
                                                bottom: DocTokens.Space.md, trailing: DocTokens.Space.sm),
@@ -55,11 +78,7 @@ struct DocPanelSurface<Content: View>: View {
     }
 
     var body: some View {
-        if presentation == .sheet {
-            content
-        } else {
-            content.padding(contentInset)
-        }
+        content.padding(contentInset)
     }
 }
 
@@ -88,7 +107,7 @@ extension View {
                       staysBeside: Bool = false, keepsOpen: (@MainActor (CGPoint) -> Bool)? = nil, onDismiss: @escaping () -> Void,
                       sections: @escaping @MainActor (FlooPanelPresentation) -> [FlooMenuSection]) -> some View {
         flooMenuPanel(isPresented: Binding(get: { isPresented }, set: { if !$0 { onDismiss() } }), title: title, edge: edge, alignment: alignment,
-                      staysBeside: staysBeside, keepsOpen: keepsOpen, sections: sections)
+                      staysBeside: staysBeside, keepsOpen: keepsOpen, selfDrawn: true, sections: sections)
     }
 }
 
@@ -113,6 +132,11 @@ extension FlooMenuItem {
     /// A colour setting: its title, the colour it has, its palette a level in.
     static func docColor(_ title: String, picked: Color?, isEnabled: Bool = true, _ sections: [FlooMenuSection]) -> FlooMenuItem {
         .submenu(title, image: picked.map(DocColorDot.image), isEnabled: isEnabled, sections)
+    }
+
+    /// An option in the system's menu: its name, its colour's dot.
+    static func docOption(_ name: String, color: Color, isOn: Bool, keepsOpen: Bool, action: @escaping @MainActor () -> Void) -> FlooMenuItem {
+        .action(name, image: DocColorDot.image(color), isOn: isOn, keepsOpen: keepsOpen, handler: action)
     }
 
     /// Keys side by side, symbols alone, each on or off by what it acts on. `title` is only said.

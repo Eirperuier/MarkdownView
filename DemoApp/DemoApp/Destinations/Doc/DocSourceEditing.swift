@@ -147,6 +147,16 @@ final class DocSourceController {
         view.show(text(editing))
     }
 
+    /// The document was started over. An editor can be ahead of its row (what's typed shows
+    /// before the row does), and a row that comes out the same brings it nothing.
+    func showModel() {
+        for (block, list) in views {
+            guard demo.doc.block(block) != nil else { continue }
+            let model = text(block)
+            for view in list.compactMap(\.view) where view.text != model { view.show(model) }
+        }
+    }
+
     /// The panel's 完成, or a touch outside it: the source closes.
     func dismiss(_ block: DocBlockID) {
         view(for: block)?.resignFirstResponder()
@@ -1024,15 +1034,14 @@ struct DocMathPanel: View {
             DocSourceField(block: block, text: text, controller: controller, font: Self.latexFont,
                            insets: UIEdgeInsets(top: Tokens.Space.sm, left: Tokens.Space.sm, bottom: Tokens.Space.sm, right: Tokens.Space.sm))
                 .background(Tokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+            // Keys sharing the row's width: a titled button's least width and padding would run
+            // past the panel with this many.
             HStack(spacing: Tokens.Space.sm) {
                 ForEach(DocMathKey.keys) { key in
                     Button { controller.insert(key.snippet, caret: key.caret, in: block) } label: {
-                        Text(verbatim: key.title)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity)
+                        keyLabel(Text(verbatim: key.title).lineLimit(1).minimumScaleFactor(0.7))
                     }
-                    .buttonStyle(.floo(.tertiary))
+                    .buttonStyle(keyStyle)
                     .accessibilityLabel(key.name)
                 }
                 Menu {
@@ -1044,14 +1053,25 @@ struct DocMathPanel: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .frame(maxWidth: .infinity)
+                    keyLabel(Image(systemName: "ellipsis"))
                 }
                 .menuStyle(.button)
-                .buttonStyle(.floo(.tertiary))
+                .buttonStyle(keyStyle)
                 .accessibilityLabel("More Symbols")
             }
         }
+    }
+
+    private static let keyMetrics = FlooButtonMetrics.of(.medium)
+
+    private var keyStyle: FlooContentButtonStyle<RoundedRectangle> {
+        .flooContent(in: RoundedRectangle(cornerRadius: Self.keyMetrics.cornerRadius, style: .continuous), surface: .control)
+    }
+
+    private func keyLabel(_ content: some View) -> some View {
+        content
+            .font(.system(size: Self.keyMetrics.fontSize, weight: .medium))
+            .frame(maxWidth: .infinity, minHeight: Self.keyMetrics.height)
     }
 }
 

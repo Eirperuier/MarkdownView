@@ -315,7 +315,7 @@ extension DocColors {
 
     /// A fill's name: its hue's, and its strength.
     static func fillTitle(_ token: String) -> String {
-        guard let fill = CellStyle.parseFill(token), let hue = (palette + texts + highlights).first(where: { $0.token == fill.color }) else {
+        guard let fill = CellStyle.parseFill(token), let hue = (palette + highlights).first(where: { $0.token == fill.color }) else {
             return String(localized: "Custom")
         }
         return fill.strength <= 1 ? hue.title : "\(hue.title) \(fill.strength)"

@@ -102,9 +102,8 @@ struct DocRecordFields: View {
                     .buttonStyle(.plain)
                     .docPanel(isPresented: controller.isShowing(.addField, in: link.block),
                                              alignment: .leading,
-                                             onDismiss: { controller.close(.addField, in: link.block) }) {
-                        DocFieldPanel(snapshot: snapshot, column: nil, controller: controller)
-                    }
+                                             onDismiss: { controller.close(.addField, in: link.block) },
+                                             page: { DocFieldPage(column: nil, block: link.block, controller: controller).inNavigation() })
                 }
             }
             FlooDividerLine()

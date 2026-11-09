@@ -264,35 +264,3 @@ struct DocPageSheet: View {
     }
 }
 
-/// A page's title in the navigation bar (Craft's): its title, and under it the pages it's
-/// in, each a step back out to it.
-struct DocPageTitle: View {
-    let page: DocOpenPage
-    let pages: DocPages
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(page.title)
-                .font(DocTokens.Typography.body.font.weight(.semibold))
-            let ancestors = page.ancestors
-            if !ancestors.isEmpty {
-                HStack(spacing: DocTokens.Space.xxs) {
-                    ForEach(Array(ancestors.enumerated()), id: \.element.id) { index, ancestor in
-                        if index > 0 {
-                            Image(systemName: "chevron.right")
-                                .imageScale(.small)
-                        }
-                        Button(ancestor.title) { pages.back(to: index) }
-                            .buttonStyle(.plain)
-                    }
-                }
-                .font(DocTokens.Typography.metadata.font)
-                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
-            }
-        }
-        .lineLimit(1)
-        // As wide as its words: the bar's leading place would squeeze it to a letter.
-        .fixedSize(horizontal: true, vertical: false)
-        .accessibilityElement(children: .contain)
-    }
-}

@@ -33,8 +33,9 @@ struct DocCollectionSnapshot: Equatable {
 /// The collection panel open, and the block it's for.
 struct DocCollectionPanel: Hashable {
     enum Kind: Hashable {
-        case layout, sort, filter, group
-        /// A chart view's settings: what it measures, how it looks.
+        /// A view's settings (DocSelectedView).
+        case view
+        /// A chart view's settings: what it measures, how it looks. A page of the view's panel.
         case chart
         case createKanban
         case createChart
@@ -77,6 +78,8 @@ final class DocCollectionController {
     /// The table rows picked in each block.
     var selectedRows: [DocBlockID: Set<RowID>] = [:]
     var panel: DocCollectionPanel?
+    /// `view`'s, in floo's self-drawn panel.
+    @ObservationIgnored private(set) var viewPanel: DocSettingsPanel?
     /// Opens a record as a page (the window's pages; DocRecordPage).
     @ObservationIgnored var openRecord: ((RowID, DocBlockID) -> Void)?
     /// Whether a record's page has something written in it (its title cell shows a page).
@@ -93,12 +96,66 @@ final class DocCollectionController {
 
     // MARK: Panels
 
+    /// The view's panel opening for its chart's settings.
+    @ObservationIgnored private var opensChartPage = false
+
     func isShowing(_ kind: DocCollectionPanel.Kind, in block: DocBlockID) -> Bool {
         panel == DocCollectionPanel(block: block, kind: kind)
     }
 
     func show(_ kind: DocCollectionPanel.Kind, in block: DocBlockID) {
+        // A chart's settings: the pages of its view's panel.
+        if kind == .chart {
+            opensChartPage = true
+            if viewPanel != nil { openChartPage() } else { panel = DocCollectionPanel(block: block, kind: .view) }
+            return
+        }
         panel = DocCollectionPanel(block: block, kind: kind)
+    }
+
+    private func openChartPage() {
+        guard opensChartPage else { return }
+        opensChartPage = false
+        viewPanel?.openInner(.chartData)
+    }
+
+    /// `more`: what a view's More has, the header's as it holds renaming.
+    func openViewPanel(_ block: DocBlockID, more: @escaping @MainActor () -> [FlooMenuSection]) {
+        guard viewPanel == nil, let presenter = editor.blocks.presenter else { return }
+        // It stands in the window, under a keyboard.
+        editor.dismissKeyboard()
+        let panel = DocSettingsPanel { [unowned self] in DocSelectedView(controller: self, block: block, more: more).pages }
+        viewPanel = panel
+        panel.open(from: presenter, at: editor.blocks.selectionPanel.placement(in: presenter), page: .view, theme: editor.blocks.selectionPanel.theme) { [weak self] in
+            self?.viewPanel = nil
+            self?.close(.view, in: block)
+        }
+        openChartPage()
+    }
+
+    /// What a view's rows are drawn from, for one that's not on screen with it.
+    func collectionSnapshot(_ block: DocBlockID) -> DocCollectionSnapshot? {
+        guard let (collection, database) = snapshot(block) else { return nil }
+        return DocCollectionSnapshot(block: block, collection: collection, database: database)
+    }
+
+    func closeViewPanel() {
+        viewPanel?.close()
+        viewPanel = nil
+    }
+
+    /// A large screen's and the Mac's: the same pages, beside the button, which closes them.
+    func viewPanelPages(_ block: DocBlockID, more: @escaping @MainActor () -> [FlooMenuSection]) -> UIViewController {
+        editor.dismissKeyboard()
+        let panel = DocSettingsPanel { [unowned self] in DocSelectedView(controller: self, block: block, more: more).pages }
+        viewPanel = panel
+        let pages = panel.pagesController(opening: .view) ?? UIViewController()
+        openChartPage()
+        return pages
+    }
+
+    func viewPanelClosed() {
+        viewPanel = nil
     }
 
     /// Closes the panel if it's still this one (another may have opened as it went).
@@ -108,7 +165,7 @@ final class DocCollectionController {
 
     // MARK: Committing
 
-    private func snapshot(_ block: DocBlockID) -> (collection: DocCollection, database: Database)? {
+    func snapshot(_ block: DocBlockID) -> (collection: DocCollection, database: Database)? {
         guard case .collection(let collection)? = demo.doc.block(block)?.kind,
               let database = demo.doc.databases[collection.database] else { return nil }
         return (collection, database)
@@ -723,8 +780,6 @@ enum DocCollectionMetrics {
     static let tabHeight: CGFloat = 26
     static let headerGap = DocTokens.Space.sm
     static let corner = DocTokens.Radius.sm
-    static let toolbarHeight: CGFloat = 28
-    static let toolbarButton: CGFloat = 30
     static let searchWidth: CGFloat = 180
     // Table
     static let rowHeight: CGFloat = 36
@@ -749,13 +804,8 @@ enum DocCollectionMetrics {
     static let cardCorner: CGFloat = 8
     /// The arrow that opens a record (a card's, a title cell's).
     static let openButton: CGFloat = 24
-    static let chipHeight: CGFloat = 21
     static let addHeight: CGFloat = 32
     // Panels
-    static let panelWidth: CGFloat = 290
-    static let wideFieldsPanel: CGFloat = 340
-    static let fieldHeight: CGFloat = 30
-    static let swatch: CGFloat = 26
 }
 
 private typealias Metrics = DocCollectionMetrics
@@ -779,25 +829,15 @@ enum DocOptionColor {
     }
 }
 
-/// A field's value as a chip: a select's option in its colour, softened toward the text's
-/// on a faint wash of it (no outline); the rest quiet.
+/// A field's value as a chip: floo's badge, a select's option in its colour on a wash of it; the
+/// rest quiet.
 struct DocChip: View {
     let text: String
     var color: Color?
     var systemImage: String?
 
     var body: some View {
-        HStack(spacing: DocTokens.Space.xs) {
-            if let systemImage { Image(systemName: systemImage).font(.system(size: DocTokens.Icon.inline, weight: .semibold)) }
-            Text(text).lineLimit(1)
-        }
-        .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(color.map { $0.mix(with: DocTokens.ColorRole.Content.primary, by: 0.2) }
-                         ?? DocTokens.ColorRole.Content.secondary)
-        .padding(.horizontal, 7)
-        .frame(height: Metrics.chipHeight)
-        .background(color.map { $0.opacity(DocTokens.State.selectedOpacity) } ?? DocTokens.ColorRole.Surface.control,
-                    in: RoundedRectangle(cornerRadius: DocTokens.Radius.xs + 1, style: .continuous))
+        FlooBadgeView(text, symbol: systemImage, style: .tinted.tone(color.map { .color(UIColor($0)) } ?? .neutral))
     }
 
     /// An option's chip, in its colour.
@@ -1030,7 +1070,9 @@ private struct DocCollectionHeader: View {
     @State private var renaming: CollectionViewID?
     @State private var viewName = ""
     @State private var searching = false
-    @State private var showsViewMenu = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// The tab its view's settings opened from; none, the toolbar's button.
+    @State private var viewPanelTab: CollectionViewID?
     @FocusState private var searchFocused: Bool
     @FocusState private var nameFocused: Bool
     @FocusState private var viewNameFocused: Bool
@@ -1069,9 +1111,9 @@ private struct DocCollectionHeader: View {
     private var toolbar: some View {
         HStack(spacing: DocTokens.Space.sm) {
             search
-            HStack(spacing: 0) {
+            HStack(spacing: DocTokens.Space.xs) {
                 if controller.isEditable {
-                    toolbarButton("plus.circle.fill", String(localized: "New Item")) {
+                    toolbarButton("plus", String(localized: "New Item")) {
                         let row = controller.addRecord(to: block, in: kanbanGroup)
                         // A chart doesn't show a record with nothing in it: it opens to be filled in.
                         if current?.layout.chart != nil, let row { controller.openRecord?(row, block) }
@@ -1079,50 +1121,16 @@ private struct DocCollectionHeader: View {
                 }
                 viewMenu
             }
-            .padding(.horizontal, DocTokens.Space.xxs)
-            .background(toolbarBox)
         }
         .opacity(showsToolbar ? 1 : 0)
         .allowsHitTesting(showsToolbar)
-        // The view's panels open under the toolbar, at its right.
-        .docPanel(isPresented: toolbarPanel != nil, alignment: .trailing,
-                                 onDismiss: { if let toolbarPanel { controller.close(toolbarPanel, in: block) } }) {
-            if let current {
-                switch toolbarPanel {
-                case .layout?: DocLayoutPanel(snapshot: snapshot, view: current, controller: controller)
-                case .sort?: DocSortPanel(snapshot: snapshot, view: current, controller: controller)
-                case .filter?: DocFilterPanel(snapshot: snapshot, view: current, controller: controller)
-                case .group?: DocGroupPanel(snapshot: snapshot, view: current, controller: controller)
-                case .chart?: DocChartPanel(snapshot: snapshot, view: current, controller: controller)
-                default: EmptyView()
-                }
-            }
-        }
     }
 
-    private var toolbarPanel: DocCollectionPanel.Kind? {
-        guard let panel = controller.panel, panel.block == block else { return nil }
-        switch panel.kind {
-        case .layout, .sort, .filter, .group, .chart: return panel.kind
-        default: return nil
-        }
-    }
-
-    private var toolbarBox: some View {
-        RoundedRectangle(cornerRadius: DocTokens.Radius.md, style: .continuous)
-            .strokeBorder(DocTokens.Border.subtle, lineWidth: DocTokens.Border.standard)
-    }
-
+    /// floo's small icon button, as the collection's other buttons are.
     private func toolbarButton(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: DocTokens.Icon.standard))
-                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
-                .frame(width: Metrics.toolbarButton, height: Metrics.toolbarHeight)
-        }
-        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
-        .help(title)
-        .accessibilityLabel(title)
+        Button(title, systemImage: symbol, action: action)
+            .buttonStyle(.floo(.tertiary.size(.small), iconOnly: true))
+            .help(title)
     }
 
     /// The magnifier, or the search field it opens (Escape or ✕ closes it and shows all again).
@@ -1130,16 +1138,12 @@ private struct DocCollectionHeader: View {
     private var search: some View {
         if searching {
             HStack(spacing: DocTokens.Space.xs) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: DocTokens.Icon.compact))
-                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                 TextField(String(localized: "Search"), text: Binding {
                     controller.searches[block] ?? ""
                 } set: {
                     controller.searches[block] = $0
                 })
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .textFieldStyle(FlooTextFieldStyle(size: .small))
                 .focused($searchFocused)
                 .docEditingPlace(DocFieldPlace(field: [block, "search"] as [AnyHashable], block: block), isFocused: searchFocused,
                                  editor: controller.editor)
@@ -1147,24 +1151,14 @@ private struct DocCollectionHeader: View {
                     endSearch()
                     return .handled
                 }
-                Button(action: endSearch) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: DocTokens.Icon.compact))
-                        .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(String(localized: "Close Search"))
+                .frame(width: Metrics.searchWidth)
+                toolbarButton("xmark", String(localized: "Close Search"), action: endSearch)
             }
-            .padding(.horizontal, DocTokens.Space.sm)
-            .frame(width: Metrics.searchWidth, height: Metrics.toolbarHeight)
-            .background(toolbarBox)
         } else {
             toolbarButton("magnifyingglass", String(localized: "Search")) {
                 searching = true
                 Task { @MainActor in searchFocused = true }
             }
-            .padding(.horizontal, DocTokens.Space.xxs)
-            .background(toolbarBox)
         }
     }
 
@@ -1173,49 +1167,49 @@ private struct DocCollectionHeader: View {
         searching = false
     }
 
+    /// A small screen's at the window's foot, the text left in view; else beside the button.
+    private var viewPanelIsBeside: Bool { DocDevice.isMac || sizeClass != .compact }
+
     private var viewMenu: some View {
-        Button {
-            showsViewMenu.toggle()
-        } label: {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: DocTokens.Icon.standard))
-                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
-                .frame(width: Metrics.toolbarButton, height: Metrics.toolbarHeight)
+        toolbarButton("slider.horizontal.3", String(localized: "View Options")) {
+            if controller.isShowing(.view, in: block) {
+                controller.close(.view, in: block)
+            } else {
+                viewPanelTab = nil
+                controller.show(.view, in: block)
+            }
         }
-        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
-        .help(String(localized: "View Options"))
-        .accessibilityLabel(String(localized: "View Options"))
-        .docMenuPanel(isPresented: showsViewMenu, alignment: .trailing,
-                              onDismiss: { showsViewMenu = false }) { _ in
-            current.map { viewSections($0, full: true) } ?? []
+        .docPanel(isPresented: viewPanelIsBeside && viewPanelTab == nil && controller.isShowing(.view, in: block), alignment: .trailing,
+                  onDismiss: { controller.close(.view, in: block) },
+                  page: { controller.viewPanelPages(block, more: viewPageMore) })
+        .onChange(of: controller.isShowing(.view, in: block), initial: true) { _, shows in
+            if viewPanelIsBeside {
+                if !shows {
+                    controller.viewPanelClosed()
+                    viewPanelTab = nil
+                }
+            } else if shows {
+                controller.openViewPanel(block, more: viewPageMore)
+            } else {
+                controller.closeViewPanel()
+            }
         }
     }
 
-    /// A view's menu: its panels, then renaming, copying and deleting it; the toolbar's
-    /// also downloads it.
-    private func viewSections(_ view: CollectionView, full: Bool) -> [FlooMenuSection] {
-        // Ticked when the view groups (Craft's).
-        // A chart's groups are its axis; its order is theirs, so it has no sorting.
-        let isChart = view.layout.chart != nil
-        let panels: [FlooMenuItem] = [
-            .action(String(localized: "Filter"), symbol: "line.3.horizontal.decrease") { open(.filter, for: view) },
-        ] + (isChart ? [] : [
-            .action(String(localized: "Sort"), symbol: "arrow.up.arrow.down") { open(.sort, for: view) },
-        ]) + [
-            isChart
-                ? .action(String(localized: "X Axis"), symbol: "chart.bar.xaxis") { open(.group, for: view) }
-                : .action(String(localized: "Group"), symbol: "rectangle.3.group", isOn: view.layout.groupBy != nil) { open(.group, for: view) },
-        ]
-        var sections: [FlooMenuSection] = [
-            .init([.action(String(localized: "Layout & Visibility"), symbol: "tablecells") { open(.layout, for: view) }]
-                  + (isChart ? [.action(String(localized: "Chart"), symbol: "slider.horizontal.3") { open(.chart, for: view) }] : [])),
-            .init(panels),
-        ]
+    /// The page's More.
+    private func viewPageMore() -> [FlooMenuSection] {
+        current.map { manageSections($0, full: true) } ?? []
+    }
+
+    /// Renaming, copying and deleting a view; the page's also downloads it.
+    private func manageSections(_ view: CollectionView, full: Bool) -> [FlooMenuSection] {
+        var sections: [FlooMenuSection] = []
         if controller.isEditable {
             sections.append(.init([
                 .action(String(localized: "Rename View"), symbol: "character.cursor.ibeam") {
                     viewName = view.name
                     renaming = view.id
+                    controller.close(.view, in: block)
                 },
                 .action(String(localized: "Duplicate View"), symbol: "plus.square.on.square") { controller.duplicate(view.id, in: block) },
                 .action(String(localized: "Delete View"), symbol: "trash", role: .destructive, isEnabled: collection.views.count > 1) {
@@ -1233,10 +1227,11 @@ private struct DocCollectionHeader: View {
         return sections
     }
 
-    /// A view's panel, the view showing first.
-    private func open(_ kind: DocCollectionPanel.Kind, for view: CollectionView) {
+    /// A tab's right-click or long press: its view showing, its settings beside the tab.
+    private func openSettings(of view: CollectionView) {
         if view.id != current?.id { controller.show(view.id, in: block) }
-        controller.show(kind, in: block)
+        viewPanelTab = view.id
+        controller.show(.view, in: block)
     }
 
     /// A new card from the toolbar goes to the first column of a kanban.
@@ -1262,39 +1257,31 @@ private struct DocCollectionHeader: View {
     }
 
     private var addView: some View {
-        Menu {
-            Button(String(localized: "Add Table View"), systemImage: "tablecells") {
-                let view = controller.addView(to: block, name: String(localized: "New Table"), layout: .table(hidden: [], sort: []))
-                controller.show(.nameView(view), in: block)
-            }
-            Button(String(localized: "Add Kanban View"), systemImage: "rectangle.split.3x1") {
-                controller.show(.createKanban, in: block)
-            }
-            .disabled(DocCollectionController.groupable(in: snapshot.database).isEmpty)
-            Button(String(localized: "Add Chart View"), systemImage: "chart.bar.xaxis") {
-                controller.show(.createChart, in: block)
-            }
-        } label: {
+        FlooLabeledMenu(sections: {
+            [.init([
+                .action(String(localized: "Add Table View"), symbol: "tablecells") {
+                    let view = controller.addView(to: block, name: String(localized: "New Table"), layout: .table(hidden: [], sort: []))
+                    controller.show(.nameView(view), in: block)
+                },
+                .action(String(localized: "Add Kanban View"), symbol: "rectangle.split.3x1", isEnabled: !DocCollectionController.groupable(in: snapshot.database).isEmpty) {
+                    controller.show(.createKanban, in: block)
+                },
+                .action(String(localized: "Add Chart View"), symbol: "chart.bar.xaxis") {
+                    controller.show(.createChart, in: block)
+                },
+            ])]
+        }) {
             Image(systemName: "plus")
                 .font(.system(size: DocTokens.Icon.compact, weight: .semibold))
                 .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                 .frame(width: Metrics.tabHeight, height: Metrics.tabHeight)
         }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
         .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
         .accessibilityLabel(String(localized: "Add View"))
-        .docPanel(isPresented: controller.isShowing(.createKanban, in: block) || controller.isShowing(.createChart, in: block),
-                                 onDismiss: {
-                                     controller.close(.createKanban, in: block)
-                                     controller.close(.createChart, in: block)
-                                 }) {
-            if controller.isShowing(.createChart, in: block) {
-                DocCreateChartPanel(snapshot: snapshot, controller: controller)
-            } else {
-                DocCreateKanbanPanel(snapshot: snapshot, controller: controller)
-            }
-        }
+        .docPanel(isPresented: controller.isShowing(.createKanban, in: block), onDismiss: { controller.close(.createKanban, in: block) },
+                  page: { DocCreateKanbanPage(snapshot: snapshot, controller: controller).inNavigation() })
+        .docPanel(isPresented: controller.isShowing(.createChart, in: block), onDismiss: { controller.close(.createChart, in: block) },
+                  page: { DocCreateChartPage(snapshot: snapshot, controller: controller).inNavigation() })
     }
 
     @ViewBuilder
@@ -1309,10 +1296,10 @@ private struct DocCollectionHeader: View {
                 .frame(height: Metrics.tabHeight)
                 .background(DocTokens.ColorRole.Surface.selected, in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
                 .focused($viewNameFocused)
-                // The view's name: its menu is its tab's right-click rows.
+                // The view's name: its menu is what's done to the view.
                 .docEditingPlace(DocFieldPlace(field: [block, view.id] as [AnyHashable], block: block,
                                                menu: DocPlaceMenu(title: String(localized: "View Actions"), symbol: "ellipsis.circle",
-                                                                  opens: .rows { viewSections(view, full: false) })),
+                                                                  opens: .rows { manageSections(view, full: false) })),
                                  isFocused: viewNameFocused, editor: controller.editor)
                 .onSubmit {
                     controller.rename(view.id, in: block, to: viewName)
@@ -1335,12 +1322,49 @@ private struct DocCollectionHeader: View {
                                 in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
             }
             .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
-            .flooContextMenu { viewSections(view, full: false) }
+            .gesture(DocTabSettingsGesture { openSettings(of: view) })
+            .docPanel(isPresented: viewPanelIsBeside && viewPanelTab == view.id && controller.isShowing(.view, in: block),
+                      onDismiss: { controller.close(.view, in: block) },
+                      page: { controller.viewPanelPages(block, more: viewPageMore) })
             .docPanel(isPresented: controller.isShowing(.nameView(view.id), in: block),
-                                     onDismiss: { controller.close(.nameView(view.id), in: block) }) {
-                DocNameViewPanel(block: block, view: view, controller: controller)
-            }
+                      onDismiss: { controller.close(.nameView(view.id), in: block) },
+                      page: { DocNameViewPage(block: block, view: view, controller: controller).inNavigation() })
         }
+    }
+}
+
+/// A long press a view in a block keeps for itself: while one is under the finger, the
+/// document doesn't lift the block from there (`DocBlockController.pickUp`).
+final class DocOwnPress: UILongPressGestureRecognizer {
+    private(set) static var isUnderFinger = false
+
+    /// The lift's own press and the button's would end it otherwise.
+    override func canBePrevented(by preventing: UIGestureRecognizer) -> Bool { false }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        Self.isUnderFinger = true
+    }
+
+    override func reset() {
+        super.reset()
+        Self.isUnderFinger = false
+    }
+}
+
+/// What opens a tab's view's settings: a right-click on the Mac, a long press by touch.
+private struct DocTabSettingsGesture: UIGestureRecognizerRepresentable {
+    let action: @MainActor () -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UIGestureRecognizer {
+        guard DocDevice.isMac else { return DocOwnPress() }
+        let press = UITapGestureRecognizer()
+        press.buttonMaskRequired = .secondary
+        return press
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIGestureRecognizer, context: Context) {
+        if recognizer is UILongPressGestureRecognizer ? recognizer.state == .began : recognizer.state == .ended { action() }
     }
 }
 

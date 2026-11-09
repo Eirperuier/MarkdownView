@@ -55,8 +55,18 @@ enum DocDemoCorpus {
         "blob:demo-budget": (18_944, .small),
     ]
 
-    /// The sample document, its links and files filled in.
-    static func doc(id: DocID) -> Doc {
+    /// The sample document, its links and files filled in. Starting a document over gets the
+    /// same blocks back, so the rows nothing edited stay as they are.
+    @MainActor static func doc(id: DocID) -> Doc {
+        if let made = made[id] { return made }
+        let doc = make(id: id)
+        made[id] = doc
+        return doc
+    }
+
+    @MainActor private static var made: [DocID: Doc] = [:]
+
+    private static func make(id: DocID) -> Doc {
         var doc = Doc(id: id, markdown: document)
         for index in doc.blocks.indices {
             switch doc.blocks[index].kind {

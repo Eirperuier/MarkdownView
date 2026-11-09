@@ -29,6 +29,7 @@ struct ContentView: View {
                 }
             }
             .listStyle(.sidebar)
+            .tint(Self.sidebarTint)
         } detail: {
             if let selection {
                 selection.destination
@@ -42,6 +43,15 @@ struct ContentView: View {
         .navigationSplitViewStyle(.balanced)
         .environment(inspector)
     }
+
+    /// The sidebar's selection: the system writes its names white on the tint, so where the app's
+    /// accent is light (white, in dark) it's grey instead, as the system's graphite.
+    private static let sidebarTint = Color(uiColor: UIColor { traits in
+        let accent = UIColor(named: "AccentColor")?.resolvedColor(with: traits) ?? .systemBlue
+        var white: CGFloat = 0
+        accent.getWhite(&white, alpha: nil)
+        return white > 0.6 ? UIColor.systemGray.resolvedColor(with: traits) : accent
+    })
 }
 
 /// What the window's inspector shows, as the destination that opened it asks.

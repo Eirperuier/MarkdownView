@@ -47,6 +47,8 @@ struct DocCollectionKanban: View {
                 }
             }
         }
+        // Scrolls out to the page's edges, as a plain table does (MarkdownTable).
+        .scrollClipDisabled()
     }
 
     /// A card ("row key", the column it left) dropped in `lane`.
@@ -71,9 +73,8 @@ struct DocCollectionKanban: View {
         .help(String(localized: "Add New Group"))
         .accessibilityLabel(String(localized: "Add New Group"))
         .docPanel(isPresented: controller.isShowing(.addOption(group), in: block),
-                                 onDismiss: { controller.close(.addOption(group), in: block) }) {
-            DocOptionPanel(snapshot: snapshot, column: group, option: nil, controller: controller)
-        }
+                  onDismiss: { controller.close(.addOption(group), in: block) },
+                  page: { DocOptionPage(snapshot: snapshot, column: group, option: nil, controller: controller).inNavigation() })
     }
 }
 
@@ -151,7 +152,7 @@ private struct DocKanbanLane: View {
                 controller.addRecord(to: block, in: (column.id, group.value))
             }]),
             .init([
-                .action(String(localized: "Edit Grouping"), symbol: "rectangle.3.group") { controller.show(.group, in: block) },
+                .action(String(localized: "Edit Grouping"), symbol: "rectangle.3.group") { controller.show(.view, in: block) },
                 .action(String(localized: "Hide Group"), symbol: "eye.slash") { controller.hide(group: group.key, in: view.id, of: block) },
             ]),
         ]
@@ -185,26 +186,23 @@ private struct DocKanbanLane: View {
         HStack(spacing: DocTokens.Space.sm) {
             DocGroupLabel(column: column, group: group)
                 .docPanel(isPresented: option.map { controller.isShowing(.editOption($0.id), in: block) } ?? false,
-                                         onDismiss: { if let option { controller.close(.editOption(option.id), in: block) } }) {
-                    if let option {
-                        DocOptionPanel(snapshot: snapshot, column: column.id, option: option, controller: controller)
-                    }
-                }
+                          onDismiss: { if let option { controller.close(.editOption(option.id), in: block) } },
+                          page: { DocOptionPage(snapshot: snapshot, column: column.id, option: option, controller: controller).inNavigation() })
             Text("\(group.rows.count)")
                 .font(.system(size: 14))
                 .foregroundStyle(DocTokens.ColorRole.Content.secondary)
             Spacer(minLength: 0)
             if let option {
-                Menu {
-                    Button(String(localized: "Edit Group"), systemImage: "pencil") { controller.show(.editOption(option.id), in: block) }
-                    Button(String(localized: "Delete Group"), systemImage: "trash", role: .destructive) {
-                        controller.deleteOption(option.id, in: column.id, of: block)
-                    }
-                } label: {
+                FlooLabeledMenu(sections: {
+                    [.init([
+                        .action(String(localized: "Edit Group"), symbol: "pencil") { controller.show(.editOption(option.id), in: block) },
+                        .action(String(localized: "Delete Group"), symbol: "trash", role: .destructive) {
+                            controller.deleteOption(option.id, in: column.id, of: block)
+                        },
+                    ])]
+                }) {
                     headIcon("ellipsis")
                 }
-                .menuStyle(.button)
-                .menuIndicator(.hidden)
                 .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: DocTokens.Radius.xs, style: .continuous)))
                 .opacity(showsActions ? 1 : 0)
                 .allowsHitTesting(showsActions)
@@ -304,9 +302,13 @@ private struct DocKanbanCard: View {
         .onHover { hovering = $0 }
         .flooContextMenu(isEnabled: controller.isEditable) { place.menu?.rows?() ?? [] }
         .docPanel(isPresented: fieldPanel != nil,
-                                 onDismiss: { if let fieldPanel { controller.close(fieldPanel, in: block) } }) {
-            fieldPanelContent
-        }
+                  onDismiss: { if let fieldPanel { controller.close(fieldPanel, in: block) } },
+                  page: { fieldPanelPage },
+                  update: { page in
+            guard let options = page as? DocOptionsPage, case .options(_, let id)? = fieldPanel,
+                  let column = snapshot.database.columns.first(where: { $0.id == id }) else { return }
+            options.update(row: row, column: column)
+        })
         .onAppear {
             title = titleColumn.map { DocFieldText.text(row.cells[$0.id], in: $0) } ?? ""
             if controller.editingTitle == row.id { startEditing() }
@@ -384,21 +386,21 @@ private struct DocKanbanCard: View {
         }
     }
 
-    @ViewBuilder
-    private var fieldPanelContent: some View {
+    private var fieldPanelPage: UIViewController {
         let field = { (id: ColumnID) in snapshot.database.columns.first { $0.id == id } }
         switch fieldPanel {
         case .options(_, let id)?:
-            if let column = field(id) { DocOptionsPanel(snapshot: snapshot, row: row, column: column, controller: controller) }
+            if let column = field(id) { return DocOptionsPage(row: row, column: column, block: block, controller: controller) }
         case .date(_, let id)?:
-            if let column = field(id) { DocDatePanel(row: row, column: column, block: block, controller: controller) }
+            if let column = field(id) { return DocDatePage(row: row, column: column, block: block, controller: controller) }
         case .property(_, let id)?:
-            if let column = field(id) { DocPropertyPanel(snapshot: snapshot, row: row, column: column, controller: controller) }
+            if let column = field(id) { return DocPropertyPage(row: row, column: column, block: block, controller: controller) }
         case .cardField?:
-            DocFieldPanel(snapshot: snapshot, column: nil, controller: controller, panel: .cardField(row.id))
+            return DocFieldPage(column: nil, block: block, controller: controller, panel: .cardField(row.id)).inNavigation()
         default:
-            EmptyView()
+            break
         }
+        return UIViewController()
     }
 
     private func startEditing() {

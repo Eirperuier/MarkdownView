@@ -13,14 +13,12 @@ enum DocColors {
     static let palette: [(token: String, title: String)] = [
         ("gray", String(localized: "Gray")), ("slate", String(localized: "Slate")), ("purple", String(localized: "Purple")), ("blue", String(localized: "Blue")), ("cyan", String(localized: "Cyan")),
         ("mint", String(localized: "Mint")), ("green", String(localized: "Green")), ("lemon", String(localized: "Lemon")), ("yellow", String(localized: "Yellow")), ("red", String(localized: "Red")),
+        ("orange", String(localized: "Orange")), ("brown", String(localized: "Brown")),
     ]
 
-    /// The selection toolbar's highlights and text colours, in Craft's order.
+    /// The highlights, in Craft's order.
     static let highlights: [(token: String, title: String)] = [
         ("yellow", String(localized: "Yellow")), ("green", String(localized: "Green")), ("mint", String(localized: "Mint")), ("blue", String(localized: "Blue")), ("purple", String(localized: "Purple")), ("red", String(localized: "Red")), ("orange", String(localized: "Orange")),
-    ]
-    static let texts: [(token: String, title: String)] = [
-        ("blue", String(localized: "Blue")), ("purple", String(localized: "Purple")), ("red", String(localized: "Red")), ("orange", String(localized: "Orange")), ("slate", String(localized: "Slate")), ("brown", String(localized: "Brown")),
     ]
 
     static func swatch(_ token: String) -> Color {

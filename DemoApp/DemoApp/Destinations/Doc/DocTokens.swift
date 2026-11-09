@@ -12,28 +12,6 @@ import MarkdownView
 import SwiftUI
 import UIKit
 
-/// An option to choose: its picture over its name, softly lit and outlined when it's on.
-struct DocOption<Picture: View>: View {
-    private let title: String
-    private let isOn: Bool
-    private let action: () -> Void
-    private let picture: Picture
-
-    init(_ title: String, isOn: Bool, action: @escaping () -> Void, @ViewBuilder picture: () -> Picture) {
-        self.title = title
-        self.isOn = isOn
-        self.action = action
-        self.picture = picture()
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Label { Text(title) } icon: { picture }
-        }
-        .buttonStyle(.flooTile(isOn: isOn, onLook: .soft(outlined: true)))
-    }
-}
-
 enum DocTokens {
     enum Platform {
         static let isPointer: Bool = {
@@ -256,40 +234,6 @@ extension DocTokens.Component {
         static let fontName = Font.system(size: 11)
     }
 
-    /// The phone's format sheet (Craft's): pages of rows the same height, so it doesn't jump.
-    enum FormatSheet {
-        static let inset = Tokens.Component.Sheet.inset
-        static let rowSpacing: CGFloat = 6
-        /// A row of tiles (lists, indent, decorations) and the style chips.
-        static let row = Tokens.Component.Tile.minHeight
-        /// Every page's height (the main page's three rows), so the sheet doesn't jump.
-        static let page: CGFloat = row * 3 + rowSpacing * 2
-        /// A table cell's main page: its marks, its alignment, its typeface and format,
-        /// its colours and its table.
-        static let cellPage: CGFloat = row * 4 + rowSpacing * 3
-        /// The fills' page (Craft's six rows of six).
-        static let fillHeight: CGFloat = 36
-        static let fillSpacing: CGFloat = 6
-        static let fillRadius = Tokens.Radius.sm
-        static let fillPage: CGFloat = fillHeight * 6 + fillSpacing * 5
-        /// The sheet's height before it's measured.
-        static let estimate = inset + page + inset
-        /// Between the list tiles and the indent tiles.
-        static let groupGap: CGFloat = 11
-        static let colorRing: CGFloat = 40
-        static let quoteBar = CGSize(width: 3, height: 22)
-        static let swatchHeight: CGFloat = 76
-        static let swatchRadius = Tokens.Radius.lg
-        static let swatchSpacing = Tokens.Space.md
-        static let swatchColumns = 6
-        static let label = Font.system(size: styleLabel)
-        /// A style's name in its own type: a title's and a heading's bigger on the styles page.
-        static let styleLabel: CGFloat = 17
-        static let titleLabelLarge: CGFloat = 21
-        static let headingLabelLarge: CGFloat = 19
-        static let captionLabel: CGFloat = 15
-    }
-
     /// An edited table cell's handles (Craft's): its ring, and on the table's edges the
     /// bars that pick its column and row and the dots that add one.
     enum TableHandles {
@@ -303,7 +247,11 @@ extension DocTokens.Component {
         static let rowGrip = CGSize(width: 3, height: 12)
         static let gripOpacity: Double = 0.45
         /// What a bar or a dot answers to a click or a tap.
-        static let target: CGFloat = Tokens.Platform.value(pointer: 20, finger: 32)
+        static let target: CGFloat = Tokens.Platform.value(pointer: 14, finger: 24)
+        /// The edited cell's ⋮: what it answers to is what its press fills.
+        static let menuButton = CGSize(width: 16, height: 24)
+        /// Its glyph out over the cell's padding, where it has always stood.
+        static let menuButtonOffset: CGFloat = 6
         static let dot: CGFloat = Tokens.Platform.value(pointer: 6, finger: 8)
         static let dotHoverScale: CGFloat = 1.6
     }

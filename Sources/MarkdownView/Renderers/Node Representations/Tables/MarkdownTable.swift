@@ -1561,9 +1561,10 @@ fileprivate struct AdaptiveTableCell: View, Equatable {
         && lhs.characterCount == rhs.characterCount
         && lhs.isHeader == rhs.isHeader
         && lhs.identity == rhs.identity
-        && (!lhs.isReplaced || lhs.position == rhs.position)
+        // What the host shows here is the host's to say: of two rows alike, the one that's
+        // left has the other's identity, content and place, and another editor.
+        && !lhs.isReplaced && !rhs.isReplaced
         && lhs.hooks === rhs.hooks
-        && lhs.isReplaced == rhs.isReplaced
         && lhs.look == rhs.look
         && lhs.tellsPlace == rhs.tellsPlace
         && lhs.selectableUpgraded == rhs.selectableUpgraded

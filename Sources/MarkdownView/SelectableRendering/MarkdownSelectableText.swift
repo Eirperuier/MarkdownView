@@ -113,6 +113,7 @@ public struct MarkdownSelectableText: View, Equatable {
         #if canImport(UIKit)
         .environment(\.onRichTextViewReady, textViewReadyHook(map: built.storageToPlain))
         .environment(\.onRichTextContentDidChange, contentChangeHook(map: built.storageToPlain))
+        .environment(\.onRichTextStorageIsCurrent, externalHooks?.storageIsCurrent)
         .environment(\.onRichTextSelectionChanged, externalHooks?.onSelectionChanged)
         .environment(\.onRichTextEditMenu, externalHooks?.editMenu)
         .environment(\.onRichTextLinkMenu, externalHooks?.linkMenu)
@@ -584,6 +585,8 @@ public final class MarkdownSelectableTextHooks: Equatable, Sendable {
     public let topicPreview: (@MainActor (String) -> AnyView?)?
     /// 可选:内容落进 textStorage 之后(updateUIView 末尾)回调。编辑场景在这里按新映射还原光标。
     public let onContentChanged: (@MainActor (PlatformTextView) -> Void)?
+    /// 可选:编辑场景会抢在渲染前直接改 textStorage;内容未变的渲染来时问这里 storage 是否仍显示模型。
+    public let storageIsCurrent: (@MainActor (PlatformTextView) -> Bool)?
     #endif
 
     #if canImport(UIKit)
@@ -594,7 +597,8 @@ public final class MarkdownSelectableTextHooks: Equatable, Sendable {
         linkMenu: (@MainActor (URL) -> [UIMenuElement]?)? = nil,
         linkTap: (@MainActor (PlatformTextView, URL, CGRect) -> Bool)? = nil,
         topicPreview: (@MainActor (String) -> AnyView?)? = nil,
-        onContentChanged: (@MainActor (PlatformTextView) -> Void)? = nil
+        onContentChanged: (@MainActor (PlatformTextView) -> Void)? = nil,
+        storageIsCurrent: (@MainActor (PlatformTextView) -> Bool)? = nil
     ) {
         self.onTextViewReady = onTextViewReady
         self.onSelectionChanged = onSelectionChanged
@@ -603,6 +607,7 @@ public final class MarkdownSelectableTextHooks: Equatable, Sendable {
         self.linkTap = linkTap
         self.topicPreview = topicPreview
         self.onContentChanged = onContentChanged
+        self.storageIsCurrent = storageIsCurrent
     }
     #else
     public init(

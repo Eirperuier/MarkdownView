@@ -450,117 +450,184 @@ struct DocFormulaDecoration: View {
 struct DocFormulaPanel: View {
     let formula: DocFormulaEditing
     let done: () -> Void
-    /// Esc in the field (the Mac): the cell as it was.
-    var cancel: (() -> Void)?
 
     private typealias Tokens = DocTokens
-    /// Craft's panel's width, measured on its Mac app.
-    static let width: CGFloat = 352
 
     var body: some View {
-        if DocDevice.isMac {
-            DocPanelSurface { content }
-                .docPanelWidth(Self.width)
-        } else {
-            content
-                .padding(Tokens.Space.sm)
-                .flooGlass(in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
-                .padding(.horizontal, Tokens.Space.md)
-                .padding(.bottom, Tokens.Space.sm)
-        }
-    }
-
-    private var content: some View {
-        VStack(spacing: Tokens.Space.sm) {
-            HStack(spacing: Tokens.Space.xs) {
-                Text(verbatim: "=")
-                    .font(.body)
-                    .foregroundStyle(Tokens.ColorRole.Content.tertiary)
-                DocFormulaField(formula: formula, done: done, cancel: cancel)
-            }
+        DocFormulaPanelHost(formula: formula, done: done)
+            .padding(Tokens.Space.sm)
+            .flooGlass(in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
             .padding(.horizontal, Tokens.Space.md)
-            .frame(height: Tokens.Control.prominentHeight)
-            .background(Tokens.ColorRole.Surface.control, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
-            keys
-        }
+            .padding(.bottom, Tokens.Space.sm)
+    }
+}
+
+/// The phone's: the panel's view on the table's page.
+private struct DocFormulaPanelHost: UIViewRepresentable {
+    let formula: DocFormulaEditing
+    let done: () -> Void
+
+    func makeUIView(context: Context) -> DocFormulaPanelView {
+        DocFormulaPanelView(formula: formula, done: done, cancel: nil)
     }
 
+    func updateUIView(_ view: DocFormulaPanelView, context: Context) {}
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: DocFormulaPanelView, context: Context) -> CGSize? {
+        uiView.systemLayoutSizeFitting(CGSize(width: proposal.width ?? 320, height: 0), withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
+    }
+}
+
+/// The Mac's: in a panel under the cell.
+final class DocFormulaPage: DocStackPage {
+    /// Craft's panel's width, measured on its Mac app.
+    private static let width: CGFloat = 352
+    private let formula: DocFormulaEditing
+    private let done: () -> Void
+    private let cancel: () -> Void
+
+    init(formula: DocFormulaEditing, done: @escaping () -> Void, cancel: @escaping () -> Void) {
+        self.formula = formula
+        self.done = done
+        self.cancel = cancel
+        super.init(width: Self.width)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        stack.addArrangedSubview(DocFormulaPanelView(formula: formula, done: done, cancel: cancel) { [weak self] change in
+            self?.flooUpdateSheetContent(change)
+        })
+    }
+
+    override func closePage() { cancel() }
+}
+
+/// The formula after "=", and the keys under it, by what's at the caret: the functions while
+/// nothing's typed (the rest in a menu), what a function takes right after its "(", else the
+/// operators. A phone has them in a row; the Mac in rows of three, the directions two by two, the
+/// operators in one (Craft's). Keys share a row's width, however many it has.
+final class DocFormulaPanelView: UIView {
     private enum Key: Hashable {
         case function(String), text(String), more
     }
 
-    /// The keys, by what's at the caret: the functions while nothing's typed (the rest in
-    /// the system's menu), what a function takes right after its "(", else the operators.
-    /// A phone has them in a row; the Mac in rows of three, the directions two by two,
-    /// the operators in one (Craft's).
-    private var keys: some View {
-        let keys: [Key] = formula.text.isEmpty ? DocFormulaEditing.functions.map(Key.function) + [.more]
-            : formula.opensArguments ? DocFormulaEditing.directions.map(Key.text)
-            : DocFormulaEditing.operators.map(Key.text)
-        let columns = !DocDevice.isMac || keys.count > 6 ? keys.count : keys.count == 4 ? 2 : 3
-        let rows = stride(from: 0, to: keys.count, by: columns).map { Array(keys[$0..<min($0 + columns, keys.count)]) }
-        return Grid(horizontalSpacing: Tokens.Space.sm, verticalSpacing: Tokens.Space.sm) {
-            ForEach(rows, id: \.self) { row in
-                GridRow {
-                    ForEach(row, id: \.self) { key in
-                        self.key(key)
-                    }
-                }
-            }
-        }
-    }
+    private let formula: DocFormulaEditing
+    private let field = DocFormulaTextField()
+    private let keysStack = UIStackView()
+    private var shownKeys: [Key] = []
+    /// Its size changing by what's in it, the panel moving with it.
+    private let resizing: (@MainActor (@escaping () -> Void) -> Void)?
 
-    @ViewBuilder
-    private func key(_ key: Key) -> some View {
-        switch key {
-        case .function(let name):
-            button(name) { formula.insert(function: name) }
-        case .text(let text):
-            button(text) { formula.insert(text) }
-        case .more:
-            Menu {
-                ForEach(DocFormulaEditing.moreFunctions, id: \.self) { name in
-                    Button(name) { formula.insert(function: name) }
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .frame(maxWidth: .infinity)
-            }
-            .menuStyle(.button)
-            .buttonStyle(.floo(.tertiary))
-            .accessibilityLabel("More Functions")
-        }
-    }
+    private static let metrics = FlooButtonMetrics.of(.medium)
+    private static var spacing: CGFloat { DocTokens.Space.sm }
 
-    private func button(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(verbatim: title)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.floo(.tertiary))
-    }
-}
-
-/// The formula's text: one line, its references in their colours; Return is Done.
-private struct DocFormulaField: UIViewRepresentable {
-    let formula: DocFormulaEditing
-    let done: () -> Void
-    let cancel: (() -> Void)?
-
-    func makeUIView(context: Context) -> DocFormulaTextField {
-        let field = DocFormulaTextField()
+    init(formula: DocFormulaEditing, done: @escaping () -> Void, cancel: (() -> Void)?, resizing: (@MainActor (@escaping () -> Void) -> Void)? = nil) {
+        self.formula = formula
+        self.resizing = resizing
+        super.init(frame: .zero)
         field.formula = formula
         field.done = done
         field.cancel = cancel
         field.show(formula.text, selection: formula.selection)
-        return field
+
+        let equals = UILabel()
+        equals.text = "="
+        equals.font = .preferredFont(forTextStyle: .body)
+        equals.textColor = .floo(.placeholder)
+        equals.setContentHuggingPriority(.required, for: .horizontal)
+        let line = UIStackView(arrangedSubviews: [equals, field])
+        line.spacing = DocTokens.Space.xs
+        line.alignment = .center
+        line.translatesAutoresizingMaskIntoConstraints = false
+        let box = UIView()
+        box.backgroundColor = .floo(.controlFill)
+        box.layer.cornerRadius = DocTokens.Radius.md
+        box.layer.cornerCurve = .continuous
+        box.addSubview(line)
+
+        keysStack.axis = .vertical
+        keysStack.spacing = Self.spacing
+        let stack = UIStackView(arrangedSubviews: [box, keysStack])
+        stack.axis = .vertical
+        stack.spacing = Self.spacing
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            line.topAnchor.constraint(equalTo: box.topAnchor),
+            line.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+            line.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: DocTokens.Space.md),
+            line.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -DocTokens.Space.md),
+            box.heightAnchor.constraint(equalToConstant: DocTokens.Control.prominentHeight),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+        showKeys()
     }
 
-    func updateUIView(_ field: DocFormulaTextField, context: Context) {
-        field.done = done
-        field.cancel = cancel
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func showKeys() {
+        let keys = withObservationTracking {
+            formula.text.isEmpty ? DocFormulaEditing.functions.map(Key.function) + [.more]
+                : formula.opensArguments ? DocFormulaEditing.directions.map(Key.text)
+                : DocFormulaEditing.operators.map(Key.text)
+        } onChange: { [weak self] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.showKeys() } }
+        }
+        guard keys != shownKeys else { return }
+        let isFirst = shownKeys.isEmpty
+        shownKeys = keys
+        let change = { [self] in
+            keysStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            let columns = !DocDevice.isMac || keys.count > 6 ? keys.count : keys.count == 4 ? 2 : 3
+            for start in stride(from: 0, to: keys.count, by: columns) {
+                let row = UIStackView(arrangedSubviews: keys[start..<min(start + columns, keys.count)].map(button))
+                row.spacing = Self.spacing
+                row.distribution = .fillEqually
+                keysStack.addArrangedSubview(row)
+            }
+        }
+        if isFirst || resizing == nil { change() } else { resizing?(change) }
+    }
+
+    private func button(_ key: Key) -> UIView {
+        let content: UIView
+        switch key {
+        case .function(let title), .text(let title):
+            let label = UILabel()
+            label.text = title
+            label.font = .systemFont(ofSize: Self.metrics.fontSize, weight: .medium)
+            label.textAlignment = .center
+            label.adjustsFontSizeToFitWidth = true
+            label.minimumScaleFactor = 0.7
+            content = label
+        case .more:
+            let image = UIImageView(image: UIImage(systemName: "ellipsis", withConfiguration: UIImage.SymbolConfiguration(pointSize: Self.metrics.iconSize, weight: .medium)))
+            image.contentMode = .center
+            content = image
+        }
+        let button = FlooContentButton(content: content, surface: .control) { [weak self] in
+            guard let self else { return }
+            switch key {
+            case .function(let name): formula.insert(function: name)
+            case .text(let text): formula.insert(text)
+            case .more: break
+            }
+        }
+        if case .more = key {
+            button.accessibilityLabel = "More Functions"
+            button.menu = UIMenu(children: DocFormulaEditing.moreFunctions.map { name in
+                UIAction(title: name) { [weak self] _ in self?.formula.insert(function: name) }
+            })
+            button.showsMenuAsPrimaryAction = true
+        }
+        button.heightAnchor.constraint(equalToConstant: Self.metrics.height).isActive = true
+        return button
     }
 }
 

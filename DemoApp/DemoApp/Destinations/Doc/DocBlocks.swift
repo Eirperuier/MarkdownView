@@ -92,8 +92,18 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     private(set) var typing: DocBlockID?
     /// The phone's selection mode.
     var isSelecting: Bool { !Self.usesHandles && selection.state.isActive }
-    /// The panel shows the selected media's layouts instead of the actions.
+    /// The selected media's layouts open (DocBlockSelectionPanel).
     var isChoosingLayout = false
+    /// Style opens a sheet over the actions; leaving the selection closes it. A
+    /// cell's sheet (Aa in a cell) is over the cell, no selection, while the cell is edited.
+    var showsSelectionSheet: Bool {
+        if isSelecting { return editor.panels.showsSheet }
+        return editor.panels.showsSheet && DocFormatting(editor: editor).inCell
+    }
+    @ObservationIgnored lazy var selectionPanel = DocBlockSelectionPanel(blocks: self)
+    /// What presents the selection's panel.
+    var presenter: UIViewController? { list?.flooPresenter }
+    var listFrameInWindow: CGRect? { list.map { $0.convert($0.bounds, to: nil) } }
 
     @ObservationIgnored private var anchor: DocBlockID?
     @ObservationIgnored private var head: DocBlockID?
@@ -976,7 +986,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// Aa where the editor has no caret: `id` selected, the Style sheet over it.
     func formatBlock(_ id: DocBlockID) {
         selectBlock(id)
-        if isSelecting { editor.panels.sheetPage = .main }
+        if isSelecting { editor.panels.showsSheet = true }
     }
 
     /// The block a caret is in: a cell's is its table.
@@ -988,17 +998,17 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// in a table's cell, the cell's sheet, the cell still edited under it.
     func formatCaretBlock() {
         if let caret = editor.selection, editor.tables.cell(of: caret.head.block) != nil {
-            editor.panels.sheetPage = .main
+            editor.panels.showsSheet = true
             return
         }
         selectCaretBlock()
-        if isSelecting { editor.panels.sheetPage = .main }
+        if isSelecting { editor.panels.showsSheet = true }
     }
 
     /// The selection bar's sheet closed: from Aa, with the caret's block still the one
     /// selected, editing goes on at the caret.
     func closeSheet() {
-        editor.panels.sheetPage = nil
+        editor.panels.showsSheet = false
         isChoosingLayout = false
         guard let caret = returnsTo else { return }
         if selected == [block(of: caret)] { endSelecting() } else { returnsTo = nil }
@@ -1027,7 +1037,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             editor.isEditable = false
         } else {
             isChoosingLayout = false
-            editor.panels.sheetPage = nil
+            editor.panels.showsSheet = false
             editor.isEditable = !demo.isAgentWriting
             anchor = nil
             head = nil
@@ -1041,7 +1051,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
 
     /// The block a drag at `point` (list coordinates) picks up, if it picks one up. On
     /// the Mac: the handle's, or a block whose row doesn't take clicks (pressTakes). On a
-    /// phone: any, but not from the text being typed in or a control.
+    /// phone: any, but not from the text being typed in, a control or a press that's its own.
     private func pickUp(at point: CGPoint) -> DocBlockID? {
         guard let list, drag == nil, !demo.isAgentWriting else { return nil }
         if Self.usesHandles {
@@ -1053,7 +1063,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             return pressTakes(list.hitTest(point, with: nil), at: point) ? id : nil
         }
         let chain = sequence(first: list.hitTest(point, with: nil), next: { $0?.superview })
-        guard !chain.contains(where: { $0 is UIControl || $0?.isFirstResponder == true }) else { return nil }
+        guard !DocOwnPress.isUnderFinger, !chain.contains(where: { $0 is UIControl || $0?.isFirstResponder == true }) else { return nil }
         return block(at: point)
     }
 
@@ -1960,130 +1970,20 @@ final class DocBlockKeyView: UIView {
     @objc private func outdent() { controller?.indentSelection(by: -1) }
 }
 
-/// The phone's actions on the selected blocks, as Craft's panel: a floating glass
-/// panel of tiles, each its own color, its symbol over its name. Layout turns it into
-/// the layouts of the selected links, files and images.
+/// Keeps the selection's panels (DocBlockSelectionPanel) to the page while it's on screen.
 struct DocBlockSelectionBar: View {
     let blocks: DocBlockController
-
-    /// Style and Layout open a sheet over the bar; leaving the selection closes it. A
-    /// cell's sheet (Aa in a cell) is over the cell, no selection, while the cell is edited.
-    private var showsSheet: Bool {
-        if blocks.isSelecting { return blocks.isChoosingLayout || blocks.editor.panels.sheetPage != nil }
-        return blocks.editor.panels.sheetPage != nil && DocFormatting(editor: blocks.editor).inCell
-    }
+    @Environment(\.flooTheme) private var theme
 
     var body: some View {
-        // Shown exactly while selecting, under no sheet: FlooDesign's panel stays in
-        // the view and follows only that, so nothing can leave it on screen.
-        actionPanel
-            .sheet(isPresented: Binding(get: { showsSheet }, set: { if !$0 { blocks.closeSheet() } })) {
-                Group {
-                    if blocks.isChoosingLayout {
-                        layouts
-                            .padding(.horizontal, DocTokens.Component.Sheet.inset)
-                            .padding(.bottom, DocTokens.Component.Sheet.inset)
-                    } else {
-                        DocFormatSheet(editor: blocks.editor)
-                    }
-                }
-                .docSizedSheet(estimate: DocTokens.Component.FormatSheet.estimate)
-            }
+        Color.clear
+            .frame(height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onAppear { blocks.selectionPanel.start() }
+            .onDisappear { blocks.selectionPanel.stop() }
+            .onChange(of: theme, initial: true) { blocks.selectionPanel.theme = theme }
     }
-
-    private var hasMedia: Bool {
-        !blocks.selectedLayouts.isEmpty || !blocks.selectedImageFits.isEmpty
-    }
-
-    /// The actions over the page's bottom, rising in and sinking out with `shown` only.
-    private var actionPanel: some View {
-        let shown = blocks.isSelecting && !showsSheet
-        return HStack(spacing: DocTokens.Space.xs) { actions }
-            .padding(DocTokens.Space.sm)
-            .flooGlass(in: RoundedRectangle(cornerRadius: DocTokens.Radius.xxl, style: .continuous))
-            .padding(.horizontal, DocTokens.Space.md)
-            .padding(.bottom, DocTokens.Space.md)
-            .opacity(shown ? 1 : 0)
-            .offset(y: shown ? 0 : DocTokens.Space.md)
-            .allowsHitTesting(shown)
-            .accessibilityHidden(!shown)
-            .animation(DocTokens.Motion.reveal, value: shown)
-    }
-
-    @ViewBuilder private var actions: some View {
-        Group {
-            Button(String(localized: "Style"), systemImage: "textformat") {
-                blocks.editor.panels.sheetPage = .main
-            }
-            .buttonStyle(.flooTile(color: Action.format))
-            .accessibilityIdentifier("selection-style")
-            if hasMedia {
-                Button(String(localized: "Layout"), systemImage: "rectangle.split.2x1") {
-                    blocks.isChoosingLayout = true
-                }
-            }
-            // Several blocks into a page of their own (Craft's Group, the Mac's menu).
-            if blocks.canGroup {
-                Button(String(localized: "Group"), systemImage: "wand.and.sparkles") {
-                    blocks.groupSelection()
-                }
-            }
-            Menu {
-                Button("Copy", systemImage: "doc.on.doc") {
-                    blocks.copySelection()
-                    blocks.endSelecting()
-                }
-                Button("Duplicate", systemImage: "plus.square.on.square") { blocks.duplicateSelection() }
-            } label: {
-                Label(String(localized: "Actions"), systemImage: "square.and.arrow.up")
-            }
-            .menuStyle(.button)
-            Button(String(localized: "Delete"), systemImage: "trash") {
-                blocks.deleteSelection()
-            }
-            .buttonStyle(.flooTile(color: Action.destructive))
-        }
-        .buttonStyle(.flooTile(color: Action.neutral))
-        .frame(width: 72)
-    }
-
-    private typealias Action = DocTokens.ColorRole.Action
-
-    /// Craft's layout sheet: the options (the sheet's own pull closes it).
-    private var layouts: some View {
-        VStack(spacing: DocTokens.Component.Option.sectionSpacing) {
-            if !blocks.selectedImageFits.isEmpty {
-                HStack(spacing: DocTokens.Space.sm) {
-                    FlooTilesRow(String(localized: "Image Display")) {
-                        option(String(localized: "Fit"), symbol: "arrow.down.and.line.horizontal.and.arrow.up", on: blocks.selectedImageFits == [.fit]) { blocks.setImage(fit: .fit) }
-                        option(String(localized: "Fill"), symbol: "square.arrowtriangle.4.outward", on: blocks.selectedImageFits == [.fill]) { blocks.setImage(fit: .fill) }
-                    }
-                    FlooTilesRow(String(localized: "Image Size")) {
-                        option(String(localized: "Auto"), symbol: "rectangle.center.inset.filled", on: blocks.selectedImageSizes == [.auto]) { blocks.setImage(size: .auto) }
-                        option(String(localized: "Large"), symbol: "rectangle", on: blocks.selectedImageSizes == [.large]) { blocks.setImage(size: .large) }
-                    }
-                }
-            }
-            if !blocks.selectedLayouts.isEmpty {
-                HStack(spacing: DocTokens.Component.Option.sectionGap) {
-                    ForEach(DocLayout.allCases, id: \.self) { layout in
-                        DocOption(layout.title, isOn: blocks.selectedLayouts == [layout]) {
-                            blocks.setLayout(layout)
-                        } picture: {
-                            layout.style.pictureImage
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func option(_ title: String, symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
-        DocOption(title, isOn: on, action: action) {
-            Image(systemName: symbol).font(.system(size: DocTokens.Icon.toolbar))
-        }
-    }
-
 }
 
 extension DocLayout {

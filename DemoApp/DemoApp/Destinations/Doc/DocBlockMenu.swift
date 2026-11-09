@@ -6,8 +6,8 @@
 //  others selected with it, and our menu (FlooDesign's action menu, by the pointer)
 //  shows what can be done to them, in Craft's order: Edit (one block of text; a code
 //  block's language and Copy Code under it) or, for several, how many under a title and
-//  Group (into a page); cut, copy, duplicate; Format (copy, paste and clear the format,
-//  then the format panel's sections, a link, file or image's layout among them); Insert
+//  Group (into a page); cut, copy, duplicate; Style, Format (copy, paste and clear the
+//  format above it) and Layout (DocSettings); Insert
 //  above or below; Sort (several); delete. Craft's
 //  assistant, Writing Tools, comments, reactions, reminders, Copy As, Paste and Move To
 //  have nothing behind them here and aren't in it.
@@ -43,7 +43,7 @@ extension DocBlockController {
                 .action(String(localized: "Duplicate")) { [weak self] in self?.duplicateSelection() },
             ]),
             .init([
-                formatMenu(DocFormatting(editor: editor), copies: !several),
+            ] + DocFormatMenu(editor: editor).submenus(formatFirst: [DocFormatMenu(editor: editor).formatActions(copies: !several)]) + [
                 .submenu(String(localized: "Insert"), [.init([
                     .action(String(localized: "Insert Above")) { [weak self] in self?.insertLine(above: true) },
                     .action(String(localized: "Insert Below")) { [weak self] in self?.insertLine(above: false) },
@@ -58,25 +58,6 @@ extension DocBlockController {
             ]),
         ]
         return sections
-    }
-
-    /// Format: copy, paste and clear the format above what the format panel has (the
-    /// same sections, `DocFormatMenu`), changed there and left open.
-    /// Copy Format only for one block (`copies`).
-    private func formatMenu(_ formatting: DocFormatting, copies: Bool) -> FlooMenuItem {
-        let copied = editor.panels.copiedFormat
-        return .submenu(String(localized: "Format"), [
-            .init([
-                .action(String(localized: "Copy Format"), isEnabled: copies) { [weak self] in self?.editor.panels.copiedFormat = formatting.format },
-                .action(String(localized: "Paste Format"), isEnabled: copied != nil) {
-                    if let copied { formatting.paste(copied) }
-                },
-                .action(String(localized: "Clear Format")) { [weak self] in
-                    guard let self else { return }
-                    reshape { editor.clearFormat(of: Set(selected)) }
-                },
-            ]),
-        ] + DocFormatMenu(editor: editor).sections)
     }
 
     /// A new line of text above the first selected block, or below the last (after the

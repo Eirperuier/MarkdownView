@@ -73,8 +73,8 @@ enum DocTableAction: CaseIterable, Identifiable {
         case .moveRowDown: String(localized: "Move Row Down")
         case .moveColumnLeft: String(localized: "Move Column Left")
         case .moveColumnRight: String(localized: "Move Column Right")
-        case .sortAscending: String(localized: "Sort Ascending by This Column")
-        case .sortDescending: String(localized: "Sort Descending by This Column")
+        case .sortAscending: String(localized: "Sort Ascending")
+        case .sortDescending: String(localized: "Sort Descending")
         case .insertFormula: String(localized: "Insert Formula")
         case .deleteRow: String(localized: "Delete Row")
         case .deleteColumn: String(localized: "Delete Column")
@@ -99,8 +99,8 @@ enum DocTableAction: CaseIterable, Identifiable {
         case .moveRowDown: "arrow.down"
         case .moveColumnLeft: "arrow.left"
         case .moveColumnRight: "arrow.right"
-        case .sortAscending: "arrow.up.arrow.down"
-        case .sortDescending: "arrow.up.arrow.down"
+        case .sortAscending: "arrow.up"
+        case .sortDescending: "arrow.down"
         case .insertFormula: "function"
         case .deleteRow, .deleteColumn, .deleteTable: "trash"
         case .clearCell: "eraser"
@@ -133,7 +133,55 @@ final class DocTableController {
     /// The edited cell's row or column, picked by its bar: the menu acts on all of it.
     private(set) var line: DocTableLine?
     /// Whose menu is open.
-    private(set) var menu: DocTableMenuTarget?
+    private(set) var menu: DocTableMenuTarget? {
+        didSet {
+            guard (menu == nil) != (oldValue == nil) else { return }
+            if menu == nil { besideMenu = nil }
+            guard !DocDevice.isMac else { return }
+            if menu == nil {
+                menuPanel?.close()
+                menuPanel = nil
+                DocScrolling.footPanel = nil
+                editor.releaseKeyboard()
+            } else if editor.blocks.presenter?.view.traitCollection.horizontalSizeClass != .compact {
+                // Beside the cell on a large screen (docTableMenu): the keyboard gives way, not over it.
+                editor.holdKeyboard()
+            } else if let presenter = editor.blocks.presenter {
+                // A small screen's stands at the window's foot, where the keyboard is. Known before
+                // the keyboard's held: that lays the page out, and with no panel yet the page's
+                // view would bring up the menu for a large screen.
+                let panel = DocSettingsPanel { [unowned self] in
+                    guard let menu else { return [] }
+                    return DocTableMenu(target: menu, controller: self).pages
+                }
+                // A page in stands taller: what the menu's about stays above it.
+                panel.whenResized = { [unowned self] view in
+                    DocScrolling.footPanel = view
+                    if let key = self.menu?.key, let cell = self.view(for: key) { DocScrolling.reveal(cell) }
+                }
+                menuPanel = panel
+                editor.holdKeyboard()
+                panel.open(from: presenter, at: editor.blocks.selectionPanel.placement(in: presenter), page: .tableMenu, theme: editor.blocks.selectionPanel.theme) { [weak self] in
+                    self?.menuPanel = nil
+                    self?.closeMenu()
+                }
+            }
+        }
+    }
+    /// A small screen's menu, in floo's self-drawn panel, its pages drawn as the rest of the
+    /// document's settings are (DocTableMenu).
+    @ObservationIgnored private(set) var menuPanel: DocSettingsPanel?
+    /// A large screen's and the Mac's: the same pages, beside what opened them.
+    @ObservationIgnored private(set) var besideMenu: DocSettingsPanel?
+
+    func besideMenuPages() -> UIViewController {
+        let panel = DocSettingsPanel { [unowned self] in
+            guard let menu else { return [] }
+            return DocTableMenu(target: menu, controller: self).pages
+        }
+        besideMenu = panel
+        return panel.pagesController(opening: .tableMenu) ?? UIViewController()
+    }
     /// A formula being written apart from its cell: on a phone on the table's own page,
     /// on the Mac in a panel under the cell (DocTableFormula).
     var formula: DocFormulaEditing?
@@ -442,7 +490,7 @@ final class DocTableController {
     /// The editor MarkdownView shows instead of the edited cell's content.
     func replacement(in table: DocTableSnapshot, at position: MarkdownTableCellPosition) -> AnyView? {
         guard let key = key(in: table, at: position), key == editing || key == handingOver else { return nil }
-        return AnyView(DocTableCellEditor(key: key, controller: self))
+        return AnyView(DocTableCellEditor(key: key, controller: self).id(key))
     }
 
     /// The cell is the one edited (its editor shows): a menu of another cell goes, and a
@@ -1044,20 +1092,18 @@ struct DocTableCellEditor: View {
                 // Not while its formula is written (Craft's).
                 if controller.formula?.key != key {
                     DocTableCellMenu(key: key, controller: controller)
-                        .offset(x: 10)
+                        .offset(x: Handles.menuButtonOffset)
                 }
             }
             // The Mac's formula panel, under the cell.
-            .docPanel(isPresented: DocDevice.isMac && controller.formula?.key == key && controller.formula?.isShown == true,
-                                     alignment: .center, keepsOpen: controller.formulaPanelKeepsOpen(key),
-                                     onDismiss: { [controller] in controller.finishFormula(writes: true) }) { [controller] in
-                if let formula = controller.formula {
-                    // A formula of its own: a panel opened again as this one goes has its own field.
-                    DocFormulaPanel(formula: formula, done: { controller.finishFormula(writes: true) },
-                                    cancel: { controller.finishFormula(writes: false) })
-                        .id(ObjectIdentifier(formula))
-                }
-            }
+            .flooFloating(isPresented: Binding(get: { DocDevice.isMac && controller.formula?.key == key && controller.formula?.isShown == true },
+                                               set: { [controller] in if !$0 { controller.finishFormula(writes: true) } }),
+                          alignment: .center, keepsOpen: controller.formulaPanelKeepsOpen(key), selfDrawn: true,
+                          page: { [controller] in
+                              guard let formula = controller.formula else { return UIViewController() }
+                              return DocFormulaPage(formula: formula, done: { controller.finishFormula(writes: true) },
+                                                    cancel: { controller.finishFormula(writes: false) })
+                          })
     }
 
     @ViewBuilder
@@ -1257,7 +1303,7 @@ struct DocTableCellMenu: View {
                 .rotationEffect(.degrees(90))
                 .font(.system(size: DocTokens.Icon.compact, weight: .semibold))
                 .foregroundStyle(DocTokens.ColorRole.Content.secondary)
-                .frame(width: DocTokens.Space.xxl, height: DocTokens.Control.compactHeight)
+                .frame(width: Handles.menuButton.width, height: Handles.menuButton.height)
         }
         .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: DocTokens.Radius.sm, style: .continuous)))
         .accessibilityLabel("Table Actions")
@@ -1266,72 +1312,67 @@ struct DocTableCellMenu: View {
 }
 
 extension View {
-    /// The table's menu (Craft's, FlooDesign's action menu) from this view while it's
-    /// `target`'s: beside it, or a sheet on a phone.
+    /// The table's pages (DocTableMenu) from this view while it's `target`'s: beside it, or
+    /// at the window's foot on a small screen (the controller's).
     func docTableMenu(_ target: DocTableMenuTarget, controller: DocTableController) -> some View {
-        docMenuPanel(isPresented: controller.menu == target,
-                     onDismiss: { if controller.menu == target { controller.closeMenu() } }) { presentation in
-            DocTableMenuSections(target: target, controller: controller).sections(for: presentation)
-        }
+        docPanel(isPresented: controller.menu == target && controller.menuPanel == nil,
+                 onDismiss: { if controller.menu == target { controller.closeMenu() } },
+                 page: { controller.besideMenuPages() })
     }
 }
 
-/// The menu's sections, Craft's: beside the cell, Edit Table opens a panel and the rest
-/// are rows; on a phone the groups are tiles and buttons, the rest rows that open more.
+/// The table's menu, drawn as the document's settings are on every screen: what's done to
+/// the table, its sorting right there. A cell's text has the system's own edit menu, and the
+/// format is the page `Aa` opens.
 @MainActor
-struct DocTableMenuSections {
+struct DocTableMenu: DocFormatTarget {
     let target: DocTableMenuTarget
     let controller: DocTableController
 
-    private func item(_ action: DocTableAction, symbol: Bool = true) -> FlooMenuItem {
-        .action(action.title, symbol: symbol ? action.symbol : nil, role: action.isDestructive ? .destructive : .normal,
-                isEnabled: controller.isAvailable(action, at: target.key, on: target.line)) { [controller, target] in
+    private func key(_ action: DocTableAction, title: String? = nil, symbol: String? = nil) -> DocKey {
+        let target = target
+        let controller = controller
+        return DocKey(id: "table-\(action)", title: title ?? action.title, look: .symbol(symbol ?? action.symbol ?? "square"),
+                      isEnabled: controller.isAvailable(action, at: target.key, on: target.line), isMomentary: true, isDestructive: action.isDestructive,
+                      action: .perform {
             controller.perform(action, at: target.key, on: target.line)
-        }
+            controller.closeMenu()
+        })
     }
 
-    /// Craft's Format: the cells' text, number format and colours (the format panel's),
-    /// on the edited cell (its selected text, else all of it) or its picked row or column.
-    private var format: FlooMenuItem? {
-        let formatting = DocFormatting(editor: controller.editor)
-        guard let cell = formatting.cell, cell.key == target.key, cell.scope == (target.line.map { .line($0) } ?? .cell),
-              !cell.formats.isEmpty
-        else { return nil }
-        return .submenu(String(localized: "Format"), symbol: "textformat", DocFormatMenu.cellSections(cell, formatting))
-    }
-
-    func sections(for presentation: FlooPanelPresentation) -> [FlooMenuSection] {
-        let editTable = FlooMenuItem.submenu(String(localized: "Edit Table"), symbol: "tablecells.badge.ellipsis", [
-            .init([item(.insertRowAbove), item(.insertRowBelow), item(.insertColumnLeft), item(.insertColumnRight)]),
-            .init([item(.moveRowUp), item(.moveRowDown), item(.moveColumnLeft), item(.moveColumnRight)]),
-            .init([item(.deleteRow), item(.deleteColumn), item(.deleteTable)]),
-        ])
-        let clear = FlooMenuSection([item(.clearCell, symbol: false)])
-        switch presentation {
-        case .floating:
-            return [
-                .init([editTable] + (format.map { [$0] } ?? []) + [item(.insertFormula)]),
-                .init([item(.sortAscending, symbol: false), item(.sortDescending, symbol: false)]),
-                .init([item(.cut, symbol: false), item(.copy, symbol: false), item(.paste, symbol: false)]),
-                clear,
-            ]
-        case .sheet:
-            return [
-                .init(display: .medium, [
-                    editTable,
-                    .submenu(String(localized: "Sort"), symbol: "line.3.horizontal.decrease.circle", [
-                        .init([item(.sortAscending), item(.sortDescending)]),
-                    ]),
+    var pages: [DocPanelPage] {
+        let target = target
+        let menu = DocFormatMenu(editor: controller.editor, caretTakesBlock: false)
+        let cell = menu.formatting.cell
+        let formats = cell.map { $0.key == target.key && $0.scope == (target.line.map { .line($0) } ?? .cell) && !$0.formats.isEmpty } ?? false
+        let wholeTable = cell.map { [DocSelectedCells(cell: $0, formatting: menu.formatting).tableSection] } ?? []
+        return [
+            DocPanelPage(.tableMenu, closesOutside: true, [DocPageSection([
+                .tiles([
+                    DocKey(id: "table-edit-open", title: String(localized: "Edit Table"), look: .symbol("tablecells.badge.ellipsis"), isMomentary: true, action: .open(.editTable)),
+                    DocKey(id: "table-format-open", title: String(localized: "Format"), look: .symbol("textformat"), isEnabled: formats, isMomentary: true, action: .open(.cellMain)),
+                    key(.insertFormula, title: String(localized: "Formula")),
                 ]),
-                .init((format.map { [$0] } ?? []) + [item(.insertFormula)]),
-                .init([
-                    .submenu(String(localized: "Actions"), symbol: "command", [
-                        .init([item(.cut), item(.copy), item(.paste)]),
-                    ]),
-                ]),
-                clear,
-            ]
-        }
+                .tiles([
+                    key(.sortAscending, title: String(localized: "Ascending"), symbol: "arrow.up"),
+                    key(.sortDescending, title: String(localized: "Descending"), symbol: "arrow.down"),
+                ], isJoined: true),
+            ])]),
+            DocPanelPage(.editTable, closesOutside: true, wholeTable + [
+                DocPageSection([.tiles([
+                    key(.insertRowAbove, title: String(localized: "Insert Above")), key(.insertRowBelow, title: String(localized: "Insert Below")),
+                    key(.insertColumnLeft, title: String(localized: "Insert Left")), key(.insertColumnRight, title: String(localized: "Insert Right")),
+                ], isJoined: true)]),
+                DocPageSection([.tiles([
+                    key(.moveRowUp, title: String(localized: "Move Up")), key(.moveRowDown, title: String(localized: "Move Down")),
+                    key(.moveColumnLeft, title: String(localized: "Move Left")), key(.moveColumnRight, title: String(localized: "Move Right")),
+                ], isJoined: true)]),
+                DocPageSection([.tiles([
+                    key(.deleteRow, title: String(localized: "Delete Row")), key(.deleteColumn, title: String(localized: "Delete Column")),
+                    key(.deleteTable, title: String(localized: "Delete Table")),
+                ], isJoined: true)]),
+            ]),
+        ] + (cell != nil ? menu.target.pages : [])
     }
 }
 
@@ -1347,6 +1388,8 @@ enum DocScrolling {
     /// A panel on the keyboard bar (the phone's math panel, DocSourceEditing): it covers
     /// the page too.
     static var keyboardPanel: CGFloat = 0
+    /// A small screen's table menu, standing at the window's foot: it covers the page too.
+    static weak var footPanel: UIView?
     private static var observer: NSObjectProtocol?
 
     /// Starts following the keyboard's frame (screen coordinates).
@@ -1373,6 +1416,10 @@ enum DocScrolling {
         if !keyboard.isNull, let window = list.window {
             let overlap = list.convert(window.convert(keyboard, from: nil), from: window)
             let top = overlap.minY - keyboardBar - keyboardPanel
+            if top < visible.maxY { visible.size.height = max(0, top - visible.minY) }
+        }
+        if let footPanel {
+            let top = list.convert(footPanel.bounds, from: footPanel).minY
             if top < visible.maxY { visible.size.height = max(0, top - visible.minY) }
         }
         return visible

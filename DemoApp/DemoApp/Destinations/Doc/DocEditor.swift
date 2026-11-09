@@ -26,6 +26,7 @@ import MarkdownView
 
 @MainActor
 final class DocEditor {
+    @ObservationIgnored private weak var heldText: UITextView?
     let demo: DocDemo
     /// One undo manager for the whole document: every text view answers ⌘Z, shake
     /// and the three-finger swipe with it, and it is the DocKit history (§7).
@@ -35,6 +36,9 @@ final class DocEditor {
     /// Text views per block: the one on screen, and any TiledView renders off screen to
     /// measure a row. Only the one in the key window is edited.
     private var views: [DocBlockID: [WeakTextView]] = [:]
+    /// The block each text view last showed, so one taken from the pool leaves it without a
+    /// walk over every block.
+    private var shownBlock: [ObjectIdentifier: DocBlockID] = [:]
     private var delegates: [ObjectIdentifier: DocTextDelegate] = [:]
     /// The storage each text view showed after its last render.
     private var rendered: [ObjectIdentifier: String] = [:]
@@ -175,7 +179,11 @@ final class DocEditor {
             editMenu: { [weak self] textView, range, suggested in
                 self?.editMenu(textView, range: range, suggested: suggested, in: id)
             },
-            onContentChanged: { [weak self] in self?.contentChanged($0, in: id) }
+            onContentChanged: { [weak self] in self?.contentChanged($0, in: id) },
+            storageIsCurrent: { [weak self] textView in
+                guard let self, let block = self.textBlock(id) else { return true }
+                return self.textStart(in: textView, block: block) != nil
+            }
         )
         hooks[id] = made
         return made
@@ -185,7 +193,13 @@ final class DocEditor {
 
     private func attach(_ textView: UITextView, to id: DocBlockID) {
         // Text views come from a pool: forget whatever block this one showed before.
-        views = views.mapValues { $0.filter { $0.view != nil && $0.view !== textView } }
+        let key = ObjectIdentifier(textView)
+        if let shown = shownBlock[key], shown != id {
+            views[shown]?.removeAll { $0.view == nil || $0.view === textView }
+            if views[shown]?.isEmpty == true { views[shown] = nil }
+        }
+        shownBlock[key] = id
+        views[id, default: []].removeAll { $0.view == nil || $0.view === textView }
         views[id, default: []].append(WeakTextView(view: textView))
         textView.isEditable = isEditable
         textView.autocorrectionType = .no
@@ -1076,6 +1090,24 @@ final class DocEditor {
     }
 
     /// The keyboard bar's keyboard key: the text being edited lets the focus go.
+    /// The keyboard away while a panel takes its place (it stands in the window, under a
+    /// keyboard), what's edited still edited under it, the caret where it was.
+    func holdKeyboard() {
+        guard let text = DocFirstResponder.current as? UITextView else { return }
+        text.inputView = UIView()
+        text.reloadInputViews()
+        heldText = text
+    }
+
+    func releaseKeyboard() {
+        guard let text = heldText else { return }
+        heldText = nil
+        text.inputView = nil
+        text.reloadInputViews()
+    }
+
+    var holdsKeyboard: Bool { heldText?.inputView != nil && heldText?.isFirstResponder == true }
+
     func dismissKeyboard() {
         for view in allViews where view.isFirstResponder { view.resignFirstResponder() }
         // A cell's name, a source, a field: whatever place has it. A column's name being
@@ -1361,6 +1393,7 @@ final class DocEditor {
     func resetDocument() {
         clear()
         demo.reset()
+        sources.showModel()
     }
 
     /// Nothing edited or selected, no history: the document is started over, here or in

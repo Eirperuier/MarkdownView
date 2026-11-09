@@ -194,7 +194,9 @@ struct DocScanSource: DocInsertSource {
     let symbol = "doc.viewfinder"
     let glyph = DocBlockIcon.Glyph.scan
     let keywords = ["scan", "document", "saomiao"]
-    var isAvailable: Bool { !DocDevice.isMac && VNDocumentCameraViewController.isSupported }
+    // Loads VisionKit to ask: once.
+    private static let supported = !DocDevice.isMac && VNDocumentCameraViewController.isSupported
+    var isAvailable: Bool { Self.supported }
 
     func pick(over presenter: UIViewController) async -> [DocPicked] {
         let camera = VNDocumentCameraViewController()

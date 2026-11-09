@@ -83,8 +83,7 @@ private struct DocPageView: View {
     var body: some View {
         let _ = DocTiming.mark("page view body \(page.title)", once: true)
         VStack(spacing: 0) {
-            // A page shown has nothing to edit with.
-            if !shown { pageBar }
+            pageBar
             TiledView(items: demo.rows, scrollPosition: $scrollPosition) { row in
                 DocRowCell(item: row, demo: demo, editor: editor)
             }
@@ -152,29 +151,10 @@ private struct DocPageView: View {
             editor.blocks.clear()
             editor.isEditable = !demo.isAgentWriting
         }
-        // The system's navigation bar, its title drawn our way: the page's title over the
-        // pages it's in (Craft's), each a way back. The window keeps the title as its name.
+        // The system's navigation bar: the page's title (the window's name too), the pages
+        // it's in under it, each a way back (Craft's), its items in DocPageBar.
         .navigationTitle(page.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(removing: .title)
-        .toolbar {
-            if #available(iOS 26, macCatalyst 26, *) {
-                // Words, not a control: no glass behind them.
-                ToolbarItem(placement: .topBarLeading) { DocPageTitle(page: page, pages: pages) }
-                    .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .topBarLeading) { DocPageTitle(page: page, pages: pages) }
-            }
-            if shown {
-                ToolbarItem(placement: .topBarTrailing) {
-                    if #available(iOS 26, macCatalyst 26, *) {
-                        Button(role: .close) { dismiss() }
-                    } else {
-                        Button(String(localized: "Done")) { dismiss() }
-                    }
-                }
-            }
-        }
         .task {
             DocTiming.mark("page task \(page.title)", once: true)
             editor.blocks.openURL = openURL
@@ -224,7 +204,7 @@ private struct DocPageView: View {
                 }
             }
             // -docCollectionPanel KIND: the first collection with a panel open (screenshots):
-            // layout, sort, filter, group, chart, createKanban, createChart, addField, editField, options, date, addOption;
+            // view, chart, createKanban, createChart, addField, editField, options, date, addOption;
             // -docCollectionView table|kanban|chart shows that view of it first.
             if let name = UserDefaults.standard.string(forKey: "docCollectionPanel"),
                let block = demo.doc.blocks.first(where: { if case .collection = $0.kind { true } else { false } }),
@@ -238,9 +218,7 @@ private struct DocPageView: View {
                 let view = collection.currentView
                 let select = database.columns.first { if case .select = $0.type { true } else { false } }
                 let kind: DocCollectionPanel.Kind? = switch name {
-                case "layout": .layout
-                case "sort": .sort
-                case "filter": .filter
+                case "view", "fields": .view
                 case "createKanban": .createKanban
                 case "createChart": .createChart
                 case "chart": .chart
@@ -249,19 +227,15 @@ private struct DocPageView: View {
                 case "options": database.rows.first.flatMap { row in select.map { .options(row: row.id, column: $0.id) } }
                 case "date": database.rows.first.flatMap { row in database.columns.first { $0.type == .date }.map { .date(row: row.id, column: $0.id) } }
                 case "addOption": view?.layout.groupBy.map { .addOption($0) }
-                case "group": .group
                 default: nil
-                }
-                if let view, name == "sort", view.layout.sort.isEmpty, let column = database.columns.last {
-                    collections.setSort([DatabaseSort(column: column.id, ascending: false)], in: view.id, of: block.id)
-                }
-                if let view, name == "filter", view.filters.isEmpty, let select, case .select(let options) = select.type, let option = options.first {
-                    collections.setFilters([CollectionFilter(column: select.id, condition: .is, value: .select(option: option.id)),
-                                            CollectionFilter(column: database.columns[0].id, condition: .contains)], in: view.id, of: block.id)
                 }
                 if let row = demo.rows.first(where: { $0.collection != nil }) { reader.scrollTo(id: row.id, anchor: .top, animated: false) }
                 try? await Task.sleep(for: .milliseconds(800))
                 if let kind { collections.show(kind, in: block.id) }
+                if name == "fields" {
+                    try? await Task.sleep(for: .seconds(1))
+                    collections.viewPanel?.openInner(.fields)
+                }
             }
             // -docPageShots NAME: the page a screen at a time, top to bottom, to NAME-<n>.png in
             // the app's (sandboxed) temporary folder; then the app quits.
@@ -291,6 +265,11 @@ private struct DocPageView: View {
                        let key = editor.tables.key(in: snapshot, at: MarkdownTableCellPosition(row: 2, column: 1)) {
                         try? await Task.sleep(for: .milliseconds(400))
                         editor.tables.showMenu(key)
+                        // -docCellMenuInner YES: and go into Edit Table.
+                        if UserDefaults.standard.bool(forKey: "docCellMenuInner") {
+                            try? await Task.sleep(for: .milliseconds(800))
+                            editor.tables.menuPanel?.openInner(.editTable)
+                        }
                     }
                 }
                 // -docFormula <text>: and write a formula in the cell under 21%, 16%, 17%, <text>
@@ -370,13 +349,28 @@ private struct DocPageView: View {
                }) {
                 if DocBlockController.usesHandles { editor.blocks.click(block.id) } else { editor.blocks.beginSelecting(block.id) }
             }
-            // -docSheet main|styles|colors|more: the phone's format sheet at that page, over
-            // the selected blocks (-docShowHandle) or the caret's block, as Aa (-docFocus).
-            if let page = UserDefaults.standard.string(forKey: "docSheet") {
-                let pages: [String: DocFormatSheetPage] = ["main": .main, "styles": .styles, "colors": .colors, "more": .more]
-                try? await Task.sleep(for: .milliseconds(500))
+            // -docSheet YES: the phone's format panel, over the selected blocks
+            // (-docShowHandle) or the caret's block, as Aa (-docFocus).
+            if UserDefaults.standard.bool(forKey: "docSheet") {
+                // A cell's: its keyboard up first, as when Aa is pressed.
+                try? await Task.sleep(for: .milliseconds(UserDefaults.standard.bool(forKey: "docEditCell") ? 1500 : 500))
                 if !editor.blocks.isSelecting { editor.blocks.formatCaretBlock() }
-                editor.panels.sheetPage = pages[page] ?? .main
+                editor.panels.showsSheet = true
+                // -docSheetOpen styles|colors|more: a level in, and left there. -docSheetInner
+                // YES: its More… and back, for watching the push.
+                if let inner = UserDefaults.standard.string(forKey: "docSheetOpen") {
+                    try? await Task.sleep(for: .seconds(1))
+                    let pages: [String: DocPageID] = ["styles": .styles, "colors": .colors, "more": .more, "cellFont": .cellFont, "cellNumber": .cellNumber]
+                    editor.blocks.selectionPanel.openInner(pages[inner] ?? .more)
+                }
+                if UserDefaults.standard.bool(forKey: "docSheetInner") {
+                    try? await Task.sleep(for: .seconds(2))
+                    editor.blocks.selectionPanel.openInner(.more)
+                    try? await Task.sleep(for: .seconds(2))
+                    editor.blocks.selectionPanel.closeInner()
+                    try? await Task.sleep(for: .seconds(2))
+                    editor.blocks.closeSheet()
+                }
             }
             // -docShot <path>: what the options above show, drawn to a PNG there
             // (screenshots without screen recording).
@@ -396,72 +390,58 @@ private struct DocPageView: View {
         }
     }
 
-    /// Its bar, and the line under it.
-    @ViewBuilder
+    /// Nothing to see, across the page's top: its items in the navigation bar, the keys that
+    /// were theirs, and where the Mac's format panel stands, under the bar at the window's
+    /// right, open until its Aa closes it (Craft's).
     private var pageBar: some View {
-        bar
-            .frame(maxWidth: .infinity, minHeight: DocTokens.Control.prominentHeight, alignment: .leading)
-            .padding(.horizontal, DocTokens.Space.lg)
-            .padding(.vertical, DocTokens.Space.sm)
-            // The Mac's format panel: under the bar at the window's right, open until
-            // its Aa closes it (Craft's).
-            .docMenuPanel(isPresented: editor.panels.showsFormat, title: String(localized: "Format"), alignment: .trailing, staysBeside: true, keepsOpen: { _ in true },
-                          onDismiss: { editor.panels.showsFormat = false }) { [editor] _ in
-                DocFormatMenu(editor: editor).sections
-            }
-        Divider()
-    }
-
-    @ViewBuilder
-    private var bar: some View {
-        HStack {
-            if editor.blocks.isSelecting {
-                // Selecting blocks: only the way out, as Craft has it.
-                Spacer()
-                Button("Done", systemImage: "checkmark") { editor.blocks.endSelecting() }
-                    .buttonStyle(.floo(.primary, iconOnly: true))
-            } else if let status = demo.agentStatus {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Agent · \(status)")
-                    .font(DocTokens.Typography.body.font)
-                Text("Read-only preview")
-                    .font(DocTokens.Typography.metadata.font)
-                    .foregroundStyle(DocTokens.ColorRole.Content.secondary)
-                Spacer()
-                Button("Stop") { demo.stop() }
-                    .buttonStyle(.floo(.tertiary))
-            } else {
-                Button("Undo", systemImage: "arrow.uturn.backward") { editor.requestUndo() }
-                    .keyboardShortcut("z", modifiers: .command)
-                    .disabled(!demo.canUndo)
-                    .buttonStyle(.floo(.plain, iconOnly: true))
-                Button("Redo", systemImage: "arrow.uturn.forward") { editor.requestRedo() }
-                    .keyboardShortcut("z", modifiers: [.command, .shift])
-                    .disabled(!demo.canRedo)
-                    .buttonStyle(.floo(.plain, iconOnly: true))
-                Spacer()
-                #if targetEnvironment(macCatalyst)
-                Button("Format", systemImage: "textformat") { editor.panels.showsFormat.toggle() }
-                    .frame(width: DocTokens.Control.compactHeight, height: DocTokens.Control.minimumHitTarget)
-                    .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: DocTokens.Radius.sm, style: .continuous), isOn: editor.panels.showsFormat))
-                    .help("Format")
-                #endif
-                // The demo's own controls, on its first page.
-                if page === pages.root {
-                    Button("Reset") {
-                        pages.reset()
-                        editor.resetDocument()
-                    }
-                    .buttonStyle(.floo(.plain))
-                    .fixedSize()
-                    Button("Agent Demo") { demo.runScript() }
-                        .buttonStyle(.floo(.primary))
-                        .fixedSize()
+        DocPageBar(
+            mode: shown ? .shown : editor.blocks.isSelecting ? .selecting : demo.agentStatus != nil ? .agent : .editing,
+            canUndo: demo.canUndo,
+            canRedo: demo.canRedo,
+            isFormatOn: editor.panels.showsFormat,
+            agentStatus: demo.agentStatus,
+            path: page.ancestors.map(\.title),
+            demoSections: page === pages.root && !shown ? demoSections : [],
+            actions: .init(
+                undo: { [editor] in editor.requestUndo() },
+                redo: { [editor] in editor.requestRedo() },
+                format: { [editor] in editor.panels.showsFormat.toggle() },
+                done: { [editor] in editor.blocks.endSelecting() },
+                stop: { [demo] in demo.stop() },
+                close: { dismiss() },
+                back: { [pages] in pages.back(to: $0) }
+            )
+        )
+        .frame(maxWidth: .infinity, maxHeight: 0)
+        .background {
+            if !shown {
+                Group {
+                    Button("Undo") { editor.requestUndo() }
+                        .keyboardShortcut("z", modifiers: .command)
+                        .disabled(!demo.canUndo)
+                    Button("Redo") { editor.requestRedo() }
+                        .keyboardShortcut("z", modifiers: [.command, .shift])
+                        .disabled(!demo.canRedo)
                 }
+                .opacity(0)
+                .accessibilityHidden(true)
             }
         }
-        .labelStyle(.iconOnly)
+        .docMenuPanel(isPresented: editor.panels.showsFormat, title: String(localized: "Format"), alignment: .trailing, staysBeside: true, keepsOpen: { _ in true },
+                      onDismiss: { editor.panels.showsFormat = false }) { [editor] _ in
+            DocFormatMenu(editor: editor).sections
+        }
+    }
+
+    /// The demo's own controls, on its first page.
+    private var demoSections: [FlooMenuSection] {
+        [FlooMenuSection(nil, [
+            .action(String(localized: "Reset")) { [pages, editor] in
+                pages.reset()
+                editor.resetDocument()
+            },
+            .action(String(localized: "Agent Demo")) { [demo] in demo.runScript() },
+        ])]
     }
 }
 

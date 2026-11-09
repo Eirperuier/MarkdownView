@@ -21,7 +21,7 @@ let package = Package(
         // Forks carrying the changes the selectable path and math rendering need;
         // see each fork's history on top of its upstream tag.
         .package(url: "https://github.com/techx-academy/floo-LaTeXSwiftUI.git", revision: "6245f306b9aced861a66d4b2e7441cb285ae7d18"),
-        .package(url: "https://github.com/techx-academy/floo-RichText.git", revision: "7ba6a5435100ae04a14f16049caeca4232661c01"),
+        .package(url: "https://github.com/techx-academy/floo-RichText.git", revision: "155b901d4340077e4250ceea01577abb7d3b34d2"),
     ],
     targets: [
         .target(

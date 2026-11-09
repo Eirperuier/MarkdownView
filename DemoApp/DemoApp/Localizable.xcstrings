@@ -1093,6 +1093,16 @@
         }
       }
     },
+    "Manage Format" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理格式"
+          }
+        }
+      }
+    },
     "Math Block" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1513,22 +1523,22 @@
         }
       }
     },
-    "Sort Ascending by This Column" : {
+    "Sort Ascending" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "按此列升序排序"
+            "value" : "升序排序"
           }
         }
       }
     },
-    "Sort Descending by This Column" : {
+    "Sort Descending" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "按此列降序排序"
+            "value" : "降序排序"
           }
         }
       }

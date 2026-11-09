@@ -88,6 +88,8 @@ struct DocCollectionTable: View {
                 .strokeBorder(DocTokens.Border.separator, lineWidth: DocTokens.Border.hairline))
             .clipShape(RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
         }
+        // Scrolls out to the page's edges, as a plain table does (MarkdownTable).
+        .scrollClipDisabled()
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 
@@ -127,9 +129,9 @@ struct DocCollectionTable: View {
         .help(String(localized: "Add Field"))
         .accessibilityLabel(String(localized: "Add Field"))
         .docPanel(isPresented: controller.isShowing(.addField, in: block), alignment: .trailing,
-                                 onDismiss: { controller.close(.addField, in: block) }) {
-            DocFieldPanel(snapshot: snapshot, column: nil, controller: controller)
-        }
+                                 onDismiss: { controller.close(.addField, in: block) }, page: {
+            DocFieldPage(column: nil, block: block, controller: controller).inNavigation()
+        })
     }
 
     // MARK: Groups
@@ -305,40 +307,7 @@ private struct DocFieldHead: View {
     private var block: DocBlockID { snapshot.block }
 
     var body: some View {
-        Menu {
-            if controller.isEditable {
-                Button(String(localized: "Edit Field"), systemImage: "pencil") { controller.show(.editField(column.id), in: block) }
-                Divider()
-            }
-            Button(String(localized: "Sort Ascending"), systemImage: "arrow.up") {
-                controller.setSort([DatabaseSort(column: column.id, ascending: true)], in: view.id, of: block)
-            }
-            Button(String(localized: "Sort Descending"), systemImage: "arrow.down") {
-                controller.setSort([DatabaseSort(column: column.id, ascending: false)], in: view.id, of: block)
-            }
-            Button(String(localized: "Filter"), systemImage: "line.3.horizontal.decrease") {
-                let condition = CollectionFilter.conditions(for: column.type)[0]
-                controller.setFilters(view.filters + [CollectionFilter(column: column.id, condition: condition)], in: view.id, of: block)
-                controller.show(.filter, in: block)
-            }
-            if column.id != DocCollectionController.titleColumn(of: snapshot.database)?.id {
-                Menu(String(localized: "Group by this Field"), systemImage: "rectangle.3.group") {
-                    ForEach(DocGroupPanel.orders(manual: false), id: \.self) { order in
-                        Button(DocGroupPanel.name(order, of: column)) {
-                            controller.setGroup(column.id, in: view.id, of: block)
-                            controller.setGrouping(CollectionGrouping(order: order), in: view.id, of: block)
-                        }
-                    }
-                }
-            }
-            if controller.isEditable {
-                Divider()
-                Button(String(localized: "Hide Field"), systemImage: "eye.slash") { controller.setHidden(column.id, true, in: view.id, of: block) }
-                    .disabled(column.id == DocCollectionController.titleColumn(of: snapshot.database)?.id)
-                Button(String(localized: "Delete Field"), systemImage: "trash", role: .destructive) { controller.deleteField(column.id, in: block) }
-                    .disabled(snapshot.database.columns.count < 2)
-            }
-        } label: {
+        FlooLabeledMenu(sections: { sections }) {
             HStack(spacing: DocTokens.Space.xs + 2) {
                 Image(systemName: DocFieldText.symbol(column))
                     .font(.system(size: DocTokens.Icon.compact))
@@ -347,29 +316,68 @@ private struct DocFieldHead: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                     .lineLimit(1)
+                    // The name before the room for what's optional.
+                    .layoutPriority(1)
                 if let sort = view.layout.sort.first(where: { $0.column == column.id }) {
                     Image(systemName: sort.ascending ? "arrow.up" : "arrow.down")
                         .font(.system(size: DocTokens.Icon.inline, weight: .semibold))
                         .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: DocTokens.Icon.inline, weight: .semibold))
-                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
-                    .opacity(hovering ? 1 : 0)
+                // Over the pointer's only: a finger's none took room from the name.
+                if DocTokens.Platform.isPointer {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: DocTokens.Icon.inline, weight: .semibold))
+                        .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
+                        .opacity(hovering ? 1 : 0)
+                }
             }
             .padding(.horizontal, Metrics.cellInset)
             .frame(maxWidth: .infinity, minHeight: Metrics.headHeight)
             .contentShape(Rectangle())
         }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
         .buttonStyle(.flooContent(in: Rectangle()))
         .onHover { hovering = $0 }
         .docPanel(isPresented: controller.isShowing(.editField(column.id), in: block),
-                                 onDismiss: { controller.close(.editField(column.id), in: block) }) {
-            DocFieldPanel(snapshot: snapshot, column: column, controller: controller)
+                  onDismiss: { controller.close(.editField(column.id), in: block) },
+                  page: { DocFieldPage(column: column, block: block, controller: controller).inNavigation() })
+    }
+
+    private var sections: [FlooMenuSection] {
+        let isTitle = column.id == DocCollectionController.titleColumn(of: snapshot.database)?.id
+        var sections: [FlooMenuSection] = []
+        if controller.isEditable {
+            sections.append(.init([.action(String(localized: "Edit Field"), symbol: "pencil") { controller.show(.editField(column.id), in: block) }]))
         }
+        var view: [FlooMenuItem] = [
+            .action(String(localized: "Sort Ascending"), symbol: "arrow.up") {
+                controller.setSort([DatabaseSort(column: column.id, ascending: true)], in: self.view.id, of: block)
+            },
+            .action(String(localized: "Sort Descending"), symbol: "arrow.down") {
+                controller.setSort([DatabaseSort(column: column.id, ascending: false)], in: self.view.id, of: block)
+            },
+            .action(String(localized: "Filter"), symbol: "line.3.horizontal.decrease") {
+                let condition = CollectionFilter.conditions(for: column.type)[0]
+                controller.setFilters(self.view.filters + [CollectionFilter(column: column.id, condition: condition)], in: self.view.id, of: block)
+                controller.show(.view, in: block)
+            },
+        ]
+        if !isTitle {
+            view.append(.submenu(String(localized: "Group by this Field"), symbol: "rectangle.3.group", [.init(DocCollectionNames.orders(manual: false).map { order in
+                .action(DocCollectionNames.name(order, of: column)) {
+                    controller.setGroup(column.id, in: self.view.id, of: block)
+                    controller.setGrouping(CollectionGrouping(order: order), in: self.view.id, of: block)
+                }
+            })]))
+        }
+        sections.append(.init(view))
+        if controller.isEditable {
+            sections.append(.init([
+                .action(String(localized: "Hide Field"), symbol: "eye.slash", isEnabled: !isTitle) { controller.setHidden(column.id, true, in: self.view.id, of: block) },
+                .action(String(localized: "Delete Field"), symbol: "trash", role: .destructive, isEnabled: snapshot.database.columns.count > 1) { controller.deleteField(column.id, in: block) },
+            ]))
+        }
+        return sections
     }
 }
 
@@ -444,9 +452,8 @@ struct DocCollectionCell: View {
             .buttonStyle(.plain)
             .disabled(!controller.isEditable)
             .docPanel(isPresented: controller.isShowing(panel, in: block),
-                                     onDismiss: { controller.close(panel, in: block) }) {
-                DocDatePanel(row: row, column: column, block: block, controller: controller)
-            }
+                      onDismiss: { controller.close(panel, in: block) },
+                      page: { DocDatePage(row: row, column: column, block: block, controller: controller) })
         default:
             // The title opens the record (Craft's arrow, over the row): over the room kept
             // for it at the title's end, so its coming and going moves nothing.
@@ -524,15 +531,14 @@ struct DocCollectionCell: View {
         .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight)
         .contentShape(Rectangle())
         if compact {
-            Menu {
-                ForEach(options, id: \.id) { option in
-                    Toggle(option.name, isOn: Binding { chosen.contains(option) } set: { _ in
+            let isMulti = if case .multiSelect = column.type { true } else { false }
+            FlooLabeledMenu(sections: {
+                [.init(options.map { option in
+                    .docOption(option.name, color: DocOptionColor.color(DocOptionColor.token(option, in: options)), isOn: chosen.contains(option), keepsOpen: isMulti) {
                         controller.toggle(option.id, row: row.id, column: column.id, in: block)
-                    })
-                }
-            } label: { chips }
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
+                    }
+                })]
+            }) { chips }
             .buttonStyle(.plain)
             .disabled(!controller.isEditable)
         } else {
@@ -542,9 +548,9 @@ struct DocCollectionCell: View {
             .buttonStyle(.plain)
             .disabled(!controller.isEditable)
             .docPanel(isPresented: controller.isShowing(.options(row: row.id, column: column.id), in: block),
-                                     onDismiss: { controller.close(.options(row: row.id, column: column.id), in: block) }) {
-                DocOptionsPanel(snapshot: snapshot, row: row, column: column, controller: controller)
-            }
+                      onDismiss: { controller.close(.options(row: row.id, column: column.id), in: block) },
+                      page: { DocOptionsPage(row: row, column: column, block: block, controller: controller) },
+                      update: { ($0 as? DocOptionsPage)?.update(row: row, column: column) })
         }
     }
 }
@@ -552,9 +558,13 @@ struct DocCollectionCell: View {
 /// How wide a table's column reads on one line: its header, and each of its cells as shown.
 enum DocCollectionWidths {
     static func head(_ column: Column) -> CGFloat {
-        // The type's symbol, its gap, the name, the chevron's room, the insets.
-        width(column.name, size: 13, weight: .medium) + DocTokens.Icon.compact + 3 * DocTokens.Space.xs + 2
-            + 12 + 2 * Metrics.cellInset
+        // The type's symbol as wide as it's drawn, its gap, the name, a sort's arrow, on a pointer
+        // the chevron's room, the insets.
+        let gap = DocTokens.Space.xs + 2
+        let symbol = DocTokens.Icon.compact + 6
+        let arrow = DocTokens.Icon.inline + 4 + gap
+        let chevron = DocTokens.Platform.isPointer ? DocTokens.Icon.inline + 4 + gap : 0
+        return width(column.name, size: 13, weight: .medium) + symbol + gap + arrow + chevron + 2 * Metrics.cellInset + 2
     }
 
     static func cell(_ value: CellValue?, in column: Column, isTitle: Bool) -> CGFloat {
@@ -573,7 +583,7 @@ enum DocCollectionWidths {
     }
 
     private static func chips(_ options: [SelectOption]) -> CGFloat {
-        options.map { width($0.name, size: 13, weight: .medium) + 14 }.reduce(0, +)
+        options.map { FlooBadgeMetrics.width($0.name) }.reduce(0, +)
             + CGFloat(max(options.count - 1, 0)) * DocTokens.Space.xs
     }
 
@@ -618,17 +628,17 @@ private struct DocCalculationCell: View {
     private var calculation: CollectionCalculation? { view.calculations[column.id] }
 
     var body: some View {
-        Menu {
-            ForEach(DocCollectionMath.available(for: column), id: \.self) { calculation in
-                Button(DocCollectionMath.title(calculation)) {
+        FlooLabeledMenu(sections: {
+            var sections = [FlooMenuSection(DocCollectionMath.available(for: column).map { calculation in
+                .action(DocCollectionMath.title(calculation), isOn: calculation == self.calculation) {
                     controller.setCalculation(calculation, for: column.id, in: view.id, of: snapshot.block)
                 }
-            }
+            })]
             if calculation != nil {
-                Divider()
-                Button(String(localized: "None")) { controller.setCalculation(nil, for: column.id, in: view.id, of: snapshot.block) }
+                sections.append(.init([.action(String(localized: "None")) { controller.setCalculation(nil, for: column.id, in: view.id, of: snapshot.block) }]))
             }
-        } label: {
+            return sections
+        }) {
             HStack(spacing: DocTokens.Space.xs) {
                 Spacer(minLength: 0)
                 if let calculation {
@@ -648,8 +658,6 @@ private struct DocCalculationCell: View {
             .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight)
             .contentShape(Rectangle())
         }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
         .buttonStyle(.plain)
         .disabled(!controller.isEditable)
     }
