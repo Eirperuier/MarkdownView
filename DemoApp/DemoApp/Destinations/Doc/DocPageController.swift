@@ -108,10 +108,15 @@ final class DocPageController: UIViewController {
         list.heightEstimate = { row, width in row.estimatedHeight(width: width) }
         // Rows coming (cards, views, collections) are made ahead in the window, out of sight
         // (AheadWork), and wait while the page moves.
+        // In the list's own scroll view, beside its cells: their traits, so a view going from
+        // the stage into a row has nothing to take on.
         let aheadStage = UIView(frame: CGRect(x: -20_000, y: 0, width: 1, height: 1))
         aheadStage.isUserInteractionEnabled = false
         aheadStage.accessibilityElementsHidden = true
-        view.addSubview(aheadStage)
+        func scrollView(in view: UIView) -> UICollectionView? {
+            view as? UICollectionView ?? view.subviews.lazy.compactMap(scrollView(in:)).first
+        }
+        (scrollView(in: list) ?? view).insertSubview(aheadStage, at: 0)
         AheadWork.stage = aheadStage
         var lastOffset: CGFloat?
         AheadWork.isBusy = { [weak reader] in
@@ -678,7 +683,8 @@ struct DocHostedRowContent: TiledUIKitCellContent {
     static func makeRowView() -> HostedRowView { HostedRowView() }
 
     func configure(_ view: HostedRowView, context: TiledUIKitCellContext) {
-        view.show(content, key: key, context: context)
+        // The key is the row as it is; what else it shows (selection, hover) it observes.
+        view.show(content, key: key, keyIsContent: true, context: context)
     }
 
     func height(forWidth width: CGFloat, traits: UITraitCollection) -> CGFloat {

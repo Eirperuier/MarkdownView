@@ -13,7 +13,7 @@ import UIKit
 
 @MainActor
 final class HostedRowView: UIView {
-    private var host: UIHostingController<AnyView>?
+    private var host: Host?
     private var key: String?
     private var context: TiledUIKitCellContext?
     /// Told the size the content renders at, each time it changes.
@@ -29,7 +29,7 @@ final class HostedRowView: UIView {
 
     /// Hosts of rows scrolled away, by key, the most recent last: a row coming back takes its
     /// own, its views built and laid out already (a chart, a card), as Telegram keeps a node's.
-    private static var spare: [(key: String, host: UIHostingController<AnyView>)] = []
+    private static var spare: [(key: String, host: Host)] = []
     private static let spareLimit = 24
     /// The keys rows show now.
     private static var showing: Set<String> = []
@@ -53,7 +53,9 @@ final class HostedRowView: UIView {
         return height
     }
 
-    func show(_ content: some View, key: String, context: TiledUIKitCellContext) {
+    /// - Parameter keyIsContent: `key` names the content whole (another content, another
+    ///   key): a host showing it already is shown as it is, its views not asked again.
+    func show(_ content: some View, key: String, keyIsContent: Bool = false, context: TiledUIKitCellContext) {
         if self.key != key || host == nil {
             putHostAway()
             take(Self.host(for: key))
@@ -61,18 +63,39 @@ final class HostedRowView: UIView {
         self.key = key
         Self.showing.insert(key)
         self.context = context
-        host?.rootView = Self.rooted(content, key: key, in: self)
+        if let host {
+            let link = Self.link(of: host)
+            link.row = self
+            if !keyIsContent || link.rootKey != key {
+                host.rootView = Self.rooted(content, key: key, link: link)
+                link.rootKey = key
+            }
+        }
         setNeedsLayout()
     }
 
+    /// Who a host tells its size to: the row showing it, none while it's kept; and what it
+    /// shows.
+    private final class Link {
+        weak var row: HostedRowView?
+        var rootKey: String?
+    }
+
+    /// A host and its link, which lives as long as it does.
+    private final class Host: UIHostingController<AnyView> {
+        let link = Link()
+    }
+
+    private static func link(of host: Host) -> Link { host.link }
+
     /// At its own height, top first: a change in it (a card prepared) is told to the row
     /// showing it. The same views made ahead and shown: shown, only what's told changes.
-    private static func rooted(_ content: some View, key: String, in row: HostedRowView?) -> AnyView {
+    private static func rooted(_ content: some View, key: String, link: Link) -> AnyView {
         AnyView(
             content
                 .fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { [weak row] size in
-                    MainActor.assumeIsolated { row?.contentSizeChanged(size, key: key) }
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { [link] size in
+                    MainActor.assumeIsolated { link.row?.contentSizeChanged(size, key: key) }
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
         )
@@ -86,11 +109,14 @@ final class HostedRowView: UIView {
         counts.asked += 1
         let work = "hosted|\(key)"
         guard width > 0, !showing.contains(key), !spare.contains(where: { $0.key == key }), !AheadWork.isWaiting(work) else { return }
-        let root = rooted(content, key: key, in: nil)
+        let content = AnyView(content)
         AheadWork.add(work) {
             guard !showing.contains(key), !spare.contains(where: { $0.key == key }) else { return }
             let host = host(for: "")
-            host.rootView = root
+            let link = link(of: host)
+            link.row = nil
+            host.rootView = rooted(content, key: key, link: link)
+            link.rootKey = key
             let height = heights[key]?[width] ?? host.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
             host.view.frame = CGRect(x: 0, y: 0, width: width, height: height)
             AheadWork.stage?.addSubview(host.view)
@@ -106,24 +132,45 @@ final class HostedRowView: UIView {
     static var counts = (asked: 0, madeAhead: 0, kept: 0, made: 0)
 
     /// The host kept for `key`, else the longest kept one's, else a new one.
-    private static func host(for key: String) -> UIHostingController<AnyView> {
+    private static func host(for key: String) -> Host {
         if let index = spare.lastIndex(where: { $0.key == key }) {
             counts.kept += 1
             return spare.remove(at: index).host
         }
         if !key.isEmpty { counts.made += 1 }
         if spare.count >= spareLimit { return spare.removeFirst().host }
-        let host = UIHostingController(rootView: AnyView(EmptyView()))
+        let host = Host(rootView: AnyView(EmptyView()))
         host.sizingOptions = []
         host.safeAreaRegions = []
         host.view.backgroundColor = .clear
         return host
     }
 
-    private func take(_ host: UIHostingController<AnyView>) {
+    private func take(_ host: Host) {
         self.host = host
+        holdIfInWindow()
+    }
+
+    /// Its host comes into the row once the row is in the window: kept in the stage it's in
+    /// the window already, and going through a row out of one would take it out and back,
+    /// SwiftUI updating and drawing it again for each.
+    private func holdIfInWindow() {
+        guard let host, host.view.superview !== self, window != nil || host.view.window == nil else { return }
         host.view.frame = bounds
         addSubview(host.view)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { holdIfInWindow() }
+    }
+
+    /// Leaving the window (a cell scrolled off, often before the row is reset), its host
+    /// goes to the stage first, still the row's: it stays in the window, as it is.
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        guard newWindow == nil, let host, let stage = AheadWork.stage, window != nil, stage.window === window else { return }
+        stage.addSubview(host.view)
     }
 
     /// Its host off the row and kept for its key.

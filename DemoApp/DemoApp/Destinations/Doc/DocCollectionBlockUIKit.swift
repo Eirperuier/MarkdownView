@@ -72,11 +72,9 @@ final class DocCollectionRowView: DocRowUIKitView {
         if shownBlock != snapshot.block { putAway() }
         let view = collection ?? Self.kept.removeValue(forKey: snapshot.block) ?? DocCollectionBlockView()
         if view !== collection {
-            view.frame = holder.bounds
-            view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            holder.addSubview(view)
             view.heightChanged = { [weak self] in self?.contentHeightChanged() }
             collection = view
+            holdIfInWindow()
         }
         shownBlock = snapshot.block
         Self.showing.insert(snapshot.block)
@@ -89,6 +87,30 @@ final class DocCollectionRowView: DocRowUIKitView {
         super.reset()
         collection?.reset()
         putAway()
+    }
+
+    /// Its block view comes into the row once the row is in the window: kept in the stage
+    /// it's in the window already, and going through a row out of one would take it out of
+    /// the window and back, every view in it told twice.
+    private func holdIfInWindow() {
+        guard let collection, collection.superview !== holder else { return }
+        guard window != nil || collection.window == nil else { return }
+        collection.frame = holder.bounds
+        collection.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        holder.addSubview(collection)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { holdIfInWindow() }
+    }
+
+    /// Leaving the window (a cell scrolled off, often before the row is reset), its block
+    /// view goes to the stage first, still the row's: it stays in the window, as it is.
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        guard newWindow == nil, let collection, let stage = AheadWork.stage, window != nil, stage.window === window else { return }
+        stage.addSubview(collection)
     }
 
     /// The block view it showed kept for its block, in the stage (in the window, as it was
@@ -218,6 +240,9 @@ final class DocCollectionBlockView: UIView, UITextFieldDelegate {
     // MARK: Showing
 
     func show(_ snapshot: DocCollectionSnapshot, controller: DocCollectionController) {
+        // The same again (the row scrolled back): drawn as it is. What else it shows follows
+        // the controller by itself (refresh).
+        if self.snapshot == snapshot, self.controller === controller { return }
         if self.snapshot?.block != snapshot.block {
             searching = false
             renaming = nil
@@ -548,8 +573,37 @@ final class DocCollectionBlockView: UIView, UITextFieldDelegate {
     private static var nameRow: CGFloat { max(ceil(nameFont.lineHeight), buttonHeight) }
     private static var headerHeight: CGFloat { nameRow + DocTokens.Space.sm + Metrics.tabHeight }
 
+    /// What its height is worked out from: the same again, the same height.
+    private struct HeightInputs: Equatable {
+        let snapshot: DocCollectionSnapshot
+        let width: CGFloat
+        let isEditable: Bool
+        let folded: Set<String>
+        let search: String?
+        let chartPick: String?
+        let pages: [Bool]
+        let traits: [AnyHashable]
+    }
+
+    /// The last height worked out for each block: a kanban's measures every card's text, and
+    /// was what the row cost each time it came on screen.
+    private static var heights: [DocBlockID: (inputs: HeightInputs, height: CGFloat)] = [:]
+
     /// Its height at a width: its padding, the header, the view's.
     static func height(_ snapshot: DocCollectionSnapshot, controller: DocCollectionController, width: CGFloat) -> CGFloat {
+        let traits = UITraitCollection.current
+        let inputs = HeightInputs(snapshot: snapshot, width: width, isEditable: controller.isEditable,
+                                  folded: DocTableFolds.folded[snapshot.block] ?? [], search: controller.searches[snapshot.block],
+                                  chartPick: DocCollectionChartView.selections[snapshot.block],
+                                  pages: controller.hasPage.map { has in snapshot.database.rows.map { has($0.id) } } ?? [],
+                                  traits: [traits.displayScale, traits.preferredContentSizeCategory, traits.legibilityWeight.rawValue])
+        if let known = heights[snapshot.block], known.inputs == inputs { return known.height }
+        let height = measuredHeight(snapshot, controller: controller, width: width)
+        heights[snapshot.block] = (inputs, height)
+        return height
+    }
+
+    private static func measuredHeight(_ snapshot: DocCollectionSnapshot, controller: DocCollectionController, width: CGFloat) -> CGFloat {
         var body: CGFloat = 0
         if let view = snapshot.collection.currentView {
             switch view.layout {

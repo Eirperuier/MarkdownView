@@ -36,7 +36,7 @@ final class DocCollectionChartView: UIView {
     private let ringList = DocChartRingList()
 
     /// The group whose values show, by block: kept while the row scrolls away.
-    private static var selections: [DocBlockID: String] = [:]
+    private(set) static var selections: [DocBlockID: String] = [:]
     /// Its height changed from within (a group picked shows its values over the chart).
     var heightChanged: (() -> Void)?
 

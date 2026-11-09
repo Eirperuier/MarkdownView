@@ -38,7 +38,7 @@ final class DocScrollBench: NSObject {
     func run() async {
         reader.scrollToContentOffsetY(top, animated: false)
         try? await Task.sleep(for: .seconds(1))
-        for run in 0..<2 {
+        for run in 0..<(Self.aroundCollection ? 6 : 2) {
             pass = run
             DocRowTimes.reset()
             await withCheckedContinuation { continuation in
@@ -50,13 +50,25 @@ final class DocScrollBench: NSObject {
         }
     }
 
+    /// -docBenchAround collection: only across the first collection, it coming in from below
+    /// and going out again each pass, six times.
+    private static let aroundCollection = UserDefaults.standard.string(forKey: "docBenchAround") == "collection"
+
+    private var collectionFrame: CGRect? {
+        demo.rows.first { $0.collection != nil }.flatMap { reader.frame(forItem: $0.id) }
+    }
+
     private var top: CGFloat {
-        demo.rows.first.flatMap { reader.frame(forItem: $0.id) }.map { $0.minY - 200 } ?? 0
+        let screen = reader.visibleContentHeight() ?? 800
+        if Self.aroundCollection, let frame = collectionFrame { return max(0, frame.minY - screen * 2) }
+        return demo.rows.first.flatMap { reader.frame(forItem: $0.id) }.map { $0.minY - 200 } ?? 0
     }
 
     private var bottom: CGFloat {
+        let screen = reader.visibleContentHeight() ?? 600
+        if Self.aroundCollection, let frame = collectionFrame { return frame.maxY + screen * 0.2 }
         let end = demo.rows.last.flatMap { reader.frame(forItem: $0.id)?.maxY } ?? 0
-        return max(top, end - (reader.visibleContentHeight() ?? 600))
+        return max(top, end - screen)
     }
 
     private func start() {
