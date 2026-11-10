@@ -29,7 +29,7 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
     private var manager: StreamingRevealManager?
     private var fade: MarkdownFadeRevealConfig?
     private var colorScheme: ColorScheme = .light
-    private var lastAdvance = Date()
+    private var lastAdvance = MarkdownRevealClock.now
 
     // fragment.draw 读的快照:tick 在主线程写,draw 也在主线程读,故 nonisolated(unsafe) 安全。
     nonisolated(unsafe) fileprivate var snapFrontier = 0
@@ -129,7 +129,7 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
         // 重挂(cell 离屏回来 / host-shell 池复用)必须重置停表基准:lastAdvance 只被 manager 事件刷新,
         // manager 已完成时不再有事件 —— 留着旧值会让第一帧 tick 就命中 settle 停链,
         // 从 manager 戳恢复的 mid-fade 字符被冻在半程。
-        lastAdvance = Date()
+        lastAdvance = MarkdownRevealClock.now
         textView.textLayoutManager?.delegate = self
         updateSnapshot()
         subscribe(to: manager)
@@ -211,7 +211,7 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
         snapColorDuration = effectiveDuration * MarkdownFadeRevealConfig.colorDurationMultiplier
         snapColorSettle = snapColorDelay + snapColorDuration
         snapOverlay = colorScheme == .dark ? 0.35 : 0.5
-        snapTint = revealTint(now: Date())
+        snapTint = revealTint(now: MarkdownRevealClock.now)
         advanceFirstSeen(frontier: snapFrontier, manager: manager)
         reportRevealedExtent(manager: manager)
     }
@@ -265,7 +265,7 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
         if firstSeen.count < textLen {
             firstSeen.append(contentsOf: Array(repeating: nil, count: textLen - firstSeen.count))
         }
-        let now = Date()
+        let now = MarkdownRevealClock.now
         let upper = min(frontier, firstSeen.count)
         if upper > stampedFrontier {
             for i in stampedFrontier..<upper where firstSeen[i] == nil {
@@ -317,7 +317,7 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
     private func subscribe(to manager: StreamingRevealManager) {
         guard listenerID == nil else { return }
         listenerID = manager.addListener { [weak self] _ in
-            self?.lastAdvance = Date()
+            self?.lastAdvance = MarkdownRevealClock.now
             self?.start()
         }
     }
@@ -340,7 +340,7 @@ final class RevealCoordinator: NSObject, NSTextLayoutManagerDelegate {
         updateSnapshot()  // 刷新 frontier + tint(hue 随时间)+ settle 窗口
         textView.setNeedsDisplay()
         // reveal 停止推进且最后一批字符都过了 settle 窗口 → 全定型,停 CADisplayLink 省电。
-        if Date().timeIntervalSince(lastAdvance) > snapColorSettle + 0.15 { stop() }
+        if MarkdownRevealClock.now.timeIntervalSince(lastAdvance) > snapColorSettle + 0.15 { stop() }
     }
 
     // MARK: - reveal tint(复刻 RevealFadeRenderer 的 hue cycle)
@@ -416,7 +416,7 @@ final class RevealFadeFragment: NSTextLayoutFragment {
         }
         guard !revealedRects.isEmpty else { return }
 
-        let now = Date()
+        let now = MarkdownRevealClock.now
         let duration = owner.snapDuration
         let settle = owner.snapColorSettle
         let colorDelay = owner.snapColorDelay

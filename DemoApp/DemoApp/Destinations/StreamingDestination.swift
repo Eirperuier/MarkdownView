@@ -8,7 +8,7 @@
 
 import SwiftUI
 import MarkdownView
-import FlooDesign
+import FlooUIKit
 
 struct StreamingDestination: View {
     @State private var parser = MarkdownStreamParser(splitter: MarkdownBlockSplitter(
@@ -22,7 +22,7 @@ struct StreamingDestination: View {
     @State private var layout = BlockSelectionScrollLayout()
     @State private var selection = {
         let selection = MarkdownBlockSelectionController()
-        selection.motion = FlooDesignTokens.Motion.markdown
+        selection.motion = AppMotion.markdown
         return selection
     }()
 

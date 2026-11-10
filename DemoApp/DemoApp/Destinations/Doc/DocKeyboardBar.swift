@@ -24,12 +24,12 @@
 //  keyboard and no bar.
 //
 
+import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
-import FlooDesign
 
-private typealias Metrics = FlooDesignTokens.Component.KeyboardBar
+private typealias Metrics = DocTokens.Component.KeyboardBar
 
 @MainActor
 final class DocKeyboardBar: UIView {
@@ -49,9 +49,9 @@ final class DocKeyboardBar: UIView {
     init(editor: DocEditor) {
         self.editor = editor
         super.init(frame: CGRect(x: 0, y: 0, width: 390, height: Self.height))
-        backgroundColor = FlooDesignTokens.UIKitColor.canvas
+        backgroundColor = DocTokens.UIKitColor.canvas
         let hairline = UIView()
-        hairline.backgroundColor = FlooDesignTokens.UIKitColor.separator
+        hairline.backgroundColor = DocTokens.UIKitColor.separator
         keys.axis = .horizontal
         keys.alignment = .center
         for view in [hairline, keys] as [UIView] {
@@ -62,7 +62,7 @@ final class DocKeyboardBar: UIView {
             hairline.topAnchor.constraint(equalTo: topAnchor),
             hairline.leadingAnchor.constraint(equalTo: leadingAnchor),
             hairline.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hairline.heightAnchor.constraint(equalToConstant: FlooDesignTokens.Border.hairline),
+            hairline.heightAnchor.constraint(equalToConstant: DocTokens.Border.hairline),
             keys.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: Metrics.inset),
             keys.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -Metrics.inset),
             keys.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -151,7 +151,8 @@ final class DocKeyboardBar: UIView {
     /// A key (FlooDesign's bar key): the symbol in the bar's ink; on, tinted.
     private func styled(_ id: String, _ image: UIImage?, _ title: String, isOn: Bool) -> UIButton {
         if isOn { onKeys.insert(id) }
-        let button = FlooDesignBarKey.button(image, isOn: isOn)
+        let button = FlooButton(.plain, image: image)
+        button.isSelected = isOn
         button.accessibilityLabel = title
         button.accessibilityIdentifier = id
         return button
@@ -161,7 +162,7 @@ final class DocKeyboardBar: UIView {
 
     /// Craft's: a slash before a page of lines.
     static let slashGlyph: UIImage? = {
-        let config = UIImage.SymbolConfiguration(pointSize: FlooDesignTokens.Icon.standard, weight: .regular, scale: .medium)
+        let config = UIImage.SymbolConfiguration(pointSize: DocTokens.Icon.standard, weight: .regular, scale: .medium)
         guard let page = UIImage(systemName: "doc.plaintext", withConfiguration: config) else { return nil }
         let size = CGSize(width: page.size.width + 7, height: page.size.height + 2)
         return UIGraphicsImageRenderer(size: size).image { _ in
@@ -184,7 +185,7 @@ final class DocKeyboardBar: UIView {
 
     /// Three dots stacked (the symbol set has them only side by side).
     static let verticalEllipsis: UIImage? = {
-        let small = UIImage.SymbolConfiguration(pointSize: FlooDesignTokens.Icon.toolbar, weight: .medium, scale: .medium)
+        let small = UIImage.SymbolConfiguration(pointSize: DocTokens.Icon.toolbar, weight: .medium, scale: .medium)
         guard let dots = UIImage(systemName: "ellipsis", withConfiguration: small) else { return nil }
         let size = CGSize(width: dots.size.height, height: dots.size.width)
         return UIGraphicsImageRenderer(size: size).image { context in
@@ -244,7 +245,7 @@ final class DocKeyboardBarStage: UIView {
     init(bar: DocKeyboardBar) {
         self.bar = bar
         super.init(frame: .zero)
-        under.backgroundColor = FlooDesignTokens.UIKitColor.canvas
+        under.backgroundColor = DocTokens.UIKitColor.canvas
         addSubview(under)
         addSubview(bar)
     }

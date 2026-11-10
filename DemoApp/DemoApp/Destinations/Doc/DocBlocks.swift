@@ -18,6 +18,7 @@
 //  the list's own scroll view (content coordinates), so they scroll with the rows.
 //
 
+import FlooUIKit
 import SwiftUI
 import QuickLook
 import UniformTypeIdentifiers
@@ -25,13 +26,12 @@ import UIKit.UIGestureRecognizerSubclass
 import DocKit
 import MarkdownView
 import MessagingUI
-import FlooDesign
 import CardRuntime
 
 @MainActor
 @Observable
 final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInteractionDelegate, UIDropInteractionDelegate,
-    UIContextMenuInteractionDelegate, QLPreviewControllerDataSource {
+    QLPreviewControllerDataSource {
     #if targetEnvironment(macCatalyst)
     nonisolated static let usesHandles = true
     #else
@@ -61,7 +61,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// How far a block at `indent` sits in from the page's left: its whole block (its
     /// box, its tint, its handle) goes in; the page's right edge stays.
     nonisolated static func indentWidth(_ indent: Int) -> CGFloat {
-        CGFloat(indent) * FlooDesignTokens.Component.Indent.step
+        CGFloat(indent) * DocTokens.Component.Indent.step
     }
 
     @ObservationIgnored let demo: DocDemo
@@ -72,7 +72,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// with the blocks.
     let selection: MarkdownBlockSelectionController = {
         let selection = MarkdownBlockSelectionController()
-        selection.motion = FlooDesignTokens.Motion.markdown
+        selection.motion = DocTokens.Motion.markdown
         selection.selectsGroups = false
         return selection
     }()
@@ -101,16 +101,16 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @ObservationIgnored private weak var list: UICollectionView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     /// The Mac's handle beside the block under the pointer (FlooDesign's).
-    @ObservationIgnored private lazy var handle: FlooDesignDragHandle = {
-        let handle = FlooDesignDragHandle()
+    @ObservationIgnored private lazy var handle: FlooDragHandle = {
+        let handle = FlooDragHandle()
         handle.addInteraction(UIToolTipInteraction(defaultToolTip: String(localized: "Click to select, drag to move")))
         handle.isAccessibilityElement = true
         handle.accessibilityLabel = String(localized: "Block handle")
         return handle
     }()
     @ObservationIgnored private lazy var keys = DocBlockKeyView()
-    @ObservationIgnored private lazy var indicator: FlooDesignDropIndicator = {
-        let view = FlooDesignDropIndicator()
+    @ObservationIgnored private lazy var indicator: FlooDropIndicator = {
+        let view = FlooDropIndicator()
         view.layer.zPosition = 7
         return view
     }()
@@ -210,7 +210,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             click.delegate = self
             list.addGestureRecognizer(click)
             blockClick = click
-            list.addInteraction(UIContextMenuInteraction(delegate: self))
+            list.flooAddContextMenu(at: { [weak self] in self?.rightClickMenu(at: $0) ?? [] })
         } else {
             selection.install(layout: reader)
             let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
@@ -374,7 +374,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         let moves = CACurrentMediaTime() < overlaysMoveUntil
         highlights = place(text.compactMap { highlightFrame($0)?.insetBy(dx: 0, dy: -outset) }, in: highlights, outset: Self.highlightSide, moves: moves) {
             let view = DocSelectionHighlight()
-            view.backgroundColor = FlooDesignTokens.UIKitColor.accent.withAlphaComponent(MarkdownBlockSelectionStyle.highlightOpacity)
+            view.backgroundColor = DocTokens.UIKitColor.accent.withAlphaComponent(MarkdownBlockSelectionStyle.highlightOpacity)
             view.layer.cornerRadius = MarkdownBlockSelectionStyle.highlightCornerRadius
             view.layer.cornerCurve = .continuous
             view.layer.zPosition = 5
@@ -383,7 +383,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         let dimmed = drag.map { $0.isMoving ? $0.moving : [] } ?? []
         dimmers = place(runs(of: dimmed), in: dimmers, outset: 6) {
             let view = UIView()
-            view.backgroundColor = FlooDesignTokens.UIKitColor.dimmed
+            view.backgroundColor = DocTokens.UIKitColor.dimmed
             view.layer.zPosition = 6
             return view
         }
@@ -446,7 +446,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         let shown = view.layer.presentation() ?? view.layer
         let from = (position: shown.position, bounds: shown.bounds)
         view.frame = frame
-        let spring = FlooDesignTokens.Motion.layoutSpring
+        let spring = DocTokens.Motion.layoutSpring
         for (key, value, target) in [("position", NSValue(cgPoint: from.position), NSValue(cgPoint: view.layer.position)),
                                      ("bounds", NSValue(cgRect: from.bounds), NSValue(cgRect: view.layer.bounds))] {
             let animation = CASpringAnimation(perceptualDuration: spring.duration, bounce: spring.bounce)
@@ -464,7 +464,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             handle.isHidden = true
             return
         }
-        let size = FlooDesignDragHandle.size
+        let size = FlooDragHandle.size
         // Before the block's page part: an indented block's handle goes in with it (Craft's).
         let left = pageFrame(hovered)?.minX ?? content.minX
         let frame = CGRect(x: left - size.width - 6, y: firstLineMidY(hovered, row: content) - size.height / 2,
@@ -527,25 +527,17 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     /// (DocBlockMenu). On a table's cell the cell is edited, and its menu shows (ours, by
     /// the cell). Text being edited has its own (DocEditor.editMenu); a view in a block
     /// with its own right-click menu (a collection's row) takes it before the list.
-    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        rightClick(at: location)
-        return nil
-    }
-
-    /// The block menu shown (false: none, or the cell's).
-    @discardableResult
-    private func rightClick(at location: CGPoint) -> Bool {
-        guard Self.usesHandles, drag == nil, !demo.isAgentWriting, let id = block(at: location) else { return false }
-        // What's inside a block has its own menu (a view's rows, cards and tabs).
-        if let list, FlooDesignContextMenus.handOver(at: location, in: list) { return false }
+    /// The block menu at a right-click (none: nothing there, or the cell's, which it shows).
+    /// What's inside a block with a menu of its own (a view's rows, cards and tabs) has its
+    /// turn first: UIKit's asks the innermost.
+    private func rightClickMenu(at location: CGPoint) -> [FlooMenuSection] {
+        guard Self.usesHandles, drag == nil, !demo.isAgentWriting, let id = block(at: location) else { return [] }
         if let row = rowFrame(id), let cell = editor.tables.cell(in: id, at: CGPoint(x: location.x - row.minX, y: location.y - row.minY)) {
             editor.tables.showMenu(cell)
-            return false
+            return []
         }
         if !selected.contains(id) { click(id) }
-        guard let list else { return false }
-        FlooDesignContextMenus.show(at: location, in: list) { [weak self] _ in self?.selectionMenu() ?? [] }
-        return true
+        return selectionMenu()
     }
 
     /// Whether a block's row (`editsText`: it has text to edit) takes clicks itself (its
@@ -820,7 +812,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         let selects = abs(x) >= Self.swipeDistance
         if selects { toggleSelecting(id) }
         // Back in the layout's spring.
-        let spring = FlooDesignTokens.Motion.layoutSpring
+        let spring = DocTokens.Motion.layoutSpring
         UIView.animate(springDuration: spring.duration, bounce: spring.bounce, initialSpringVelocity: 0, delay: 0,
                        options: [.beginFromCurrentState, .allowUserInteraction]) {
             cell?.transform = .identity
@@ -1136,8 +1128,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
             frame.intersects(DocScrolling.visible(in: list)), let cell = cells(of: [id]).first
         else { return nil }
         let parameters = UIDragPreviewParameters()
-        parameters.visiblePath = UIBezierPath(roundedRect: list.convert(frame, to: cell), cornerRadius: FlooDesignTokens.Component.DragPreview.cornerRadius)
-        parameters.backgroundColor = Self.usesHandles ? .clear : FlooDesignTokens.UIKitColor.elevated(in: list.traitCollection)
+        parameters.visiblePath = UIBezierPath(roundedRect: list.convert(frame, to: cell), cornerRadius: DocTokens.Component.DragPreview.cornerRadius)
+        parameters.backgroundColor = Self.usesHandles ? .clear : DocTokens.UIKitColor.elevated(in: list.traitCollection)
         return UITargetedDragPreview(view: cell, parameters: parameters)
     }
 
@@ -1291,7 +1283,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         else { return nil }
         let isAfter = point.x > frame.midX
         let x = (isAfter ? frame.maxX : frame.minX) + (isAfter ? 1 : -1) * DocMediaLayout.gap / 2
-        let thickness = FlooDesignTokens.Component.DropIndicator.thickness
+        let thickness = DocTokens.Component.DropIndicator.thickness
         return (isAfter ? index + 1 : index, CGRect(x: x - thickness / 2, y: frame.minY, width: thickness, height: frame.height))
     }
 
@@ -1387,10 +1379,10 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     func reshape(_ change: () -> Void) {
         // The selection's tint and the handle go to their new places with the rows: the
         // list lays them out once the rows have their new frames, a little later.
-        if FlooDesignTokens.Motion.layout != nil {
-            overlaysMoveUntil = CACurrentMediaTime() + FlooDesignTokens.Motion.layoutSpring.settlingDuration
+        if DocTokens.Motion.layout != nil {
+            overlaysMoveUntil = CACurrentMediaTime() + DocTokens.Motion.layoutSpring.settlingDuration
         }
-        withAnimation(FlooDesignTokens.Motion.layout) { change() }
+        withAnimation(DocTokens.Motion.layout) { change() }
     }
 
     /// Until when the overlays move to their places in the layout motion (a reshape).
@@ -1695,7 +1687,7 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
     @discardableResult
     /// A right-click at `point` (list coordinates): whether the block menu shows.
     func testRightClick(at point: CGPoint) -> Bool {
-        rightClick(at: point)
+        !rightClickMenu(at: point).isEmpty
     }
 
     func testPress(_ id: DocBlockID, toY y: CGFloat? = nil) -> Bool {
@@ -1838,6 +1830,8 @@ final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInt
         // Each layer as far as the layers clipping it show it (a picture filling its box is
         // bigger than the box).
         func visit(_ layer: CALayer, depth: Int, clip: CGRect) {
+            // Not what isn't drawn: a box's outline for when it's chosen, past its edges.
+            guard !layer.isHidden else { return }
             let shown = layer.presentation() ?? layer
             // In the cell's coordinates, its contents' shift included.
             let bounds = shown.convert(shown.bounds, to: root).offsetBy(dx: root.frame.minX, dy: root.frame.minY)
@@ -1922,7 +1916,7 @@ final class DocBlockKeyView: UIView {
 
     override var keyCommands: [UIKeyCommand]? {
         // A right-click's menu on the blocks has the keys while it's open.
-        guard !FlooDesignPanels.holdsKeys else { return nil }
+        guard !FlooFloatingPanels.holdsKeys else { return nil }
         let commands = [
             UIKeyCommand(input: "\u{8}", modifierFlags: [], action: #selector(deleteBlocks)),
             UIKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: [], action: #selector(deleteBlocks)),
@@ -1982,18 +1976,18 @@ struct DocBlockSelectionBar: View {
     var body: some View {
         // Shown exactly while selecting, under no sheet: FlooDesign's panel stays in
         // the view and follows only that, so nothing can leave it on screen.
-        FlooDesignActionPanel(isPresented: blocks.isSelecting && !showsSheet) { actions }
+        actionPanel
             .sheet(isPresented: Binding(get: { showsSheet }, set: { if !$0 { blocks.closeSheet() } })) {
                 Group {
                     if blocks.isChoosingLayout {
                         layouts
-                            .padding(.horizontal, FlooDesignTokens.Component.Sheet.inset)
-                            .padding(.bottom, FlooDesignTokens.Component.Sheet.inset)
+                            .padding(.horizontal, DocTokens.Component.Sheet.inset)
+                            .padding(.bottom, DocTokens.Component.Sheet.inset)
                     } else {
                         DocFormatSheet(editor: blocks.editor)
                     }
                 }
-                .flooDesignSizedSheet(estimate: FlooDesignTokens.Component.FormatSheet.estimate)
+                .docSizedSheet(estimate: DocTokens.Component.FormatSheet.estimate)
             }
     }
 
@@ -2001,27 +1995,37 @@ struct DocBlockSelectionBar: View {
         !blocks.selectedLayouts.isEmpty || !blocks.selectedImageFits.isEmpty
     }
 
+    /// The actions over the page's bottom, rising in and sinking out with `shown` only.
+    private var actionPanel: some View {
+        let shown = blocks.isSelecting && !showsSheet
+        return HStack(spacing: DocTokens.Space.xs) { actions }
+            .padding(DocTokens.Space.sm)
+            .flooGlass(in: RoundedRectangle(cornerRadius: DocTokens.Radius.xxl, style: .continuous))
+            .padding(.horizontal, DocTokens.Space.md)
+            .padding(.bottom, DocTokens.Space.md)
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown ? 0 : DocTokens.Space.md)
+            .allowsHitTesting(shown)
+            .accessibilityHidden(!shown)
+            .animation(DocTokens.Motion.reveal, value: shown)
+    }
+
     @ViewBuilder private var actions: some View {
         Group {
-            Button {
+            Button(String(localized: "Style"), systemImage: "textformat") {
                 blocks.editor.panels.sheetPage = .main
-            } label: {
-                FlooDesignActionTile(title: String(localized: "Style"), symbol: "textformat", color: Action.format)
             }
+            .buttonStyle(.flooTile(color: Action.format))
             .accessibilityIdentifier("selection-style")
             if hasMedia {
-                Button {
+                Button(String(localized: "Layout"), systemImage: "rectangle.split.2x1") {
                     blocks.isChoosingLayout = true
-                } label: {
-                    FlooDesignActionTile(title: String(localized: "Layout"), symbol: "rectangle.split.2x1", color: Action.neutral)
                 }
             }
             // Several blocks into a page of their own (Craft's Group, the Mac's menu).
             if blocks.canGroup {
-                Button {
+                Button(String(localized: "Group"), systemImage: "wand.and.sparkles") {
                     blocks.groupSelection()
-                } label: {
-                    FlooDesignActionTile(title: String(localized: "Group"), symbol: "wand.and.sparkles", color: Action.neutral)
                 }
             }
             Menu {
@@ -2031,41 +2035,42 @@ struct DocBlockSelectionBar: View {
                 }
                 Button("Duplicate", systemImage: "plus.square.on.square") { blocks.duplicateSelection() }
             } label: {
-                FlooDesignActionTile(title: String(localized: "Actions"), symbol: "square.and.arrow.up", color: Action.neutral)
+                Label(String(localized: "Actions"), systemImage: "square.and.arrow.up")
             }
-            Button {
+            .menuStyle(.button)
+            Button(String(localized: "Delete"), systemImage: "trash") {
                 blocks.deleteSelection()
-            } label: {
-                FlooDesignActionTile(title: String(localized: "Delete"), symbol: "trash", color: Action.destructive)
             }
+            .buttonStyle(.flooTile(color: Action.destructive))
         }
-        .buttonStyle(FlooDesignActionTileStyle())
+        .buttonStyle(.flooTile(color: Action.neutral))
+        .frame(width: 72)
     }
 
-    private typealias Action = FlooDesignTokens.ColorRole.Action
+    private typealias Action = DocTokens.ColorRole.Action
 
     /// Craft's layout sheet: the options (the sheet's own pull closes it).
     private var layouts: some View {
-        VStack(spacing: FlooDesignTokens.Component.Option.sectionSpacing) {
+        VStack(spacing: DocTokens.Component.Option.sectionSpacing) {
             if !blocks.selectedImageFits.isEmpty {
-                HStack(spacing: FlooDesignTokens.Space.sm) {
-                    FlooDesignOptionSection(String(localized: "Image Display")) {
+                HStack(spacing: DocTokens.Space.sm) {
+                    FlooTilesRow(String(localized: "Image Display")) {
                         option(String(localized: "Fit"), symbol: "arrow.down.and.line.horizontal.and.arrow.up", on: blocks.selectedImageFits == [.fit]) { blocks.setImage(fit: .fit) }
                         option(String(localized: "Fill"), symbol: "square.arrowtriangle.4.outward", on: blocks.selectedImageFits == [.fill]) { blocks.setImage(fit: .fill) }
                     }
-                    FlooDesignOptionSection(String(localized: "Image Size")) {
+                    FlooTilesRow(String(localized: "Image Size")) {
                         option(String(localized: "Auto"), symbol: "rectangle.center.inset.filled", on: blocks.selectedImageSizes == [.auto]) { blocks.setImage(size: .auto) }
                         option(String(localized: "Large"), symbol: "rectangle", on: blocks.selectedImageSizes == [.large]) { blocks.setImage(size: .large) }
                     }
                 }
             }
             if !blocks.selectedLayouts.isEmpty {
-                HStack(spacing: FlooDesignTokens.Component.Option.sectionGap) {
+                HStack(spacing: DocTokens.Component.Option.sectionGap) {
                     ForEach(DocLayout.allCases, id: \.self) { layout in
-                        FlooDesignOption(layout.title, isOn: blocks.selectedLayouts == [layout]) {
+                        DocOption(layout.title, isOn: blocks.selectedLayouts == [layout]) {
                             blocks.setLayout(layout)
                         } picture: {
-                            FlooDesignMediaStyleGlyph(layout.style)
+                            layout.style.pictureImage
                         }
                     }
                 }
@@ -2074,8 +2079,8 @@ struct DocBlockSelectionBar: View {
     }
 
     private func option(_ title: String, symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
-        FlooDesignOption(title, isOn: on, action: action) {
-            Image(systemName: symbol).font(.system(size: FlooDesignTokens.Icon.toolbar))
+        DocOption(title, isOn: on, action: action) {
+            Image(systemName: symbol).font(.system(size: DocTokens.Icon.toolbar))
         }
     }
 

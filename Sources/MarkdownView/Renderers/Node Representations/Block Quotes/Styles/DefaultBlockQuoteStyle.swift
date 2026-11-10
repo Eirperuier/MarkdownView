@@ -35,7 +35,15 @@ fileprivate struct DefaultBlockQuoteView: View {
     var body: some View {
         StreamingRevealCountReader { _, revealCount in
             let visible = decorationVisible(revealCount: revealCount)
-            configuration.content
+            let tint = configuration.callout?.kind.color ?? tint
+            VStack(alignment: .leading, spacing: 6) {
+                if let callout = configuration.callout {
+                    MarkdownCalloutHeader(callout: callout)
+                        .opacity(visible ? 1 : 0)
+                        .animation(.easeOut(duration: 0.3), value: visible)
+                }
+                configuration.content
+            }
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .font(font)

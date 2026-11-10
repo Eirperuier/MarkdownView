@@ -8,13 +8,14 @@
 import SwiftUI
 import MarkdownView
 import MessagingUI
-import FlooDesign
+import FlooUIKit
 import CardUI
 import CardModel
 
 @main
 struct DemoAppApp: App {
     init() {
+        ExtensionsDestination.enableSyntax()
         prewarmMarkdownMathRenderer()
         // The cards' view packages as this build last compiled them, before any is asked for.
         Catalog.keepCompiled(in: .cachesDirectory.appending(
@@ -33,8 +34,8 @@ struct DemoAppApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .markdownMotion(FlooDesignTokens.Motion.markdown)
-                .tiledMotion(FlooDesignTokens.Motion.tiled)
+                .markdownMotion(AppMotion.markdown)
+                .tiledMotion(AppMotion.tiled)
         }
         .commands { DocCommands() }
     }

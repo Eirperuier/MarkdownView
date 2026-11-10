@@ -1,28 +1,12 @@
 {
-  "originHash" : "7c39940badca8f33b56101135582c435be9a89cc15cfce0740fbc379601938c2",
+  "originHash" : "c570024c2084d85983f4a68d7f9f813f1f7d3a9547186cc1086fa5e3d012d7d3",
   "pins" : [
     {
       "identity" : "floo-latexswiftui",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/techx-academy/floo-LaTeXSwiftUI.git",
       "state" : {
-        "revision" : "6245f306b9aced861a66d4b2e7441cb285ae7d18"
-      }
-    },
-    {
-      "identity" : "floo-richtext",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/techx-academy/floo-RichText.git",
-      "state" : {
-        "revision" : "7ba6a5435100ae04a14f16049caeca4232661c01"
-      }
-    },
-    {
-      "identity" : "floo-swiftdraw",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/techx-academy/floo-SwiftDraw.git",
-      "state" : {
-        "revision" : "bf2f0af78ad9fdee9f577bf1cf5db6586a136430"
+        "revision" : "1f710d85c22e92c8c8e38f368d5db0ba02a8611d"
       }
     },
     {
@@ -57,8 +41,16 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sqlcipher/SQLCipher.swift.git",
       "state" : {
-        "revision" : "39f212458aeb88e33bdac2200a793a3f0d55d32b",
-        "version" : "4.19.0"
+        "revision" : "e7415c5e6b4fd9b78874bb956aad8a42b08e9966",
+        "version" : "4.20.0"
+      }
+    },
+    {
+      "identity" : "swatex",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PhraseHQ/SwaTex.git",
+      "state" : {
+        "revision" : "153738a2bcdcb62450ead9ab292989e3de0a449f"
       }
     },
     {
@@ -66,8 +58,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-asn1.git",
       "state" : {
-        "revision" : "3b6410f7dee09eb33cdd26260c5fd47fda19b0e2",
-        "version" : "1.7.3"
+        "revision" : "917b472dbe53ba699cbb0495f9a95a084bc6364d",
+        "version" : "1.7.4"
       }
     },
     {
@@ -93,8 +85,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto.git",
       "state" : {
-        "revision" : "1c80d3aff53fedc445b60692980cb4f19a618657",
-        "version" : "5.0.1"
+        "revision" : "f8fad2f95ad67b45f6340c0960e2396094d67e07",
+        "version" : "5.1.1"
       }
     },
     {

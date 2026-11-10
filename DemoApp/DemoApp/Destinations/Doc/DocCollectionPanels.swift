@@ -14,12 +14,12 @@
 //  - a select's options: find one, tick it, or type a new one.
 //
 
+import FlooUIKit
 import SwiftUI
 import DocKit
-import FlooDesign
 
 private typealias Metrics = DocCollectionMetrics
-private typealias Tokens = FlooDesignTokens
+private typealias Tokens = DocTokens
 
 // MARK: - Pieces
 
@@ -31,7 +31,7 @@ struct DocPanelFrame<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        FlooDesignFloatingPanelSurface(contentInset: Tokens.Component.FloatingPanel.roomyInset) {
+        DocPanelSurface(contentInset: Tokens.Component.FloatingPanel.roomyInset) {
             VStack(alignment: .leading, spacing: Tokens.Space.md) {
                 HStack {
                     Text(title)
@@ -44,13 +44,13 @@ struct DocPanelFrame<Content: View>: View {
                             .symbolRenderingMode(.hierarchical)
                             .foregroundStyle(Tokens.ColorRole.Content.secondary)
                     }
-                    .buttonStyle(FlooDesignPlainButtonStyle(in: Circle()))
+                    .buttonStyle(.flooContent(in: Circle()))
                     .accessibilityLabel(String(localized: "Close"))
                 }
-                FlooDesignDivider()
+                FlooDividerLine()
                 content
             }
-            .flooDesignPanelWidth(width, alignment: .leading)
+            .docPanelWidth(width, alignment: .leading)
         }
     }
 }
@@ -107,24 +107,13 @@ struct DocPanelButtons: View {
     var body: some View {
         HStack(spacing: Tokens.Space.sm) {
             Button(action: cancel) { Text(String(localized: "Cancel")).frame(maxWidth: .infinity) }
-                .buttonStyle(FlooDesignButtonStyle(.secondary))
+                .buttonStyle(.floo(.tertiary))
             Button(action: save) { Text(title).frame(maxWidth: .infinity) }
-                .buttonStyle(FlooDesignButtonStyle(.primary))
+                .buttonStyle(.floo(.primary))
                 .disabled(!enabled)
         }
         .compositingGroup()
     }
-}
-
-/// The six dots a field is dragged by: FlooDesign's handle, drawn only (the row takes the drag).
-private struct DocDragDots: UIViewRepresentable {
-    func makeUIView(context: Context) -> FlooDesignDragHandle {
-        let handle = FlooDesignDragHandle()
-        handle.isUserInteractionEnabled = false
-        return handle
-    }
-
-    func updateUIView(_ handle: FlooDesignDragHandle, context: Context) {}
 }
 
 /// A field's name with its type's symbol, outlined (Craft's in Visible Fields).
@@ -206,7 +195,7 @@ struct DocTrashButton: View {
                 .foregroundStyle(Tokens.ColorRole.Content.secondary)
                 .frame(width: Metrics.fieldHeight, height: Metrics.fieldHeight)
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
+        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
         .accessibilityLabel(String(localized: "Remove"))
     }
 }
@@ -224,18 +213,18 @@ struct DocLayoutPanel: View {
     var body: some View {
         DocPanelFrame(title: String(localized: "Layout & Visibility"), close: { controller.close(.layout, in: block) }) {
             HStack(spacing: Tokens.Space.sm) {
-                FlooDesignOption(String(localized: "Table"), isOn: !view.layout.isKanban && view.layout.chart == nil) {
+                DocOption(String(localized: "Table"), isOn: !view.layout.isKanban && view.layout.chart == nil) {
                     controller.setLayout(kanban: false, in: view.id, of: block)
                 } picture: {
                     Image(systemName: "tablecells").font(.system(size: Tokens.Icon.prominent - 2))
                 }
-                FlooDesignOption(String(localized: "Kanban"), isOn: view.layout.isKanban) {
+                DocOption(String(localized: "Kanban"), isOn: view.layout.isKanban) {
                     controller.setLayout(kanban: true, in: view.id, of: block)
                 } picture: {
                     Image(systemName: "rectangle.split.3x1").font(.system(size: Tokens.Icon.prominent - 2))
                 }
                 .disabled(DocCollectionController.groupable(in: snapshot.database).isEmpty)
-                FlooDesignOption(String(localized: "Chart"), isOn: view.layout.chart != nil) {
+                DocOption(String(localized: "Chart"), isOn: view.layout.chart != nil) {
                     if view.layout.chart == nil { controller.setChart(in: view.id, of: block) }
                 } picture: {
                     Image(systemName: "chart.bar.xaxis").font(.system(size: Tokens.Icon.prominent - 2))
@@ -280,8 +269,8 @@ struct DocLayoutPanel: View {
     /// A field: its handle (drag it up or down), its name, whether it shows.
     private func fieldRow(_ column: Column) -> some View {
         HStack(spacing: Tokens.Space.sm) {
-            DocDragDots()
-                .frame(width: FlooDesignDragHandle.size.width, height: FlooDesignDragHandle.size.height)
+            FlooDragDots()
+                .frame(width: FlooDragHandle.size.width, height: FlooDragHandle.size.height)
             DocFieldTag(column: column)
             Spacer(minLength: Tokens.Space.sm)
             Toggle(column.name, isOn: Binding { !view.layout.hidden.contains(column.id) } set: { shows in
@@ -442,8 +431,8 @@ struct DocGroupPanel: View {
             DocPanelSection(title: String(localized: "Show/Hide groups"))
             ForEach(groups, id: \.key) { group in
                 HStack(spacing: Tokens.Space.sm) {
-                    DocDragDots()
-                        .frame(width: FlooDesignDragHandle.size.width, height: FlooDesignDragHandle.size.height)
+                    FlooDragDots()
+                        .frame(width: FlooDragHandle.size.width, height: FlooDragHandle.size.height)
                     DocGroupLabel(column: column, group: group)
                     Spacer(minLength: Tokens.Space.sm)
                     Toggle(DocGroupLabel.title(group.value, in: column), isOn: Binding { !view.grouping.hidden.contains(group.key) } set: { shows in
@@ -633,7 +622,7 @@ private struct DocFilterRule: View {
             .labelsHidden()
         default:
             TextField(String(localized: "Value"), text: $text)
-                .textFieldStyle(FlooDesignTextFieldStyle())
+                .textFieldStyle(FlooTextFieldStyle())
                 .onChange(of: text) { _, text in
                     guard text != shownText else { return }
                     let value: CellValue? = switch column.type {
@@ -686,7 +675,7 @@ struct DocCreateKanbanPanel: View {
     var body: some View {
         DocPanelFrame(title: String(localized: "Create Kanban"), close: close) {
             TextField(String(localized: "Name"), text: $name)
-                .textFieldStyle(FlooDesignTextFieldStyle())
+                .textFieldStyle(FlooTextFieldStyle())
                 .onSubmit(save)
             VStack(alignment: .leading, spacing: Tokens.Space.sm) {
                 DocPanelSection(title: String(localized: "Group By"))
@@ -725,7 +714,7 @@ struct DocCreateChartPanel: View {
     var body: some View {
         DocPanelFrame(title: String(localized: "Create Chart"), close: close) {
             TextField(String(localized: "Name"), text: $name)
-                .textFieldStyle(FlooDesignTextFieldStyle())
+                .textFieldStyle(FlooTextFieldStyle())
                 .onSubmit(save)
             DocChartKinds(kind: kind) { kind = $0 }
             VStack(alignment: .leading, spacing: Tokens.Space.sm) {
@@ -761,7 +750,7 @@ struct DocChartKinds: View {
     var body: some View {
         HStack(spacing: Tokens.Space.xs) {
             ForEach(CollectionChart.Kind.allCases, id: \.self) { option in
-                FlooDesignOption(Self.name(option), isOn: option == kind) { pick(option) } picture: {
+                DocOption(Self.name(option), isOn: option == kind) { pick(option) } picture: {
                     Image(systemName: Self.symbol(option)).font(.system(size: Tokens.Icon.prominent - 4))
                 }
             }
@@ -823,7 +812,7 @@ struct DocNameViewPanel: View {
     var body: some View {
         DocPanelFrame(title: String(localized: "Name View"), close: close) {
             TextField(String(localized: "Name"), text: $name)
-                .textFieldStyle(FlooDesignTextFieldStyle())
+                .textFieldStyle(FlooTextFieldStyle())
                 .focused($focused)
                 .onSubmit(save)
             DocPanelButtons(title: String(localized: "Save"), enabled: !name.isEmpty, cancel: close, save: save)
@@ -868,7 +857,7 @@ struct DocFieldPanel: View {
                     .overlay(RoundedRectangle(cornerRadius: Tokens.Component.TextField.cornerRadius, style: .continuous)
                         .strokeBorder(Tokens.Border.subtle, lineWidth: Tokens.Border.standard))
                 TextField(String(localized: "Field Name"), text: $name)
-                    .textFieldStyle(FlooDesignTextFieldStyle())
+                    .textFieldStyle(FlooTextFieldStyle())
                     .focused($focused)
                     .onSubmit(save)
             }
@@ -923,7 +912,7 @@ struct DocOptionsPanel: View {
     let controller: DocCollectionController
     @State private var text = ""
     @FocusState private var focused: Bool
-    @Environment(\.flooDesignPanelPresentation) private var presentation
+    @Environment(\.flooPanelPresentation) private var presentation
 
     private var block: DocBlockID { snapshot.block }
     private var options: [SelectOption] { DocFieldText.options(column) }
@@ -940,7 +929,7 @@ struct DocOptionsPanel: View {
     }
 
     var body: some View {
-        FlooDesignFloatingPanelSurface {
+        DocPanelSurface {
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
                 TextField(String(localized: "Set \(column.name)"), text: $text)
                     .textFieldStyle(.plain)
@@ -949,7 +938,7 @@ struct DocOptionsPanel: View {
                     .onSubmit(submit)
                     .padding(.horizontal, Tokens.Space.sm)
                     .frame(minHeight: Metrics.fieldHeight)
-                FlooDesignDivider()
+                FlooDividerLine()
                 ForEach(shown, id: \.id) { option in
                     Button {
                         pick(option.id)
@@ -971,9 +960,9 @@ struct DocOptionsPanel: View {
                         .frame(minHeight: Metrics.fieldHeight + 2)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
-                    .flooDesignContextMenu { _ in
-                        [.init(.rows, [.action(String(localized: "Delete Option"), symbol: "trash", role: .destructive) {
+                    .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
+                    .flooContextMenu {
+                        [.init([.action(String(localized: "Delete Option"), symbol: "trash", role: .destructive) {
                             controller.deleteOption(option.id, in: column.id, of: block)
                         }])]
                     }
@@ -987,13 +976,13 @@ struct DocOptionsPanel: View {
                             .frame(maxWidth: .infinity, minHeight: Metrics.fieldHeight, alignment: .leading)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
+                    .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
                 }
             }
-            .flooDesignPanelWidth(260)
+            .docPanelWidth(260)
         }
         // A phone's sheet opens on the options: the keyboard comes when the field is tapped.
-        .onAppear { if presentation == .anchored { Task { @MainActor in focused = true } } }
+        .onAppear { if presentation == .floating { Task { @MainActor in focused = true } } }
     }
 
     private func pick(_ option: OptionID) {
@@ -1027,7 +1016,7 @@ struct DocPropertyPanel: View {
     private var value: CellValue? { row.cells[column.id] }
 
     var body: some View {
-        FlooDesignFloatingPanelSurface {
+        DocPanelSurface {
             TextField(column.name, text: $text)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
@@ -1044,7 +1033,7 @@ struct DocPropertyPanel: View {
                 }
                 .padding(.horizontal, Tokens.Space.sm)
                 .frame(minHeight: Metrics.fieldHeight)
-                .flooDesignPanelWidth(260)
+                .docPanelWidth(260)
         }
         .onAppear {
             text = DocFieldText.text(value, in: column)
@@ -1067,7 +1056,7 @@ struct DocDatePanel: View {
     @State private var month = Date.now
     @FocusState private var focused: Bool
     @Environment(\.self) private var environment
-    @Environment(\.flooDesignPanelPresentation) private var presentation
+    @Environment(\.flooPanelPresentation) private var presentation
 
     private var calendar: Calendar { .current }
     private var panel: DocCollectionPanel.Kind { .date(row: row.id, column: column.id) }
@@ -1095,7 +1084,7 @@ struct DocDatePanel: View {
     }
 
     var body: some View {
-        FlooDesignFloatingPanelSurface {
+        DocPanelSurface {
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
                 HStack(spacing: Tokens.Space.sm) {
                     Image(systemName: "magnifyingglass")
@@ -1111,7 +1100,7 @@ struct DocDatePanel: View {
                 }
                 .padding(.horizontal, Tokens.Space.sm)
                 .frame(minHeight: Metrics.fieldHeight)
-                FlooDesignDivider()
+                FlooDividerLine()
                 HStack(spacing: 0) {
                     Text(title)
                         .font(.system(size: 14, weight: .semibold))
@@ -1135,23 +1124,23 @@ struct DocDatePanel: View {
                     }
                 }
                 if chosen != nil {
-                    FlooDesignDivider()
+                    FlooDividerLine()
                     Button(String(localized: "Clear")) {
                         controller.set(nil, row: row.id, column: column.id, in: block)
                         controller.close(panel, in: block)
                     }
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Tokens.ColorRole.Content.secondary)
-                    .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
+                    .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
                     .frame(maxWidth: .infinity, minHeight: Metrics.fieldHeight)
                 }
             }
-            .flooDesignPanelWidth(240)
+            .docPanelWidth(240)
         }
         .onAppear {
             month = chosen ?? .now
             // A phone's sheet opens on the month: the keyboard would take its place.
-            if presentation == .anchored { Task { @MainActor in focused = true } }
+            if presentation == .floating { Task { @MainActor in focused = true } }
         }
     }
 
@@ -1163,7 +1152,7 @@ struct DocDatePanel: View {
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
+        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
         .accessibilityLabel(label)
     }
 
@@ -1190,7 +1179,7 @@ struct DocDatePanel: View {
                 }
                 .contentShape(Rectangle())
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
+        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
         .accessibilityLabel(day.formatted(date: .complete, time: .omitted))
         .accessibilityAddTraits(isChosen ? .isSelected : [])
     }
@@ -1229,7 +1218,7 @@ struct DocOptionPanel: View {
     var body: some View {
         DocPanelFrame(title: option == nil ? String(localized: "Add Option to \(field?.name ?? "")") : String(localized: "Edit Option"), close: close) {
             TextField(String(localized: "Name"), text: $name)
-                .textFieldStyle(FlooDesignTextFieldStyle())
+                .textFieldStyle(FlooTextFieldStyle())
                 .focused($focused)
                 .onSubmit(save)
             HStack(spacing: Tokens.Space.xs + 2) {
@@ -1237,16 +1226,16 @@ struct DocOptionPanel: View {
                     Button {
                         color = token
                     } label: {
-                        FlooDesignSwatch(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous),
-                                         fill: DocOptionColor.color(token), isOn: color == token)
+                        FlooSwatchView(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous),
+                                         color: DocOptionColor.color(token), isOn: color == token)
                             .frame(width: Metrics.swatch, height: Metrics.swatch)
                     }
-                    .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
+                    .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)))
                     .help(token)
                     .accessibilityLabel(token)
                 }
             }
-            FlooDesignDivider()
+            FlooDividerLine()
             DocPanelButtons(title: option == nil ? String(localized: "Add") : String(localized: "Save"),
                             enabled: !name.trimmingCharacters(in: .whitespaces).isEmpty, cancel: close, save: save)
         }

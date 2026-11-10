@@ -15,7 +15,7 @@ import MessagingUI
 import CardModel
 import CardUI
 import DocKit
-import FlooDesign
+import FlooUIKit
 import Wire
 
 /// Who wrote a message: the butler, or one of the person's services, by the name it goes by.
@@ -362,7 +362,7 @@ final class FlooBubbleState {
         let listener = manager.addRevealCompletionListener { [weak self] revealed in
             guard let self, revealed != finished.contains(row) else { return }
             // The reveal moved on: the bubble follows with the layout spring.
-            withAnimation(FlooDesignTokens.Motion.layout) {
+            withAnimation(AppMotion.layout) {
                 if revealed { finished.insert(row) } else { finished.remove(row) }
             }
         }
@@ -1811,7 +1811,7 @@ final class FlooDemo {
             showLast()
             openWhereLeft()
         } else if animated {
-            withAnimation(FlooDesignTokens.Motion.layout) { for key in keys { remake(key) } }
+            withAnimation(AppMotion.layout) { for key in keys { remake(key) } }
         } else {
             for key in keys { remake(key) }
         }
@@ -2417,7 +2417,7 @@ final class FlooDemo {
             changed.insert(key)
             if animated { changedAnimated = true }
         } else if animated {
-            withAnimation(FlooDesignTokens.Motion.layout) { remake(key) }
+            withAnimation(AppMotion.layout) { remake(key) }
         } else {
             remake(key)
         }

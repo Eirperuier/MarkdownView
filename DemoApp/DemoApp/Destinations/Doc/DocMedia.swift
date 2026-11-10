@@ -10,6 +10,7 @@
 //  too) aren't cards: the page's width, as tall as they draw, nothing round them.
 //
 
+import FlooUIKit
 import SwiftUI
 import ImageIO
 import Synchronization
@@ -52,23 +53,42 @@ struct DocLinkView: View {
     let link: DocLink
 
     var body: some View {
-        FlooDesignLinkCard(style: link.layout.style, title: link.title.isEmpty ? address : link.title,
-                           summary: link.summary.isEmpty ? address : link.summary, hasSummary: !link.summary.isEmpty,
-                           host: DocMediaLayout.host(link.url), preview: DocMediaLayout.picture(link.image),
-                           widest: DocMediaLayout.widestPage)
+        DocMediaCardView(content: .link(title: link.title.isEmpty ? address : link.title,
+                                        summary: link.summary.isEmpty ? nil : link.summary,
+                                        host: DocMediaLayout.host(link.url), preview: DocMediaLayout.picture(link.image)),
+                         style: link.layout.style)
     }
 
     /// The address as it reads (not percent-encoded).
     private var address: String { link.url.removingPercentEncoding ?? link.url }
 }
 
-/// A file (FlooDesign's file card).
+/// A file.
 struct DocFileView: View {
     let file: DocFile
 
     var body: some View {
-        FlooDesignFileCard(style: file.layout.style, name: file.name, kind: DocMediaLayout.kind(of: file.name),
-                           size: file.size.map(DocMediaLayout.bytes), widest: DocMediaLayout.widestPage)
+        DocMediaCardView(content: .file(name: file.name, kind: DocMediaLayout.kind(of: file.name),
+                                        size: file.size.map(DocMediaLayout.bytes)),
+                         style: file.layout.style)
+    }
+}
+
+/// floo-uikit's card, which is UIKit's: as wide as it's given, up to the widest page.
+private struct DocMediaCardView: UIViewRepresentable {
+    let content: FlooMediaCard.Content
+    let style: FlooMediaStyle
+
+    func makeUIView(context: Context) -> FlooMediaCard { FlooMediaCard(content, style: style) }
+
+    func updateUIView(_ card: FlooMediaCard, context: Context) {
+        card.content = content
+        card.setStyle(style, animated: context.transaction.animation != nil)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView card: FlooMediaCard, context: Context) -> CGSize? {
+        card.sizeThatFits(CGSize(width: min(proposal.width ?? DocMediaLayout.widestPage, DocMediaLayout.widestPage),
+                                 height: .greatestFiniteMagnitude))
     }
 }
 
@@ -86,8 +106,8 @@ struct DocCardView: View {
         CardFrame(layout: CardLayout(size: size), grid: DocMediaLayout.cardGrid, cornerRadius: 0) {
             CardView(tree: DocMediaLayout.session(for: card).tree)
         }
-        .flooDesignScaled(designWidth: CGFloat(size.width(grid: DocMediaLayout.cardGrid)))
-        .flooDesignMediaBox()
+        .docScaled(designWidth: CGFloat(size.width(grid: DocMediaLayout.cardGrid)))
+        .flooMediaBox()
     }
 }
 
@@ -101,8 +121,10 @@ struct DocViewView: View {
     var body: some View {
         ViewFrame { CardView(tree: DocMediaLayout.session(for: view).tree) }
             .environment(\.cardSegmentedPicker, Self.segments)
-            .environment(\.cardButtonStyles, ["borderedProminent": CardHostButtonStyle(FlooDesignButtonStyle(.primary))])
-            .flooDesignControls()
+            .environment(\.cardButtonStyles, ["borderedProminent": CardHostButtonStyle(FlooSwiftUIButtonStyle(.primary))])
+            .buttonStyle(.floo(.tertiary))
+            .textFieldStyle(FlooTextFieldStyle())
+            .tint(Color.primary)
     }
 
     private static let segments = CardSegmentedPicker { selection, segments in
@@ -130,11 +152,11 @@ struct DocImageView: View {
                 if let blur = image.blurHash.flatMap(DocBlobImages.blur) {
                     Image(uiImage: blur).resizable()
                 } else {
-                    FlooDesignTokens.Component.MediaCard.panel
+                    DocTokens.Component.MediaCard.panel
                 }
             }
         }
-        .clipShape(.rect(cornerRadius: FlooDesignTokens.Component.MediaCard.cornerRadius, style: .continuous))
+        .clipShape(.rect(cornerRadius: DocTokens.Component.MediaCard.cornerRadius, style: .continuous))
         .accessibilityLabel(image.alt)
     }
 }
@@ -192,7 +214,7 @@ enum DocMediaLayout {
     /// The widest the page gets (DocBlockController.pageWidth): for a view given no width.
     static let widestPage: CGFloat = 720
     /// Every card's, link or file.
-    static let cardHeight = FlooDesignTokens.Component.MediaCard.cardHeight
+    static let cardHeight = DocTokens.Component.MediaCard.cardHeight
 
     /// Fill: a 4:3 box the image covers; fit: the image's own shape.
     static func imageHeight(_ image: DocImage, width: CGFloat) -> CGFloat {
@@ -295,7 +317,7 @@ enum DocMediaLayout {
         return unit == 0 ? "\(count) B" : String(format: "%.1f %@", value, units[unit])
     }
 
-    private typealias Card = FlooDesignTokens.Component.MediaCard
+    private typealias Card = DocTokens.Component.MediaCard
 
     /// Rough heights for the list before it measures (DocRow.estimatedHeight).
     static func estimatedHeight(_ kind: BlockKind, width: CGFloat) -> CGFloat? {
@@ -398,7 +420,7 @@ extension DocMediaLayout {
 
 extension DocLayout {
     /// FlooDesign's style for it.
-    var style: FlooDesignMediaStyle { pick(.small, .regular, .card) }
+    var style: FlooMediaStyle { pick(.small, .regular, .card) }
 
     /// The value for this layout.
     func pick<Value>(_ small: Value, _ regular: Value, _ card: Value) -> Value {
@@ -511,7 +533,7 @@ struct DocMediaCell: View {
         let cell = content
             // What a card asks of the app (its tools, its pictures).
             .environment(\.cardHost, blocks.cardHost)
-            .flooDesignMediaSelection(blocks.isSelected(id))
+            .flooMediaChosen(blocks.isSelected(id))
         if case .card(let card) = kind {
             DocCardGap(designWidth: CGFloat(DocMediaLayout.size(of: card).width(grid: DocMediaLayout.cardGrid))) { cell }
         } else {
@@ -651,5 +673,32 @@ enum DocBlobImages {
     static func type(_ file: URL) -> UTType? {
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil), let type = CGImageSourceGetType(source) else { return nil }
         return UTType(type as String)
+    }
+}
+
+extension View {
+    /// The view laid out `designWidth` wide and scaled whole to the width it's given.
+    fileprivate func docScaled(designWidth: CGFloat) -> some View {
+        DocScaledLayout(designWidth: designWidth) { self }
+            .visualEffect { content, proxy in
+                content.scaleEffect(proxy.size.width / designWidth, anchor: .topLeading)
+            }
+    }
+}
+
+/// Lays its one subview out at the design width, from its top left, and takes the width it's
+/// given and that height at the given width's scale.
+private struct DocScaledLayout: Layout {
+    let designWidth: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let width = proposal.width ?? designWidth
+        let height = content.sizeThatFits(ProposedViewSize(width: designWidth, height: nil)).height
+        return CGSize(width: width, height: height * width / designWidth)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: designWidth, height: nil))
     }
 }

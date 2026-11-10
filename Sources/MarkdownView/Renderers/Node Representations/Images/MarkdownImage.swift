@@ -6,6 +6,7 @@
 //
 
 import Markdown
+import MarkdownCore
 import SwiftUI
 
 struct MarkdownImage: View {
@@ -17,16 +18,7 @@ struct MarkdownImage: View {
         return nil
     }
     private var alternativeText: String? {
-        if !(image.parent is Markdown.Link) {
-            if let title = image.title, !title.isEmpty {
-                return title
-            } else {
-                return image.plainText.isEmpty ? nil : image.plainText
-            }
-        } else {
-            // If the image is inside a link, then ignore the alternative text
-            return nil
-        }
+        MarkdownImageSource.alternativeText(of: image)
     }
     @Environment(\.markdownRendererConfiguration.preferredBaseURL) private var baseURL
     @Environment(\.markdownRendererConfiguration.allowedImageRenderers) private var allowedRenderer

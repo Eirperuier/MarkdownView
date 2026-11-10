@@ -14,7 +14,6 @@ import DocKit
 import CardModel
 import Markdown
 import MarkdownView
-import FlooDesign
 
 /// A text block's content as its row shows it: the tree DocKit builds from the model and
 /// MarkdownView renders (no markdown written or parsed in between), a list item's level
@@ -473,7 +472,7 @@ final class DocDemo {
                     rows[index + offset].run = DocRowRun(kind: kind, index: offset, aspects: aspects, cards: cards)
                 }
             } else {
-                let inset = first.decoration == nil ? 0 : FlooDesignTokens.Component.DecorationBox.inset
+                let inset = first.decoration == nil ? 0 : DocTokens.Component.DecorationBox.inset
                 rows[index].run = DocRowRun(kind: nil, index: 0, aspects: [], inset: inset)
             }
             index = end
@@ -846,7 +845,7 @@ extension DocRow {
     func estimatedHeight(width: CGFloat) -> CGFloat {
         let indent = DocBlockController.indentWidth(indent)
         let textWidth = max(100, min(width - DocBlockController.leadingGutter - DocBlockController.trailingGutter, 720) - indent)
-        let boxPadding = FlooDesignTokens.Component.DecorationBox.padding
+        let boxPadding = DocTokens.Component.DecorationBox.padding
         let spacing = spacingAbove + spacingBelow + (box.map { ($0.isFirst ? boxPadding : 0) + ($0.isLast ? boxPadding : 0) } ?? 0)
         if let run, run.kind != nil {
             let page = max(0, DocBlockController.pageWidth(inWidth: width) - indent)

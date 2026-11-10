@@ -11,7 +11,7 @@
 
 import SwiftUI
 import CardUI
-import FlooDesign
+import FlooUIKit
 import Wire
 
 /// An image an agent's words show: where it is, and what it shows.
@@ -233,7 +233,7 @@ private struct FlooImageBox: View {
 
     private func box(_ picture: UIImage?, width: CGFloat) -> some View {
         ZStack {
-            FlooDesignTokens.Component.MediaCard.panel
+            Color(uiColor: .floo(.rowFill))
             if let media = image.media {
                 // Its ThumbHash, then the picture, decoded at this size.
                 FlooMediaImage(media: media, reach: image.reach).frame(width: width, height: height)

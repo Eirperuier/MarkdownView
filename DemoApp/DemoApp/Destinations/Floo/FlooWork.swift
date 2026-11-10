@@ -8,7 +8,7 @@
 //
 
 import SwiftUI
-import FlooDesign
+import FlooUIKit
 
 struct FlooWorkView: View {
     let id: String
@@ -59,7 +59,7 @@ struct FlooWorkView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 6)
-        .animation(FlooDesignTokens.Motion.layout, value: process)
+        .animation(AppMotion.layout, value: process)
     }
 }
 

@@ -7,6 +7,8 @@
 # repository, or named by FLOO_BROWSER. Not on iOS.
 set -euo pipefail
 [[ ${IS_MACCATALYST:-NO} == YES ]] || exit 0
+# Working on the app itself: each of these is a build of its own, every time.
+[[ ${SKIP_EMBEDS:-NO} == YES ]] && exit 0
 browser=${FLOO_BROWSER:-$SRCROOT/../../floo-browser}
 kit=$browser/LocalPackages/FlooBrowserKit
 if [[ ! -f $kit/Package.swift ]]; then

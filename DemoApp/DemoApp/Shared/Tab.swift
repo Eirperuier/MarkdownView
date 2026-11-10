@@ -9,7 +9,7 @@ import Foundation
 import SwiftUI
 
 enum Tab: String, CaseIterable {
-    case overview, image, table, text, list, customization, tint, interact, blockDirective, math, streaming, chat, floo, contacts, doc
+    case overview, image, table, text, list, customization, tint, interact, blockDirective, math, extensions, catalog, streaming, chat, reveal, colors, floo, contacts, doc
     
     var name: String {
         switch self {
@@ -23,8 +23,12 @@ enum Tab: String, CaseIterable {
         case .interact: "Interact"
         case .blockDirective: "Block Directive"
         case .math: "Math Rendering"
+        case .extensions: "Extensions"
+        case .catalog: "Style Catalog"
         case .streaming: "Streaming"
         case .chat: "Chat"
+        case .reveal: "Stream Reveal"
+        case .colors: "Colors"
         case .floo: String(localized: "floo Chat")
         case .contacts: String(localized: "floo Services")
         case .doc: String(localized: "floo Docs")
@@ -57,12 +61,18 @@ extension Tab {
                 StreamingDestination()
             } else if tab == .chat {
                 ChatDestination()
+            } else if tab == .reveal {
+                RevealDestination()
+            } else if tab == .colors {
+                ColorsDestination()
             } else if tab == .floo {
                 FlooDestination()
             } else if tab == .contacts {
                 FlooContactsDestination()
             } else if tab == .doc {
                 DocDestination()
+            } else if tab == .catalog {
+                CatalogDestination()
             } else {
                 scrolling
             }
@@ -82,7 +92,8 @@ extension Tab {
                     case .interact: InteractDestination()
                     case .blockDirective: BlockDirectiveDestination()
                     case .math: MathDestination()
-                    case .streaming, .chat, .floo, .contacts, .doc: EmptyView()
+                    case .extensions: ExtensionsDestination()
+                    case .streaming, .chat, .reveal, .colors, .floo, .contacts, .doc, .catalog: EmptyView()
                     }
                 }
                 .frame(maxWidth: .infinity)

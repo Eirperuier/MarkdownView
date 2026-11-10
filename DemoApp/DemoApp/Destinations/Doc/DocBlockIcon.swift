@@ -16,9 +16,8 @@
 //
 
 import SwiftUI
-import FlooDesign
 
-private typealias Tokens = FlooDesignTokens
+private typealias Tokens = DocTokens
 
 struct DocBlockIcon: View {
     enum Glyph: Hashable {

@@ -161,6 +161,10 @@ final class FlooLive {
     /// The steps open now whose page this Mac's browser engine lent to this app, as their
     /// cards last showed them: 我来做 opens it in a window here (FlooStepPanel).
     private var pages: [AskID: AskInfo] = [:]
+    /// Steps taken on whose window here was closed without an answer: still open, still
+    /// taken on (floo docs/browser.md §2.5), and their card offers 我来做 again, which opens
+    /// the window again.
+    private var windowClosed: Set<AskID> = []
     /// The account's devices by name, read once (`deviceName`).
     private var deviceNames: [DeviceID: String] = [:]
     private var readingDevices = false
@@ -439,8 +443,12 @@ final class FlooLive {
                case .step(let what, let tab?) = step.kind
             {
                 let title = [page.about.last, page.title].compactMap { $0 }.joined(separator: " · ")
+                windowClosed.remove(id)
                 _ = FlooStepPanel.open(ask: ask, tab: tab.engineTab, title: title, instruction: what) { [weak self] ended in
                     self?.respond(ask: ask, values: [step.id: .step(ended == "completed" ? .done : .skip)], secrets: [:])
+                } closed: { [weak self] in
+                    self?.windowClosed.insert(id)
+                    self?.demo.stage(ask, nil)
                 }
             }
         #endif
@@ -1764,7 +1772,7 @@ final class FlooLive {
             } else {
                 sending[ask.id] = nil
                 if let progress = ask.progress { card.stage = .working(progress) }
-                else if ask.engaged, !answered { card.stage = .engaged("你在做") }
+                else if ask.engaged, !answered, !windowClosed.contains(ask.id) { card.stage = .engaged("你在做") }
             }
         } else {
             sending[ask.id] = nil

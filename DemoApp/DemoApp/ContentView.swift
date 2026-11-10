@@ -10,7 +10,8 @@ import MarkdownView
 import FlooDesign
 
 struct ContentView: View {
-    @State private var selection: Tab? = UserDefaults.standard.bool(forKey: "docDemo") ? .doc : FlooContactsDestination.launches ? .contacts : FlooDestination.launchScenario != nil ? .floo : ChatBenchmark.autorunExchanges == nil && !UserDefaults.standard.bool(forKey: "chatOpen") ? .overview : .chat
+    @State private var selection: Tab? = UserDefaults.standard.string(forKey: "openTab").flatMap(Tab.init(rawValue:))
+        ?? (UserDefaults.standard.bool(forKey: "docDemo") ? .doc : FlooContactsDestination.launches ? .contacts : FlooDestination.launchScenario != nil ? .floo : ChatBenchmark.autorunExchanges == nil && !UserDefaults.standard.bool(forKey: "chatOpen") ? .overview : .chat)
     
     @State private var inspector = WindowInspector()
 

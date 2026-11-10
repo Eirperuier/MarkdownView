@@ -5,6 +5,7 @@
 //  Created by LiYanan2004 on 2025/3/25.
 //
 
+import MarkdownCore
 import SwiftUI
 import UIKit
 
@@ -936,10 +937,6 @@ private struct CodeBlockLineContent {
     }
 }
 
-/// Between the lines a long code line wraps into: text's spacing, not packed tight
-/// (lines of code themselves stay apart by their rows' padding).
-public let markdownCodeWrappedLineSpacing: CGFloat = 6
-
 private struct CodeBlockLineView: View {
     let content: CodeBlockLineContent
     let visibleCharacterCount: Int?
@@ -1062,7 +1059,7 @@ private struct LanguageIcon: View {
 
     var body: some View {
         if let name = assetName {
-            Image(name, bundle: .module)
+            Image(name, bundle: MarkdownCodeAssets.bundle)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 14, height: 14)

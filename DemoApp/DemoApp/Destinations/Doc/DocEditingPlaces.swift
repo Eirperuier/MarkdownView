@@ -19,10 +19,10 @@
 //  (`docEditingPlace`).
 //
 
+import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
-import FlooDesign
 
 /// A key of the keyboard bar: what it shows, and what it does (an action, or the
 /// system's menu of its rows).
@@ -45,7 +45,7 @@ struct DocBarKey {
 struct DocPlaceMenu {
     enum Opens {
         /// Its rows: our action menu on the Mac, the system's menu of them on a phone.
-        case rows(() -> [FlooDesignActionMenuSection])
+        case rows(() -> [FlooMenuSection])
         /// A menu of its own showing (a table cell's, by its cell).
         case own(() -> Void)
     }
@@ -61,7 +61,7 @@ struct DocPlaceMenu {
         case .rows(let rows):
             // Made as it opens, so it shows what's so then.
             let menu = UIMenu(children: [UIDeferredMenuElement.uncached { completion in
-                completion(FlooDesignContextMenus.systemMenu(rows()))
+                completion(rows().systemElements())
             }])
             return DocBarKey(id: "menu", title: title, image: image, action: .menu(menu))
         case .own(let show):
@@ -69,8 +69,8 @@ struct DocPlaceMenu {
         }
     }
 
-    /// Its rows for a right-click (`.flooDesignContextMenu`); nil when it shows its own.
-    var rows: (() -> [FlooDesignActionMenuSection])? {
+    /// Its rows for a right-click (`.flooContextMenu`); nil when it shows its own.
+    var rows: (() -> [FlooMenuSection])? {
         if case .rows(let rows) = opens { rows } else { nil }
     }
 }
@@ -198,7 +198,9 @@ extension DocBarKey {
 extension DocEditor {
     /// Where typing goes now: what has the keyboard, as a place.
     var editingPlace: (any DocEditingPlace)? {
-        switch DocFirstResponder.current {
+        // Its own views know: the responder chain has been seen to find nothing with one of
+        // them focused in its key window (the Mac, late in a long session).
+        switch DocFirstResponder.current ?? allTextViews.first(where: \.isFirstResponder) {
         case let view as DocCellTextView:
             return view.key.map { DocTableCellPlace(key: $0, controller: tables) }
         case let view as DocSourceTextView:

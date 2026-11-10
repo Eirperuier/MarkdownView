@@ -16,10 +16,10 @@
 //  colour from the system's picker.
 //
 
+import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
-import FlooDesign
 
 @MainActor
 struct DocTextFormat {
@@ -116,50 +116,43 @@ struct DocTextFormat {
     /// the pen as a choice; then the format panel. With `unfolded`, the keys end with one
     /// that unfolds the rest and folds it again, and folded the keys are all there is (a
     /// strip over the text).
-    func menuSections(linkFrom view: @escaping () -> UIView?, unfolded: Binding<Bool>? = nil) -> [FlooDesignActionMenuSection] {
+    func menuSections(linkFrom view: @escaping () -> UIView?, unfolded: Binding<Bool>? = nil) -> [FlooMenuSection] {
         var keys = keys(linkFrom: view)
         let isUnfolded = unfolded?.wrappedValue ?? true
         if let unfolded {
-            keys.append(.init(id: "more", symbol: isUnfolded ? "chevron.up" : "chevron.down",
-                              title: isUnfolded ? String(localized: "Fewer Options") : String(localized: "More Options"), isOn: false) {
-                withAnimation(FlooDesignTokens.Motion.step) { unfolded.wrappedValue.toggle() }
+            keys.append(FlooMenuTile(isUnfolded ? String(localized: "Fewer Options") : String(localized: "More Options"), symbol: isUnfolded ? "chevron.up" : "chevron.down",
+                                     showsTitle: false, isOn: false, isMomentary: true) { _ in
+                unfolded.wrappedValue.toggle()
             })
         }
-        let strip = FlooDesignActionMenuSection(controls: [.segments("text-marks", keys)])
+        let strip = FlooMenuSection([.docKeys("text-marks", keys)])
         return isUnfolded ? [strip] + rest : [strip]
     }
 
-    private func keys(linkFrom view: @escaping () -> UIView?) -> [FlooDesignSegments.Item] {
+    private func keys(linkFrom view: @escaping () -> UIView?) -> [FlooMenuTile] {
         [
-            .init(id: "highlight", symbol: "highlighter", title: String(localized: "Highlight"), isOn: isOn(.highlight)) { toggleHighlight() },
+            FlooMenuTile(String(localized: "Highlight"), symbol: "highlighter", showsTitle: false, isOn: isOn(.highlight)) { _ in toggleHighlight() },
         ] + Self.marks.map { item in
-            .init(id: item.id, symbol: item.symbol, title: item.title, isOn: isOn(item.mark.kind)) { toggle(item.mark) }
+            FlooMenuTile(item.title, symbol: item.symbol, showsTitle: false, isOn: isOn(item.mark.kind)) { _ in toggle(item.mark) }
         } + [
-            .init(id: "link", symbol: "link", title: String(localized: "Link"), isOn: isOn(.link), isEnabled: ranges.count == 1) {
+            FlooMenuTile(String(localized: "Link"), symbol: "link", showsTitle: false, isOn: isOn(.link), isEnabled: ranges.count == 1, isMomentary: true) { _ in
                 if let view = view() { link(from: view) }
             },
         ]
     }
 
     /// Under the keys: the colours, the pen, the format panel.
-    private var rest: [FlooDesignActionMenuSection] {
-        let penTitle = Self.pens.first { $0.mark == pen }?.title ?? String(localized: "None")
+    private var rest: [FlooMenuSection] {
+        let pens: [Mark?] = [nil] + Self.pens.map(\.mark)
         return [
-            .init(controls: [
-                .color(String(localized: "Highlight"), picked: highlightFill, id: "text-highlight", sections: [
-                    .init(controls: [.swatches("text-highlights", highlightSwatches)]),
-                ]),
-                .color(String(localized: "Text Color"), picked: colorFill, id: "text-color", sections: [
-                    .init(controls: [.swatches("text-colors", colorSwatches)]),
-                ]),
+            .init([
+                .docColor(String(localized: "Highlight"), picked: highlightFill, [.init([highlightSwatches])]),
+                .docColor(String(localized: "Text Color"), picked: colorFill, [.init([colorSwatches])]),
             ]),
-            .init(String(localized: "Pen"), controls: [
-                .picker(String(localized: "Pen"), value: penTitle, id: "text-pen", sections: [
-                    .init(.rows, [.action(String(localized: "None"), isOn: pen == nil) { setPen(nil) }]
-                        + Self.pens.map { item in .action(item.title, symbol: item.symbol, isOn: pen == item.mark) { setPen(item.mark) } }),
-                ]),
+            .init(String(localized: "Pen"), [
+                .choice(String(localized: "Pen"), options: [String(localized: "None")] + Self.pens.map(\.title), selected: pens.firstIndex(of: pen)) { setPen(pens[$0]) },
             ]),
-            .init(.rows, [
+            .init([
                 .action(String(localized: "Format Panel"), symbol: "slider.horizontal.3") { editor.panels.showsFormat = true },
             ]),
         ]
@@ -173,36 +166,25 @@ struct DocTextFormat {
         if case .highlight(let token)? = highlight { DocColors.highlightSwatch(token ?? "yellow") } else { nil }
     }
 
-    /// Craft's highlights (squares): none, the palette, any colour.
-    private var highlightSwatches: FlooDesignMenuSwatches {
+    /// Craft's highlights: none, the palette, any colour.
+    private var highlightSwatches: FlooMenuItem {
         let current = highlight
         let swatch = { (token: String?, title: String, fill: Color) in
-            FlooDesignMenuSwatches.Swatch(id: token ?? "none", title: title, fill: fill,
-                                          isOn: token == nil ? current == nil : current == .highlight(color: token),
-                                          identifier: "highlight-\(token ?? "none")") { setHighlight(token) }
+            DocSwatch(id: token ?? "none", title: title, color: fill, isOn: token == nil ? current == nil : current == .highlight(color: token)) { setHighlight(token) }
         }
-        let custom = customHighlight
-        return FlooDesignMenuSwatches(shape: .rounded, chosen: .ring(FlooDesignTokens.ColorRole.Content.primary),
-                                      [swatch(nil, String(localized: "None"), FlooDesignTokens.ColorRole.Surface.canvas)]
-                                          + DocColors.highlights.map { swatch($0.token, $0.title, DocColors.highlightSwatch($0.token)) },
-                                      well: .init(title: String(localized: "Other Highlight Color"), picked: custom.map(DocColors.highlightSwatch),
-                                                  selection: Binding { custom.map(DocColors.highlightSwatch) ?? .yellow } set: { pickHighlight($0) },
-                                                  identifier: "highlight-custom"))
+        return .docSwatches("text-highlights", [swatch(nil, String(localized: "None"), DocTokens.ColorRole.Surface.canvas)]
+                                + DocColors.highlights.map { swatch($0.token, $0.title, DocColors.highlightSwatch($0.token)) },
+                            well: .init(title: String(localized: "Other Highlight Color"), selected: customHighlight.map { UIColor(DocColors.highlightSwatch($0)) }) { pickHighlight(Color(uiColor: $0)) })
     }
 
-    /// Craft's text colours (circles): the default, the palette, any colour.
-    private var colorSwatches: FlooDesignMenuSwatches {
+    /// Craft's text colours: the default, the palette, any colour.
+    private var colorSwatches: FlooMenuItem {
         let current = color
         let swatch = { (token: String?, title: String) in
-            FlooDesignMenuSwatches.Swatch(id: token ?? "none", title: title, fill: token.map(DocColors.swatch) ?? FlooDesignTokens.ColorRole.Content.primary,
-                                          isOn: current == token.map(Mark.color), identifier: "text-color-\(token ?? "none")") { setColor(token) }
+            DocSwatch(id: token ?? "none", title: title, color: token.map(DocColors.swatch) ?? DocTokens.ColorRole.Content.primary, isOn: current == token.map(Mark.color)) { setColor(token) }
         }
-        let custom = customColor
-        return FlooDesignMenuSwatches(chosen: .ring(FlooDesignTokens.ColorRole.Content.primary),
-                                      [swatch(nil, String(localized: "Default"))] + DocColors.texts.map { swatch($0.token, $0.title) },
-                                      well: .init(title: String(localized: "Other Text Color"), picked: custom.map(DocColors.swatch),
-                                                  selection: Binding { custom.map(DocColors.swatch) ?? .primary } set: { pickColor($0) },
-                                                  identifier: "text-color-custom"))
+        return .docSwatches("text-colors", [swatch(nil, String(localized: "Default"))] + DocColors.texts.map { swatch($0.token, $0.title) },
+                            well: .init(title: String(localized: "Other Text Color"), selected: customColor.map { UIColor(DocColors.swatch($0)) }) { pickColor(Color(uiColor: $0)) })
     }
 
     // MARK: The system's menu

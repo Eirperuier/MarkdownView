@@ -19,9 +19,9 @@
 //  Sizes are measured from Craft's (Mac, 2026-10-13 recordings).
 //
 
+import FlooUIKit
 import SwiftUI
 import DocKit
-import FlooDesign
 import MarkdownView
 
 struct DocCollectionSnapshot: Equatable {
@@ -721,8 +721,8 @@ enum DocCollectionMetrics {
     static let titleSize: CGFloat = 22
     static let tabSize: CGFloat = 14
     static let tabHeight: CGFloat = 26
-    static let headerGap = FlooDesignTokens.Space.sm
-    static let corner = FlooDesignTokens.Radius.sm
+    static let headerGap = DocTokens.Space.sm
+    static let corner = DocTokens.Radius.sm
     static let toolbarHeight: CGFloat = 28
     static let toolbarButton: CGFloat = 30
     static let searchWidth: CGFloat = 180
@@ -737,15 +737,15 @@ enum DocCollectionMetrics {
     /// Above and below a cell's lines, so a wrapped one keeps the row's spacing.
     static let cellLinePadding: CGFloat = 8
     static let addFieldWidth: CGFloat = 36
-    static let cellInset = FlooDesignTokens.Space.sm
+    static let cellInset = DocTokens.Space.sm
     static let focusWidth: CGFloat = 2
     // Kanban
     static let columnWidth: CGFloat = 268
     static let columnGap: CGFloat = 13
-    static let columnInset = FlooDesignTokens.Space.sm
+    static let columnInset = DocTokens.Space.sm
     static let columnHead: CGFloat = 40
     static let cardGap: CGFloat = 10
-    static let cardInset = FlooDesignTokens.Space.md
+    static let cardInset = DocTokens.Space.md
     static let cardCorner: CGFloat = 8
     /// The arrow that opens a record (a card's, a title cell's).
     static let openButton: CGFloat = 24
@@ -787,17 +787,17 @@ struct DocChip: View {
     var systemImage: String?
 
     var body: some View {
-        HStack(spacing: FlooDesignTokens.Space.xs) {
-            if let systemImage { Image(systemName: systemImage).font(.system(size: FlooDesignTokens.Icon.inline, weight: .semibold)) }
+        HStack(spacing: DocTokens.Space.xs) {
+            if let systemImage { Image(systemName: systemImage).font(.system(size: DocTokens.Icon.inline, weight: .semibold)) }
             Text(text).lineLimit(1)
         }
         .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(color.map { $0.mix(with: FlooDesignTokens.ColorRole.Content.primary, by: 0.2) }
-                         ?? FlooDesignTokens.ColorRole.Content.secondary)
+        .foregroundStyle(color.map { $0.mix(with: DocTokens.ColorRole.Content.primary, by: 0.2) }
+                         ?? DocTokens.ColorRole.Content.secondary)
         .padding(.horizontal, 7)
         .frame(height: Metrics.chipHeight)
-        .background(color.map { $0.opacity(FlooDesignTokens.State.selectedOpacity) } ?? FlooDesignTokens.ColorRole.Surface.control,
-                    in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs + 1, style: .continuous))
+        .background(color.map { $0.opacity(DocTokens.State.selectedOpacity) } ?? DocTokens.ColorRole.Surface.control,
+                    in: RoundedRectangle(cornerRadius: DocTokens.Radius.xs + 1, style: .continuous))
     }
 
     /// An option's chip, in its colour.
@@ -1016,7 +1016,7 @@ struct DocCollectionView: View {
                 }
             }
         }
-        .padding(.vertical, FlooDesignTokens.Space.sm)
+        .padding(.vertical, DocTokens.Space.sm)
         .onHover { hovering = $0 }
     }
 }
@@ -1040,7 +1040,7 @@ private struct DocCollectionHeader: View {
     private var current: CollectionView? { collection.currentView }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: FlooDesignTokens.Space.sm) {
+        VStack(alignment: .leading, spacing: DocTokens.Space.sm) {
             HStack(alignment: .center) {
                 TextField(String(localized: "Untitled Collection"), text: $name)
                     .textFieldStyle(.plain)
@@ -1050,7 +1050,7 @@ private struct DocCollectionHeader: View {
                     .onChange(of: name) { _, name in if name != collection.name { controller.rename(block, to: name) } }
                     .docEditingPlace(DocFieldPlace(field: [block, "name"] as [AnyHashable], block: block), isFocused: nameFocused,
                                      editor: controller.editor)
-                Spacer(minLength: FlooDesignTokens.Space.md)
+                Spacer(minLength: DocTokens.Space.md)
                 toolbar
             }
             tabs
@@ -1063,11 +1063,11 @@ private struct DocCollectionHeader: View {
 
     /// Over the block (or with a panel or a search open) on a Mac; always on a phone.
     private var showsToolbar: Bool {
-        !FlooDesignTokens.Platform.isPointer || hovering || searching || controller.panel?.block == block
+        !DocTokens.Platform.isPointer || hovering || searching || controller.panel?.block == block
     }
 
     private var toolbar: some View {
-        HStack(spacing: FlooDesignTokens.Space.sm) {
+        HStack(spacing: DocTokens.Space.sm) {
             search
             HStack(spacing: 0) {
                 if controller.isEditable {
@@ -1079,13 +1079,13 @@ private struct DocCollectionHeader: View {
                 }
                 viewMenu
             }
-            .padding(.horizontal, FlooDesignTokens.Space.xxs)
+            .padding(.horizontal, DocTokens.Space.xxs)
             .background(toolbarBox)
         }
         .opacity(showsToolbar ? 1 : 0)
         .allowsHitTesting(showsToolbar)
         // The view's panels open under the toolbar, at its right.
-        .flooDesignAnchoredPanel(isPresented: toolbarPanel != nil, configuration: .init(horizontalAlignment: .trailing),
+        .docPanel(isPresented: toolbarPanel != nil, alignment: .trailing,
                                  onDismiss: { if let toolbarPanel { controller.close(toolbarPanel, in: block) } }) {
             if let current {
                 switch toolbarPanel {
@@ -1109,18 +1109,18 @@ private struct DocCollectionHeader: View {
     }
 
     private var toolbarBox: some View {
-        RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.md, style: .continuous)
-            .strokeBorder(FlooDesignTokens.Border.subtle, lineWidth: FlooDesignTokens.Border.standard)
+        RoundedRectangle(cornerRadius: DocTokens.Radius.md, style: .continuous)
+            .strokeBorder(DocTokens.Border.subtle, lineWidth: DocTokens.Border.standard)
     }
 
     private func toolbarButton(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: FlooDesignTokens.Icon.standard))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                .font(.system(size: DocTokens.Icon.standard))
+                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                 .frame(width: Metrics.toolbarButton, height: Metrics.toolbarHeight)
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
+        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
         .help(title)
         .accessibilityLabel(title)
     }
@@ -1129,10 +1129,10 @@ private struct DocCollectionHeader: View {
     @ViewBuilder
     private var search: some View {
         if searching {
-            HStack(spacing: FlooDesignTokens.Space.xs) {
+            HStack(spacing: DocTokens.Space.xs) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: FlooDesignTokens.Icon.compact))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                    .font(.system(size: DocTokens.Icon.compact))
+                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                 TextField(String(localized: "Search"), text: Binding {
                     controller.searches[block] ?? ""
                 } set: {
@@ -1149,13 +1149,13 @@ private struct DocCollectionHeader: View {
                 }
                 Button(action: endSearch) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: FlooDesignTokens.Icon.compact))
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                        .font(.system(size: DocTokens.Icon.compact))
+                        .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(String(localized: "Close Search"))
             }
-            .padding(.horizontal, FlooDesignTokens.Space.sm)
+            .padding(.horizontal, DocTokens.Space.sm)
             .frame(width: Metrics.searchWidth, height: Metrics.toolbarHeight)
             .background(toolbarBox)
         } else {
@@ -1163,7 +1163,7 @@ private struct DocCollectionHeader: View {
                 searching = true
                 Task { @MainActor in searchFocused = true }
             }
-            .padding(.horizontal, FlooDesignTokens.Space.xxs)
+            .padding(.horizontal, DocTokens.Space.xxs)
             .background(toolbarBox)
         }
     }
@@ -1178,14 +1178,14 @@ private struct DocCollectionHeader: View {
             showsViewMenu.toggle()
         } label: {
             Image(systemName: "slider.horizontal.3")
-                .font(.system(size: FlooDesignTokens.Icon.standard))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                .font(.system(size: DocTokens.Icon.standard))
+                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                 .frame(width: Metrics.toolbarButton, height: Metrics.toolbarHeight)
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
+        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
         .help(String(localized: "View Options"))
         .accessibilityLabel(String(localized: "View Options"))
-        .flooDesignActionMenu(isPresented: showsViewMenu, configuration: .init(horizontalAlignment: .trailing),
+        .docMenuPanel(isPresented: showsViewMenu, alignment: .trailing,
                               onDismiss: { showsViewMenu = false }) { _ in
             current.map { viewSections($0, full: true) } ?? []
         }
@@ -1193,11 +1193,11 @@ private struct DocCollectionHeader: View {
 
     /// A view's menu: its panels, then renaming, copying and deleting it; the toolbar's
     /// also downloads it.
-    private func viewSections(_ view: CollectionView, full: Bool) -> [FlooDesignActionMenuSection] {
+    private func viewSections(_ view: CollectionView, full: Bool) -> [FlooMenuSection] {
         // Ticked when the view groups (Craft's).
         // A chart's groups are its axis; its order is theirs, so it has no sorting.
         let isChart = view.layout.chart != nil
-        let panels: [FlooDesignActionMenuItem] = [
+        let panels: [FlooMenuItem] = [
             .action(String(localized: "Filter"), symbol: "line.3.horizontal.decrease") { open(.filter, for: view) },
         ] + (isChart ? [] : [
             .action(String(localized: "Sort"), symbol: "arrow.up.arrow.down") { open(.sort, for: view) },
@@ -1206,13 +1206,13 @@ private struct DocCollectionHeader: View {
                 ? .action(String(localized: "X Axis"), symbol: "chart.bar.xaxis") { open(.group, for: view) }
                 : .action(String(localized: "Group"), symbol: "rectangle.3.group", isOn: view.layout.groupBy != nil) { open(.group, for: view) },
         ]
-        var sections: [FlooDesignActionMenuSection] = [
-            .init(.rows, [.action(String(localized: "Layout & Visibility"), symbol: "tablecells") { open(.layout, for: view) }]
+        var sections: [FlooMenuSection] = [
+            .init([.action(String(localized: "Layout & Visibility"), symbol: "tablecells") { open(.layout, for: view) }]
                   + (isChart ? [.action(String(localized: "Chart"), symbol: "slider.horizontal.3") { open(.chart, for: view) }] : [])),
-            .init(.rows, panels),
+            .init(panels),
         ]
         if controller.isEditable {
-            sections.append(.init(.rows, [
+            sections.append(.init([
                 .action(String(localized: "Rename View"), symbol: "character.cursor.ibeam") {
                     viewName = view.name
                     renaming = view.id
@@ -1224,7 +1224,7 @@ private struct DocCollectionHeader: View {
             ]))
         }
         if full {
-            sections.append(.init(.rows, [
+            sections.append(.init([
                 .action(String(localized: "Download as CSV"), symbol: "arrow.down.circle") {
                     DocCSVExport.save(controller.csv(snapshot, view), named: collection.name.isEmpty ? String(localized: "Collection") : collection.name)
                 },
@@ -1249,7 +1249,7 @@ private struct DocCollectionHeader: View {
     // MARK: Tabs
 
     private var tabs: some View {
-        HStack(spacing: FlooDesignTokens.Space.xxs) {
+        HStack(spacing: DocTokens.Space.xxs) {
             ForEach(collection.views) { view in
                 tab(view)
             }
@@ -1258,7 +1258,7 @@ private struct DocCollectionHeader: View {
             }
         }
         // A tab's words line up with the name; its fill reaches out past them (Craft's).
-        .padding(.leading, -FlooDesignTokens.Space.sm)
+        .padding(.leading, -DocTokens.Space.sm)
     }
 
     private var addView: some View {
@@ -1276,15 +1276,15 @@ private struct DocCollectionHeader: View {
             }
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: FlooDesignTokens.Icon.compact, weight: .semibold))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                .font(.system(size: DocTokens.Icon.compact, weight: .semibold))
+                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                 .frame(width: Metrics.tabHeight, height: Metrics.tabHeight)
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
-        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
+        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
         .accessibilityLabel(String(localized: "Add View"))
-        .flooDesignAnchoredPanel(isPresented: controller.isShowing(.createKanban, in: block) || controller.isShowing(.createChart, in: block),
+        .docPanel(isPresented: controller.isShowing(.createKanban, in: block) || controller.isShowing(.createChart, in: block),
                                  onDismiss: {
                                      controller.close(.createKanban, in: block)
                                      controller.close(.createChart, in: block)
@@ -1305,9 +1305,9 @@ private struct DocCollectionHeader: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: Metrics.tabSize, weight: .medium))
                 .fixedSize()
-                .padding(.horizontal, FlooDesignTokens.Space.sm)
+                .padding(.horizontal, DocTokens.Space.sm)
                 .frame(height: Metrics.tabHeight)
-                .background(FlooDesignTokens.ColorRole.Surface.selected, in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
+                .background(DocTokens.ColorRole.Surface.selected, in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
                 .focused($viewNameFocused)
                 // The view's name: its menu is its tab's right-click rows.
                 .docEditingPlace(DocFieldPlace(field: [block, view.id] as [AnyHashable], block: block,
@@ -1328,15 +1328,15 @@ private struct DocCollectionHeader: View {
             } label: {
                 Text(view.name)
                     .font(.system(size: Metrics.tabSize, weight: .medium))
-                    .foregroundStyle(isCurrent ? FlooDesignTokens.ColorRole.Content.primary : FlooDesignTokens.ColorRole.Content.secondary)
-                    .padding(.horizontal, FlooDesignTokens.Space.sm)
+                    .foregroundStyle(isCurrent ? DocTokens.ColorRole.Content.primary : DocTokens.ColorRole.Content.secondary)
+                    .padding(.horizontal, DocTokens.Space.sm)
                     .frame(height: Metrics.tabHeight)
-                    .background(isCurrent ? FlooDesignTokens.ColorRole.Surface.selected : .clear,
+                    .background(isCurrent ? DocTokens.ColorRole.Surface.selected : .clear,
                                 in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous))
             }
-            .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
-            .flooDesignContextMenu { _ in viewSections(view, full: false) }
-            .flooDesignAnchoredPanel(isPresented: controller.isShowing(.nameView(view.id), in: block),
+            .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
+            .flooContextMenu { viewSections(view, full: false) }
+            .docPanel(isPresented: controller.isShowing(.nameView(view.id), in: block),
                                      onDismiss: { controller.close(.nameView(view.id), in: block) }) {
                 DocNameViewPanel(block: block, view: view, controller: controller)
             }

@@ -27,10 +27,10 @@
 //  are references too, coloured and ringed as the cells they name.
 //
 
+import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
-import FlooDesign
 import MarkdownView
 
 /// A formula being written: its cell, its text (without its "=") and the caret.
@@ -82,7 +82,7 @@ final class DocFormulaEditing: Identifiable {
     /// A reference's colour, by its place among them.
     static func color(_ index: Int) -> Color {
         let tokens = ["purple", "green", "blue", "orange", "red", "cyan", "brown"]
-        return MarkdownColorToken.text(tokens[index % tokens.count]) ?? FlooDesignTokens.ColorRole.Content.secondary
+        return MarkdownColorToken.text(tokens[index % tokens.count]) ?? DocTokens.ColorRole.Content.secondary
     }
 
     /// The field's typing.
@@ -122,7 +122,7 @@ final class DocFormulaEditing: Identifiable {
     }
 }
 
-private typealias Tokens = FlooDesignTokens
+private typealias Tokens = DocTokens
 
 extension DocTableController {
     /// Insert Formula: the cell's formula written on the table's own page (a phone), or in
@@ -192,10 +192,8 @@ extension DocTableController {
 
     /// The panel under the cell: centred on it, and open while its table's cells are
     /// clicked (they put their references in).
-    func formulaPanelConfiguration(_ key: DocCellKey) -> FlooDesignAnchoredPanelConfiguration {
-        var configuration = FlooDesignAnchoredPanelConfiguration(preferredEdge: .below, horizontalAlignment: .center)
-        configuration.keepsOpen = { [weak self] point in self?.tableFrames[key.block]?.contains(point) == true }
-        return configuration
+    func formulaPanelKeepsOpen(_ key: DocCellKey) -> @MainActor (CGPoint) -> Bool {
+        { [weak self] point in self?.tableFrames[key.block]?.contains(point) == true }
     }
 
     /// The formula's page is gone (the table back on the page).
@@ -221,14 +219,14 @@ struct DocFormulaView: View {
     @State private var landing: CGRect?
     @State private var flight: CGSize = .zero
 
-    private typealias Tokens = FlooDesignTokens
+    private typealias Tokens = DocTokens
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Spacer()
                 Button(String(localized: "Done"), action: done)
-                    .buttonStyle(FlooDesignButtonStyle(.primary))
+                    .buttonStyle(.floo(.primary))
             }
             .padding(.horizontal, Tokens.Space.lg)
             .padding(.vertical, Tokens.Space.sm)
@@ -335,7 +333,7 @@ struct DocFormulaPlaceholder: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: look.frameAlignment)
             .overlay(alignment: Alignment(horizontal: look.frameAlignment.horizontal, vertical: .center)) {
                 Text("Edit Formula")
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
+                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .opacity(formula.isShown ? 1 : 0)
@@ -353,12 +351,12 @@ struct DocFormulaDecoration: View {
     /// The numbers' strip: on the Mac it's in the page's margin, which is narrower.
     static let gutterWidth: CGFloat = DocDevice.isMac ? 20 : 24
     static let gutterHeight: CGFloat = 24
-    static let gap: CGFloat = FlooDesignTokens.Space.xs
+    static let gap: CGFloat = DocTokens.Space.xs
     /// What the table leaves on its left for the rows' numbers: a cell's fill reaches past
     /// its text, then the gap, the numbers, and a little room to the screen's edge.
-    static let leadingRoom = MarkdownTableAppearance.rowOutset.leading + gap + gutterWidth + FlooDesignTokens.Space.xs
+    static let leadingRoom = MarkdownTableAppearance.rowOutset.leading + gap + gutterWidth + DocTokens.Space.xs
 
-    private typealias Tokens = FlooDesignTokens
+    private typealias Tokens = DocTokens
 
     var body: some View {
         let columns = Self.line(frames) { MarkdownTableCellPosition(row: 0, column: $0) }
@@ -455,18 +453,18 @@ struct DocFormulaPanel: View {
     /// Esc in the field (the Mac): the cell as it was.
     var cancel: (() -> Void)?
 
-    private typealias Tokens = FlooDesignTokens
+    private typealias Tokens = DocTokens
     /// Craft's panel's width, measured on its Mac app.
     static let width: CGFloat = 352
 
     var body: some View {
         if DocDevice.isMac {
-            FlooDesignFloatingPanelSurface { content }
-                .flooDesignPanelWidth(Self.width)
+            DocPanelSurface { content }
+                .docPanelWidth(Self.width)
         } else {
             content
                 .padding(Tokens.Space.sm)
-                .flooDesignGlass(.regular, in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
+                .flooGlass(in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
                 .padding(.horizontal, Tokens.Space.md)
                 .padding(.bottom, Tokens.Space.sm)
         }
@@ -529,7 +527,7 @@ struct DocFormulaPanel: View {
                     .frame(maxWidth: .infinity)
             }
             .menuStyle(.button)
-            .buttonStyle(FlooDesignButtonStyle(.secondary))
+            .buttonStyle(.floo(.tertiary))
             .accessibilityLabel("More Functions")
         }
     }
@@ -541,7 +539,7 @@ struct DocFormulaPanel: View {
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(FlooDesignButtonStyle(.secondary))
+        .buttonStyle(.floo(.tertiary))
     }
 }
 

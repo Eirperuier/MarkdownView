@@ -6,11 +6,11 @@
 //  While the agent writes, the page is a read-only preview and the bar says so.
 //
 
+import FlooUIKit
 import SwiftUI
 import MarkdownView
 import MessagingUI
 import DocKit
-import FlooDesign
 
 struct DocDestination: View {
     /// Code blocks are coloured by Highlightr, read and edited alike.
@@ -125,7 +125,7 @@ private struct DocPageView: View {
                         bottomInset: { [demo] item in (demo.rows.first { $0.id == item.id }?.spacingBelow ?? 0) - DocBlockController.highlightOutset },
                         highlights: { [demo] item in demo.rows.first { $0.id == item.id }?.media == nil }
                     )
-                    .environment(\.markdownMotion, FlooDesignTokens.Motion.markdown)
+                    .environment(\.markdownMotion, DocTokens.Motion.markdown)
                     .ignoresSafeArea(edges: .vertical)
                 }
             }
@@ -400,14 +400,13 @@ private struct DocPageView: View {
     @ViewBuilder
     private var pageBar: some View {
         bar
-            .frame(maxWidth: .infinity, minHeight: FlooDesignTokens.Control.prominentHeight, alignment: .leading)
-            .padding(.horizontal, FlooDesignTokens.Space.lg)
-            .padding(.vertical, FlooDesignTokens.Space.sm)
+            .frame(maxWidth: .infinity, minHeight: DocTokens.Control.prominentHeight, alignment: .leading)
+            .padding(.horizontal, DocTokens.Space.lg)
+            .padding(.vertical, DocTokens.Space.sm)
             // The Mac's format panel: under the bar at the window's right, open until
             // its Aa closes it (Craft's).
-            .flooDesignActionMenu(isPresented: editor.panels.showsFormat, title: String(localized: "Format"),
-                                  configuration: .init(horizontalAlignment: .trailing, anchorGap: 0, dismissesOnOutsideTouch: false),
-                                  onDismiss: { editor.panels.showsFormat = false }) { [editor] _ in
+            .docMenuPanel(isPresented: editor.panels.showsFormat, title: String(localized: "Format"), alignment: .trailing, staysBeside: true, keepsOpen: { _ in true },
+                          onDismiss: { editor.panels.showsFormat = false }) { [editor] _ in
                 DocFormatMenu(editor: editor).sections
             }
         Divider()
@@ -420,32 +419,32 @@ private struct DocPageView: View {
                 // Selecting blocks: only the way out, as Craft has it.
                 Spacer()
                 Button("Done", systemImage: "checkmark") { editor.blocks.endSelecting() }
-                    .buttonStyle(FlooDesignRoundButtonStyle())
+                    .buttonStyle(.floo(.primary, iconOnly: true))
             } else if let status = demo.agentStatus {
                 ProgressView()
                     .controlSize(.small)
                 Text("Agent · \(status)")
-                    .font(FlooDesignTokens.Typography.body.font)
+                    .font(DocTokens.Typography.body.font)
                 Text("Read-only preview")
-                    .font(FlooDesignTokens.Typography.metadata.font)
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                    .font(DocTokens.Typography.metadata.font)
+                    .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                 Spacer()
                 Button("Stop") { demo.stop() }
-                    .buttonStyle(FlooDesignButtonStyle(.secondary))
+                    .buttonStyle(.floo(.tertiary))
             } else {
                 Button("Undo", systemImage: "arrow.uturn.backward") { editor.requestUndo() }
                     .keyboardShortcut("z", modifiers: .command)
                     .disabled(!demo.canUndo)
-                    .buttonStyle(FlooDesignButtonStyle(.borderless))
+                    .buttonStyle(.floo(.plain, iconOnly: true))
                 Button("Redo", systemImage: "arrow.uturn.forward") { editor.requestRedo() }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                     .disabled(!demo.canRedo)
-                    .buttonStyle(FlooDesignButtonStyle(.borderless))
+                    .buttonStyle(.floo(.plain, iconOnly: true))
                 Spacer()
                 #if targetEnvironment(macCatalyst)
                 Button("Format", systemImage: "textformat") { editor.panels.showsFormat.toggle() }
-                    .frame(width: FlooDesignTokens.Control.compactHeight, height: FlooDesignTokens.Control.minimumHitTarget)
-                    .buttonStyle(FlooDesignTileButtonStyle(isOn: editor.panels.showsFormat, surface: .chip, cornerRadius: FlooDesignTokens.Radius.sm))
+                    .frame(width: DocTokens.Control.compactHeight, height: DocTokens.Control.minimumHitTarget)
+                    .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: DocTokens.Radius.sm, style: .continuous), isOn: editor.panels.showsFormat))
                     .help("Format")
                 #endif
                 // The demo's own controls, on its first page.
@@ -454,9 +453,11 @@ private struct DocPageView: View {
                         pages.reset()
                         editor.resetDocument()
                     }
-                    .buttonStyle(FlooDesignButtonStyle(.borderless))
+                    .buttonStyle(.floo(.plain))
+                    .fixedSize()
                     Button("Agent Demo") { demo.runScript() }
-                        .buttonStyle(FlooDesignButtonStyle(.primary))
+                        .buttonStyle(.floo(.primary))
+                        .fixedSize()
                 }
             }
         }
@@ -659,7 +660,7 @@ private struct DocRowBoxing: ViewModifier {
     let spacingAbove: CGFloat
     var run: DocRowRun?
 
-    private typealias Box = FlooDesignTokens.Component.DecorationBox
+    private typealias Box = DocTokens.Component.DecorationBox
 
     func body(content: Content) -> some View {
         // One layout with or without a box (no branches), so a row going into or out of a
@@ -706,7 +707,7 @@ private struct DocCaptionType: ViewModifier {
         if isOn {
             content
                 .markdownPlatformTypography(DocTypography.captionFonts)
-                .markdownBaseTextColor(FlooDesignTokens.ColorRole.Content.secondary)
+                .markdownBaseTextColor(DocTokens.ColorRole.Content.secondary)
         } else {
             content
         }

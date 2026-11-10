@@ -25,12 +25,12 @@
 //
 
 import CardRuntime
+import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
 import MarkdownView
 import MessagingUI
-import FlooDesign
 
 enum DocSourceKind: Equatable {
     case code(language: String?)
@@ -227,19 +227,19 @@ final class DocSourceController {
     }
 
     /// A code block's menu: its language (Plain Text, then by name) and Copy Code.
-    func codeMenu(_ block: DocBlockID) -> [FlooDesignActionMenuSection] {
+    func codeMenu(_ block: DocBlockID) -> [FlooMenuSection] {
         guard case .code(let language)? = demo.doc.block(block)?.kind else { return [] }
-        let languages: [FlooDesignActionMenuSection] = [
-            .init(.rows, [.action(String(localized: "Plain Text"), isOn: language == nil, id: "plain") { [weak self] in
+        let languages: [FlooMenuSection] = [
+            .init([.action(String(localized: "Plain Text"), isOn: language == nil) { [weak self] in
                 self?.setLanguage(nil, of: block)
             }]),
-            .init(.rows, Self.languages.map { choice in
-                .action(choice.name, isOn: language == choice.id, id: choice.id) { [weak self] in self?.setLanguage(choice.id, of: block) }
+            .init(Self.languages.map { choice in
+                .action(choice.name, isOn: language == choice.id) { [weak self] in self?.setLanguage(choice.id, of: block) }
             }),
         ]
-        return [.init(.rows, [
-            .submenu(String(localized: "Language"), symbol: "chevron.left.forwardslash.chevron.right", id: "language", sections: languages),
-            .action(String(localized: "Copy Code"), symbol: "doc.on.doc", id: "copyCode") { [weak self] in
+        return [.init([
+            .submenu(String(localized: "Language"), symbol: "chevron.left.forwardslash.chevron.right", languages),
+            .action(String(localized: "Copy Code"), symbol: "doc.on.doc") { [weak self] in
                 UIPasteboard.general.string = self?.text(block)
             },
         ])]
@@ -460,7 +460,7 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
         let runs = ground.map { ReadableCode.recolored(runs, scheme: scheme ?? .light, on: SRGBColor($0)) } ?? runs
         let storage = textStorage
         storage.beginEditing()
-        storage.addAttribute(.foregroundColor, value: ink ?? FlooDesignTokens.UIKitColor.primary, range: NSRange(location: 0, length: storage.length))
+        storage.addAttribute(.foregroundColor, value: ink ?? DocTokens.UIKitColor.primary, range: NSRange(location: 0, length: storage.length))
         for (range, color) in runs where NSMaxRange(range) <= storage.length {
             storage.addAttribute(.foregroundColor, value: color, range: range)
         }
@@ -591,7 +591,7 @@ final class DocSourceTextView: UITextView, UITextViewDelegate {
     /// Right-click in code: its menu (the language, Copy Code) above the text's.
     func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
         guard let block, let rows = controller?.codeMenu(block), !rows.isEmpty else { return nil }
-        return UIMenu(children: FlooDesignContextMenus.systemMenu(rows) + suggestedActions)
+        return UIMenu(children: rows.systemElements() + suggestedActions)
     }
     #endif
 }
@@ -611,7 +611,7 @@ struct DocSourceField: UIViewRepresentable {
 
     /// In the colours of the Markdown it's in, if it has its own.
     private func attributes(_ colors: MarkdownColors?) -> [NSAttributedString.Key: Any] {
-        let ink = colors.map { UIColor($0.primary) } ?? FlooDesignTokens.UIKitColor.primary
+        let ink = colors.map { UIColor($0.primary) } ?? DocTokens.UIKitColor.primary
         var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink]
         if let code {
             let style = NSMutableParagraphStyle()
@@ -803,7 +803,7 @@ struct DocCodeGutter: View {
             ForEach(1...max(1, lines), id: \.self) { number in
                 Text(verbatim: "\(number)")
                     .font(Font(code.font))
-                    .foregroundStyle(colors?.tertiary ?? FlooDesignTokens.ColorRole.Content.tertiary)
+                    .foregroundStyle(colors?.tertiary ?? DocTokens.ColorRole.Content.tertiary)
                     .frame(height: code.pitch)
             }
         }
@@ -848,10 +848,10 @@ struct DocCodeBox: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: DocCodeMetrics.radius + DocCodeMetrics.ringOffset, style: .continuous)
-                .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary.opacity(DocCodeMetrics.ringOpacity), lineWidth: DocCodeMetrics.border)
+                .strokeBorder(DocTokens.ColorRole.Accent.primary.opacity(DocCodeMetrics.ringOpacity), lineWidth: DocCodeMetrics.border)
                 .padding(-DocCodeMetrics.ringOffset)
                 .opacity(isEditing ? 1 : 0)
-                .animation(FlooDesignTokens.Motion.reveal, value: isEditing)
+                .animation(DocTokens.Motion.reveal, value: isEditing)
                 .allowsHitTesting(false)
         }
     }
@@ -937,9 +937,9 @@ struct DocMathRowView: View {
         Group {
             if isEmpty {
                 Text("Empty formula. Enter LaTeX.")
-                    .font(FlooDesignTokens.Typography.body.font)
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.tertiary)
-                    .frame(maxWidth: .infinity, minHeight: FlooDesignTokens.Control.standardHeight)
+                    .font(DocTokens.Typography.body.font)
+                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
+                    .frame(maxWidth: .infinity, minHeight: DocTokens.Control.standardHeight)
             } else {
                 MarkdownBlockView(tree: tree)
                     .markdownDisplayMathRendersSynchronously()
@@ -947,11 +947,11 @@ struct DocMathRowView: View {
             }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.md, style: .continuous)
-                .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
-                .padding(.horizontal, -(FlooDesignTokens.Space.sm - 2))
+            RoundedRectangle(cornerRadius: DocTokens.Radius.md, style: .continuous)
+                .strokeBorder(DocTokens.ColorRole.Accent.primary, lineWidth: DocTokens.Border.focus)
+                .padding(.horizontal, -(DocTokens.Space.sm - 2))
                 .opacity(editing ? 1 : 0)
-                .animation(FlooDesignTokens.Motion.reveal, value: editing)
+                .animation(DocTokens.Motion.reveal, value: editing)
                 .allowsHitTesting(false)
         }
         .background { DocViewAnchor { [block, controller] in controller.mathRows[block] = .init(view: $0) } }
@@ -959,7 +959,7 @@ struct DocMathRowView: View {
         .simultaneousGesture(TapGesture().onEnded { [block, controller] in
             if controller.editing != block { controller.focus(block) }
         })
-        .flooDesignAnchoredPanel(isPresented: editing && DocDevice.isMac, onDismiss: { [block, controller] in controller.dismiss(block) }) {
+        .docPanel(isPresented: editing && DocDevice.isMac, onDismiss: { [block, controller] in controller.dismiss(block) }) {
             DocMathPanel(block: block, text: controller.text(block), controller: controller)
         }
     }
@@ -979,12 +979,12 @@ struct DocMathKeyboardPanel: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [controller] height in
                         controller.revealMath(block, over: height)
                     }
-                    .transition(.opacity.combined(with: .scale(scale: FlooDesignTokens.Motion.revealStartScale, anchor: .bottom)))
+                    .transition(.opacity.combined(with: .scale(scale: DocTokens.Motion.revealStartScale, anchor: .bottom)))
                     .onDisappear { DocScrolling.keyboardPanel = 0 }
             }
         }
         .padding(.bottom, controller.keyboardBarHeight)
-        .animation(FlooDesignTokens.Motion.reveal, value: block)
+        .animation(DocTokens.Motion.reveal, value: block)
     }
 }
 
@@ -995,7 +995,7 @@ struct DocMathPanel: View {
     let text: String
     let controller: DocSourceController
 
-    private typealias Tokens = FlooDesignTokens
+    private typealias Tokens = DocTokens
 
     /// As wide as a formula line wants, within the window.
     private var width: CGFloat {
@@ -1005,12 +1005,12 @@ struct DocMathPanel: View {
 
     var body: some View {
         if DocDevice.isMac {
-            FlooDesignFloatingPanelSurface { content }
-                .flooDesignPanelWidth(width)
+            DocPanelSurface { content }
+                .docPanelWidth(width)
         } else {
             content
                 .padding(Tokens.Space.sm)
-                .flooDesignGlass(.regular, in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
+                .flooGlass(in: RoundedRectangle(cornerRadius: Tokens.Radius.xxl, style: .continuous))
                 .padding(.horizontal, Tokens.Space.md)
                 .padding(.bottom, Tokens.Space.sm)
         }
@@ -1032,7 +1032,7 @@ struct DocMathPanel: View {
                             .minimumScaleFactor(0.7)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(FlooDesignButtonStyle(.secondary))
+                    .buttonStyle(.floo(.tertiary))
                     .accessibilityLabel(key.name)
                 }
                 Menu {
@@ -1048,7 +1048,7 @@ struct DocMathPanel: View {
                         .frame(maxWidth: .infinity)
                 }
                 .menuStyle(.button)
-                .buttonStyle(FlooDesignButtonStyle(.secondary))
+                .buttonStyle(.floo(.tertiary))
                 .accessibilityLabel("More Symbols")
             }
         }

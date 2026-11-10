@@ -15,10 +15,10 @@
 //  - + under a column adds a card at its end, + after the columns a new option (a column).
 //
 
+import FlooUIKit
 import SwiftUI
 import UniformTypeIdentifiers
 import DocKit
-import FlooDesign
 
 private typealias Metrics = DocCollectionMetrics
 
@@ -63,14 +63,14 @@ struct DocCollectionKanban: View {
             controller.show(.addOption(group), in: block)
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                .font(.system(size: DocTokens.Icon.compact, weight: .medium))
+                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                 .frame(width: Metrics.columnHead, height: Metrics.columnHead)
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
+        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)))
         .help(String(localized: "Add New Group"))
         .accessibilityLabel(String(localized: "Add New Group"))
-        .flooDesignAnchoredPanel(isPresented: controller.isShowing(.addOption(group), in: block),
+        .docPanel(isPresented: controller.isShowing(.addOption(group), in: block),
                                  onDismiss: { controller.close(.addOption(group), in: block) }) {
             DocOptionPanel(snapshot: snapshot, column: group, option: nil, controller: controller)
         }
@@ -103,7 +103,7 @@ private struct DocKanbanLane: View {
     }
 
     /// The head's buttons: over the column on a Mac, always on a phone.
-    private var showsActions: Bool { controller.isEditable && (hovering || !FlooDesignTokens.Platform.isPointer) }
+    private var showsActions: Bool { controller.isEditable && (hovering || !DocTokens.Platform.isPointer) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.cardGap) {
@@ -119,15 +119,15 @@ private struct DocKanbanLane: View {
                     controller.addRecord(to: block, in: (column.id, group.value))
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
-                        .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                        .font(.system(size: DocTokens.Icon.compact, weight: .medium))
+                        .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                         .frame(maxWidth: .infinity)
                         .frame(height: Metrics.addHeight)
                         .overlay(RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
-                            .strokeBorder(FlooDesignTokens.Border.subtle, lineWidth: FlooDesignTokens.Border.standard))
+                            .strokeBorder(DocTokens.Border.subtle, lineWidth: DocTokens.Border.standard))
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)))
+                .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)))
                 .accessibilityLabel(String(localized: "New Item"))
             }
         }
@@ -138,19 +138,19 @@ private struct DocKanbanLane: View {
         .overlay(alignment: .topLeading) { line }
         .onHover { hovering = $0 }
         // A card's own menu wins over the column's (the smaller catcher).
-        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in menu }
+        .flooContextMenu(isEnabled: controller.isEditable) { menu }
         // The whole column takes the drop, its cards too: where between them follows the pointer.
         .onDrop(of: [.text], delegate: DocKanbanDrop(landing: $landing, place: place, drop: drop))
     }
 
     /// The column's right-click menu (Craft's): a new card at its end, the grouping's
     /// panel, leaving the group out.
-    private var menu: [FlooDesignActionMenuSection] {
+    private var menu: [FlooMenuSection] {
         [
-            .init(.rows, [.action(String(localized: "Add Item"), symbol: "plus") {
+            .init([.action(String(localized: "Add Item"), symbol: "plus") {
                 controller.addRecord(to: block, in: (column.id, group.value))
             }]),
-            .init(.rows, [
+            .init([
                 .action(String(localized: "Edit Grouping"), symbol: "rectangle.3.group") { controller.show(.group, in: block) },
                 .action(String(localized: "Hide Group"), symbol: "eye.slash") { controller.hide(group: group.key, in: view.id, of: block) },
             ]),
@@ -172,9 +172,9 @@ private struct DocKanbanLane: View {
             case .before(let id): (frames[id]?.minY ?? headFoot + Metrics.cardGap) - half
             case .end: group.rows.last.flatMap { frames[$0.id] }.map { $0.maxY + half } ?? headFoot + half
             }
-            let indicator = FlooDesignTokens.Component.DropIndicator.self
+            let indicator = DocTokens.Component.DropIndicator.self
             Capsule()
-                .fill(FlooDesignTokens.ColorRole.Accent.primary)
+                .fill(DocTokens.ColorRole.Accent.primary)
                 .frame(width: Metrics.columnWidth - 2 * Metrics.columnInset + 2 * indicator.overhang, height: indicator.thickness)
                 .offset(x: Metrics.columnInset - indicator.overhang, y: y - indicator.thickness / 2)
                 .allowsHitTesting(false)
@@ -182,9 +182,9 @@ private struct DocKanbanLane: View {
     }
 
     private var head: some View {
-        HStack(spacing: FlooDesignTokens.Space.sm) {
+        HStack(spacing: DocTokens.Space.sm) {
             DocGroupLabel(column: column, group: group)
-                .flooDesignAnchoredPanel(isPresented: option.map { controller.isShowing(.editOption($0.id), in: block) } ?? false,
+                .docPanel(isPresented: option.map { controller.isShowing(.editOption($0.id), in: block) } ?? false,
                                          onDismiss: { if let option { controller.close(.editOption(option.id), in: block) } }) {
                     if let option {
                         DocOptionPanel(snapshot: snapshot, column: column.id, option: option, controller: controller)
@@ -192,7 +192,7 @@ private struct DocKanbanLane: View {
                 }
             Text("\(group.rows.count)")
                 .font(.system(size: 14))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
             Spacer(minLength: 0)
             if let option {
                 Menu {
@@ -205,7 +205,7 @@ private struct DocKanbanLane: View {
                 }
                 .menuStyle(.button)
                 .menuIndicator(.hidden)
-                .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs, style: .continuous)))
+                .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: DocTokens.Radius.xs, style: .continuous)))
                 .opacity(showsActions ? 1 : 0)
                 .allowsHitTesting(showsActions)
                 .accessibilityLabel(String(localized: "Group Options"))
@@ -215,7 +215,7 @@ private struct DocKanbanLane: View {
             } label: {
                 headIcon("plus")
             }
-            .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.xs, style: .continuous)))
+            .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: DocTokens.Radius.xs, style: .continuous)))
             .opacity(showsActions ? 1 : 0)
             .allowsHitTesting(showsActions)
             .accessibilityLabel(String(localized: "New Item"))
@@ -225,8 +225,8 @@ private struct DocKanbanLane: View {
 
     private func headIcon(_ symbol: String) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: FlooDesignTokens.Icon.compact, weight: .medium))
-            .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+            .font(.system(size: DocTokens.Icon.compact, weight: .medium))
+            .foregroundStyle(DocTokens.ColorRole.Content.secondary)
             .frame(width: 24, height: 24)
     }
 }
@@ -259,20 +259,20 @@ private struct DocKanbanCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: FlooDesignTokens.Space.sm) {
+        VStack(alignment: .leading, spacing: DocTokens.Space.sm) {
             // Room at the title's end for the arrow, there or not.
-            HStack(alignment: .top, spacing: FlooDesignTokens.Space.sm) {
+            HStack(alignment: .top, spacing: DocTokens.Space.sm) {
                 // A record with a page written shows it before its title, as the table does.
                 if controller.hasPage?(row.id) == true {
                     DocRecordPageMark()
                 }
                 titleView
             }
-            .padding(.trailing, Metrics.openButton + FlooDesignTokens.Space.xs)
+            .padding(.trailing, Metrics.openButton + DocTokens.Space.xs)
             ForEach(fields.filter(Self.reads), id: \.id) { column in
                 Text(DocFieldText.text(row.cells[column.id], in: column))
                     .font(.system(size: 13))
-                    .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                    .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -289,21 +289,21 @@ private struct DocKanbanCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         // The arrow over the card's corner, by the title's first line: it moves nothing.
         .overlay(alignment: .topTrailing) {
-            if !focused, hovering || !FlooDesignTokens.Platform.isPointer {
+            if !focused, hovering || !DocTokens.Platform.isPointer {
                 DocOpenRecordButton(snapshot: snapshot, row: row, controller: controller)
                     .padding(.top, Metrics.cardInset - 2)
-                    .padding(.trailing, Metrics.cardInset - FlooDesignTokens.Space.xs)
+                    .padding(.trailing, Metrics.cardInset - DocTokens.Space.xs)
             }
         }
-        .background(FlooDesignTokens.ColorRole.Surface.canvas, in: RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous))
+        .background(DocTokens.ColorRole.Surface.canvas, in: RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous))
         // Outlined while its title has the caret: the focus, not the click asking for it,
         // so a click whose focus went elsewhere leaves no outline behind.
         .overlay(RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
-            .strokeBorder(focused ? FlooDesignTokens.ColorRole.Accent.primary : FlooDesignTokens.Border.subtle,
-                          lineWidth: focused ? Metrics.focusWidth : FlooDesignTokens.Border.standard))
+            .strokeBorder(focused ? DocTokens.ColorRole.Accent.primary : DocTokens.Border.subtle,
+                          lineWidth: focused ? Metrics.focusWidth : DocTokens.Border.standard))
         .onHover { hovering = $0 }
-        .flooDesignContextMenu(isEnabled: controller.isEditable) { _ in place.menu?.rows?() ?? [] }
-        .flooDesignAnchoredPanel(isPresented: fieldPanel != nil,
+        .flooContextMenu(isEnabled: controller.isEditable) { place.menu?.rows?() ?? [] }
+        .docPanel(isPresented: fieldPanel != nil,
                                  onDismiss: { if let fieldPanel { controller.close(fieldPanel, in: block) } }) {
             fieldPanelContent
         }
@@ -331,7 +331,7 @@ private struct DocKanbanCard: View {
         } else {
             Text(title.isEmpty ? String(localized: "Title") : title)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(title.isEmpty ? FlooDesignTokens.ColorRole.Content.tertiary : FlooDesignTokens.ColorRole.Content.primary)
+                .foregroundStyle(title.isEmpty ? DocTokens.ColorRole.Content.tertiary : DocTokens.ColorRole.Content.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture { if controller.isEditable, titleColumn != nil { startEditing() } }
@@ -345,17 +345,17 @@ private struct DocKanbanCard: View {
                       menu: DocPlaceMenu(title: String(localized: "Card Actions"), symbol: "ellipsis.circle", opens: .rows { menu }))
     }
 
-    private var menu: [FlooDesignActionMenuSection] {
+    private var menu: [FlooMenuSection] {
         let others = snapshot.database.columns.filter { $0.id != titleColumn?.id }
-        let properties = FlooDesignActionMenuItem.submenu(String(localized: "Edit Properties"), symbol: "slider.horizontal.3", sections: [
-            .init(.rows, others.map { column in
+        let properties = FlooMenuItem.submenu(String(localized: "Edit Properties"), symbol: "slider.horizontal.3", [
+            .init(others.map { column in
                 .action(column.name, symbol: DocFieldText.symbol(column.type)) { edit(column) }
             }),
-            .init(.rows, [.action(String(localized: "Add Field"), symbol: "plus") { controller.show(.cardField(row.id), in: block) }]),
+            .init([.action(String(localized: "Add Field"), symbol: "plus") { controller.show(.cardField(row.id), in: block) }]),
         ])
         return [
-            .init(.rows, [properties]),
-            .init(.rows, [
+            .init([properties]),
+            .init([
                 .action(String(localized: "Duplicate Item"), symbol: "plus.square.on.square") { controller.duplicate(row: row.id, in: block) },
                 .action(String(localized: "Delete Item"), symbol: "trash", role: .destructive) { controller.delete(row.id, in: block) },
             ]),

@@ -10,17 +10,6 @@
 
 import SwiftUI
 
-/// A table cell's position: row 0 is the header, body rows start at 1.
-public struct MarkdownTableCellPosition: Hashable, Sendable {
-    public var row: Int
-    public var column: Int
-
-    public init(row: Int, column: Int) {
-        self.row = row
-        self.column = column
-    }
-}
-
 /// Where a scrolling table's cells are, all of them (also those scrolled out of sight),
 /// for a host drawing at the table's edges.
 public struct MarkdownTableBoundsKey: PreferenceKey {

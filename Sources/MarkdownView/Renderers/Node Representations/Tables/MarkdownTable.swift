@@ -1,5 +1,6 @@
 import SwiftUI
 import Markdown
+import MarkdownCore
 import Combine
 
 private let markdownTableScrollableColumnSpacing: CGFloat = 20
@@ -1091,10 +1092,7 @@ struct AdaptiveTableLayout: Layout {
         guard rowCount > 0 else { return .zero }
 
         let totalSpacing = columnSpacing * CGFloat(max(columnCount - 1, 0))
-        let widthBuckets = Self.normalizedWidthBuckets(
-            columnWidthBuckets,
-            cellMaxWidth: cellMaxWidth
-        )
+        let widthBuckets = MarkdownTableColumns.normalizedBuckets(columnWidthBuckets, cellMaxWidth: cellMaxWidth)
 
         if cache.columnCount == columnCount,
            cache.contentRevision == contentRevision,
@@ -1135,7 +1133,7 @@ struct AdaptiveTableLayout: Layout {
             MarkdownRenderProbe.increment(\.adaptiveTableLayoutIdealMeasures)
             let ideal = subviews[rowBackgroundCount + index].sizeThatFits(.unspecified)
             cellNaturalWidths[index] = ideal.width
-            cellIdealWidths[index] = Self.snappedWidth(
+            cellIdealWidths[index] = MarkdownTableColumns.snapped(
                 min(ideal.width, cellMaxWidth),
                 buckets: widthBuckets,
                 cellMaxWidth: cellMaxWidth
@@ -1146,15 +1144,7 @@ struct AdaptiveTableLayout: Layout {
         for (index, width) in cellIdealWidths.enumerated() {
             colIdeals[index % columnCount] = max(colIdeals[index % columnCount], width)
         }
-        let colWidths: [CGFloat]
-        let totalIdeal = colIdeals.reduce(0, +) + totalSpacing
-        if totalIdeal < containerWidth, containerWidth > 0, colIdeals.reduce(0, +) > 0 {
-            let excess = containerWidth - totalIdeal
-            let idealSum = colIdeals.reduce(0, +)
-            colWidths = colIdeals.map { $0 + excess * ($0 / idealSum) }
-        } else {
-            colWidths = colIdeals
-        }
+        let colWidths = MarkdownTableColumns.stretched(colIdeals, spacing: columnSpacing, toFill: containerWidth)
 
         // 列宽变化时只重测「真正会随宽度改变高度」的 cell:一个 cell 只有在它的自然宽度
         // (idealWidth)≥ 列宽、即会换行时,高度才依赖列宽;能在更窄一侧单行放下的 cell 高度
@@ -1282,31 +1272,6 @@ struct AdaptiveTableLayout: Layout {
             cursor += sizes[index] + spacing
         }
         return result
-    }
-
-    private static func normalizedWidthBuckets(
-        _ buckets: [CGFloat],
-        cellMaxWidth: CGFloat
-    ) -> [CGFloat] {
-        let validBuckets = buckets
-            .filter { $0.isFinite && $0 > 0 }
-            .map { min($0, cellMaxWidth) }
-        let merged = Set(validBuckets + [cellMaxWidth])
-        let sorted = merged.sorted()
-        return sorted.isEmpty ? [cellMaxWidth] : sorted
-    }
-
-    private static func snappedWidth(
-        _ width: CGFloat,
-        buckets: [CGFloat],
-        cellMaxWidth: CGFloat
-    ) -> CGFloat {
-        guard width.isFinite, width > 0 else {
-            return buckets.first ?? cellMaxWidth
-        }
-
-        let clamped = min(width, cellMaxWidth)
-        return buckets.first(where: { $0 >= clamped }) ?? cellMaxWidth
     }
 
     private static func cellOrigins(

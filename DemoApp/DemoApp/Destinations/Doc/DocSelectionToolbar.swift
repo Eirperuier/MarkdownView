@@ -16,9 +16,9 @@
 import SwiftUI
 import UIKit
 import DocKit
-import FlooDesign
+import FlooUIKit
 
-private typealias Metrics = FlooDesignTokens.Component.SelectionToolbar
+private typealias Metrics = DocTokens.Component.SelectionToolbar
 
 /// The selected text the menu acts on (the menu reads it).
 @MainActor
@@ -39,7 +39,7 @@ final class DocSelectionToolbarModel {
 final class DocSelectionToolbarController {
     unowned let editor: DocEditor
     let model = DocSelectionToolbarModel()
-    private let presenter = FlooDesignAnchoredPanelPresenter()
+    private weak var panel: FlooMenuPanel?
     private let anchor = UIView()
     private var pending: Task<Void, Never>?
     private(set) var isShown = false
@@ -70,7 +70,8 @@ final class DocSelectionToolbarController {
         pending?.cancel()
         guard isShown else { return }
         isShown = false
-        presenter.hide()
+        panel?.flooDismissSheet()
+        panel = nil
         anchor.removeFromSuperview()
     }
 
@@ -89,14 +90,25 @@ final class DocSelectionToolbarController {
         model.range = target.range
         model.isUnfolded = false
         place(target.view)
-        presenter.anchorView = anchor
-        presenter.show(
-            configuration: .init(preferredEdge: .above, horizontalAlignment: .leading, anchorGap: Metrics.gap,
-                                 dismissesOnOutsideTouch: false),
-            content: AnyView(DocSelectionToolbar(editor: editor, model: model) { [weak self] in self?.hide() }),
-            onRequestDismiss: { [weak self] in self?.hide() }
-        )
-        isShown = true
+        panel = anchor.flooPresenter?.flooPresentMenuPanel(sections: sections(), from: anchor, transition: .standard, edge: .above, alignment: .leading,
+                                                           follows: true, keepsOpen: { _ in true }, onClosed: { [weak self] in self?.hide() })
+        isShown = panel != nil
+        follow()
+    }
+
+    /// The menu: what the selected text takes.
+    private func sections() -> [FlooMenuSection] {
+        let view = { [editor, model] in model.block.flatMap { editor.textView(for: $0) } }
+        let unfolded = Binding(get: { [model] in model.isUnfolded }, set: { [model] in model.isUnfolded = $0 })
+        return DocTextFormat(editor: editor, ranges: model.ranges).menuSections(linkFrom: view, unfolded: unfolded)
+    }
+
+    /// Shows what's so as it changes, while it's up.
+    private func follow() {
+        guard let panel else { return }
+        panel.update(sections: withObservationTracking { sections() } onChange: { [weak self] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.follow() } }
+        })
     }
 
     /// The anchor: the selected lines, from the text's start (the toolbar sits over the
@@ -109,22 +121,5 @@ final class DocSelectionToolbarController {
         let start = view.textContainerInset.left + view.textContainer.lineFragmentPadding - Metrics.leadingOverhang
         if anchor.superview !== view { view.addSubview(anchor) }
         anchor.frame = CGRect(x: start, y: line.minY, width: max(1, line.maxX - start), height: max(line.height, bottom - line.minY))
-    }
-}
-
-/// The menu: what the selected text takes, read in its body (so it follows the text).
-struct DocSelectionToolbar: View {
-    let editor: DocEditor
-    @Bindable var model: DocSelectionToolbarModel
-    let dismiss: () -> Void
-
-    var body: some View {
-        let format = DocTextFormat(editor: editor, ranges: model.ranges)
-        let view = { [editor, model] in model.block.flatMap { editor.textView(for: $0) } }
-        FlooDesignActionMenu(sections: { [unfolded = $model.isUnfolded] _ in
-            format.menuSections(linkFrom: view, unfolded: unfolded)
-        }, unfolded: {
-            format.menuSections(linkFrom: view, unfolded: .constant(true))
-        }, dismiss: dismiss)
     }
 }

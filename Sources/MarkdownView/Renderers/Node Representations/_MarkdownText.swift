@@ -356,7 +356,10 @@ private struct CJKItalicRenderer: TextRenderer {
             for span in ChipCapsulePainter.spans(in: line, startingCharIndex: characterIndex) {
                 ChipCapsulePainter.draw(span, opacity: 1, in: &context)
             }
-            let penSpans = PenMarkPainter.spans(in: line, startingCharIndex: characterIndex)
+            let pen = PenMarkPainter.split(PenMarkPainter.spans(in: line, startingCharIndex: characterIndex))
+            for span in pen.under {
+                PenMarkPainter.draw(span, opacity: 1, in: &context)
+            }
             for run in line {
                 for glyph in run {
                     let offset = CJKItalicGlyphSkew.characterOffset(
@@ -373,7 +376,7 @@ private struct CJKItalicRenderer: TextRenderer {
                 }
             }
             // 笔迹注记在文字之上(与 ChipCapsuleRenderer 同理:本 renderer 抢占定稿分支时不画会丢)。
-            for span in penSpans {
+            for span in pen.over {
                 PenMarkPainter.draw(span, opacity: 1, in: &context)
             }
         }
@@ -555,8 +558,17 @@ private struct RevealFadeRenderer: TextRenderer {
                     ChipCapsulePainter.draw(span, opacity: alpha, in: &ctx)
                 }
             }
-            // 笔迹注记 span(画在本行 glyph 之后,注记压在文字上)。
-            let penSpans = PenMarkPainter.spans(in: line, startingCharIndex: charIdx)
+            // 笔迹注记 span:span 末字符过 frontier 后整体淡入(用末字符的 fade 时间),
+            // 像写完字才落笔画圈/划线;未写完不画。荧光笔先于本行 glyph 铺底,其余压在字上。
+            let pen = PenMarkPainter.split(PenMarkPainter.spans(in: line, startingCharIndex: charIdx))
+            func drawPen(_ spans: [PenMarkPainter.Span]) {
+                for span in spans where span.charRange.upperBound <= revealedLocal {
+                    if let alpha = chipAlpha(spanStart: span.charRange.upperBound - 1, now: now) {
+                        PenMarkPainter.draw(span, opacity: alpha, in: &ctx)
+                    }
+                }
+            }
+            drawPen(pen.under)
             for run in line {
                 let runStart = charIdx
                 let runGlyphCount = run.count
@@ -680,13 +692,7 @@ private struct RevealFadeRenderer: TextRenderer {
                 }
             }
 
-            // 笔迹注记:span 末字符过 frontier 后整体淡入(用末字符的 fade 时间),
-            // 像写完字才落笔画圈/划线;未写完不画。
-            for span in penSpans where span.charRange.upperBound <= revealedLocal {
-                if let alpha = chipAlpha(spanStart: span.charRange.upperBound - 1, now: now) {
-                    PenMarkPainter.draw(span, opacity: alpha, in: &ctx)
-                }
-            }
+            drawPen(pen.over)
         }
 
         state.initialized = true

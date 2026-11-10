@@ -27,10 +27,10 @@
 //  undo, redo and sync treat the table like the rest of the document.
 //
 
+import FlooUIKit
 import SwiftUI
 import UIKit
 import DocKit
-import FlooDesign
 import MarkdownView
 
 struct DocTableSnapshot: Equatable {
@@ -557,7 +557,7 @@ final class DocTableController {
     /// Esc in a cell: a menu or panel open takes it first (a level back, or it closes);
     /// else the table is left, and selected (where blocks are).
     func leaveByEscape(_ key: DocCellKey) {
-        if FlooDesignPanels.escape() { return }
+        if FlooFloatingPanels.escape() { return }
         leave(key)
         editor.blocks.selectAfterEditing(key.block)
     }
@@ -889,7 +889,7 @@ final class DocCellTextView: UITextView, UITextViewDelegate {
         ]
         // ↑↓ leave the cell only from its first / last line, and not while a right-click's
         // menu has the keys.
-        if !FlooDesignPanels.holdsKeys, let caret = selectedTextRange?.start, markedTextRange == nil {
+        if !FlooFloatingPanels.holdsKeys, let caret = selectedTextRange?.start, markedTextRange == nil {
             let line = caretRect(for: caret)
             if line.minY <= caretRect(for: beginningOfDocument).minY + 1 {
                 commands.append(UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(cellAbove)))
@@ -983,7 +983,7 @@ struct DocTableCellField: UIViewRepresentable {
         let look = controller.look(key)
         view.font = look.font
         view.textAlignment = look.textAlignment
-        view.textColor = FlooDesignTokens.UIKitColor.primary
+        view.textColor = DocTokens.UIKitColor.primary
         // The model is the truth; while typing it already equals the view.
         if view.text != text, view.markedTextRange == nil {
             let editing = view.isFirstResponder
@@ -1017,7 +1017,7 @@ struct DocTableCellField: UIViewRepresentable {
 
 // MARK: - The table
 
-private typealias Handles = FlooDesignTokens.Component.TableHandles
+private typealias Handles = DocTokens.Component.TableHandles
 
 /// The edited cell: its text (a column's name in a text view of its own, a body cell's
 /// text the editor's), Craft's ring around the cell, its ⋮.
@@ -1034,7 +1034,7 @@ struct DocTableCellEditor: View {
                 // Where MarkdownView draws the cell's fill (Handles.ringOutset). While its row
                 // or column is picked, that one is ringed instead (DocTableEdges).
                 RoundedRectangle(cornerRadius: Handles.ringRadius, style: .continuous)
-                    .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
+                    .strokeBorder(DocTokens.ColorRole.Accent.primary, lineWidth: DocTokens.Border.focus)
                     .opacity(controller.line == nil ? 1 : 0)
                     .padding(.horizontal, -Handles.ringOutset.width)
                     .padding(.vertical, -Handles.ringOutset.height)
@@ -1048,8 +1048,8 @@ struct DocTableCellEditor: View {
                 }
             }
             // The Mac's formula panel, under the cell.
-            .flooDesignAnchoredPanel(isPresented: DocDevice.isMac && controller.formula?.key == key && controller.formula?.isShown == true,
-                                     configuration: controller.formulaPanelConfiguration(key),
+            .docPanel(isPresented: DocDevice.isMac && controller.formula?.key == key && controller.formula?.isShown == true,
+                                     alignment: .center, keepsOpen: controller.formulaPanelKeepsOpen(key),
                                      onDismiss: { [controller] in controller.finishFormula(writes: true) }) { [controller] in
                 if let formula = controller.formula {
                     // A formula of its own: a panel opened again as this one goes has its own field.
@@ -1111,7 +1111,7 @@ struct DocTableGrip: View {
             controller.pick(line, of: key)
         } label: {
             Capsule()
-                .fill(FlooDesignTokens.ColorRole.Accent.primary.opacity(Handles.gripOpacity))
+                .fill(DocTokens.ColorRole.Accent.primary.opacity(Handles.gripOpacity))
                 .frame(width: size.width, height: size.height)
                 .frame(width: max(size.width, Handles.target), height: max(size.height, Handles.target))
                 .contentShape(Rectangle())
@@ -1201,7 +1201,7 @@ struct DocTableEdges: View {
                     : CGRect(x: table.minX - Handles.rowOutset.leading, y: cell.minY,
                              width: table.width + Handles.rowOutset.leading + Handles.rowOutset.trailing, height: cell.height)
                 RoundedRectangle(cornerRadius: Handles.ringRadius, style: .continuous)
-                    .strokeBorder(FlooDesignTokens.ColorRole.Accent.primary, lineWidth: FlooDesignTokens.Border.focus)
+                    .strokeBorder(DocTokens.ColorRole.Accent.primary, lineWidth: DocTokens.Border.focus)
                     .frame(width: rect.width, height: rect.height)
                     .offset(x: rect.minX, y: rect.minY)
                     .allowsHitTesting(false)
@@ -1230,7 +1230,7 @@ struct DocTableEdgeDot: View {
     var body: some View {
         Button(action: action) {
             Circle()
-                .fill(FlooDesignTokens.ColorRole.Accent.primary)
+                .fill(DocTokens.ColorRole.Accent.primary)
                 .frame(width: Handles.dot, height: Handles.dot)
                 .scaleEffect(hovering ? Handles.dotHoverScale : 1)
                 .frame(width: Handles.target, height: Handles.target)
@@ -1238,7 +1238,7 @@ struct DocTableEdgeDot: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(FlooDesignTokens.Motion.feedbackCurve, value: hovering)
+        .animation(DocTokens.Motion.feedbackCurve, value: hovering)
         .help(label)
         .accessibilityLabel(label)
     }
@@ -1255,11 +1255,11 @@ struct DocTableCellMenu: View {
         } label: {
             Image(systemName: "ellipsis")
                 .rotationEffect(.degrees(90))
-                .font(.system(size: FlooDesignTokens.Icon.compact, weight: .semibold))
-                .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
-                .frame(width: FlooDesignTokens.Space.xxl, height: FlooDesignTokens.Control.compactHeight)
+                .font(.system(size: DocTokens.Icon.compact, weight: .semibold))
+                .foregroundStyle(DocTokens.ColorRole.Content.secondary)
+                .frame(width: DocTokens.Space.xxl, height: DocTokens.Control.compactHeight)
         }
-        .buttonStyle(FlooDesignPlainButtonStyle(in: RoundedRectangle(cornerRadius: FlooDesignTokens.Radius.sm, style: .continuous)))
+        .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: DocTokens.Radius.sm, style: .continuous)))
         .accessibilityLabel("Table Actions")
         .docTableMenu(DocTableMenuTarget(key: key), controller: controller)
     }
@@ -1269,8 +1269,8 @@ extension View {
     /// The table's menu (Craft's, FlooDesign's action menu) from this view while it's
     /// `target`'s: beside it, or a sheet on a phone.
     func docTableMenu(_ target: DocTableMenuTarget, controller: DocTableController) -> some View {
-        flooDesignActionMenu(isPresented: controller.menu == target,
-                             onDismiss: { if controller.menu == target { controller.closeMenu() } }) { presentation in
+        docMenuPanel(isPresented: controller.menu == target,
+                     onDismiss: { if controller.menu == target { controller.closeMenu() } }) { presentation in
             DocTableMenuSections(target: target, controller: controller).sections(for: presentation)
         }
     }
@@ -1283,50 +1283,50 @@ struct DocTableMenuSections {
     let target: DocTableMenuTarget
     let controller: DocTableController
 
-    private func item(_ action: DocTableAction, symbol: Bool = true) -> FlooDesignActionMenuItem {
-        .action(action.title, symbol: symbol ? action.symbol : nil, role: action.isDestructive ? .destructive : .standard,
-                isEnabled: controller.isAvailable(action, at: target.key, on: target.line), id: "\(action)") { [controller, target] in
+    private func item(_ action: DocTableAction, symbol: Bool = true) -> FlooMenuItem {
+        .action(action.title, symbol: symbol ? action.symbol : nil, role: action.isDestructive ? .destructive : .normal,
+                isEnabled: controller.isAvailable(action, at: target.key, on: target.line)) { [controller, target] in
             controller.perform(action, at: target.key, on: target.line)
         }
     }
 
     /// Craft's Format: the cells' text, number format and colours (the format panel's),
     /// on the edited cell (its selected text, else all of it) or its picked row or column.
-    private var format: FlooDesignActionMenuItem? {
+    private var format: FlooMenuItem? {
         let formatting = DocFormatting(editor: controller.editor)
         guard let cell = formatting.cell, cell.key == target.key, cell.scope == (target.line.map { .line($0) } ?? .cell),
               !cell.formats.isEmpty
         else { return nil }
-        return .submenu(String(localized: "Format"), symbol: "textformat", id: "format", sections: DocFormatMenu.cellSections(cell, formatting))
+        return .submenu(String(localized: "Format"), symbol: "textformat", DocFormatMenu.cellSections(cell, formatting))
     }
 
-    func sections(for presentation: FlooDesignPanelPresentation) -> [FlooDesignActionMenuSection] {
-        let editTable = FlooDesignActionMenuItem.submenu(String(localized: "Edit Table"), symbol: "tablecells.badge.ellipsis", sections: [
-            .init(.rows, [item(.insertRowAbove), item(.insertRowBelow), item(.insertColumnLeft), item(.insertColumnRight)]),
-            .init(.rows, [item(.moveRowUp), item(.moveRowDown), item(.moveColumnLeft), item(.moveColumnRight)]),
-            .init(.plain, [item(.deleteRow), item(.deleteColumn), item(.deleteTable)]),
+    func sections(for presentation: FlooPanelPresentation) -> [FlooMenuSection] {
+        let editTable = FlooMenuItem.submenu(String(localized: "Edit Table"), symbol: "tablecells.badge.ellipsis", [
+            .init([item(.insertRowAbove), item(.insertRowBelow), item(.insertColumnLeft), item(.insertColumnRight)]),
+            .init([item(.moveRowUp), item(.moveRowDown), item(.moveColumnLeft), item(.moveColumnRight)]),
+            .init([item(.deleteRow), item(.deleteColumn), item(.deleteTable)]),
         ])
-        let clear = FlooDesignActionMenuSection(.plain, [item(.clearCell, symbol: false)])
+        let clear = FlooMenuSection([item(.clearCell, symbol: false)])
         switch presentation {
-        case .anchored:
+        case .floating:
             return [
-                .init(.rows, [editTable] + (format.map { [$0] } ?? []) + [item(.insertFormula)]),
-                .init(.rows, [item(.sortAscending, symbol: false), item(.sortDescending, symbol: false)]),
-                .init(.rows, [item(.cut, symbol: false), item(.copy, symbol: false), item(.paste, symbol: false)]),
+                .init([editTable] + (format.map { [$0] } ?? []) + [item(.insertFormula)]),
+                .init([item(.sortAscending, symbol: false), item(.sortDescending, symbol: false)]),
+                .init([item(.cut, symbol: false), item(.copy, symbol: false), item(.paste, symbol: false)]),
                 clear,
             ]
         case .sheet:
             return [
-                .init(.tiles, [
+                .init(display: .medium, [
                     editTable,
-                    .submenu(String(localized: "Sort"), symbol: "line.3.horizontal.decrease.circle", sections: [
-                        .init(.rows, [item(.sortAscending), item(.sortDescending)]),
+                    .submenu(String(localized: "Sort"), symbol: "line.3.horizontal.decrease.circle", [
+                        .init([item(.sortAscending), item(.sortDescending)]),
                     ]),
                 ]),
-                .init(.buttons, (format.map { [$0] } ?? []) + [item(.insertFormula)]),
-                .init(.rows, [
-                    .submenu(String(localized: "Actions"), symbol: "command", sections: [
-                        .init(.rows, [item(.cut), item(.copy), item(.paste)]),
+                .init((format.map { [$0] } ?? []) + [item(.insertFormula)]),
+                .init([
+                    .submenu(String(localized: "Actions"), symbol: "command", [
+                        .init([item(.cut), item(.copy), item(.paste)]),
                     ]),
                 ]),
                 clear,
@@ -1398,7 +1398,7 @@ enum DocScrolling {
         // later): it's going there already; a new scroll would start over from rest.
         let now = CACurrentMediaTime()
         if let going = targets.object(forKey: list), abs(going.y - target) < 0.5,
-           now - going.time < FlooDesignTokens.Motion.scrollSpring.settlingDuration { return }
+           now - going.time < DocTokens.Motion.scrollSpring.settlingDuration { return }
         targets.setObject(DocScrollTarget(y: target, time: now), forKey: list)
         if let scroll = scrollers.object(forKey: list) {
             scroll.call(target)
@@ -1408,7 +1408,7 @@ enum DocScrolling {
     }
 
     /// How a list scrolls itself: its TiledView's own scroll, in the scroll motion
-    /// (FlooDesignTokens.Motion.scrollSpring, through the app's TiledMotion).
+    /// (DocTokens.Motion.scrollSpring, through the app's TiledMotion).
     static func register(_ list: UIScrollView, scroll: @escaping @MainActor (CGFloat) -> Void) {
         scrollers.setObject(DocScroller(call: scroll), forKey: list)
     }

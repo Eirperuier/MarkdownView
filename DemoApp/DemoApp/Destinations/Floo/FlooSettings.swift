@@ -20,7 +20,7 @@
 //
 
 import SwiftUI
-import FlooDesign
+import FlooUIKit
 import Wire
 
 // MARK: - JSON as the formats are written
@@ -335,10 +335,10 @@ struct FlooProviderSettingsPage: View {
     var body: some View {
         List {
             Section {
-                FlooDesignSettingsHeader(service.name, subtitle: device.name) {
+                FlooSettingsHeader(service.name, subtitle: device.name) {
                     FlooServiceIcon(
                         url: service.icon, name: service.name, tint: service.tint,
-                        size: FlooDesignTokens.Component.Settings.headerIcon
+                        size: 64
                     )
                 }
             }
@@ -364,7 +364,7 @@ struct FlooProviderSettingsPage: View {
             }
         }
         // The same room above every section's title, whether the one before has words under it or not.
-        .listSectionSpacing(FlooDesignTokens.Component.Settings.sectionSpacing)
+        .listSectionSpacing(12)
         .navigationTitle(service.name)
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $shown) { option in
@@ -475,7 +475,6 @@ struct FlooProviderSettingsPage: View {
                     set: { on in if checked(key, value) != on { toggle(key, value) } }
                 ))
                 .toggleStyle(.switch)
-                .tint(FlooDesignTokens.Component.Settings.switchTint)
                 .disabled(!canToggle(key, value))
             }
         } else if schema["type"]?.string == "string", schema["choices"] == nil, schema["enum"] == nil {
@@ -499,7 +498,7 @@ struct FlooProviderSettingsPage: View {
     /// A key's row's label: its title; a switch, with no page of its own, says what it does
     /// under it.
     private func label(_ key: String) -> some View {
-        FlooDesignSettingsLabel(format.title(key), subtitle: isSwitch(key) ? format.summary(key) : nil)
+        FlooSettingsLabel(format.title(key), subtitle: isSwitch(key) ? format.summary(key) : nil)
     }
 
     private func isSwitch(_ key: String) -> Bool { format.schema(key)?["type"]?.string == "boolean" }
@@ -568,7 +567,7 @@ struct FlooProviderSettingsPage: View {
         LabeledContent {
             Text(value)
         } label: {
-            FlooDesignSettingsLabel(title, subtitle: subtitle)
+            FlooSettingsLabel(title, subtitle: subtitle)
         }
     }
 
@@ -591,7 +590,7 @@ struct FlooProviderSettingsPage: View {
                 // Said with its unit, as Codex's usage page does: the value is the row's words,
                 // what it is (or what is said under it) beneath.
                 let subtitle = under.compactMap { when(self.value(at: $0), $0) }.joined(separator: "\n")
-                FlooDesignSettingsLabel(headline, subtitle: subtitle.isEmpty ? words(path)?.title : subtitle)
+                FlooSettingsLabel(headline, subtitle: subtitle.isEmpty ? words(path)?.title : subtitle)
             } else {
                 let subtitle = under.compactMap { when(self.value(at: $0), $0) }.joined(separator: "\n")
                 infoRow(
@@ -613,8 +612,7 @@ struct FlooProviderSettingsPage: View {
         let time = fields.first { outputSchema(at: "\(path).\($0)")?["format"]?.string == "date-time" }
         let used = percent.flatMap { item[$0]?.number }
         let left = percent.flatMap { words("\(path).\($0)")?.phrase?.contains("{left}") } == true
-        let settings = FlooDesignTokens.Component.Settings.self
-        VStack(alignment: .leading, spacing: settings.meterGap) {
+        VStack(alignment: .leading, spacing: 8) {
             LabeledContent {
                 if let percent, let used {
                     Text(phrased(.number(used), at: "\(path).\(percent)")
@@ -622,18 +620,18 @@ struct FlooProviderSettingsPage: View {
                             .compactMap(\.self).joined(separator: " "))
                 }
             } label: {
-                FlooDesignSettingsLabel(
+                FlooSettingsLabel(
                     label ?? words(path)?.title ?? path,
                     subtitle: time.flatMap { when(item[$0], "\(path).\($0)") }
                 )
             }
             if let used {
                 // Under the row's words, to its end.
-                FlooDesignMeter(value: left ? max(0, 100 - used) / 100 : used / 100)
+                FlooMeterView(value: left ? max(0, 100 - used) / 100 : used / 100)
             }
         }
         .padding(.top, 4)
-        .padding(.bottom, settings.meterGap)
+        .padding(.bottom, 8)
     }
 
     /// The keys of a table, as the settings are laid out when they are settings' keys.
@@ -810,7 +808,6 @@ struct FlooProviderSettingsPage: View {
                     label(key)
                 }
                 .toggleStyle(.switch)
-                .tint(FlooDesignTokens.Component.Settings.switchTint)
             case "integer", "number":
                 let low = Int(schema["minimum"]?.number ?? 0)
                 let high = Int(schema["maximum"]?.number ?? 1_000)
@@ -1009,7 +1006,6 @@ struct FlooSettingChoicePage: View {
                 Section {
                     Toggle(item.title, isOn: Binding(get: { isOn(item.key) }, set: { set(item.key, $0) }))
                     .toggleStyle(.switch)
-                    .tint(FlooDesignTokens.Component.Settings.switchTint)
                 } footer: {
                     item.summary.map(Text.init)
                 }

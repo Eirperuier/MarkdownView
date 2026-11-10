@@ -17,7 +17,7 @@ import AppleDeviceImages
 import SwiftUI
 import CardModel
 import CardUI
-import FlooDesign
+import FlooUIKit
 import Wire
 import TransportKit
 import ServiceKit
@@ -458,7 +458,7 @@ final class FlooContactsDemo {
         show("已在\(device.name)上打开「\(service.name)」的设置")
         Task {
             try? await Task.sleep(for: .seconds(3))  // try?: cancelled, no matter
-            withAnimation(FlooDesignTokens.Motion.feedback) {
+            withAnimation(AppMotion.feedback) {
                 following[service.id]?.asked.remove(device.id)
                 following[service.id]?.devices.insert(device.id)
             }
@@ -472,10 +472,10 @@ final class FlooContactsDemo {
     }
 
     func show(_ text: String) {
-        withAnimation(FlooDesignTokens.Motion.layout) { toast = text }
+        withAnimation(AppMotion.layout) { toast = text }
         Task {
             try? await Task.sleep(for: .seconds(2.5))  // try?: cancelled, no matter
-            withAnimation(FlooDesignTokens.Motion.layout) { if toast == text { toast = nil } }
+            withAnimation(AppMotion.layout) { if toast == text { toast = nil } }
         }
     }
 

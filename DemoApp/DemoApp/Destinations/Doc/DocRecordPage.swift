@@ -10,9 +10,9 @@
 //  apart from the table's.
 //
 
+import FlooUIKit
 import SwiftUI
 import DocKit
-import FlooDesign
 
 private typealias Metrics = DocCollectionMetrics
 
@@ -78,10 +78,10 @@ struct DocRecordFields: View {
         VStack(alignment: .leading, spacing: 0) {
             if let snapshot = link.snapshot, let record = link.record {
                 ForEach(link.fields, id: \.id) { column in
-                    HStack(spacing: FlooDesignTokens.Space.md) {
+                    HStack(spacing: DocTokens.Space.md) {
                         Label(column.name, systemImage: DocFieldText.symbol(column))
                             .font(.system(size: 15))
-                            .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                            .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         DocCollectionCell(snapshot: snapshot, row: record, column: column, controller: controller, compact: true)
@@ -95,19 +95,19 @@ struct DocRecordFields: View {
                     } label: {
                         Label(String(localized: "Add Field"), systemImage: "plus")
                             .font(.system(size: 15))
-                            .foregroundStyle(FlooDesignTokens.ColorRole.Content.secondary)
+                            .foregroundStyle(DocTokens.ColorRole.Content.secondary)
                             .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight, alignment: .leading)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .flooDesignAnchoredPanel(isPresented: controller.isShowing(.addField, in: link.block),
-                                             configuration: .init(horizontalAlignment: .leading),
+                    .docPanel(isPresented: controller.isShowing(.addField, in: link.block),
+                                             alignment: .leading,
                                              onDismiss: { controller.close(.addField, in: link.block) }) {
                         DocFieldPanel(snapshot: snapshot, column: nil, controller: controller)
                     }
                 }
             }
-            FlooDesignDivider()
+            FlooDividerLine()
         }
         .onChange(of: link.fieldCount) { page.republish() }
     }

@@ -9,9 +9,9 @@
 //  image or file from where the person picks it (DocInsertSources).
 //
 
+import FlooUIKit
 import SwiftUI
 import DocKit
-import FlooDesign
 
 /// A command in the menu: one that acts on the caret's block, or a group whose commands
 /// take the menu's place (Craft's).
@@ -164,7 +164,7 @@ final class DocSlashMenu {
     /// Where the menu may go, in the same coordinates: the list on screen, down to the
     /// keyboard (over its bar).
     private(set) var room: CGRect = .infinite
-    /// Where it shows (FlooDesignMenuOverlay.frame): on the side of the caret's line
+    /// Where it shows (DocSlashPlacement): on the side of the caret's line
     /// chosen as it opens, as tall as what it shows. Closed, it keeps its place and its
     /// rows while it goes.
     private(set) var frame: CGRect = .null
@@ -204,14 +204,14 @@ final class DocSlashMenu {
     func place(anchor: CGRect, room: CGRect) {
         self.anchor = anchor
         self.room = room
-        opensAbove = FlooDesignMenuOverlay.opensAbove(over: anchor, in: room)
+        opensAbove = DocSlashPlacement.opensAbove(over: anchor, in: room)
         resize()
     }
 
     /// As tall as what it shows now, on its side.
     private func resize() {
         guard isOpen, anchor != .zero else { return }
-        frame = FlooDesignMenuOverlay.frame(over: anchor, in: room, rows: items.count, titled: group != nil, above: opensAbove)
+        frame = DocSlashPlacement.frame(over: anchor, in: room, rows: items.count, titled: group != nil, above: opensAbove)
     }
 
     /// A group's commands in the menu's place, under its title.
@@ -413,7 +413,7 @@ extension DocEditor {
             let keyboard = toOverlay(frame.convert(window.convert(DocScrolling.keyboard, from: nil), from: window))
             // Down to the keyboard bar's middle, as Craft's (the room's edge is a gap
             // inside it).
-            let floor = keyboard.minY - DocScrolling.keyboardBar / 2 + FlooDesignTokens.Component.Menu.gap
+            let floor = keyboard.minY - DocScrolling.keyboardBar / 2 + DocTokens.Component.Menu.gap
             if floor < room.maxY { room.size.height = max(0, floor - room.minY) }
         }
         return (anchor, room)
@@ -427,23 +427,149 @@ struct DocSlashMenuView: View {
     let menu: DocSlashMenu
 
     var body: some View {
-        FlooDesignMenuOverlay(
-            isPresented: menu.isOpen, frame: menu.frame, opensBelow: menu.frame.minY >= menu.anchor.maxY,
-            entries: menu.items.map(\.entry), highlighted: menu.highlighted, page: menu.group?.id, title: menu.group?.title,
-            onHighlight: { menu.highlighted = $0 },
-            onChoose: { entry in
-                if let item = menu.items.first(where: { $0.id == entry.id }) { menu.choose(item) }
-            },
-            onBack: { menu.back() },
-            onDismiss: { menu.dismiss() }
-        )
+        ZStack(alignment: .topLeading) {
+            if menu.isOpen {
+                // A tap anywhere but the menu closes it (and does nothing else).
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { menu.dismiss() }
+            }
+            if !menu.frame.isNull {
+                DocSlashList(menu: menu)
+                    .frame(width: menu.frame.width, height: menu.frame.height)
+                    .scaleEffect(menu.isOpen ? 1 : DocTokens.Motion.revealStartScale,
+                                 anchor: menu.frame.minY >= menu.anchor.maxY ? .topLeading : .bottomLeading)
+                    .opacity(menu.isOpen ? 1 : 0)
+                    .allowsHitTesting(menu.isOpen)
+                    .animation(DocTokens.Motion.reveal, value: menu.isOpen)
+                    .offset(x: menu.frame.minX, y: menu.frame.minY)
+                    // A new size (a level, a query) about the caret's side.
+                    .animation(DocTokens.Motion.step, value: menu.frame)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
-extension DocCommand {
-    /// The menu's row for it.
-    var entry: FlooDesignMenuEntry {
-        FlooDesignMenuEntry(id: id, title: title, symbol: symbol, swatch: swatch.map(DocColors.swatch),
-                            icon: DocBlockIcon.Glyph.of(self).map { AnyView(DocBlockIcon(glyph: $0)) }, hasChildren: isGroup)
+/// Where the slash menu goes: by the caret's line, never out of the room for it.
+enum DocSlashPlacement {
+    static let width: CGFloat = 264
+    static let row: CGFloat = DocTokens.Platform.isPointer ? 32 : 44
+    static let inset: CGFloat = 6
+    static let corner: CGFloat = 16
+    private static let margin: CGFloat = 8
+    private static let gap: CGFloat = 6
+    private static var tallest: CGFloat { 9 * row + 2 * inset }
+
+    /// The side of the caret's line `anchor` it opens on, for the tallest it gets: over
+    /// the line where that fits, else under it where it does, else the roomier side.
+    static func opensAbove(over anchor: CGRect, in room: CGRect) -> Bool {
+        let room = room.insetBy(dx: margin, dy: gap)
+        guard !room.isNull else { return true }
+        let (above, below) = space(over: anchor, in: room)
+        return above >= tallest || (below < tallest && above >= below)
+    }
+
+    /// As tall as its rows (and a group's title over them), up to the tallest or the room,
+    /// on the side `above` says (nil: as `opensAbove` chooses), never out of `room`.
+    static func frame(over anchor: CGRect, in room: CGRect, rows count: Int, titled: Bool = false, above: Bool? = nil) -> CGRect {
+        let room = room.insetBy(dx: margin, dy: gap)
+        guard !room.isNull else { return .null }
+        let (spaceAbove, spaceBelow) = space(over: anchor, in: room)
+        let full = min(CGFloat(max(count, 1)) * row + (titled ? row : 0) + 2 * inset, tallest)
+        let goesAbove = above ?? (spaceAbove >= full || (spaceBelow < full && spaceAbove >= spaceBelow))
+        let height = max(row + 2 * inset, min(full, goesAbove ? spaceAbove : spaceBelow))
+        let shownWidth = min(width, room.width)
+        let x = min(max(room.minX, anchor.minX - inset), room.maxX - shownWidth)
+        let y = goesAbove ? min(anchor.minY - gap, room.maxY) - height : max(anchor.maxY + gap, room.minY)
+        return CGRect(x: x, y: y, width: shownWidth, height: height)
+    }
+
+    /// The room over and under the caret's line.
+    private static func space(over anchor: CGRect, in room: CGRect) -> (above: CGFloat, below: CGFloat) {
+        (min(anchor.minY - gap, room.maxY) - room.minY, room.maxY - max(anchor.maxY + gap, room.minY))
+    }
+}
+
+/// The menu's glass and its rows; a group's title over its own, with the way back.
+private struct DocSlashList: View {
+    let menu: DocSlashMenu
+    private typealias Placement = DocSlashPlacement
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let group = menu.group {
+                Button { menu.back() } label: {
+                    Label(group.title, systemImage: "chevron.left")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: Placement.row, alignment: .leading)
+                        .padding(.horizontal, Placement.inset)
+                }
+                .buttonStyle(.flooContent(in: RoundedRectangle(cornerRadius: Placement.corner - Placement.inset, style: .continuous)))
+                .padding([.top, .horizontal], Placement.inset)
+            }
+            ScrollViewReader { scroller in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(menu.items.enumerated()), id: \.element.id) { index, item in
+                            DocSlashRow(command: item, isHighlighted: index == menu.highlighted)
+                                .id(item.id)
+                                .onTapGesture { menu.choose(item) }
+                                .onHover { if $0 { menu.highlighted = index } }
+                        }
+                    }
+                    .padding(Placement.inset)
+                }
+                .scrollIndicators(.hidden)
+                // A level back at its top opens at the row it was opened from.
+                .onAppear {
+                    guard menu.items.indices.contains(menu.highlighted), menu.highlighted > 0 else { return }
+                    DispatchQueue.main.async { scroller.scrollTo(menu.items[menu.highlighted].id) }
+                }
+                .onChange(of: menu.highlighted) {
+                    if menu.items.indices.contains(menu.highlighted) { scroller.scrollTo(menu.items[menu.highlighted].id) }
+                }
+            }
+            .id(menu.group?.id)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .flooGlass(in: RoundedRectangle(cornerRadius: Placement.corner, style: .continuous))
+    }
+}
+
+private struct DocSlashRow: View {
+    let command: DocCommand
+    let isHighlighted: Bool
+    private typealias Placement = DocSlashPlacement
+
+    var body: some View {
+        HStack(spacing: DocTokens.Space.sm) {
+            icon.frame(width: 22)
+            Text(command.title)
+                .font(.body)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if command.isGroup {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(DocTokens.ColorRole.Content.tertiary)
+            }
+        }
+        .foregroundStyle(DocTokens.ColorRole.Content.primary)
+        .padding(.horizontal, Placement.inset)
+        .frame(height: Placement.row)
+        .contentShape(Rectangle())
+        .background(isHighlighted ? DocTokens.ColorRole.Surface.pressed : .clear,
+                    in: RoundedRectangle(cornerRadius: Placement.corner - Placement.inset, style: .continuous))
+    }
+
+    @ViewBuilder private var icon: some View {
+        if let swatch = command.swatch {
+            Circle().fill(DocColors.swatch(swatch)).frame(width: 14, height: 14)
+        } else if let glyph = DocBlockIcon.Glyph.of(command) {
+            DocBlockIcon(glyph: glyph)
+        } else {
+            Image(systemName: command.symbol)
+        }
     }
 }
