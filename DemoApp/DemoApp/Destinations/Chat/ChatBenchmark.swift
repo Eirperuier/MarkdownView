@@ -11,7 +11,7 @@
 //  times only the named scenarios (the others still run, untimed: later ones start from
 //  where they leave the list). `-chatScrollSpeed <points per second>` sets the scroll
 //  sweep's speed (3000 by default). `-chatOpen YES` opens on the chat page, to try it by hand.
-//  `-chatRenderer uikit|swiftui` picks the text rows' renderer (swiftui by default),
+//  `-chatRenderer uikit|swiftui` picks the text rows' renderer (uikit by default),
 //  `-chatCorpus text` a conversation of only text. Under uikit, `-chatList swiftui|uikit` picks the
 //  list: SwiftUI's TiledView or UIKit's TiledListView (the default).
 //

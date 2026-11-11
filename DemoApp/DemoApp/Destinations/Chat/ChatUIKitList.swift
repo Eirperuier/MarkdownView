@@ -21,14 +21,13 @@ enum ChatList {
 struct ChatUIKitList: UIViewRepresentable {
     let conversation: ChatConversation
     let reader: TiledViewReader<String>
-    let selection: MarkdownBlockSelectionController
     let heightCache: ChatHeightCache
     let renderedHeights: ChatRenderedHeights
     let benchmark: ChatBenchmark
 
     func makeUIView(context: Context) -> TiledListView<ChatRow> {
-        let list = TiledListView<ChatRow> { [conversation, selection, renderedHeights] row in
-            Self.content(for: row, conversation: conversation, selection: selection, renderedHeights: renderedHeights)
+        let list = TiledListView<ChatRow> { [conversation, renderedHeights] row in
+            Self.content(for: row, conversation: conversation, renderedHeights: renderedHeights)
         }
         list.scrollPosition = TiledScrollPosition(autoScrollsToBottomOnAppend: true, scrollsToBottomOnReplace: true)
         list.prepareAhead = { ChatCards.prepare($0) }
@@ -40,8 +39,7 @@ struct ChatUIKitList: UIViewRepresentable {
         list.onItemHeightMeasured = { [heightCache] row, width, height in
             MainActor.assumeIsolated { heightCache.record(height, for: row, width: width) }
         }
-        list.onContentLayoutChange = { [selection, reader, benchmark] in
-            selection.install(layout: reader)
+        list.onContentLayoutChange = { [benchmark] in
             benchmark.contentLayoutChanged()
         }
         list.show(conversation.list)
@@ -51,7 +49,6 @@ struct ChatUIKitList: UIViewRepresentable {
     /// Read here, so SwiftUI calls again when they change: the loader with older exchanges to
     /// load, and the reader told of scrolls while selecting.
     func updateUIView(_ list: TiledListView<ChatRow>, context: Context) {
-        list.readerInvalidatesOnScroll = selection.state.isActive
         let hasOlder = conversation.hasOlder
         if hasOlder != (list.prependLoader != nil) {
             list.prependLoader = hasOlder ? .loader(perform: { [conversation] in
@@ -65,7 +62,6 @@ struct ChatUIKitList: UIViewRepresentable {
     static func content(
         for row: ChatRow,
         conversation: ChatConversation,
-        selection: MarkdownBlockSelectionController,
         renderedHeights: ChatRenderedHeights
     ) -> any TiledUIKitCellContent {
         switch row.kind {
@@ -73,7 +69,7 @@ struct ChatUIKitList: UIViewRepresentable {
             return ChatUIKitPrompt(id: row.id, text: text, renderedHeights: renderedHeights)
         case .block(let block):
             if case .customFence = block.kind {
-                return ChatHostedRow(row: row, conversation: conversation, selection: selection, renderedHeights: renderedHeights)
+                return ChatHostedRow(row: row, conversation: conversation, renderedHeights: renderedHeights)
             }
             if let control = ChatRowControl.current {
                 return ChatControlRow(source: block.source, control: control)
@@ -111,7 +107,6 @@ private final class ChatLoadingIndicator: UIView {
 struct ChatHostedRow: TiledUIKitCellContent {
     let row: ChatRow
     let conversation: ChatConversation
-    let selection: MarkdownBlockSelectionController
     let renderedHeights: ChatRenderedHeights
 
     static func makeRowView() -> HostedRowView { HostedRowView() }
@@ -131,6 +126,6 @@ struct ChatHostedRow: TiledUIKitCellContent {
     }
 
     private var content: ChatRowView {
-        ChatRowView(row: row, conversation: conversation, selection: selection)
+        ChatRowView(row: row, conversation: conversation)
     }
 }

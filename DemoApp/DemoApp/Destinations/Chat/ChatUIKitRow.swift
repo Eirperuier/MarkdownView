@@ -16,7 +16,7 @@ import UIKit
 enum ChatRenderer: String {
     case swiftui, uikit
 
-    static let current = UserDefaults.standard.string(forKey: "chatRenderer").flatMap(ChatRenderer.init(rawValue:)) ?? .swiftui
+    static let current = UserDefaults.standard.string(forKey: "chatRenderer").flatMap(ChatRenderer.init(rawValue:)) ?? .uikit
 }
 
 /// One block's row.

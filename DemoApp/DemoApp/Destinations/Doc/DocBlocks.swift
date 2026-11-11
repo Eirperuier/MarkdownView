@@ -28,6 +28,15 @@ import MarkdownView
 import MessagingUI
 import CardRuntime
 
+/// The list as block selection's layout: Doc's blocks are selected over it.
+extension TiledViewReader: MarkdownBlockSelectionLayout where ID == String {
+    public var layoutVersion: UInt { version }
+
+    public func scrollToContentOffsetY(_ y: CGFloat) {
+        scrollToContentOffsetY(y, animated: false)
+    }
+}
+
 @MainActor
 @Observable
 final class DocBlockController: NSObject, UIGestureRecognizerDelegate, UIDragInteractionDelegate, UIDropInteractionDelegate,

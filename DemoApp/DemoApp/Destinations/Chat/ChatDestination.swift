@@ -3,7 +3,7 @@
 //  DemoApp
 //
 //  A chat list on MessagingUI's TiledView, one cell per markdown block, with streaming
-//  replies, block selection over the list and a benchmark.
+//  replies, the system's text selection across rows and a benchmark.
 //
 
 import CardModel
@@ -14,14 +14,6 @@ import MarkdownView
 import MessagingUI
 import FlooUIKit
 
-extension TiledViewReader: MarkdownBlockSelectionLayout where ID == String {
-    public var layoutVersion: UInt { version }
-
-    public func scrollToContentOffsetY(_ y: CGFloat) {
-        scrollToContentOffsetY(y, animated: false)
-    }
-}
-
 struct ChatDestination: View {
     @State private var conversation = ChatConversation()
     @State private var scrollPosition = TiledScrollPosition(
@@ -29,11 +21,6 @@ struct ChatDestination: View {
         scrollsToBottomOnReplace: true
     )
     @State private var reader = TiledViewReader<String>()
-    @State private var selection = {
-        let selection = MarkdownBlockSelectionController()
-        selection.motion = AppMotion.markdown
-        return selection
-    }()
     private var heightCache: ChatHeightCache { .shared }
     @State private var renderedHeights = ChatRenderedHeights()
     @State private var benchmark = ChatBenchmark()
@@ -66,14 +53,6 @@ struct ChatDestination: View {
             ChatTextSelection.shared.conversation = conversation
             // The corpus's pictures, served in the app.
             CatalogImages.install()
-            selection.itemsProvider = { [conversation] in
-                conversation.rows.map {
-                    switch $0.kind {
-                    case .prompt: .init(id: $0.id, group: "\($0.exchange)", role: .groupHeader)
-                    case .block: .init(id: $0.id, group: "\($0.exchange)", role: .candidate)
-                    }
-                }
-            }
             if let count = ChatBenchmark.autorunExchanges {
                 await runBenchmark(count)
                 // Time for a profiler attached to the run to finish its trace (more when
@@ -90,54 +69,44 @@ struct ChatDestination: View {
 
     // MARK: Bar
 
-    @ViewBuilder
     private var bar: some View {
-        if selection.state.isActive {
-            HStack {
-                Text("\(selection.state.selectedItemIDs.count) selected")
-                Spacer()
-                Button("Done") { selection.exitMode() }
-                    .buttonStyle(.borderedProminent)
+        HStack {
+            Picker("Exchanges", selection: $exchanges) {
+                ForEach([20, 100, 300], id: \.self) { Text("\($0)").tag($0) }
             }
-        } else {
-            HStack {
-                Picker("Exchanges", selection: $exchanges) {
-                    ForEach([20, 100, 300], id: \.self) { Text("\($0)").tag($0) }
-                }
-                .pickerStyle(.segmented)
+            .pickerStyle(.segmented)
+            .fixedSize()
+            .onChange(of: exchanges) { seed() }
+            Toggle("Paged", isOn: $paged)
                 .fixedSize()
-                .onChange(of: exchanges) { seed() }
-                Toggle("Paged", isOn: $paged)
-                    .fixedSize()
-                    .onChange(of: paged) { seed() }
-                if ChatTextSelection.isOn {
-                    Menu {
-                        Toggle("Select from Anywhere in a Row", isOn: $selectsFromWholeRow)
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .fixedSize()
-                    .accessibilityLabel("Selection Options")
-                    .onChange(of: selectsFromWholeRow) { ChatTextSelection.shared.selectsFromWholeRow = selectsFromWholeRow }
+                .onChange(of: paged) { seed() }
+            if ChatTextSelection.isOn {
+                Menu {
+                    Toggle("Select from Anywhere in a Row", isOn: $selectsFromWholeRow)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
-                Button(streamTask == nil ? "Send" : "Stop") {
-                    streamTask == nil ? send() : stop()
-                }
-                .buttonStyle(.borderedProminent)
-                Spacer()
-                Button("Benchmark") {
-                    Task { await runBenchmark(exchanges) }
-                }
-                .disabled(benchmark.isRunning || streamTask != nil)
+                .fixedSize()
+                .accessibilityLabel("Selection Options")
+                .onChange(of: selectsFromWholeRow) { ChatTextSelection.shared.selectsFromWholeRow = selectsFromWholeRow }
             }
+            Button(streamTask == nil ? "Send" : "Stop") {
+                streamTask == nil ? send() : stop()
+            }
+            .buttonStyle(.borderedProminent)
+            Spacer()
+            Button("Benchmark") {
+                Task { await runBenchmark(exchanges) }
+            }
+            .disabled(benchmark.isRunning || streamTask != nil)
         }
     }
 
     // MARK: List
 
     private var tiled: TiledView<ChatRow, TiledCellContentWrapper<ChatRowCell>, Never, Never, Never, Never, Void> {
-        let cell = { [conversation, selection, renderedHeights] (row: ChatRow) in
-            ChatRowCell(item: row, conversation: conversation, selection: selection, renderedHeights: renderedHeights)
+        let cell = { [conversation, renderedHeights] (row: ChatRow) in
+            ChatRowCell(item: row, conversation: conversation, renderedHeights: renderedHeights)
         }
         return TiledView(list: conversation.list, scrollPosition: $scrollPosition, cellBuilder: cell)
     }
@@ -148,17 +117,12 @@ struct ChatDestination: View {
             ChatUIKitList(
                 conversation: conversation,
                 reader: reader,
-                selection: selection,
                 heightCache: heightCache,
                 renderedHeights: renderedHeights,
                 benchmark: benchmark
             )
             // As TiledView: laid out past the top and bottom safe area, the rows inset by it.
             .ignoresSafeArea(edges: .vertical)
-            .overlay(alignment: .topLeading) {
-                MarkdownBlockSelectionOverlay(controller: selection)
-                    .ignoresSafeArea(edges: .vertical)
-            }
         } else {
             swiftUIList
         }
@@ -186,7 +150,7 @@ struct ChatDestination: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
         } : nil)
-        .reader(reader, invalidatesOnScroll: selection.state.isActive)
+        .reader(reader)
         .heightHint { [heightCache] row, width in
             MainActor.assumeIsolated { heightCache.height(for: row, width: width) }
         }
@@ -197,14 +161,7 @@ struct ChatDestination: View {
             MainActor.assumeIsolated { heightCache.record(height, for: row, width: width) }
         }
         .onTiledContentLayoutChange {
-            selection.install(layout: reader)
             benchmark.contentLayoutChanged()
-        }
-        .overlay(alignment: .topLeading) {
-            // TiledView lays out past the top and bottom safe area but inside the side ones
-            // (a Catalyst sidebar); the overlay does the same, to share its origin.
-            MarkdownBlockSelectionOverlay(controller: selection)
-                .ignoresSafeArea(edges: .vertical)
         }
     }
 
@@ -246,7 +203,6 @@ struct ChatDestination: View {
     }
 
     private func runBenchmark(_ count: Int) async {
-        selection.exitMode()
         await benchmark.run(
             exchanges: count,
             conversation: conversation,
@@ -260,11 +216,10 @@ struct ChatDestination: View {
 struct ChatRowCell: TiledCellContent {
     let item: ChatRow
     let conversation: ChatConversation
-    let selection: MarkdownBlockSelectionController
     let renderedHeights: ChatRenderedHeights
 
     func body(context: CellContext<Void>) -> some View {
-        ChatRowView(row: item, conversation: conversation, selection: selection)
+        ChatRowView(row: item, conversation: conversation)
             // The height the row renders at, for the benchmark to hold the list's layout against.
             .onGeometryChange(for: CGSize.self) { $0.size } action: { [renderedHeights, id = item.id] size in
                 MainActor.assumeIsolated { renderedHeights.sizes[id] = size }
@@ -275,7 +230,6 @@ struct ChatRowCell: TiledCellContent {
 struct ChatRowView: View {
     let row: ChatRow
     let conversation: ChatConversation
-    let selection: MarkdownBlockSelectionController
 
     var body: some View {
         Group {
@@ -316,7 +270,6 @@ struct ChatRowView: View {
             .markdownLinkSiteIcons(ChatUIKitBlock.siteIcons)
             .markdownTableScrollable(ChatUIKitBlock.tableScrolls)
             .markdownFootnotes(CatalogNotes.footnotes)
-            .environment(\.markdownSelectableTextHooks, selection.hooks(for: row.id))
             .frame(maxWidth: .infinity, alignment: .leading)
         if row.isStreaming {
             view
