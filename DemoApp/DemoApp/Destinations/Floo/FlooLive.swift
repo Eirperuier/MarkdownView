@@ -1202,6 +1202,16 @@ final class FlooLive {
         return stream
     }
 
+    /// A service a link opened (`/services/<id>`), for the services' sheet to go to its page.
+    var openingService: ServiceID?
+
+    /// The service a link names (`/services/github`); nil when it names none.
+    static func service(at url: String) -> ServiceID? {
+        let path = url.prefix { $0 != "#" && $0 != "?" }
+        guard let match = path.wholeMatch(of: #/\/services\/([^\/]+)\/?/#) else { return nil }
+        return try? ServiceID(String(match.output.1))  // try?: not a name, no service
+    }
+
     /// Goes to `service`'s conversation, once listed.
     func openService(_ service: ServiceID) {
         guard let dialog = dialogs.values.first(where: { $0.conversation.kind == .service(service) }) else { return }
@@ -1307,6 +1317,18 @@ final class FlooLive {
     /// What a floo link names, as this device has it now (CardUI's `ItemName`, `ItemPreview`):
     /// a topic or group by its number in the account (`/places/c12/`), a page by its path.
     func item(_ url: String) async -> CardItem? {
+        // A service: its name and short description as the catalog has them, said followed once
+        // it's added.
+        if let service = Self.service(at: url) {
+            if index == nil { await loadIndex() }
+            guard let entry = index?.services.first(where: { $0.id == service }) else { return nil }
+            let zh = entry.text(in: "zh-Hans")
+            let line = zh.shortDescription ?? entry.shortDescription
+            // try?: not read now, not said
+            let added = (try? await client?.connections())?.contains { $0.service == service } == true
+            guard added else { return CardItem(name: zh.name ?? entry.name, line: line) }
+            return CardItem(name: zh.name ?? entry.name, line: line.map { "已关注 · \($0)" } ?? "已关注")
+        }
         if let place = place(at: url) {
             return CardItem(name: place.title, line: place.kind == .topic ? "话题" : place.kind == .group ? "群聊" : nil)
         }
@@ -2472,9 +2494,12 @@ final class FlooLive {
         return data["title"]?.stringValue
     }
 
-    /// `_description` from a call's arguments as they're written, once its string has closed.
+    /// `floo_doing` (`_description` before 2026-11-08) from a call's arguments as they're written, once its
+    /// string has closed.
     static func described(_ arguments: String) -> String? {
-        guard let match = arguments.firstMatch(of: /"_description"\s*:\s*"((?:[^"\\]|\\.)*)"/) else { return nil }
+        guard let match = arguments.firstMatch(of: /"(?:floo_doing|_description)"\s*:\s*"((?:[^"\\]|\\.)*)"/) else {
+            return nil
+        }
         return try? JSONDecoder().decode(String.self, from: Data("\"\(match.1)\"".utf8))  // try?: not yet whole
     }
 

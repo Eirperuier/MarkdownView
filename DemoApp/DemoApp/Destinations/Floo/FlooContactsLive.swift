@@ -40,6 +40,16 @@ extension FlooContactsDemo {
         dialogs = Dictionary(uniqueKeysWithValues: live.serviceDialogs().map { ($0.key.rawValue, $0.value) })
         refollow()
         services = entries.map { opened[$0.id.rawValue] ?? Self.service($0) }
+        // A service a link opened: its page; one the catalog doesn't list, its conversation.
+        if let id = opening {
+            opening = nil
+            if service(id) != nil {
+                path = [.service(id)]
+            } else if let service = try? ServiceID(id) {  // try?: not a name, nowhere to go
+                live.openService(service)
+                leave?()
+            }
+        }
 
         await readStandings(client, entries)
 
