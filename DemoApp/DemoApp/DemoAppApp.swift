@@ -21,7 +21,7 @@ struct DemoAppApp: App {
         Catalog.keepCompiled(in: .cachesDirectory.appending(
             path: "\(Bundle.main.bundleIdentifier ?? "DemoApp")/compiled-views", directoryHint: .isDirectory))
         DocMediaLayout.prewarm()
-        TrackpadScrollMomentum.install()
+        FlooTrackpadMomentum.install()
         // `==highlight==` and `:circle[…]` pen marks, on as the app does at launch.
         MarkdownHighlightSyntax.isEnabled = true
         MarkdownHighlightSyntax.backgroundColor = MarkdownColorToken.highlight("yellow")
